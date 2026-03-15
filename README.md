@@ -1,2 +1,51 @@
-# EnergyRadianceVitality
-Log your workout, sauna, cold plunge, or light therapy session. Track supplments and store blood test results/analysis. Connect a Pebble Smart watch to the application to track health metrics avoiding the big tech cloud. All information is stored on your own locally hosted nostr relay with NIP42 auth to protect sensative health info. 
+# ERV — Energy Radiance Vitality
+
+A privacy-first Android application for capturing daily health and wellness data. All data is stored locally on device and synced to your personal Nostr relay using NIP-44 encryption. No cloud accounts, no big-tech health silos—your data stays yours.
+
+## Features
+
+- **Local-first health logging** — Stretching, weight training, cardio, sauna, cold plunge, light therapy, supplements, and sleep
+- **Nostr-native identity** — Sign in with your Nostr key (nsec) or use a remote signer (e.g. [Amber](https://github.com/greenart7c3/Amber))
+- **NIP-42 authentication** — Works with private relays that require authentication
+- **NIP-44 encryption** — All health data encrypted before leaving your device
+- **Sun-themed UI** — Muted warm palette (reds, yellows, oranges)
+
+## Tech Stack (Planned)
+
+- **Language**: Kotlin
+- **UI**: Jetpack Compose with Material 3
+- **Architecture**: MVVM + Clean Architecture
+- **Local storage**: Room Database + DataStore
+- **Nostr**: NIP-42 (auth), NIP-44 (encryption), parameterized replaceable events for app data
+
+## Building
+
+### Prerequisites
+
+- Android Studio (latest stable)
+- JDK 17+
+- Android SDK 34+
+
+### Local build
+
+```bash
+git clone https://github.com/homebrew-gh/EnergyRadianceVitality.git
+cd EnergyRadianceVitality
+./gradlew assembleDebug
+```
+
+### CI
+
+A [GitHub Actions](.github/workflows/android-build.yml) workflow runs on every push to `main`/`master`: it builds the debug APK and runs unit tests, then uploads the APK as an artifact. The workflow requires a Gradle-based Android project and [Gradle Wrapper](https://docs.gradle.org/current/userguide/gradle_wrapper.html) in the repo (the workflow will fail until the app module and `gradlew` are added).
+
+## Documentation
+
+- [Plan of action](docs/PLAN_OF_ACTION.md) — Data model, Nostr event design, and implementation roadmap
+
+## Contributing
+
+Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+
+## License
+
+[MIT](LICENSE) — see [LICENSE](LICENSE) for details.

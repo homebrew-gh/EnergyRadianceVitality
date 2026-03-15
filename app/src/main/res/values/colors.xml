@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Sun-themed muted warm palette -->
+    <color name="erv_primary">#C45C26</color>
+    <color name="erv_on_primary">#FFFFFF</color>
+    <color name="erv_surface">#FFF8F0</color>
+    <color name="erv_on_surface">#2C1810</color>
+</resources>

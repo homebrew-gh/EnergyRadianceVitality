@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.ERV" parent="Theme.MaterialComponents.Light.NoActionBar">
+        <item name="colorPrimary">@color/erv_primary</item>
+        <item name="colorOnPrimary">@color/erv_on_primary</item>
+        <item name="colorSurface">@color/erv_surface</item>
+        <item name="colorOnSurface">@color/erv_on_surface</item>
+    </style>
+</resources>

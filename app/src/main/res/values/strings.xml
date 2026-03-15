@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ERV</string>
+
+    <!-- Toast feedback for publish and errors -->
+    <string name="toast_event_published">Saved and synced</string>
+    <string name="toast_publish_failed">Something went wrong. Please try again.</string>
+    <string name="toast_error_generic">An error occurred</string>
+</resources>
