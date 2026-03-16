@@ -1,6 +1,7 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.serialization")
 }
 
 android {
@@ -37,9 +38,13 @@ android {
         jvmTarget = "17"
     }
 
+    composeOptions {
+        kotlinCompilerExtensionVersion = "1.5.10"
+    }
+
     buildFeatures {
-        viewBinding = true
         buildConfig = false
+        compose = true
     }
 }
 
@@ -47,7 +52,31 @@ dependencies {
     implementation("androidx.core:core-ktx:1.12.0")
     implementation("androidx.appcompat:appcompat:1.6.1")
     implementation("com.google.android.material:material:1.11.0")
-    implementation("androidx.constraintlayout:constraintlayout:2.1.4")
+
+    // Jetpack Compose (plan §5.0)
+    implementation(platform("androidx.compose:compose-bom:2024.02.00"))
+    implementation("androidx.compose.ui:ui")
+    implementation("androidx.compose.material3:material3")
+    implementation("androidx.activity:activity-compose:1.8.2")
+
+    // Coroutines & Lifecycle
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
+
+    // Nostr WebSocket (OkHttp)
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+
+    // JSON serialization
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
+
+    // secp256k1 for Schnorr signing + key derivation (plan §6, NIP-42)
+    implementation("fr.acinq.secp256k1:secp256k1-kmp-jni-android:0.15.0")
+
+    // Crypto: ChaCha20-Poly1305 for NIP-44 on all API levels
+    implementation("org.bouncycastle:bcprov-jdk18on:1.77")
+
+    // Secure key storage (plan §6.1)
+    implementation("androidx.security:security-crypto:1.0.0")
 
     testImplementation("junit:junit:4.13.2")
 }

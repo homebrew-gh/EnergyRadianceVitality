@@ -21,7 +21,7 @@ By participating, you agree to uphold our [Code of Conduct](CODE_OF_CONDUCT.md).
    git remote add upstream https://github.com/homebrew-gh/EnergyRadianceVitality.git
    ```
 2. Open the project in Android Studio and sync Gradle.
-3. Ensure `./gradlew assembleDebug` and `./gradlew test` pass before submitting a PR.
+3. Ensure `./gradlew assembleDebug` and `./gradlew testDebugUnitTest` pass before submitting a PR (same as CI).
 
 ## Pull request guidelines
 
