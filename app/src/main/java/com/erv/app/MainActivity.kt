@@ -16,7 +16,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.navigation.compose.rememberNavController
+import com.erv.app.data.ThemeMode
+import com.erv.app.data.UserPreferences
 import com.erv.app.nostr.*
+import com.erv.app.ui.navigation.ErvNavHost
+import com.erv.app.ui.theme.ErvTheme
 import kotlinx.coroutines.launch
 
 class MainActivity : AppCompatActivity() {
@@ -30,9 +35,22 @@ class MainActivity : AppCompatActivity() {
         keyManager = KeyManager(this)
 
         setContent {
-            MaterialTheme {
+            val userPreferences = remember { UserPreferences(this@MainActivity) }
+            val themeMode by userPreferences.themeMode.collectAsState(initial = ThemeMode.SYSTEM)
+
+            ErvTheme(
+                darkTheme = when (themeMode) {
+                    ThemeMode.LIGHT -> false
+                    ThemeMode.DARK -> true
+                    ThemeMode.SYSTEM -> androidx.compose.foundation.isSystemInDarkTheme()
+                }
+            ) {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    ErvApp(keyManager = keyManager, amberHost = amberHost)
+                    ErvApp(
+                        keyManager = keyManager,
+                        amberHost = amberHost,
+                        userPreferences = userPreferences
+                    )
                 }
             }
         }
@@ -40,13 +58,17 @@ class MainActivity : AppCompatActivity() {
 }
 
 @Composable
-private fun ErvApp(keyManager: KeyManager, amberHost: AmberLauncherHost) {
+private fun ErvApp(
+    keyManager: KeyManager,
+    amberHost: AmberLauncherHost,
+    userPreferences: UserPreferences
+) {
     var loggedIn by remember { mutableStateOf(keyManager.isLoggedIn) }
 
     if (loggedIn) {
-        HomeScreen(
+        MainAppShell(
             keyManager = keyManager,
-            amberHost = amberHost,
+            userPreferences = userPreferences,
             onLogout = {
                 keyManager.logout()
                 loggedIn = false
@@ -59,6 +81,26 @@ private fun ErvApp(keyManager: KeyManager, amberHost: AmberLauncherHost) {
             onLoginSuccess = { loggedIn = true }
         )
     }
+}
+
+// ---------------------------------------------------------------------------
+// Main app shell (post-login): NavHost + BottomSheet categories
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun MainAppShell(
+    keyManager: KeyManager,
+    userPreferences: UserPreferences,
+    onLogout: () -> Unit
+) {
+    val navController = rememberNavController()
+
+    ErvNavHost(
+        navController = navController,
+        keyManager = keyManager,
+        userPreferences = userPreferences,
+        onLogout = onLogout
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -90,7 +132,6 @@ private fun LoginScreen(
         Text("Energy Radiance Vitality", style = MaterialTheme.typography.bodyLarge)
         Spacer(Modifier.height(32.dp))
 
-        // --- nsec login ---
         Text("Login with nsec", style = MaterialTheme.typography.titleMedium)
         Spacer(Modifier.height(8.dp))
 
@@ -138,7 +179,6 @@ private fun LoginScreen(
             Text("Generate new keys")
         }
 
-        // --- Amber login ---
         if (amberAvailable) {
             Spacer(Modifier.height(24.dp))
             HorizontalDivider()
@@ -164,170 +204,9 @@ private fun LoginScreen(
             }
         }
 
-        // --- Error ---
         errorMessage?.let {
             Spacer(Modifier.height(16.dp))
             Text(it, color = MaterialTheme.colorScheme.error)
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Home / Connected
-// ---------------------------------------------------------------------------
-
-@Composable
-private fun HomeScreen(
-    keyManager: KeyManager,
-    amberHost: AmberLauncherHost,
-    onLogout: () -> Unit
-) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-
-    var relayUrl by remember { mutableStateOf(keyManager.relayUrl ?: "") }
-    var nostrClient by remember { mutableStateOf<NostrClient?>(null) }
-    val connectionState = nostrClient?.connectionState?.collectAsState()?.value
-        ?: ConnectionState.Disconnected
-
-    var publishResult by remember { mutableStateOf<String?>(null) }
-
-    // Build signer from stored keys
-    val signer: EventSigner? = remember(keyManager.loginMethod) {
-        when (keyManager.loginMethod) {
-            KeyManager.LOGIN_NSEC -> keyManager.createLocalSigner()
-            KeyManager.LOGIN_AMBER -> AmberSigner(keyManager.publicKeyHex!!, amberHost)
-            else -> null
-        }
-    }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp)
-            .verticalScroll(rememberScrollState())
-    ) {
-        Text("ERV", style = MaterialTheme.typography.headlineLarge)
-        Spacer(Modifier.height(16.dp))
-
-        // --- Identity ---
-        Text("Identity", style = MaterialTheme.typography.titleMedium)
-        Spacer(Modifier.height(4.dp))
-        Text(
-            text = keyManager.npub ?: "Unknown",
-            style = MaterialTheme.typography.bodySmall
-        )
-        Text(
-            text = "Login: ${keyManager.loginMethod ?: "none"}",
-            style = MaterialTheme.typography.bodySmall
-        )
-        Spacer(Modifier.height(16.dp))
-
-        // --- Relay ---
-        Text("Relay", style = MaterialTheme.typography.titleMedium)
-        Spacer(Modifier.height(4.dp))
-        OutlinedTextField(
-            value = relayUrl,
-            onValueChange = { relayUrl = it },
-            label = { Text("Relay URL (wss://...)") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth()
-        )
-        Spacer(Modifier.height(8.dp))
-
-        val stateLabel = when (connectionState) {
-            is ConnectionState.Disconnected -> "Disconnected"
-            is ConnectionState.Connecting -> "Connecting..."
-            is ConnectionState.Connected -> "Connected (awaiting auth)"
-            is ConnectionState.Authenticated -> "Authenticated"
-            is ConnectionState.Error -> "Error: ${(connectionState as ConnectionState.Error).message}"
-        }
-        Text("Status: $stateLabel", style = MaterialTheme.typography.bodyMedium)
-        Spacer(Modifier.height(8.dp))
-
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(
-                onClick = {
-                    val url = relayUrl.trim()
-                    if (url.isNotBlank() && signer != null) {
-                        keyManager.relayUrl = url
-                        val client = NostrClient(signer)
-                        nostrClient?.destroy()
-                        nostrClient = client
-                        client.connect(url)
-                    }
-                },
-                enabled = relayUrl.isNotBlank() && signer != null &&
-                    (connectionState is ConnectionState.Disconnected ||
-                        connectionState is ConnectionState.Error)
-            ) {
-                Text("Connect")
-            }
-
-            OutlinedButton(
-                onClick = {
-                    nostrClient?.disconnect()
-                },
-                enabled = connectionState !is ConnectionState.Disconnected
-            ) {
-                Text("Disconnect")
-            }
-        }
-
-        Spacer(Modifier.height(24.dp))
-
-        // --- Test publish ---
-        Text("Test", style = MaterialTheme.typography.titleMedium)
-        Spacer(Modifier.height(4.dp))
-        Text(
-            "Publish a test kind-30078 event to verify the full pipeline: " +
-                "key -> sign -> NIP-44 encrypt -> NIP-42 auth -> relay.",
-            style = MaterialTheme.typography.bodySmall
-        )
-        Spacer(Modifier.height(8.dp))
-
-        Button(
-            onClick = {
-                scope.launch {
-                    publishResult = null
-                    try {
-                        val ok = nostrClient?.publishTestEvent() ?: false
-                        publishResult = if (ok) "Published successfully" else "Publish failed"
-                        if (ok) {
-                            UserFeedback.showSuccess(context)
-                        } else {
-                            UserFeedback.showError(context, "Relay rejected the event")
-                        }
-                    } catch (e: Exception) {
-                        publishResult = "Error: ${e.message}"
-                        UserFeedback.showError(context, e.message)
-                    }
-                }
-            },
-            enabled = connectionState is ConnectionState.Connected ||
-                connectionState is ConnectionState.Authenticated
-        ) {
-            Text("Publish test event")
-        }
-
-        publishResult?.let {
-            Spacer(Modifier.height(8.dp))
-            Text(it, style = MaterialTheme.typography.bodyMedium)
-        }
-
-        Spacer(Modifier.height(32.dp))
-        HorizontalDivider()
-        Spacer(Modifier.height(16.dp))
-
-        OutlinedButton(
-            onClick = {
-                nostrClient?.destroy()
-                nostrClient = null
-                onLogout()
-            },
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("Logout")
         }
     }
 }
