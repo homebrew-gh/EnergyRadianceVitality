@@ -62,6 +62,8 @@ fun SettingsScreen(
         if (fullRelayUrl != null && nostrClient != null) {
             nostrClient.connect(fullRelayUrl)
         }
+    }
+    DisposableEffect(nostrClient) {
         onDispose { nostrClient?.disconnect() }
     }
     val connectionState by (nostrClient?.connectionState ?: flowOf(ConnectionState.Disconnected))
