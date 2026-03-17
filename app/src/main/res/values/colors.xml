@@ -5,4 +5,5 @@
     <color name="erv_on_primary">#FFFFFF</color>
     <color name="erv_surface">#FFF8F0</color>
     <color name="erv_on_surface">#2C1810</color>
+    <color name="erv_icon_background">#C62828</color>
 </resources>

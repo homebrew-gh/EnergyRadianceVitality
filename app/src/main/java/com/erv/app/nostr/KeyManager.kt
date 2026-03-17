@@ -35,9 +35,35 @@ class KeyManager(context: Context) {
         get() = prefs.getString(KEY_PUBKEY, null)
         private set(value) = prefs.edit().putString(KEY_PUBKEY, value).apply()
 
-    var relayUrl: String?
-        get() = prefs.getString(KEY_RELAY_URL, null)
-        set(value) = prefs.edit().putString(KEY_RELAY_URL, value).apply()
+    var relayUrls: List<String>
+        get() {
+            migrateRelayUrlIfNeeded()
+            return prefs.getStringSet(KEY_RELAY_URLS, emptySet())?.toList() ?: emptyList()
+        }
+        private set(value) = prefs.edit().putStringSet(KEY_RELAY_URLS, value.toSet()).apply()
+
+    fun addRelay(url: String) {
+        val current = relayUrls.toMutableList()
+        if (url !in current) {
+            current.add(url)
+            relayUrls = current
+        }
+    }
+
+    fun removeRelay(url: String) {
+        relayUrls = relayUrls.filter { it != url }
+    }
+
+    private fun migrateRelayUrlIfNeeded() {
+        val legacy = prefs.getString(KEY_RELAY_URL_LEGACY, null)
+        if (legacy != null) {
+            val existing = prefs.getStringSet(KEY_RELAY_URLS, emptySet()) ?: emptySet()
+            prefs.edit()
+                .putStringSet(KEY_RELAY_URLS, existing + legacy)
+                .remove(KEY_RELAY_URL_LEGACY)
+                .apply()
+        }
+    }
 
     var loginMethod: String?
         get() = prefs.getString(KEY_LOGIN_METHOD, null)
@@ -112,7 +138,8 @@ class KeyManager(context: Context) {
     companion object {
         private const val KEY_NSEC = "nsec"
         private const val KEY_PUBKEY = "pubkey"
-        private const val KEY_RELAY_URL = "relay_url"
+        private const val KEY_RELAY_URL_LEGACY = "relay_url"
+        private const val KEY_RELAY_URLS = "relay_urls"
         private const val KEY_LOGIN_METHOD = "login_method"
 
         const val LOGIN_NSEC = "nsec"

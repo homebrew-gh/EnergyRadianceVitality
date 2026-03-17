@@ -65,19 +65,23 @@ class NostrClient(
         val request = Request.Builder().url(url).build()
         webSocket = okHttpClient.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(ws: WebSocket, response: Response) {
+                if (ws !== webSocket) return
                 _connectionState.value = ConnectionState.Connected
             }
 
             override fun onMessage(ws: WebSocket, text: String) {
+                if (ws !== webSocket) return
                 scope.launch { handleMessage(text) }
             }
 
             override fun onFailure(ws: WebSocket, t: Throwable, response: Response?) {
+                if (ws !== webSocket) return
                 _connectionState.value = ConnectionState.Error(t.message ?: "Connection failed")
                 failAllPending()
             }
 
             override fun onClosed(ws: WebSocket, code: Int, reason: String) {
+                if (ws !== webSocket) return
                 _connectionState.value = ConnectionState.Disconnected
                 failAllPending()
             }

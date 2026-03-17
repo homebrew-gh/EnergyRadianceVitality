@@ -7,6 +7,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.semantics.contentDescription
@@ -21,8 +23,7 @@ import com.erv.app.nostr.AmberLauncherHost
 import com.erv.app.nostr.AmberSigner
 import com.erv.app.nostr.ConnectionState
 import com.erv.app.nostr.KeyManager
-import com.erv.app.nostr.NostrClient
-import kotlinx.coroutines.flow.flowOf
+import com.erv.app.nostr.RelayPool
 import kotlinx.coroutines.launch
 
 private const val WSS_PREFIX = "wss://"
@@ -38,15 +39,6 @@ fun SettingsScreen(
 ) {
     val scope = rememberCoroutineScope()
     val themeMode by userPreferences.themeMode.collectAsState(initial = ThemeMode.SYSTEM)
-    // Store only the part after "wss://" so user doesn't have to type it
-    var relayUrlSuffix by remember {
-        mutableStateOf(
-            keyManager.relayUrl
-                ?.removePrefix(WSS_PREFIX)
-                ?.removePrefix("ws://")
-                ?: ""
-        )
-    }
 
     val signer = remember(keyManager, amberHost) {
         keyManager.createLocalSigner()
@@ -54,20 +46,21 @@ fun SettingsScreen(
                 AmberSigner(keyManager.publicKeyHex!!, amberHost)
             else null)
     }
-    val nostrClient = remember(signer) { signer?.let { NostrClient(it) } }
-    val fullRelayUrl = remember(relayUrlSuffix) {
-        relayUrlSuffix.trim().let { if (it.isEmpty()) null else if (it.startsWith("wss://") || it.startsWith("ws://")) it else "$WSS_PREFIX$it" }
+
+    val relayPool = remember(signer) { signer?.let { RelayPool(it) } }
+    var relayUrls by remember { mutableStateOf(keyManager.relayUrls) }
+
+    LaunchedEffect(relayUrls, relayPool) {
+        relayPool?.setRelays(relayUrls)
     }
-    LaunchedEffect(fullRelayUrl, nostrClient) {
-        if (fullRelayUrl != null && nostrClient != null) {
-            nostrClient.connect(fullRelayUrl)
-        }
+    DisposableEffect(relayPool) {
+        onDispose { relayPool?.disconnect() }
     }
-    DisposableEffect(nostrClient) {
-        onDispose { nostrClient?.disconnect() }
-    }
-    val connectionState by (nostrClient?.connectionState ?: flowOf(ConnectionState.Disconnected))
-        .collectAsState(initial = ConnectionState.Disconnected)
+
+    val relayStates by (relayPool?.relayStates ?: snapshotFlow { emptyMap<String, ConnectionState>() })
+        .collectAsState(initial = emptyMap())
+
+    var newRelaySuffix by remember { mutableStateOf("") }
 
     Scaffold(
         topBar = {
@@ -88,40 +81,72 @@ fun SettingsScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp)
         ) {
-            // --- Relay ---
-            Row(
-                modifier = Modifier.padding(top = 16.dp, bottom = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            // --- Relays ---
+            Text(
+                "Relays",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(top = 16.dp, bottom = 8.dp)
+            )
+
+            relayUrls.forEach { url ->
+                RelayRow(
+                    url = url,
+                    connectionState = relayStates[url] ?: ConnectionState.Disconnected,
+                    onRemove = {
+                        keyManager.removeRelay(url)
+                        relayUrls = keyManager.relayUrls
+                    }
+                )
+            }
+
+            if (relayUrls.isEmpty()) {
                 Text(
-                    "Relay",
-                    style = MaterialTheme.typography.titleMedium
+                    "No relays configured",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(vertical = 8.dp)
+                )
+            }
+
+            Spacer(Modifier.height(8.dp))
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                OutlinedTextField(
+                    value = newRelaySuffix,
+                    onValueChange = { newRelaySuffix = it },
+                    leadingIcon = {
+                        Text(
+                            text = WSS_PREFIX,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    },
+                    label = { Text("Add relay") },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f)
                 )
                 Spacer(Modifier.width(8.dp))
-                RelayConnectionLed(connectionState = connectionState)
+                IconButton(
+                    onClick = {
+                        val url = newRelaySuffix.trim().let { s ->
+                            if (s.isEmpty()) null
+                            else if (s.startsWith("wss://") || s.startsWith("ws://")) s
+                            else "$WSS_PREFIX$s"
+                        }
+                        if (url != null) {
+                            keyManager.addRelay(url)
+                            relayUrls = keyManager.relayUrls
+                            newRelaySuffix = ""
+                        }
+                    },
+                    enabled = newRelaySuffix.isNotBlank()
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = "Add relay")
+                }
             }
-            OutlinedTextField(
-                value = relayUrlSuffix,
-                onValueChange = {
-                    relayUrlSuffix = it
-                    val normalized = it.trim().let { s ->
-                        if (s.isEmpty()) null
-                        else if (s.startsWith("wss://") || s.startsWith("ws://")) s
-                        else "$WSS_PREFIX$s"
-                    }
-                    keyManager.relayUrl = normalized
-                },
-                leadingIcon = {
-                    Text(
-                        text = WSS_PREFIX,
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                },
-                label = { Text("Relay URL") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
 
@@ -189,6 +214,35 @@ fun SettingsScreen(
             }
 
             Spacer(Modifier.height(32.dp))
+        }
+    }
+}
+
+@Composable
+private fun RelayRow(
+    url: String,
+    connectionState: ConnectionState,
+    onRemove: () -> Unit
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+    ) {
+        RelayConnectionLed(connectionState = connectionState)
+        Spacer(Modifier.width(8.dp))
+        Text(
+            text = url,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.weight(1f)
+        )
+        IconButton(onClick = onRemove, modifier = Modifier.size(32.dp)) {
+            Icon(
+                Icons.Default.Close,
+                contentDescription = "Remove relay",
+                modifier = Modifier.size(18.dp)
+            )
         }
     }
 }

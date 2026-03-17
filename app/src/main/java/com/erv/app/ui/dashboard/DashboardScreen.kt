@@ -9,9 +9,12 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.erv.app.R
 import com.erv.app.ui.navigation.Category
 import com.erv.app.ui.navigation.CategorySheet
 import java.time.LocalDate
@@ -43,15 +46,32 @@ fun DashboardScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Text("ERV", style = MaterialTheme.typography.headlineSmall)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_sun),
+                            contentDescription = null,
+                            tint = Color(0xFFFFD600),
+                            modifier = Modifier.size(28.dp)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "ERV",
+                            style = MaterialTheme.typography.headlineSmall,
+                            color = Color.White
+                        )
+                    }
                 },
                 actions = {
                     IconButton(onClick = onNavigateToSettings) {
-                        Icon(Icons.Default.Settings, contentDescription = "Settings")
+                        Icon(
+                            Icons.Default.Settings,
+                            contentDescription = "Settings",
+                            tint = Color.White
+                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
+                    containerColor = Color(0xFFC62828)
                 )
             )
         },
