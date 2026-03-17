@@ -1,6 +1,7 @@
 package com.erv.app.ui.settings
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -16,6 +17,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import com.erv.app.data.ThemeMode
 import com.erv.app.data.UserPreferences
@@ -156,21 +159,64 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.padding(bottom = 8.dp)
             )
+            val clipboardManager = LocalClipboardManager.current
+            var copiedLabel by remember { mutableStateOf<String?>(null) }
+
+            LaunchedEffect(copiedLabel) {
+                if (copiedLabel != null) {
+                    kotlinx.coroutines.delay(1500)
+                    copiedLabel = null
+                }
+            }
+
             ElevatedCard(
                 modifier = Modifier.fillMaxWidth(),
                 elevation = CardDefaults.elevatedCardElevation(defaultElevation = 4.dp)
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
+                    val npub = keyManager.npub
+                    val hex = keyManager.publicKeyHex
+
                     Text(
-                        text = "Public Key",
+                        text = "Public Key (npub)",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Text(
-                        text = keyManager.npub ?: "Not logged in",
+                        text = if (copiedLabel == "npub") "Copied!" else npub ?: "Not logged in",
                         style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(bottom = 8.dp)
+                        color = if (copiedLabel == "npub") MaterialTheme.colorScheme.primary
+                               else MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier
+                            .padding(bottom = 8.dp)
+                            .then(
+                                if (npub != null) Modifier.clickable {
+                                    clipboardManager.setText(AnnotatedString(npub))
+                                    copiedLabel = "npub"
+                                } else Modifier
+                            )
                     )
+
+                    Text(
+                        text = "Public Key (hex)",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = if (copiedLabel == "hex") "Copied!" else hex ?: "Not logged in",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (copiedLabel == "hex") MaterialTheme.colorScheme.primary
+                               else MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier
+                            .padding(bottom = 8.dp)
+                            .then(
+                                if (hex != null) Modifier.clickable {
+                                    clipboardManager.setText(AnnotatedString(hex))
+                                    copiedLabel = "hex"
+                                } else Modifier
+                            )
+                    )
+
                     Text(
                         text = "Login Method",
                         style = MaterialTheme.typography.labelMedium,
