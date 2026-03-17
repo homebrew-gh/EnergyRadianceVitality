@@ -20,7 +20,7 @@ import androidx.compose.ui.unit.dp
 import com.erv.app.nostr.ConnectionState
 import com.erv.app.nostr.KeyManager
 import com.erv.app.nostr.RelayPool
-import kotlinx.coroutines.flow.snapshotFlow
+import androidx.compose.runtime.snapshotFlow
 
 private const val WSS_PREFIX = "wss://"
 

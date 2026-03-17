@@ -28,6 +28,7 @@ import com.erv.app.supplements.SupplementRepository
 import com.erv.app.supplements.SupplementRoutine
 import com.erv.app.supplements.SupplementRoutineStep
 import com.erv.app.supplements.SupplementSync
+import kotlinx.coroutines.launch
 import java.time.LocalDate
 
 private enum class SupplementsTab { Routines, Supplements, Log }
@@ -109,7 +110,7 @@ fun SupplementCategoryScreen(
             when (SupplementsTab.entries[activeTab]) {
                 SupplementsTab.Routines -> RoutinesTab(
                     state = state,
-                    onAddRoutine = {
+                    onAddClick = {
                         creatingRoutine = true
                         routineEditor = null
                     },
@@ -149,10 +150,6 @@ fun SupplementCategoryScreen(
                     },
                     onResetRoutineEditorMode = { creatingRoutine = false },
                     supplements = state.supplements,
-                    onAddClick = {
-                        creatingRoutine = true
-                        routineEditor = null
-                    }
                 )
 
                 SupplementsTab.Supplements -> SupplementsTabContent(
