@@ -1,9 +1,9 @@
 package com.erv.app
 
 import android.os.Bundle
-import android.widget.Toast
 import androidx.activity.compose.setContent
 import androidx.appcompat.app.AppCompatActivity
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -12,16 +12,24 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.rememberNavController
 import com.erv.app.data.ThemeMode
 import com.erv.app.data.UserPreferences
 import com.erv.app.nostr.*
+import com.erv.app.supplements.SupplementRepository
 import com.erv.app.ui.navigation.ErvNavHost
+import com.erv.app.ui.onboarding.RelaySetupScreen
 import com.erv.app.ui.theme.ErvTheme
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 class MainActivity : AppCompatActivity() {
@@ -57,30 +65,116 @@ class MainActivity : AppCompatActivity() {
     }
 }
 
+private enum class AppState { LoggedOut, Onboarding, Ready }
+
 @Composable
 private fun ErvApp(
     keyManager: KeyManager,
     amberHost: AmberLauncherHost,
     userPreferences: UserPreferences
 ) {
-    var loggedIn by remember { mutableStateOf(keyManager.isLoggedIn) }
+    var appState by remember {
+        mutableStateOf(if (keyManager.isLoggedIn) AppState.Ready else AppState.LoggedOut)
+    }
+    var onboardingLoading by remember { mutableStateOf(false) }
 
-    if (loggedIn) {
-        MainAppShell(
+    val signer = remember(appState) {
+        if (appState == AppState.LoggedOut) null
+        else keyManager.createLocalSigner()
+            ?: (if (keyManager.loginMethod == KeyManager.LOGIN_AMBER && keyManager.publicKeyHex != null)
+                AmberSigner(keyManager.publicKeyHex!!, amberHost)
+            else null)
+    }
+    val onboardingPool = remember(signer, appState) {
+        if (appState == AppState.Onboarding && signer != null) RelayPool(signer) else null
+    }
+    DisposableEffect(onboardingPool) {
+        onDispose { onboardingPool?.disconnect() }
+    }
+
+    val scope = rememberCoroutineScope()
+
+    when (appState) {
+        AppState.LoggedOut -> LoginScreen(
+            keyManager = keyManager,
+            amberHost = amberHost,
+            onLoginSuccess = {
+                appState = AppState.Onboarding
+                onboardingLoading = true
+                scope.launch {
+                    val resolved = runPostLoginSetup(keyManager, signer!!)
+                    onboardingLoading = false
+                    if (resolved) appState = AppState.Ready
+                }
+            }
+        )
+        AppState.Onboarding -> {
+            if (onboardingLoading) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator()
+                        Spacer(Modifier.height(16.dp))
+                        Text("Setting up your relays…", style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+            } else {
+                RelaySetupScreen(
+                    keyManager = keyManager,
+                    relayPool = onboardingPool,
+                    onContinue = {
+                        scope.launch {
+                            onboardingPool?.let { pool ->
+                                pool.setRelays(keyManager.allRelayUrls())
+                                delay(1500)
+                                if (signer != null) SettingsSync.saveToNetwork(pool, signer, keyManager)
+                            }
+                            appState = AppState.Ready
+                        }
+                    }
+                )
+            }
+        }
+        AppState.Ready -> MainAppShell(
             keyManager = keyManager,
             amberHost = amberHost,
             userPreferences = userPreferences,
             onLogout = {
                 keyManager.logout()
-                loggedIn = false
+                appState = AppState.LoggedOut
             }
         )
-    } else {
-        LoginScreen(
-            keyManager = keyManager,
-            amberHost = amberHost,
-            onLoginSuccess = { loggedIn = true }
-        )
+    }
+}
+
+/**
+ * After login: connect to defaults, fetch NIP-65 social relays,
+ * then check for existing erv/settings on the network.
+ * Returns true if settings were found (skip onboarding), false otherwise.
+ */
+private suspend fun runPostLoginSetup(
+    keyManager: KeyManager,
+    signer: EventSigner
+): Boolean {
+    val pool = RelayPool(signer)
+    try {
+        pool.setRelays(keyManager.allRelayUrls())
+        delay(2000)
+
+        val pubkey = keyManager.publicKeyHex ?: return false
+        val nip65Urls = Nip65.fetchRelayListFromNetwork(pool, pubkey, timeoutMs = 5000)
+        nip65Urls.forEach { keyManager.addSocialRelay(it) }
+
+        pool.setRelays(keyManager.allRelayUrls())
+        delay(1500)
+
+        val config = SettingsSync.fetchFromNetwork(pool, signer, pubkey, timeoutMs = 5000)
+        if (config != null) {
+            SettingsSync.applyToKeyManager(config, keyManager)
+            return true
+        }
+        return false
+    } finally {
+        pool.disconnect()
     }
 }
 
@@ -95,20 +189,41 @@ private fun MainAppShell(
     userPreferences: UserPreferences,
     onLogout: () -> Unit
 ) {
+    val context = LocalContext.current
     val navController = rememberNavController()
+    val supplementRepository = remember(context) { SupplementRepository(context) }
+    val signer = remember(keyManager, amberHost) {
+        keyManager.createLocalSigner()
+            ?: (if (keyManager.loginMethod == KeyManager.LOGIN_AMBER && keyManager.publicKeyHex != null)
+                AmberSigner(keyManager.publicKeyHex!!, amberHost)
+            else null)
+    }
+    val relayPool = remember(signer) { signer?.let { RelayPool(it) } }
+
+    LaunchedEffect(relayPool) {
+        relayPool?.setRelays(keyManager.allRelayUrls())
+    }
+    DisposableEffect(relayPool) {
+        onDispose { relayPool?.disconnect() }
+    }
 
     ErvNavHost(
         navController = navController,
         keyManager = keyManager,
         amberHost = amberHost,
         userPreferences = userPreferences,
+        supplementRepository = supplementRepository,
+        relayPool = relayPool,
+        signer = signer,
         onLogout = onLogout
     )
 }
 
 // ---------------------------------------------------------------------------
-// Login
+// Login — routes between Welcome, Existing-user sign-in, and New-user backup
 // ---------------------------------------------------------------------------
+
+private enum class LoginStep { Welcome, ExistingUser, BackupKey }
 
 @Composable
 private fun LoginScreen(
@@ -116,8 +231,93 @@ private fun LoginScreen(
     amberHost: AmberLauncherHost,
     onLoginSuccess: () -> Unit
 ) {
-    val context = LocalContext.current
+    var step by remember { mutableStateOf(LoginStep.Welcome) }
+    var generatedNsec by remember { mutableStateOf<String?>(null) }
+
+    when (step) {
+        LoginStep.Welcome -> WelcomeScreen(
+            onGetStarted = {
+                try {
+                    generatedNsec = keyManager.generateKeys()
+                    step = LoginStep.BackupKey
+                } catch (_: Exception) { /* astronomically unlikely */ }
+            },
+            onExistingAccount = { step = LoginStep.ExistingUser }
+        )
+        LoginStep.ExistingUser -> ExistingUserScreen(
+            keyManager = keyManager,
+            amberHost = amberHost,
+            onLoginSuccess = onLoginSuccess,
+            onBack = { step = LoginStep.Welcome }
+        )
+        LoginStep.BackupKey -> BackupKeyScreen(
+            nsec = generatedNsec!!,
+            onContinue = onLoginSuccess,
+            onBack = {
+                keyManager.logout()
+                generatedNsec = null
+                step = LoginStep.Welcome
+            }
+        )
+    }
+}
+
+@Composable
+private fun WelcomeScreen(
+    onGetStarted: () -> Unit,
+    onExistingAccount: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Icon(
+            painter = painterResource(R.drawable.ic_sun),
+            contentDescription = null,
+            tint = Color(0xFFFFD600),
+            modifier = Modifier.size(72.dp)
+        )
+        Spacer(Modifier.height(16.dp))
+        Text("ERV", style = MaterialTheme.typography.headlineLarge)
+        Spacer(Modifier.height(4.dp))
+        Text("Energy Radiance Vitality", style = MaterialTheme.typography.bodyLarge)
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "Track your health and wellness.\nYour data stays yours.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center
+        )
+        Spacer(Modifier.height(48.dp))
+
+        Button(
+            onClick = onGetStarted,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Get started")
+        }
+        Spacer(Modifier.height(12.dp))
+        OutlinedButton(
+            onClick = onExistingAccount,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("I already have an account")
+        }
+    }
+}
+
+@Composable
+private fun ExistingUserScreen(
+    keyManager: KeyManager,
+    amberHost: AmberLauncherHost,
+    onLoginSuccess: () -> Unit,
+    onBack: () -> Unit
+) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     var nsecInput by remember { mutableStateOf("") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     val amberAvailable = remember { AmberSigner.isAvailable(context) }
@@ -130,18 +330,20 @@ private fun LoginScreen(
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text("ERV", style = MaterialTheme.typography.headlineLarge)
+        Text("Sign in", style = MaterialTheme.typography.headlineMedium)
         Spacer(Modifier.height(8.dp))
-        Text("Energy Radiance Vitality", style = MaterialTheme.typography.bodyLarge)
-        Spacer(Modifier.height(32.dp))
-
-        Text("Login with nsec", style = MaterialTheme.typography.titleMedium)
-        Spacer(Modifier.height(8.dp))
+        Text(
+            "Enter your private key to access your account.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center
+        )
+        Spacer(Modifier.height(24.dp))
 
         OutlinedTextField(
             value = nsecInput,
             onValueChange = { nsecInput = it; errorMessage = null },
-            label = { Text("nsec or hex private key") },
+            label = { Text("Private key (nsec or hex)") },
             singleLine = true,
             visualTransformation = PasswordVisualTransformation(),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
@@ -161,33 +363,13 @@ private fun LoginScreen(
             enabled = nsecInput.isNotBlank(),
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text("Login")
-        }
-
-        Spacer(Modifier.height(8.dp))
-
-        OutlinedButton(
-            onClick = {
-                try {
-                    val nsec = keyManager.generateKeys()
-                    Toast.makeText(context, "Key generated. Back up your nsec!", Toast.LENGTH_LONG).show()
-                    nsecInput = nsec
-                    onLoginSuccess()
-                } catch (e: Exception) {
-                    errorMessage = e.message
-                }
-            },
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("Generate new keys")
+            Text("Sign in")
         }
 
         if (amberAvailable) {
             Spacer(Modifier.height(24.dp))
             HorizontalDivider()
             Spacer(Modifier.height(24.dp))
-            Text("Login with Amber", style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(8.dp))
 
             Button(
                 onClick = {
@@ -197,19 +379,118 @@ private fun LoginScreen(
                             keyManager.loginWithAmber(pubkey)
                             onLoginSuccess()
                         } catch (e: Exception) {
-                            errorMessage = e.message ?: "Amber connection failed"
+                            errorMessage = e.message ?: "Connection failed"
                         }
                     }
                 },
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text("Connect with Amber")
+                Text("Sign in with Amber")
             }
         }
 
         errorMessage?.let {
             Spacer(Modifier.height(16.dp))
             Text(it, color = MaterialTheme.colorScheme.error)
+        }
+
+        Spacer(Modifier.height(24.dp))
+        TextButton(onClick = onBack) {
+            Text("Back")
+        }
+    }
+}
+
+@Composable
+private fun BackupKeyScreen(
+    nsec: String,
+    onContinue: () -> Unit,
+    onBack: () -> Unit
+) {
+    val clipboardManager = LocalClipboardManager.current
+    var copied by remember { mutableStateOf(false) }
+    var confirmed by remember { mutableStateOf(false) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp)
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text("Save your private key", style = MaterialTheme.typography.headlineMedium)
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "This is the only way to access your account. " +
+                "Write it down or save it in a password manager. " +
+                "If you lose it, your data cannot be recovered.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center
+        )
+        Spacer(Modifier.height(24.dp))
+
+        ElevatedCard(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable {
+                    clipboardManager.setText(AnnotatedString(nsec))
+                    copied = true
+                },
+            elevation = CardDefaults.elevatedCardElevation(defaultElevation = 4.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = "Your private key",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = nsec,
+                    style = MaterialTheme.typography.bodySmall,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = if (copied) "Copied!" else "Tap to copy",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (copied) MaterialTheme.colorScheme.primary
+                           else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        Spacer(Modifier.height(24.dp))
+
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Checkbox(
+                checked = confirmed,
+                onCheckedChange = { confirmed = it }
+            )
+            Text(
+                text = "I have saved my private key",
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.clickable { confirmed = !confirmed }
+            )
+        }
+
+        Spacer(Modifier.height(16.dp))
+
+        Button(
+            onClick = onContinue,
+            enabled = confirmed,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Continue")
+        }
+        Spacer(Modifier.height(8.dp))
+        TextButton(onClick = onBack) {
+            Text("Cancel")
         }
     }
 }

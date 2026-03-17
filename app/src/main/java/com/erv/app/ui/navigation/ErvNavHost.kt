@@ -9,19 +9,27 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.navArgument
 import com.erv.app.data.UserPreferences
 import com.erv.app.nostr.AmberLauncherHost
 import com.erv.app.nostr.KeyManager
+import com.erv.app.nostr.EventSigner
+import com.erv.app.nostr.RelayPool
 import com.erv.app.ui.dashboard.DashboardScreen
 import com.erv.app.ui.settings.SettingsScreen
+import com.erv.app.supplements.SupplementRepository
+import com.erv.app.ui.supplements.SupplementCategoryScreen
+import com.erv.app.ui.supplements.SupplementDetailScreen
 
 object Routes {
     const val DASHBOARD = "dashboard"
     const val SETTINGS = "settings"
     const val GOALS = "goals"
     fun category(id: String) = "category/$id"
+    fun supplementDetail(id: String) = "category/supplements/detail/$id"
 }
 
 @Composable
@@ -30,6 +38,9 @@ fun ErvNavHost(
     keyManager: KeyManager,
     amberHost: AmberLauncherHost,
     userPreferences: UserPreferences,
+    supplementRepository: SupplementRepository,
+    relayPool: RelayPool?,
+    signer: EventSigner?,
     onLogout: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -43,6 +54,7 @@ fun ErvNavHost(
                 onNavigateToSettings = {
                     navController.navigate(Routes.SETTINGS)
                 },
+                supplementRepository = supplementRepository,
                 onNavigateToCategory = { category ->
                     navController.navigate(category.route)
                 }
@@ -66,7 +78,34 @@ fun ErvNavHost(
             )
         }
 
+        composable(Routes.category("supplements")) {
+            SupplementCategoryScreen(
+                repository = supplementRepository,
+                relayPool = relayPool,
+                signer = signer,
+                onBack = { navController.popBackStack() },
+                onOpenSupplementDetail = { id ->
+                    navController.navigate(Routes.supplementDetail(id))
+                }
+            )
+        }
+
+        composable(
+            route = Routes.supplementDetail("{supplementId}"),
+            arguments = listOf(navArgument("supplementId") { type = NavType.StringType })
+        ) { backStackEntry ->
+            val supplementId = backStackEntry.arguments?.getString("supplementId").orEmpty()
+            SupplementDetailScreen(
+                repository = supplementRepository,
+                relayPool = relayPool,
+                signer = signer,
+                supplementId = supplementId,
+                onBack = { navController.popBackStack() }
+            )
+        }
+
         categories.forEach { cat ->
+            if (cat.id == "supplements") return@forEach
             composable(cat.route) {
                 ComingSoonScreen(
                     title = cat.label,

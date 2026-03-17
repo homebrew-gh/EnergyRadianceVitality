@@ -17,6 +17,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.erv.app.R
 import com.erv.app.ui.navigation.Category
 import com.erv.app.ui.navigation.CategorySheet
+import com.erv.app.supplements.SupplementLibraryState
+import com.erv.app.supplements.SupplementRepository
 import java.time.LocalDate
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -24,10 +26,15 @@ import java.time.LocalDate
 fun DashboardScreen(
     onNavigateToSettings: () -> Unit,
     onNavigateToCategory: (Category) -> Unit,
+    supplementRepository: SupplementRepository,
     viewModel: DashboardViewModel = viewModel(),
     modifier: Modifier = Modifier
 ) {
     val selectedDate by viewModel.selectedDate.collectAsState()
+    val supplementState by supplementRepository.state.collectAsState(initial = SupplementLibraryState())
+    val supplementSummary = remember(supplementState, selectedDate) {
+        supplementState.summaryFor(selectedDate)
+    }
     var showCalendar by remember { mutableStateOf(false) }
 
     val scaffoldState = rememberBottomSheetScaffoldState(
@@ -102,6 +109,10 @@ fun DashboardScreen(
 
             Spacer(Modifier.height(16.dp))
 
+            SupplementsProgressSection(summary = supplementSummary)
+
+            Spacer(Modifier.height(16.dp))
+
             ActivitySummarySection(selectedDate = selectedDate)
 
             Spacer(Modifier.height(16.dp))
@@ -145,6 +156,45 @@ private fun GoalsSection() {
             Spacer(Modifier.height(4.dp))
             Text(
                 text = "Goals will appear here once you configure them.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.outline
+            )
+        }
+    }
+}
+
+@Composable
+private fun SupplementsProgressSection(summary: com.erv.app.supplements.SupplementDaySummary) {
+    Text(
+        text = "Supplements",
+        style = MaterialTheme.typography.titleLarge,
+        modifier = Modifier.padding(bottom = 8.dp)
+    )
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 4.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Text(
+                text = if (summary.uniqueSupplementCount == 0) {
+                    "No supplements logged for this date"
+                } else {
+                    "${summary.routineCount} routine run(s), ${summary.adHocCount} ad hoc intake(s)"
+                },
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = if (summary.routineNames.isEmpty()) {
+                    "Open the Supplements silo to add morning, night, or custom routines."
+                } else {
+                    summary.routineNames.joinToString(prefix = "Routines: ")
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.outline
             )
