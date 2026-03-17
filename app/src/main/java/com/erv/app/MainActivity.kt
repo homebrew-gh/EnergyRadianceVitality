@@ -68,6 +68,7 @@ private fun ErvApp(
     if (loggedIn) {
         MainAppShell(
             keyManager = keyManager,
+            amberHost = amberHost,
             userPreferences = userPreferences,
             onLogout = {
                 keyManager.logout()
@@ -90,6 +91,7 @@ private fun ErvApp(
 @Composable
 private fun MainAppShell(
     keyManager: KeyManager,
+    amberHost: AmberLauncherHost,
     userPreferences: UserPreferences,
     onLogout: () -> Unit
 ) {
@@ -98,6 +100,7 @@ private fun MainAppShell(
     ErvNavHost(
         navController = navController,
         keyManager = keyManager,
+        amberHost = amberHost,
         userPreferences = userPreferences,
         onLogout = onLogout
     )

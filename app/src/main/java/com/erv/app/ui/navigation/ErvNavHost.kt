@@ -12,6 +12,7 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import com.erv.app.data.UserPreferences
+import com.erv.app.nostr.AmberLauncherHost
 import com.erv.app.nostr.KeyManager
 import com.erv.app.ui.dashboard.DashboardScreen
 import com.erv.app.ui.settings.SettingsScreen
@@ -27,6 +28,7 @@ object Routes {
 fun ErvNavHost(
     navController: NavHostController,
     keyManager: KeyManager,
+    amberHost: AmberLauncherHost,
     userPreferences: UserPreferences,
     onLogout: () -> Unit,
     modifier: Modifier = Modifier
@@ -50,6 +52,7 @@ fun ErvNavHost(
         composable(Routes.SETTINGS) {
             SettingsScreen(
                 keyManager = keyManager,
+                amberHost = amberHost,
                 userPreferences = userPreferences,
                 onBack = { navController.popBackStack() },
                 onLogout = onLogout
