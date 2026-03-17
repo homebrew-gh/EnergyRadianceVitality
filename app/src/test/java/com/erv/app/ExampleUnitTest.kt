@@ -57,8 +57,8 @@ class ExampleUnitTest {
         assertEquals(32, Nip44.calcPaddedLen(32))
         assertEquals(64, Nip44.calcPaddedLen(33))
         assertEquals(64, Nip44.calcPaddedLen(64))
-        assertEquals(128, Nip44.calcPaddedLen(65))
-        assertEquals(256, Nip44.calcPaddedLen(200))
+        assertEquals(96, Nip44.calcPaddedLen(65))
+        assertEquals(224, Nip44.calcPaddedLen(200))
         assertEquals(256, Nip44.calcPaddedLen(256))
         assertEquals(320, Nip44.calcPaddedLen(257))
     }
