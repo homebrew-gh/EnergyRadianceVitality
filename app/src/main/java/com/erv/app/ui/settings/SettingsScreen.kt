@@ -26,7 +26,9 @@ import com.erv.app.nostr.AmberLauncherHost
 import com.erv.app.nostr.AmberSigner
 import com.erv.app.nostr.ConnectionState
 import com.erv.app.nostr.KeyManager
+import com.erv.app.nostr.Nip65
 import com.erv.app.nostr.RelayPool
+import com.erv.app.nostr.SettingsSync
 import kotlinx.coroutines.launch
 
 private const val WSS_PREFIX = "wss://"
@@ -51,10 +53,16 @@ fun SettingsScreen(
     }
 
     val relayPool = remember(signer) { signer?.let { RelayPool(it) } }
-    var relayUrls by remember { mutableStateOf(keyManager.relayUrls) }
+    var relayRevision by remember { mutableIntStateOf(0) }
+    val allRelays = remember(relayRevision) { keyManager.allRelayUrls() }
+    var fetchingRelays by remember { mutableStateOf(false) }
+    var snackbarMessage by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(relayUrls, relayPool) {
-        relayPool?.setRelays(relayUrls)
+    val relaysForPool = remember(allRelays, fetchingRelays) {
+        (allRelays + if (fetchingRelays) Nip65.bootstrapRelays else emptyList()).distinct()
+    }
+    LaunchedEffect(relaysForPool, relayPool) {
+        relayPool?.setRelays(relaysForPool)
     }
     DisposableEffect(relayPool) {
         onDispose { relayPool?.disconnect() }
@@ -64,8 +72,19 @@ fun SettingsScreen(
         .collectAsState(initial = emptyMap())
 
     var newRelaySuffix by remember { mutableStateOf("") }
+    var hasUnsavedChanges by remember { mutableStateOf(false) }
+    var saving by remember { mutableStateOf(false) }
+
+    val snackbarHostState = remember { SnackbarHostState() }
+    LaunchedEffect(snackbarMessage) {
+        snackbarMessage?.let { msg ->
+            snackbarHostState.showSnackbar(msg)
+            snackbarMessage = null
+        }
+    }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text("Settings") },
@@ -88,66 +107,118 @@ fun SettingsScreen(
             Text(
                 "Relays",
                 style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(top = 16.dp, bottom = 8.dp)
+                modifier = Modifier.padding(top = 16.dp, bottom = 4.dp)
+            )
+            Text(
+                "Toggle Data (encrypted activity) and Social (public posts) per relay.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 8.dp)
             )
 
-            relayUrls.forEach { url ->
+            allRelays.forEach { url ->
                 RelayRow(
                     url = url,
                     connectionState = relayStates[url] ?: ConnectionState.Disconnected,
+                    isData = keyManager.isDataRelay(url),
+                    isSocial = keyManager.isSocialRelay(url),
+                    onToggleData = { enabled ->
+                        if (enabled) keyManager.addRelay(url) else keyManager.removeRelay(url)
+                        relayRevision++
+                        hasUnsavedChanges = true
+                    },
+                    onToggleSocial = { enabled ->
+                        if (enabled) keyManager.addSocialRelay(url) else keyManager.removeSocialRelay(url)
+                        relayRevision++
+                        hasUnsavedChanges = true
+                    },
                     onRemove = {
-                        keyManager.removeRelay(url)
-                        relayUrls = keyManager.relayUrls
+                        keyManager.removeRelayCompletely(url)
+                        relayRevision++
+                        hasUnsavedChanges = true
                     }
                 )
             }
 
-            if (relayUrls.isEmpty()) {
+            if (allRelays.isEmpty()) {
                 Text(
-                    "No relays configured",
+                    "No relays configured. Add one below or fetch from network.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(vertical = 8.dp)
                 )
             }
 
-            Spacer(Modifier.height(8.dp))
+            RelayAddRow(
+                suffix = newRelaySuffix,
+                onSuffixChange = { newRelaySuffix = it },
+                onAdd = {
+                    val url = normalizeRelayUrl(newRelaySuffix)
+                    if (url != null) {
+                        keyManager.addRelay(url)
+                        relayRevision++
+                        hasUnsavedChanges = true
+                        newRelaySuffix = ""
+                    }
+                }
+            )
 
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = {
+                    val pubkey = keyManager.publicKeyHex ?: return@OutlinedButton
+                    scope.launch {
+                        fetchingRelays = true
+                        try {
+                            kotlinx.coroutines.delay(1500)
+                            val urls = Nip65.fetchRelayListFromNetwork(relayPool!!, pubkey)
+                            if (urls.isEmpty()) {
+                                snackbarMessage = "No relay list found. Set up relays in Damus/Primal first, or add manually."
+                            } else {
+                                urls.forEach { keyManager.addSocialRelay(it) }
+                                relayRevision++
+                                hasUnsavedChanges = true
+                                snackbarMessage = "Added ${urls.size} relay(s) as social."
+                            }
+                        } catch (e: Exception) {
+                            snackbarMessage = "Fetch failed: ${e.message}"
+                        } finally {
+                            fetchingRelays = false
+                        }
+                    }
+                },
+                enabled = relayPool != null && keyManager.publicKeyHex != null && !fetchingRelays,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                OutlinedTextField(
-                    value = newRelaySuffix,
-                    onValueChange = { newRelaySuffix = it },
-                    leadingIcon = {
-                        Text(
-                            text = WSS_PREFIX,
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    },
-                    label = { Text("Add relay") },
-                    singleLine = true,
-                    modifier = Modifier.weight(1f)
-                )
-                Spacer(Modifier.width(8.dp))
-                IconButton(
+                Text(if (fetchingRelays) "Fetching…" else "Fetch social relays from network")
+            }
+
+            if (hasUnsavedChanges) {
+                Spacer(Modifier.height(8.dp))
+                Button(
                     onClick = {
-                        val url = newRelaySuffix.trim().let { s ->
-                            if (s.isEmpty()) null
-                            else if (s.startsWith("wss://") || s.startsWith("ws://")) s
-                            else "$WSS_PREFIX$s"
-                        }
-                        if (url != null) {
-                            keyManager.addRelay(url)
-                            relayUrls = keyManager.relayUrls
-                            newRelaySuffix = ""
+                        if (relayPool == null || signer == null) return@Button
+                        scope.launch {
+                            saving = true
+                            try {
+                                val ok = SettingsSync.saveToNetwork(relayPool, signer, keyManager)
+                                if (ok) {
+                                    hasUnsavedChanges = false
+                                    snackbarMessage = "Settings saved"
+                                } else {
+                                    snackbarMessage = "Save failed — check relay connections"
+                                }
+                            } catch (e: Exception) {
+                                snackbarMessage = "Save failed: ${e.message}"
+                            } finally {
+                                saving = false
+                            }
                         }
                     },
-                    enabled = newRelaySuffix.isNotBlank()
+                    enabled = !saving,
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Icon(Icons.Default.Add, contentDescription = "Add relay")
+                    Text(if (saving) "Saving…" else "Save")
                 }
             }
 
@@ -264,30 +335,95 @@ fun SettingsScreen(
     }
 }
 
+private fun normalizeRelayUrl(input: String): String? {
+    val s = input.trim()
+    if (s.isEmpty()) return null
+    return if (s.startsWith("wss://") || s.startsWith("ws://")) s else "$WSS_PREFIX$s"
+}
+
 @Composable
-private fun RelayRow(
-    url: String,
-    connectionState: ConnectionState,
-    onRemove: () -> Unit
+private fun RelayAddRow(
+    suffix: String,
+    onSuffixChange: (String) -> Unit,
+    onAdd: () -> Unit
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp)
+            .padding(top = 8.dp)
     ) {
-        RelayConnectionLed(connectionState = connectionState)
-        Spacer(Modifier.width(8.dp))
-        Text(
-            text = url,
-            style = MaterialTheme.typography.bodyMedium,
+        OutlinedTextField(
+            value = suffix,
+            onValueChange = onSuffixChange,
+            leadingIcon = {
+                Text(
+                    text = WSS_PREFIX,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            },
+            label = { Text("Add relay") },
+            singleLine = true,
             modifier = Modifier.weight(1f)
         )
-        IconButton(onClick = onRemove, modifier = Modifier.size(32.dp)) {
-            Icon(
-                Icons.Default.Close,
-                contentDescription = "Remove relay",
-                modifier = Modifier.size(18.dp)
+        Spacer(Modifier.width(8.dp))
+        IconButton(
+            onClick = onAdd,
+            enabled = suffix.isNotBlank()
+        ) {
+            Icon(Icons.Default.Add, contentDescription = "Add relay")
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RelayRow(
+    url: String,
+    connectionState: ConnectionState,
+    isData: Boolean,
+    isSocial: Boolean,
+    onToggleData: (Boolean) -> Unit,
+    onToggleSocial: (Boolean) -> Unit,
+    onRemove: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            RelayConnectionLed(connectionState = connectionState)
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = url,
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.weight(1f)
+            )
+            IconButton(onClick = onRemove, modifier = Modifier.size(32.dp)) {
+                Icon(
+                    Icons.Default.Close,
+                    contentDescription = "Remove relay",
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(start = 18.dp, top = 2.dp, bottom = 4.dp)
+        ) {
+            FilterChip(
+                selected = isData,
+                onClick = { onToggleData(!isData) },
+                label = { Text("Data", style = MaterialTheme.typography.labelSmall) },
+                modifier = Modifier.height(28.dp)
+            )
+            FilterChip(
+                selected = isSocial,
+                onClick = { onToggleSocial(!isSocial) },
+                label = { Text("Social", style = MaterialTheme.typography.labelSmall) },
+                modifier = Modifier.height(28.dp)
             )
         }
     }

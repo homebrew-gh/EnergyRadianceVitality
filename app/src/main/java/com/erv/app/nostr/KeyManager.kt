@@ -35,12 +35,18 @@ class KeyManager(context: Context) {
         get() = prefs.getString(KEY_PUBKEY, null)
         private set(value) = prefs.edit().putString(KEY_PUBKEY, value).apply()
 
+    /** Relays used for encrypted activity data (kind 30078). */
     var relayUrls: List<String>
         get() {
             migrateRelayUrlIfNeeded()
             return prefs.getStringSet(KEY_RELAY_URLS, emptySet())?.toList() ?: emptyList()
         }
         private set(value) = prefs.edit().putStringSet(KEY_RELAY_URLS, value.toSet()).apply()
+
+    /** Relays used for public social posts (e.g. kind 1 workout summaries). */
+    var socialRelayUrls: List<String>
+        get() = prefs.getStringSet(KEY_SOCIAL_RELAY_URLS, emptySet())?.toList() ?: emptyList()
+        private set(value) = prefs.edit().putStringSet(KEY_SOCIAL_RELAY_URLS, value.toSet()).apply()
 
     fun addRelay(url: String) {
         val current = relayUrls.toMutableList()
@@ -53,6 +59,29 @@ class KeyManager(context: Context) {
     fun removeRelay(url: String) {
         relayUrls = relayUrls.filter { it != url }
     }
+
+    fun addSocialRelay(url: String) {
+        val current = socialRelayUrls.toMutableList()
+        if (url !in current) {
+            current.add(url)
+            socialRelayUrls = current
+        }
+    }
+
+    fun removeSocialRelay(url: String) {
+        socialRelayUrls = socialRelayUrls.filter { it != url }
+    }
+
+    fun removeRelayCompletely(url: String) {
+        removeRelay(url)
+        removeSocialRelay(url)
+    }
+
+    /** All relays (data + social), deduplicated. */
+    fun allRelayUrls(): List<String> = (relayUrls + socialRelayUrls).distinct()
+
+    fun isDataRelay(url: String): Boolean = url in relayUrls
+    fun isSocialRelay(url: String): Boolean = url in socialRelayUrls
 
     private fun migrateRelayUrlIfNeeded() {
         val legacy = prefs.getString(KEY_RELAY_URL_LEGACY, null)
@@ -95,10 +124,11 @@ class KeyManager(context: Context) {
         nsecHex = Hex.encode(privKey)
         publicKeyHex = pubHex
         loginMethod = LOGIN_NSEC
+        populateDefaultRelays()
     }
 
     /**
-     * Generate a fresh Nostr key pair and store it.
+     * Generate a fresh Nostr key pair, store it, and populate default relays.
      */
     fun generateKeys(): String {
         val privKey = secureRandomBytes(32)
@@ -110,7 +140,15 @@ class KeyManager(context: Context) {
         nsecHex = Hex.encode(privKey)
         publicKeyHex = pubHex
         loginMethod = LOGIN_NSEC
+        populateDefaultRelays()
         return Bech32.nsecEncode(privKey)
+    }
+
+    private fun populateDefaultRelays() {
+        DEFAULT_RELAYS.forEach { url ->
+            addRelay(url)
+            addSocialRelay(url)
+        }
     }
 
     /**
@@ -132,6 +170,8 @@ class KeyManager(context: Context) {
             .remove(KEY_NSEC)
             .remove(KEY_PUBKEY)
             .remove(KEY_LOGIN_METHOD)
+            .remove(KEY_RELAY_URLS)
+            .remove(KEY_SOCIAL_RELAY_URLS)
             .apply()
     }
 
@@ -140,9 +180,16 @@ class KeyManager(context: Context) {
         private const val KEY_PUBKEY = "pubkey"
         private const val KEY_RELAY_URL_LEGACY = "relay_url"
         private const val KEY_RELAY_URLS = "relay_urls"
+        private const val KEY_SOCIAL_RELAY_URLS = "social_relay_urls"
         private const val KEY_LOGIN_METHOD = "login_method"
 
         const val LOGIN_NSEC = "nsec"
         const val LOGIN_AMBER = "amber"
+
+        val DEFAULT_RELAYS = listOf(
+            "wss://relay.damus.io",
+            "wss://nos.lol",
+            "wss://relay.nostr.band"
+        )
     }
 }
