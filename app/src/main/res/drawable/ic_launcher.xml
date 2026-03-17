@@ -5,87 +5,31 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- Red background -->
     <path
         android:fillColor="#C62828"
         android:pathData="M0,0h108v108h-108z"/>
 
-    <!-- Squiggly rays (curved paths from sun outward), stroke in yellow -->
     <path
-        android:strokeColor="#FFEB3B"
-        android:strokeWidth="3.5"
+        android:strokeColor="#FFD600"
+        android:strokeWidth="4.5"
         android:strokeLineCap="round"
         android:fillColor="#00000000"
-        android:pathData="M80,54 Q92,46 102,54"/>
-    <path
-        android:strokeColor="#FFEB3B"
-        android:strokeWidth="3.5"
-        android:strokeLineCap="round"
-        android:fillColor="#00000000"
-        android:pathData="M76.5,41 Q88,32 95,30"/>
-    <path
-        android:strokeColor="#FFEB3B"
-        android:strokeWidth="3.5"
-        android:strokeLineCap="round"
-        android:fillColor="#00000000"
-        android:pathData="M67,31.5 Q72,22 72,14"/>
-    <path
-        android:strokeColor="#FFEB3B"
-        android:strokeWidth="3.5"
-        android:strokeLineCap="round"
-        android:fillColor="#00000000"
-        android:pathData="M54,28 Q54,16 54,6"/>
-    <path
-        android:strokeColor="#FFEB3B"
-        android:strokeWidth="3.5"
-        android:strokeLineCap="round"
-        android:fillColor="#00000000"
-        android:pathData="M31.5,31.5 Q22,28 14,28"/>
-    <path
-        android:strokeColor="#FFEB3B"
-        android:strokeWidth="3.5"
-        android:strokeLineCap="round"
-        android:fillColor="#00000000"
-        android:pathData="M22,41 Q10,48 6,54"/>
-    <path
-        android:strokeColor="#FFEB3B"
-        android:strokeWidth="3.5"
-        android:strokeLineCap="round"
-        android:fillColor="#00000000"
-        android:pathData="M28,54 Q16,62 6,54"/>
-    <path
-        android:strokeColor="#FFEB3B"
-        android:strokeWidth="3.5"
-        android:strokeLineCap="round"
-        android:fillColor="#00000000"
-        android:pathData="M31.5,67 Q28,78 30,86"/>
-    <path
-        android:strokeColor="#FFEB3B"
-        android:strokeWidth="3.5"
-        android:strokeLineCap="round"
-        android:fillColor="#00000000"
-        android:pathData="M41,76.5 Q32,88 22,94"/>
-    <path
-        android:strokeColor="#FFEB3B"
-        android:strokeWidth="3.5"
-        android:strokeLineCap="round"
-        android:fillColor="#00000000"
-        android:pathData="M54,80 Q62,92 54,102"/>
-    <path
-        android:strokeColor="#FFEB3B"
-        android:strokeWidth="3.5"
-        android:strokeLineCap="round"
-        android:fillColor="#00000000"
-        android:pathData="M67,76.5 Q78,80 86,78"/>
-    <path
-        android:strokeColor="#FFEB3B"
-        android:strokeWidth="3.5"
-        android:strokeLineCap="round"
-        android:fillColor="#00000000"
-        android:pathData="M76.5,67 Q88,70 98,66"/>
+        android:pathData="
+            M79,54 L100,54
+            M75.7,66.5 L93.8,77
+            M66.5,75.7 L77,93.8
+            M54,79 L54,100
+            M41.5,75.7 L31,93.8
+            M32.3,66.5 L14.2,77
+            M29,54 L8,54
+            M32.3,41.5 L14.2,31
+            M41.5,32.3 L31,14.2
+            M54,29 L54,8
+            M66.5,32.3 L77,14.2
+            M75.7,41.5 L93.8,31"/>
 
-    <!-- Big yellow sun (circle) -->
     <path
-        android:fillColor="#FFEB3B"
-        android:pathData="M54,54m-26,0a26,26 0,1 1,52 0a26,26 0,1 1,-52 0"/>
+        android:fillColor="#FFD600"
+        android:pathData="M54,54m-22,0a22,22 0,1 1,44 0a22,22 0,1 1,-44 0"/>
+
 </vector>
