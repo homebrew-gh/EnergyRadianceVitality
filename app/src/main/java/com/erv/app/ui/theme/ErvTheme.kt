@@ -3,6 +3,7 @@ package com.erv.app.ui.theme
 import android.app.Activity
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
@@ -41,13 +42,43 @@ private val ErvLightColorScheme = lightColorScheme(
     scrim = ErvScrim
 )
 
+private val ErvDarkColorScheme = darkColorScheme(
+    primary = ErvDarkPrimary,
+    onPrimary = ErvDarkOnPrimary,
+    primaryContainer = ErvDarkPrimaryContainer,
+    onPrimaryContainer = ErvDarkOnPrimaryContainer,
+    secondary = ErvDarkSecondary,
+    onSecondary = ErvDarkOnSecondary,
+    secondaryContainer = ErvDarkSecondaryContainer,
+    onSecondaryContainer = ErvDarkOnSecondaryContainer,
+    tertiary = ErvDarkTertiary,
+    onTertiary = ErvDarkOnTertiary,
+    tertiaryContainer = ErvDarkTertiaryContainer,
+    onTertiaryContainer = ErvDarkOnTertiaryContainer,
+    background = ErvDarkBackground,
+    onBackground = ErvDarkOnBackground,
+    surface = ErvDarkSurface,
+    onSurface = ErvDarkOnSurface,
+    surfaceVariant = ErvDarkSurfaceVariant,
+    onSurfaceVariant = ErvDarkOnSurfaceVariant,
+    outline = ErvDarkOutline,
+    outlineVariant = ErvDarkOutlineVariant,
+    error = ErvDarkError,
+    onError = ErvDarkOnError,
+    errorContainer = ErvDarkErrorContainer,
+    onErrorContainer = ErvDarkOnErrorContainer,
+    inverseSurface = ErvDarkInverseSurface,
+    inverseOnSurface = ErvDarkInverseOnSurface,
+    inversePrimary = ErvDarkInversePrimary,
+    scrim = ErvDarkScrim
+)
+
 @Composable
 fun ErvTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit
 ) {
-    // Dark theme uses same scheme for now; a dedicated dark palette can be added later
-    val colorScheme = ErvLightColorScheme
+    val colorScheme = if (darkTheme) ErvDarkColorScheme else ErvLightColorScheme
 
     val view = LocalView.current
     if (!view.isInEditMode) {
