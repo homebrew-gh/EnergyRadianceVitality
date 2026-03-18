@@ -1,7 +1,11 @@
 package com.erv.app
 
 import android.os.Bundle
+import android.Manifest
+import android.content.pm.PackageManager
 import androidx.activity.compose.setContent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -26,21 +30,29 @@ import com.erv.app.data.ThemeMode
 import com.erv.app.data.UserPreferences
 import com.erv.app.nostr.*
 import com.erv.app.supplements.SupplementRepository
+import com.erv.app.reminders.RoutineReminderRepository
+import com.erv.app.reminders.RoutineReminderScheduler
 import com.erv.app.ui.navigation.ErvNavHost
 import com.erv.app.ui.onboarding.RelaySetupScreen
 import com.erv.app.ui.theme.ErvTheme
+import androidx.core.content.ContextCompat
+import android.os.Build
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var amberHost: AmberLauncherHost
     private lateinit var keyManager: KeyManager
+    private val pendingReminderRoutineId = MutableStateFlow<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         amberHost = AmberLauncherHost(this)
         keyManager = KeyManager(this)
+        handleReminderIntent(intent)
 
         setContent {
             val userPreferences = remember { UserPreferences(this@MainActivity) }
@@ -57,11 +69,23 @@ class MainActivity : AppCompatActivity() {
                     ErvApp(
                         keyManager = keyManager,
                         amberHost = amberHost,
-                        userPreferences = userPreferences
+                        userPreferences = userPreferences,
+                        pendingReminderRoutineId = pendingReminderRoutineId,
+                        consumePendingReminderRoutineId = { pendingReminderRoutineId.value = null }
                     )
                 }
             }
         }
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleReminderIntent(intent)
+    }
+
+    private fun handleReminderIntent(intent: android.content.Intent?) {
+        pendingReminderRoutineId.value = intent?.getStringExtra(com.erv.app.reminders.RoutineReminderScheduler.EXTRA_ROUTINE_ID)
     }
 }
 
@@ -71,7 +95,9 @@ private enum class AppState { LoggedOut, Onboarding, Ready }
 private fun ErvApp(
     keyManager: KeyManager,
     amberHost: AmberLauncherHost,
-    userPreferences: UserPreferences
+    userPreferences: UserPreferences,
+    pendingReminderRoutineId: StateFlow<String?>,
+    consumePendingReminderRoutineId: () -> Unit
 ) {
     var appState by remember {
         mutableStateOf(if (keyManager.isLoggedIn) AppState.Ready else AppState.LoggedOut)
@@ -138,6 +164,8 @@ private fun ErvApp(
             keyManager = keyManager,
             amberHost = amberHost,
             userPreferences = userPreferences,
+            pendingReminderRoutineId = pendingReminderRoutineId,
+            consumePendingReminderRoutineId = consumePendingReminderRoutineId,
             onLogout = {
                 keyManager.logout()
                 appState = AppState.LoggedOut
@@ -187,11 +215,14 @@ private fun MainAppShell(
     keyManager: KeyManager,
     amberHost: AmberLauncherHost,
     userPreferences: UserPreferences,
+    pendingReminderRoutineId: StateFlow<String?>,
+    consumePendingReminderRoutineId: () -> Unit,
     onLogout: () -> Unit
 ) {
     val context = LocalContext.current
     val navController = rememberNavController()
     val supplementRepository = remember(context) { SupplementRepository(context) }
+    val reminderRepository = remember(context) { RoutineReminderRepository(context) }
     val signer = remember(keyManager, amberHost) {
         keyManager.createLocalSigner()
             ?: (if (keyManager.loginMethod == KeyManager.LOGIN_AMBER && keyManager.publicKeyHex != null)
@@ -199,9 +230,22 @@ private fun MainAppShell(
             else null)
     }
     val relayPool = remember(signer) { signer?.let { RelayPool(it) } }
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { }
 
     LaunchedEffect(relayPool) {
         relayPool?.setRelays(keyManager.allRelayUrls())
+    }
+    LaunchedEffect(reminderRepository) {
+        reminderRepository.restoreAllSchedules()
+    }
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
     }
     DisposableEffect(relayPool) {
         onDispose { relayPool?.disconnect() }
@@ -215,6 +259,8 @@ private fun MainAppShell(
         supplementRepository = supplementRepository,
         relayPool = relayPool,
         signer = signer,
+        pendingReminderRoutineId = pendingReminderRoutineId,
+        consumePendingReminderRoutineId = consumePendingReminderRoutineId,
         onLogout = onLogout
     )
 }

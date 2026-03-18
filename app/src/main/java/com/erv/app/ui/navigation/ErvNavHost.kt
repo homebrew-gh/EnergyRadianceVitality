@@ -5,6 +5,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -23,6 +25,7 @@ import com.erv.app.ui.settings.SettingsScreen
 import com.erv.app.supplements.SupplementRepository
 import com.erv.app.ui.supplements.SupplementCategoryScreen
 import com.erv.app.ui.supplements.SupplementDetailScreen
+import kotlinx.coroutines.flow.StateFlow
 
 object Routes {
     const val DASHBOARD = "dashboard"
@@ -41,9 +44,19 @@ fun ErvNavHost(
     supplementRepository: SupplementRepository,
     relayPool: RelayPool?,
     signer: EventSigner?,
+    pendingReminderRoutineId: StateFlow<String?>,
+    consumePendingReminderRoutineId: () -> Unit,
     onLogout: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val pendingRoutineId = pendingReminderRoutineId.collectAsState(initial = null).value
+    LaunchedEffect(pendingRoutineId) {
+        if (pendingRoutineId != null) {
+            navController.navigate(Routes.DASHBOARD) {
+                launchSingleTop = true
+            }
+        }
+    }
     NavHost(
         navController = navController,
         startDestination = Routes.DASHBOARD,
@@ -57,6 +70,8 @@ fun ErvNavHost(
                 supplementRepository = supplementRepository,
                 relayPool = relayPool,
                 signer = signer,
+                pendingReminderRoutineId = pendingRoutineId,
+                onConsumePendingReminderRoutineId = consumePendingReminderRoutineId,
                 onNavigateToCategory = { category ->
                     navController.navigate(category.route)
                 }

@@ -5,6 +5,8 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.DirectionsRun
 import androidx.compose.material.icons.filled.FitnessCenter
@@ -20,9 +22,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.input.KeyboardOptions
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.erv.app.R
@@ -38,6 +39,10 @@ import com.erv.app.supplements.SupplementRoutine
 import com.erv.app.supplements.SupplementRoutineStep
 import com.erv.app.supplements.SupplementSync
 import com.erv.app.supplements.SupplementTimeOfDay
+import com.erv.app.reminders.RoutineReminderRepository
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 
@@ -49,11 +54,15 @@ fun DashboardScreen(
     supplementRepository: SupplementRepository,
     relayPool: RelayPool?,
     signer: EventSigner?,
+    pendingReminderRoutineId: String?,
+    onConsumePendingReminderRoutineId: () -> Unit,
     viewModel: DashboardViewModel = viewModel(),
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     val selectedDate by viewModel.selectedDate.collectAsState()
     val supplementState by supplementRepository.state.collectAsState(initial = SupplementLibraryState())
+    val reminderRepository = remember(context) { RoutineReminderRepository(context) }
     val supplementSummary = remember(supplementState, selectedDate) {
         supplementState.summaryFor(selectedDate)
     }
@@ -82,6 +91,21 @@ fun DashboardScreen(
                 SupplementSync.publishDailyLog(relayPool, signer, log)
             }
         }
+    }
+
+    LaunchedEffect(pendingReminderRoutineId, supplementState.routines) {
+        val routineId = pendingReminderRoutineId ?: return@LaunchedEffect
+        for (attempt in 0 until 20) {
+            val routine = supplementState.routines.firstOrNull { it.id == routineId }
+            if (routine != null) {
+                routinePreview = routine
+                onConsumePendingReminderRoutineId()
+                return@LaunchedEffect
+            }
+            if (supplementState.routines.isNotEmpty()) break
+            delay(100)
+        }
+        onConsumePendingReminderRoutineId()
     }
 
     BottomSheetScaffold(
@@ -218,6 +242,7 @@ fun DashboardScreen(
                                 steps = updatedRoutine.steps,
                                 notes = updatedRoutine.notes
                             )
+                            reminderRepository.updateRoutineName(routine.id, updatedRoutine.name)
                             syncMaster()
                         }
                         supplementRepository.logRoutineRun(

@@ -1,8 +1,13 @@
 package com.erv.app.ui.supplements
 
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -16,9 +21,16 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.erv.app.nostr.EventSigner
 import com.erv.app.nostr.RelayPool
+import com.erv.app.reminders.RoutineReminder
+import com.erv.app.reminders.RoutineReminderFrequency
+import com.erv.app.reminders.RoutineReminderRepository
+import com.erv.app.reminders.RoutineReminderState
+import com.erv.app.reminders.RoutineReminderScheduler
 import com.erv.app.supplements.SupplementApiClient
 import com.erv.app.supplements.SupplementApiResult
 import com.erv.app.supplements.SupplementDosagePlan
@@ -30,7 +42,10 @@ import com.erv.app.supplements.SupplementRepository
 import com.erv.app.supplements.SupplementRoutine
 import com.erv.app.supplements.SupplementRoutineStep
 import com.erv.app.supplements.SupplementTimeOfDay
+import com.erv.app.supplements.SupplementWeekday
 import com.erv.app.supplements.SupplementUnit
+import com.erv.app.supplements.describe
+import com.erv.app.supplements.label
 import com.erv.app.supplements.SupplementSync
 import kotlinx.coroutines.launch
 import java.time.LocalDate
@@ -42,6 +57,14 @@ private data class RoutineStepDraft(
     val timeOfDay: SupplementTimeOfDay = SupplementTimeOfDay.MORNING,
     val quantity: String = "1",
     val note: String = ""
+)
+
+private data class RoutineReminderDraft(
+    val enabled: Boolean = false,
+    val hour: String = "8",
+    val minute: String = "00",
+    val frequency: RoutineReminderFrequency = RoutineReminderFrequency.DAILY,
+    val repeatDays: Set<SupplementWeekday> = SupplementWeekday.entries.toSet()
 )
 
 private data class SupplementDraft(
@@ -63,7 +86,10 @@ fun SupplementCategoryScreen(
     onBack: () -> Unit,
     onOpenSupplementDetail: (String) -> Unit
 ) {
+    val context = LocalContext.current
     val state by repository.state.collectAsState(initial = SupplementLibraryState())
+    val reminderRepository = remember(context) { RoutineReminderRepository(context) }
+    val reminderState by reminderRepository.state.collectAsState(initial = RoutineReminderState())
     val today = remember { LocalDate.now() }
     val todaySummary = remember(state, today) { state.summaryFor(today) }
     val scope = rememberCoroutineScope()
@@ -93,6 +119,10 @@ fun SupplementCategoryScreen(
                 repository.replaceAll(remote)
             }
         }
+    }
+
+    LaunchedEffect(reminderRepository) {
+        reminderRepository.restoreAllSchedules()
     }
 
     Scaffold(
@@ -175,6 +205,7 @@ fun SupplementCategoryScreen(
 
                 SupplementsTab.Routines -> RoutinesTab(
                     state = state,
+                    reminderForRoutine = { routineId -> reminderState.reminderForRoutine(routineId) },
                     onAddClick = {
                         creatingRoutine = true
                         routineEditor = null
@@ -183,6 +214,7 @@ fun SupplementCategoryScreen(
                     onDeleteRoutine = { routineId ->
                         scope.launch {
                             repository.deleteRoutine(routineId)
+                            reminderRepository.deleteReminder(routineId)
                             syncMaster()
                         }
                     },
@@ -193,18 +225,26 @@ fun SupplementCategoryScreen(
                             snackbarHostState.showSnackbar("Logged ${routine.name}")
                         }
                     },
-                    onCreateRoutine = { name, steps, notes ->
+                    onCreateRoutine = { name, steps, notes, reminderDraft ->
                         scope.launch {
-                            repository.addRoutine(name, steps, notes)
+                            val created = repository.addRoutine(name, steps, notes)
+                            val scheduled = reminderRepository.upsertReminder(reminderDraft.toReminder(created.id, created.name))
                             syncMaster()
                             snackbarHostState.showSnackbar("Routine saved")
+                            if (reminderDraft.enabled && !scheduled) {
+                                snackbarHostState.showSnackbar("Enable exact alarms for reminder notifications")
+                            }
                         }
                     },
-                    onUpdateRoutine = { id, name, steps, notes ->
+                    onUpdateRoutine = { id, name, steps, notes, reminderDraft ->
                         scope.launch {
                             repository.renameRoutine(id, name, steps, notes)
+                            val scheduled = reminderRepository.upsertReminder(reminderDraft.toReminder(id, name))
                             syncMaster()
                             snackbarHostState.showSnackbar("Routine updated")
+                            if (reminderDraft.enabled && !scheduled) {
+                                snackbarHostState.showSnackbar("Enable exact alarms for reminder notifications")
+                            }
                         }
                     },
                     routineEditor = routineEditor,
@@ -234,12 +274,13 @@ fun SupplementCategoryScreen(
 private fun RoutinesTab(
     state: SupplementLibraryState,
     supplements: List<SupplementEntry>,
+    reminderForRoutine: (String) -> RoutineReminder?,
     onAddClick: () -> Unit,
     onEditRoutine: (SupplementRoutine) -> Unit,
     onDeleteRoutine: (String) -> Unit,
     onRunRoutine: (SupplementRoutine) -> Unit,
-    onCreateRoutine: (String, List<SupplementRoutineStep>, String) -> Unit,
-    onUpdateRoutine: (String, String, List<SupplementRoutineStep>, String) -> Unit,
+    onCreateRoutine: (String, List<SupplementRoutineStep>, String, RoutineReminderDraft) -> Unit,
+    onUpdateRoutine: (String, String, List<SupplementRoutineStep>, String, RoutineReminderDraft) -> Unit,
     routineEditor: SupplementRoutine?,
     creatingRoutine: Boolean,
     onDismissRoutineEditor: () -> Unit,
@@ -316,10 +357,12 @@ private fun RoutinesTab(
             routine = routineEditor,
             creating = creatingRoutine,
             supplements = supplements,
+            existingReminder = routineEditor?.id?.let(reminderForRoutine),
             onDismiss = onDismissRoutineEditor,
             onDismissReset = onResetRoutineEditorMode,
-            onSave = { id, name, steps, notes ->
-                if (id == null) onCreateRoutine(name, steps, notes) else onUpdateRoutine(id, name, steps, notes)
+            onSave = { id, name, steps, notes, reminderDraft ->
+                if (id == null) onCreateRoutine(name, steps, notes, reminderDraft)
+                else onUpdateRoutine(id, name, steps, notes, reminderDraft)
                 onResetRoutineEditorMode()
                 onDismissRoutineEditor()
             }
@@ -593,9 +636,7 @@ private fun SupplementEditorDialog(
                         value = draft.servingAmount,
                         onValueChange = { draft = draft.copy(servingAmount = it) },
                         label = { Text("Amount") },
-                        keyboardOptions = androidx.compose.ui.text.input.KeyboardOptions(
-                            keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal
-                        ),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         singleLine = true,
                         modifier = Modifier.weight(1f)
                     )
@@ -653,12 +694,17 @@ private fun RoutineEditorDialog(
     routine: SupplementRoutine?,
     creating: Boolean,
     supplements: List<SupplementEntry>,
+    existingReminder: RoutineReminder?,
     onDismiss: () -> Unit,
     onDismissReset: () -> Unit,
-    onSave: (String?, String, List<SupplementRoutineStep>, String) -> Unit
+    onSave: (String?, String, List<SupplementRoutineStep>, String, RoutineReminderDraft) -> Unit
 ) {
+    val context = LocalContext.current
     var name by remember(routine?.id, creating) { mutableStateOf(routine?.name.orEmpty()) }
     var notes by remember(routine?.id, creating) { mutableStateOf(routine?.notes.orEmpty()) }
+    var reminderDraft by remember(routine?.id, creating, existingReminder) {
+        mutableStateOf(existingReminder?.toDraft() ?: RoutineReminderDraft())
+    }
     val steps = remember(routine?.id, creating) {
         mutableStateListOf<RoutineStepDraft>().apply {
             if (routine?.steps.isNullOrEmpty()) {
@@ -737,6 +783,93 @@ private fun RoutineEditorDialog(
                         }
                     }
                 }
+
+                Divider()
+                Text("Reminder", style = MaterialTheme.typography.titleSmall)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(
+                        checked = reminderDraft.enabled,
+                        onCheckedChange = { reminderDraft = reminderDraft.copy(enabled = it) }
+                    )
+                    Text("Enable reminder")
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    OutlinedTextField(
+                        value = reminderDraft.hour,
+                        onValueChange = { reminderDraft = reminderDraft.copy(hour = it.filter { ch -> ch.isDigit() }.take(2)) },
+                        label = { Text("Hour") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedTextField(
+                        value = reminderDraft.minute,
+                        onValueChange = { reminderDraft = reminderDraft.copy(minute = it.filter { ch -> ch.isDigit() }.take(2)) },
+                        label = { Text("Minute") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                EnumDropdownField(
+                    value = reminderDraft.frequency,
+                    label = "Repeat",
+                    options = RoutineReminderFrequency.entries,
+                    optionLabel = {
+                        when (it) {
+                            RoutineReminderFrequency.ONCE -> "Once"
+                            RoutineReminderFrequency.DAILY -> "Daily"
+                            RoutineReminderFrequency.WEEKLY -> "Weekly"
+                            RoutineReminderFrequency.CUSTOM_DAYS -> "Specific days"
+                        }
+                    },
+                    onSelected = { selected ->
+                        reminderDraft = reminderDraft.copy(
+                            frequency = selected,
+                            repeatDays = if (selected == RoutineReminderFrequency.DAILY || selected == RoutineReminderFrequency.ONCE) {
+                                emptySet()
+                            } else reminderDraft.repeatDays.ifEmpty { SupplementWeekday.entries.toSet() }
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                if (reminderDraft.frequency == RoutineReminderFrequency.WEEKLY || reminderDraft.frequency == RoutineReminderFrequency.CUSTOM_DAYS) {
+                    Text("Select days", style = MaterialTheme.typography.labelMedium)
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        SupplementWeekday.entries.forEach { weekday ->
+                            FilterChip(
+                                selected = weekday in reminderDraft.repeatDays,
+                                onClick = {
+                                    val updated = reminderDraft.repeatDays.toMutableSet()
+                                    if (!updated.add(weekday)) updated.remove(weekday)
+                                    reminderDraft = reminderDraft.copy(repeatDays = updated)
+                                },
+                                label = { Text(weekday.shortLabel()) }
+                            )
+                        }
+                    }
+                }
+                if (!RoutineReminderScheduler.canScheduleExactAlarms(context)) {
+                    Text(
+                        "Enable exact alarms on this device to keep reminder times precise.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    TextButton(
+                        onClick = {
+                            val intent = Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
+                                data = Uri.parse("package:${context.packageName}")
+                            }
+                            context.startActivity(intent)
+                        }
+                    ) {
+                        Text("Allow exact alarms")
+                    }
+                }
             }
         },
         confirmButton = {
@@ -754,10 +887,11 @@ private fun RoutineEditorDialog(
                                 note = draft.note.trim().ifBlank { null }
                             )
                         },
-                        notes.trim()
+                        notes.trim(),
+                        reminderDraft
                     )
                 },
-                enabled = name.isNotBlank() && steps.any { it.supplementId != null }
+                enabled = name.isNotBlank() && steps.any { it.supplementId != null } && reminderDraft.isValid()
             ) {
                 Text("Save")
             }
@@ -839,6 +973,33 @@ private fun SupplementTimeOfDay.label(): String = when (this) {
     SupplementTimeOfDay.MORNING -> "Morning"
     SupplementTimeOfDay.AFTERNOON -> "Afternoon"
     SupplementTimeOfDay.NIGHT -> "Night"
+}
+
+private fun RoutineReminder.toDraft(): RoutineReminderDraft = RoutineReminderDraft(
+    enabled = enabled,
+    hour = hour.coerceIn(0, 23).toString(),
+    minute = minute.coerceIn(0, 59).toString().padStart(2, '0'),
+    frequency = frequency,
+    repeatDays = repeatDays.toSet()
+)
+
+private fun RoutineReminderDraft.toReminder(routineId: String, routineName: String): RoutineReminder = RoutineReminder(
+    routineId = routineId,
+    routineName = routineName,
+    enabled = enabled,
+    hour = hour.toIntOrNull()?.coerceIn(0, 23) ?: 8,
+    minute = minute.toIntOrNull()?.coerceIn(0, 59) ?: 0,
+    frequency = frequency,
+    repeatDays = repeatDays.toList().sortedBy { it.ordinal }
+)
+
+private fun RoutineReminderDraft.isValid(): Boolean {
+    if (!enabled) return true
+    val hourValue = hour.toIntOrNull()
+    val minuteValue = minute.toIntOrNull()
+    if (hourValue !in 0..23 || minuteValue !in 0..59) return false
+    if ((frequency == RoutineReminderFrequency.WEEKLY || frequency == RoutineReminderFrequency.CUSTOM_DAYS) && repeatDays.isEmpty()) return false
+    return true
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
