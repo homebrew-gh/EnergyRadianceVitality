@@ -22,6 +22,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import com.erv.app.data.ThemeMode
@@ -46,13 +47,14 @@ fun SettingsScreen(
     onRelaysChanged: () -> Unit = {},
     onLogout: () -> Unit
 ) {
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val themeMode by userPreferences.themeMode.collectAsState(initial = ThemeMode.SYSTEM)
 
     val signer = remember(keyManager, amberHost) {
         keyManager.createLocalSigner()
-            ?: (if (keyManager.loginMethod == KeyManager.LOGIN_AMBER && keyManager.publicKeyHex != null)
-                AmberSigner(keyManager.publicKeyHex!!, amberHost)
+            ?: (if (keyManager.loginMethod == KeyManager.LOGIN_AMBER && keyManager.publicKeyHex != null && keyManager.amberPackageName != null)
+                AmberSigner(keyManager.publicKeyHex!!, amberHost, context.contentResolver, keyManager.amberPackageName!!)
             else null)
     }
 

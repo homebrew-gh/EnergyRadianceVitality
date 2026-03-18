@@ -1,7 +1,9 @@
 package com.erv.app.nostr
 
 import android.content.Context
+import android.content.Intent
 import android.content.SharedPreferences
+import android.net.Uri
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKeys
 import fr.acinq.secp256k1.Secp256k1
@@ -12,6 +14,7 @@ import fr.acinq.secp256k1.Secp256k1
  */
 class KeyManager(context: Context) {
 
+    private val appContext = context.applicationContext
     private val prefs: SharedPreferences
 
     init {
@@ -152,12 +155,32 @@ class KeyManager(context: Context) {
     }
 
     /**
+     * Package name of the NIP-55 signer app (e.g. Amber), saved after initial login.
+     * If missing (pre-existing logins), discovered from the package manager on first access.
+     */
+    val amberPackageName: String?
+        get() {
+            prefs.getString(KEY_AMBER_PACKAGE, null)?.let { return it }
+            if (loginMethod != LOGIN_AMBER) return null
+            val discovered = discoverSignerPackage() ?: return null
+            prefs.edit().putString(KEY_AMBER_PACKAGE, discovered).apply()
+            return discovered
+        }
+
+    private fun discoverSignerPackage(): String? {
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("nostrsigner:"))
+        return appContext.packageManager.queryIntentActivities(intent, 0)
+            .firstOrNull()?.activityInfo?.packageName
+    }
+
+    /**
      * Store login state after connecting to Amber (NIP-55 signer).
      */
-    fun loginWithAmber(pubkeyHex: String) {
+    fun loginWithAmber(pubkeyHex: String, packageName: String) {
         nsecHex = null
         publicKeyHex = pubkeyHex
         loginMethod = LOGIN_AMBER
+        prefs.edit().putString(KEY_AMBER_PACKAGE, packageName).apply()
     }
 
     fun createLocalSigner(): LocalSigner? {
@@ -172,6 +195,7 @@ class KeyManager(context: Context) {
             .remove(KEY_LOGIN_METHOD)
             .remove(KEY_RELAY_URLS)
             .remove(KEY_SOCIAL_RELAY_URLS)
+            .remove(KEY_AMBER_PACKAGE)
             .apply()
     }
 
@@ -182,6 +206,7 @@ class KeyManager(context: Context) {
         private const val KEY_RELAY_URLS = "relay_urls"
         private const val KEY_SOCIAL_RELAY_URLS = "social_relay_urls"
         private const val KEY_LOGIN_METHOD = "login_method"
+        private const val KEY_AMBER_PACKAGE = "amber_package"
 
         const val LOGIN_NSEC = "nsec"
         const val LOGIN_AMBER = "amber"

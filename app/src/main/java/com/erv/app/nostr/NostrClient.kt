@@ -132,8 +132,9 @@ class NostrClient(
     }
 
     private fun reconnectDelayMs(attempt: Int): Long {
+        // First attempt after 2s to avoid rapid reconnects (and NIP-42 Amber popups) on brief blips
         val cappedAttempt = attempt.coerceIn(0, 5)
-        val delayMs = 1_000L * (1L shl cappedAttempt)
+        val delayMs = 2_000L * (1L shl cappedAttempt)
         return delayMs.coerceAtMost(30_000L)
     }
 

@@ -100,6 +100,7 @@ private fun ErvApp(
     pendingReminderRoutineId: StateFlow<String?>,
     consumePendingReminderRoutineId: () -> Unit
 ) {
+    val context = LocalContext.current
     var appState by remember {
         mutableStateOf(if (keyManager.isLoggedIn) AppState.Ready else AppState.LoggedOut)
     }
@@ -107,8 +108,8 @@ private fun ErvApp(
 
     fun resolveSigner(): EventSigner? {
         return keyManager.createLocalSigner()
-            ?: (if (keyManager.loginMethod == KeyManager.LOGIN_AMBER && keyManager.publicKeyHex != null)
-                AmberSigner(keyManager.publicKeyHex!!, amberHost)
+            ?: (if (keyManager.loginMethod == KeyManager.LOGIN_AMBER && keyManager.publicKeyHex != null && keyManager.amberPackageName != null)
+                AmberSigner(keyManager.publicKeyHex!!, amberHost, context.contentResolver, keyManager.amberPackageName!!)
             else null)
     }
     val signer = remember(appState) {
@@ -236,8 +237,8 @@ private fun MainAppShell(
     val reminderRepository = remember(context) { RoutineReminderRepository(context) }
     val signer = remember(keyManager, amberHost) {
         keyManager.createLocalSigner()
-            ?: (if (keyManager.loginMethod == KeyManager.LOGIN_AMBER && keyManager.publicKeyHex != null)
-                AmberSigner(keyManager.publicKeyHex!!, amberHost)
+            ?: (if (keyManager.loginMethod == KeyManager.LOGIN_AMBER && keyManager.publicKeyHex != null && keyManager.amberPackageName != null)
+                AmberSigner(keyManager.publicKeyHex!!, amberHost, context.contentResolver, keyManager.amberPackageName!!)
             else null)
     }
     val relayPool = remember(signer) { signer?.let { RelayPool(it) } }
@@ -435,8 +436,8 @@ private fun ExistingUserScreen(
                 onClick = {
                     scope.launch {
                         try {
-                            val pubkey = AmberSigner.getPublicKey(amberHost)
-                            keyManager.loginWithAmber(pubkey)
+                            val (pubkey, packageName) = AmberSigner.getPublicKey(amberHost)
+                            keyManager.loginWithAmber(pubkey, packageName)
                             onLoginSuccess()
                         } catch (e: Exception) {
                             errorMessage = e.message ?: "Connection failed"
