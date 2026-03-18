@@ -41,7 +41,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
-private enum class LightTab { Timer, Routines, Log, Lights }
+private enum class LightTab { Timer, Routines, Lights }
 
 // Red light theme for timer
 private val TimerRedDark = Color(0xFF4A0E0E)
@@ -221,7 +221,6 @@ fun LightTherapyCategoryScreen(
                         creatingRoutine = false
                     }
                 )
-                LightTab.Log -> LightLogTabContent(state = state)
                 LightTab.Lights -> LightsTabContent(
                     state = state,
                     onAddDevice = {
@@ -573,27 +572,6 @@ private fun RoutinesTabContent(
         ) {
             Icon(Icons.Default.Add, contentDescription = "Add routine")
         }
-    }
-}
-
-@Composable
-private fun LightLogTabContent(state: LightLibraryState) {
-    var selectedDate by remember { mutableStateOf(LocalDate.now()) }
-    var showCalendar by remember { mutableStateOf(false) }
-    val entries = remember(state, selectedDate) { state.chronologicalLightLogFor(selectedDate) }
-    LightLogContent(
-        selectedDate = selectedDate,
-        onSelectedDateChange = { selectedDate = it },
-        showCalendar = showCalendar,
-        onShowCalendarChange = { showCalendar = it },
-        entries = entries
-    )
-    if (showCalendar) {
-        CalendarPopup(
-            selectedDate = selectedDate,
-            onDateSelected = { selectedDate = it; showCalendar = false },
-            onDismiss = { showCalendar = false }
-        )
     }
 }
 
