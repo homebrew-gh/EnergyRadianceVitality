@@ -5,6 +5,21 @@ import java.time.LocalDate
 import java.util.UUID
 
 @Serializable
+enum class SupplementForm { CAPSULE, POWDER }
+
+@Serializable
+enum class SupplementFrequency { DAILY, WEEKLY, MONTHLY, MORE_THAN_ONCE_PER_DAY }
+
+@Serializable
+enum class SupplementUnit { MG, MCG, G, IU, ML, DROPS }
+
+@Serializable
+enum class SupplementTimeOfDay { MORNING, AFTERNOON, NIGHT }
+
+@Serializable
+enum class SupplementWeekday { MONDAY, TUESDAY, WEDNESDAY, THURSDAY, FRIDAY, SATURDAY, SUNDAY }
+
+@Serializable
 data class SupplementInfo(
     val source: String = "dsld",
     val productId: String? = null,
@@ -21,12 +36,62 @@ data class SupplementInfo(
 )
 
 @Serializable
+data class SupplementDosagePlan(
+    val form: SupplementForm = SupplementForm.POWDER,
+    val servingSize: String = "",
+    val amount: Double? = null,
+    val unit: SupplementUnit = SupplementUnit.MG,
+) {
+    fun summary(): String = buildString {
+        append(
+            when (form) {
+                SupplementForm.CAPSULE -> "Capsule"
+                SupplementForm.POWDER -> "Powder"
+            }
+        )
+        if (servingSize.isNotBlank()) append(" • $servingSize")
+        val dosage = amount?.let { formatAmount(it) }?.let { "$it ${unit.label()} per serving" }
+        if (!dosage.isNullOrBlank()) append(" • $dosage")
+    }.trim()
+
+    fun routinePreview(supplementId: String): List<SupplementRoutineStep> = listOfNotNull(
+        supplementStep(
+            supplementId,
+            SupplementTimeOfDay.MORNING,
+            1,
+            if (servingSize.isNotBlank()) servingSize else "Daily serving"
+        )
+    )
+
+    private fun supplementStep(
+        supplementId: String,
+        timeOfDay: SupplementTimeOfDay?,
+        quantity: Int,
+        notePrefix: String
+    ): SupplementRoutineStep? {
+        if (quantity <= 0) return null
+        return SupplementRoutineStep(
+            supplementId = supplementId,
+            timeOfDay = timeOfDay,
+            quantity = quantity,
+            note = buildString {
+                append(notePrefix)
+                append(": ")
+                val serving = amount?.let { formatAmount(it) }?.let { "$it ${unit.label()}" }
+                if (!serving.isNullOrBlank()) append("$quantity x $serving")
+                else if (servingSize.isNotBlank()) append("$quantity x $servingSize")
+                else append("$quantity serving${if (quantity == 1) "" else "s"}")
+            }
+        )
+    }
+}
+
+@Serializable
 data class SupplementEntry(
     val id: String = UUID.randomUUID().toString(),
     val name: String,
-    val dosage: String,
-    val frequency: String,
-    val whenToTake: String,
+    val brand: String = "",
+    val dosagePlan: SupplementDosagePlan = SupplementDosagePlan(),
     val notes: String = "",
     val productId: String? = null,
     val info: SupplementInfo? = null
@@ -35,6 +100,8 @@ data class SupplementEntry(
 @Serializable
 data class SupplementRoutineStep(
     val supplementId: String,
+    val timeOfDay: SupplementTimeOfDay? = null,
+    val quantity: Int? = null,
     val dosageOverride: String? = null,
     val note: String? = null
 )
@@ -110,4 +177,52 @@ data class SupplementDaySummary(
 )
 
 fun nowEpochSeconds(): Long = System.currentTimeMillis() / 1000
+
+private fun formatAmount(amount: Double): String =
+    if (amount % 1.0 == 0.0) amount.toInt().toString() else amount.toString()
+
+fun SupplementUnit.label(): String = when (this) {
+    SupplementUnit.MG -> "mg"
+    SupplementUnit.MCG -> "mcg"
+    SupplementUnit.G -> "g"
+    SupplementUnit.IU -> "IU"
+    SupplementUnit.ML -> "mL"
+    SupplementUnit.DROPS -> "drops"
+}
+
+fun SupplementRoutineStep.describe(supplementName: String): String = buildString {
+    append(supplementName)
+    timeOfDay?.let {
+        append(" • ")
+        append(
+            when (it) {
+                SupplementTimeOfDay.MORNING -> "morning"
+                SupplementTimeOfDay.AFTERNOON -> "afternoon"
+                SupplementTimeOfDay.NIGHT -> "night"
+            }
+        )
+    }
+    quantity?.takeIf { it > 0 }?.let {
+        append(" x")
+        append(it)
+    }
+    dosageOverride?.takeIf { it.isNotBlank() }?.let {
+        append(" • ")
+        append(it)
+    }
+    note?.takeIf { it.isNotBlank() }?.let {
+        append(" • ")
+        append(it)
+    }
+}
+
+fun SupplementWeekday.shortLabel(): String = when (this) {
+    SupplementWeekday.MONDAY -> "Mon"
+    SupplementWeekday.TUESDAY -> "Tue"
+    SupplementWeekday.WEDNESDAY -> "Wed"
+    SupplementWeekday.THURSDAY -> "Thu"
+    SupplementWeekday.FRIDAY -> "Fri"
+    SupplementWeekday.SATURDAY -> "Sat"
+    SupplementWeekday.SUNDAY -> "Sun"
+}
 

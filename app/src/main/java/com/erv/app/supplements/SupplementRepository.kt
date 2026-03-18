@@ -81,7 +81,7 @@ class SupplementRepository(context: Context) {
             val intake = SupplementIntake(
                 supplementId = supplement.id,
                 supplementName = supplement.name,
-                dosageTaken = dosageTaken ?: supplement.dosage,
+                dosageTaken = dosageTaken ?: supplement.dosagePlan.summary(),
                 takenAtEpochSeconds = nowEpochSeconds(),
                 note = note
             )
@@ -90,19 +90,28 @@ class SupplementRepository(context: Context) {
     }
 
     suspend fun logRoutineRun(date: LocalDate, routineId: String) {
+        val routine = currentState().routineById(routineId) ?: return
+        logRoutineRun(date, routine.id, routine.name, routine.steps)
+    }
+
+    suspend fun logRoutineRun(
+        date: LocalDate,
+        routineId: String,
+        routineName: String,
+        steps: List<SupplementRoutineStep>
+    ) {
         updateState { current ->
-            val routine = current.routineById(routineId) ?: return@updateState current
             val log = current.logFor(date) ?: SupplementDayLog(date = date.toString())
             val run = SupplementRoutineRun(
-                routineId = routine.id,
-                routineName = routine.name,
+                routineId = routineId,
+                routineName = routineName,
                 takenAtEpochSeconds = nowEpochSeconds(),
-                stepIntakes = routine.steps.mapNotNull { step ->
+                stepIntakes = steps.mapNotNull { step ->
                     val supplement = current.supplementById(step.supplementId) ?: return@mapNotNull null
                     SupplementIntake(
                         supplementId = supplement.id,
                         supplementName = supplement.name,
-                        dosageTaken = step.dosageOverride ?: supplement.dosage,
+                        dosageTaken = step.dosageOverride ?: step.describe(supplement.name),
                         takenAtEpochSeconds = nowEpochSeconds(),
                         note = step.note
                     )
@@ -129,17 +138,15 @@ class SupplementRepository(context: Context) {
     suspend fun renameSupplement(
         supplementId: String,
         name: String,
-        dosage: String,
-        frequency: String,
-        whenToTake: String,
+        brand: String,
+        dosagePlan: SupplementDosagePlan,
         notes: String = ""
     ) {
         updateState { current ->
             val updated = current.supplementById(supplementId)?.copy(
                 name = name,
-                dosage = dosage,
-                frequency = frequency,
-                whenToTake = whenToTake,
+                brand = brand,
+                dosagePlan = dosagePlan,
                 notes = notes
             ) ?: return@updateState current
             current.copy(supplements = current.supplements.upsert(updated))
@@ -164,16 +171,14 @@ class SupplementRepository(context: Context) {
 
     suspend fun addSupplement(
         name: String,
-        dosage: String,
-        frequency: String,
-        whenToTake: String,
+        brand: String,
+        dosagePlan: SupplementDosagePlan,
         notes: String = ""
     ): SupplementEntry {
         val entry = SupplementEntry(
             name = name,
-            dosage = dosage,
-            frequency = frequency,
-            whenToTake = whenToTake,
+            brand = brand,
+            dosagePlan = dosagePlan,
             notes = notes
         )
         upsertSupplement(entry)

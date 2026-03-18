@@ -41,33 +41,33 @@ val ErvInversePrimary = Color(0xFFFFB68E)
 
 val ErvScrim = Color(0xFF000000)
 
-// --- Dark palette: warm ember glow ---
+// --- Dark palette: warm ember glow with red-wine surfaces ---
 
-val ErvDarkPrimary = Color(0xFFFFB68E)           // bright peach-orange
-val ErvDarkOnPrimary = Color(0xFF5C2200)
-val ErvDarkPrimaryContainer = Color(0xFF7A3A10)  // deep warm orange
-val ErvDarkOnPrimaryContainer = Color(0xFFFFE0CC)
+val ErvDarkPrimary = Color(0xFFFFA38A)           // warm coral
+val ErvDarkOnPrimary = Color(0xFF5A1D19)
+val ErvDarkPrimaryContainer = Color(0xFF8A2E2A)  // deep red-orange
+val ErvDarkOnPrimaryContainer = Color(0xFFFFE5E2)
 
-val ErvDarkSecondary = Color(0xFFFFD080)         // bright gold
-val ErvDarkOnSecondary = Color(0xFF3A2900)
-val ErvDarkSecondaryContainer = Color(0xFF5C4420)
-val ErvDarkOnSecondaryContainer = Color(0xFFFFECC8)
+val ErvDarkSecondary = Color(0xFFFFC48A)         // amber peach
+val ErvDarkOnSecondary = Color(0xFF4A2310)
+val ErvDarkSecondaryContainer = Color(0xFF6A3328)
+val ErvDarkOnSecondaryContainer = Color(0xFFFFE8D7)
 
-val ErvDarkTertiary = Color(0xFFDEB896)          // warm tan
-val ErvDarkOnTertiary = Color(0xFF2E1A06)
-val ErvDarkTertiaryContainer = Color(0xFF5C4430)
-val ErvDarkOnTertiaryContainer = Color(0xFFF5E0C8)
+val ErvDarkTertiary = Color(0xFFE1A899)          // dusty rose
+val ErvDarkOnTertiary = Color(0xFF3C1D1D)
+val ErvDarkTertiaryContainer = Color(0xFF633036)
+val ErvDarkOnTertiaryContainer = Color(0xFFFFE3E2)
 
-val ErvDarkBackground = Color(0xFF1A100C)        // deep chocolate
-val ErvDarkOnBackground = Color(0xFFF5E6D8)
+val ErvDarkBackground = Color(0xFF160B0E)        // deep wine
+val ErvDarkOnBackground = Color(0xFFF7E6E4)
 
-val ErvDarkSurface = Color(0xFF241812)           // warm dark brown
-val ErvDarkOnSurface = Color(0xFFF5E6D8)         // warm cream text
-val ErvDarkSurfaceVariant = Color(0xFF3D2A20)    // medium-dark brown
-val ErvDarkOnSurfaceVariant = Color(0xFFCFBDAD)
+val ErvDarkSurface = Color(0xFF251116)           // wine surface
+val ErvDarkOnSurface = Color(0xFFF7E6E4)         // warm rose-cream text
+val ErvDarkSurfaceVariant = Color(0xFF432126)    // muted wine
+val ErvDarkOnSurfaceVariant = Color(0xFFD9B9B7)
 
-val ErvDarkOutline = Color(0xFFA08878)           // warm medium
-val ErvDarkOutlineVariant = Color(0xFF5C4C40)
+val ErvDarkOutline = Color(0xFFB07A7A)           // muted rose
+val ErvDarkOutlineVariant = Color(0xFF634145)
 
 val ErvDarkError = Color(0xFFFFB4AB)
 val ErvDarkOnError = Color(0xFF690005)

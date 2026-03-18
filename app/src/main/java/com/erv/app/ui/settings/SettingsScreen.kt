@@ -10,6 +10,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.LightMode
+import androidx.compose.material.icons.filled.SettingsBrightness
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.semantics.contentDescription
@@ -30,6 +33,7 @@ import com.erv.app.nostr.Nip65
 import com.erv.app.nostr.RelayPool
 import com.erv.app.nostr.SettingsSync
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 private const val WSS_PREFIX = "wss://"
 
@@ -103,11 +107,24 @@ fun SettingsScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp)
         ) {
-            // --- Relays ---
+            ThemeSection(
+                themeMode = themeMode,
+                onThemeChange = { mode -> scope.launch { userPreferences.setThemeMode(mode) } }
+            )
+
+            Spacer(Modifier.height(12.dp))
+
+            IdentitySection(
+                keyManager = keyManager,
+                onLogout = onLogout
+            )
+
+            Spacer(Modifier.height(16.dp))
+
             Text(
                 "Relays",
                 style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(top = 16.dp, bottom = 4.dp)
+                modifier = Modifier.padding(bottom = 4.dp)
             )
             Text(
                 "Toggle Data (encrypted activity) and Social (public posts) per relay.",
@@ -164,33 +181,41 @@ fun SettingsScreen(
             )
 
             Spacer(Modifier.height(8.dp))
-            OutlinedButton(
-                onClick = {
-                    val pubkey = keyManager.publicKeyHex ?: return@OutlinedButton
-                    scope.launch {
-                        fetchingRelays = true
-                        try {
-                            kotlinx.coroutines.delay(1500)
-                            val urls = Nip65.fetchRelayListFromNetwork(relayPool!!, pubkey)
-                            if (urls.isEmpty()) {
-                                snackbarMessage = "No relay list found. Set up relays in Damus/Primal first, or add manually."
-                            } else {
-                                urls.forEach { keyManager.addSocialRelay(it) }
-                                relayRevision++
-                                hasUnsavedChanges = true
-                                snackbarMessage = "Added ${urls.size} relay(s) as social."
+            if (keyManager.socialRelayUrls.isEmpty()) {
+                OutlinedButton(
+                    onClick = {
+                        val pubkey = keyManager.publicKeyHex ?: return@OutlinedButton
+                        scope.launch {
+                            fetchingRelays = true
+                            try {
+                                kotlinx.coroutines.delay(1500)
+                                val urls = Nip65.fetchRelayListFromNetwork(relayPool!!, pubkey)
+                                if (urls.isEmpty()) {
+                                    snackbarMessage = "No relay list found. Set up relays in Damus/Primal first, or add manually."
+                                } else {
+                                    urls.forEach { keyManager.addSocialRelay(it) }
+                                    relayRevision++
+                                    hasUnsavedChanges = true
+                                    snackbarMessage = "Added ${urls.size} relay(s) as social."
+                                }
+                            } catch (e: Exception) {
+                                snackbarMessage = "Fetch failed: ${e.message}"
+                            } finally {
+                                fetchingRelays = false
                             }
-                        } catch (e: Exception) {
-                            snackbarMessage = "Fetch failed: ${e.message}"
-                        } finally {
-                            fetchingRelays = false
                         }
-                    }
-                },
-                enabled = relayPool != null && keyManager.publicKeyHex != null && !fetchingRelays,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(if (fetchingRelays) "Fetching…" else "Fetch social relays from network")
+                    },
+                    enabled = relayPool != null && keyManager.publicKeyHex != null && !fetchingRelays,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(if (fetchingRelays) "Fetching…" else "Fetch social relays from network")
+                }
+            } else {
+                Text(
+                    "Social relays imported from network.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
 
             if (hasUnsavedChanges) {
@@ -222,114 +247,6 @@ fun SettingsScreen(
                 }
             }
 
-            HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
-
-            // --- Identity ---
-            Text(
-                "Identity",
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(bottom = 8.dp)
-            )
-            val clipboardManager = LocalClipboardManager.current
-            var copiedLabel by remember { mutableStateOf<String?>(null) }
-
-            LaunchedEffect(copiedLabel) {
-                if (copiedLabel != null) {
-                    kotlinx.coroutines.delay(1500)
-                    copiedLabel = null
-                }
-            }
-
-            ElevatedCard(
-                modifier = Modifier.fillMaxWidth(),
-                elevation = CardDefaults.elevatedCardElevation(defaultElevation = 4.dp)
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    val npub = keyManager.npub
-                    val hex = keyManager.publicKeyHex
-
-                    Text(
-                        text = "Public Key (npub)",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = if (copiedLabel == "npub") "Copied!" else npub ?: "Not logged in",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = if (copiedLabel == "npub") MaterialTheme.colorScheme.primary
-                               else MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier
-                            .padding(bottom = 8.dp)
-                            .then(
-                                if (npub != null) Modifier.clickable {
-                                    clipboardManager.setText(AnnotatedString(npub))
-                                    copiedLabel = "npub"
-                                } else Modifier
-                            )
-                    )
-
-                    Text(
-                        text = "Public Key (hex)",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = if (copiedLabel == "hex") "Copied!" else hex ?: "Not logged in",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = if (copiedLabel == "hex") MaterialTheme.colorScheme.primary
-                               else MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier
-                            .padding(bottom = 8.dp)
-                            .then(
-                                if (hex != null) Modifier.clickable {
-                                    clipboardManager.setText(AnnotatedString(hex))
-                                    copiedLabel = "hex"
-                                } else Modifier
-                            )
-                    )
-
-                    Text(
-                        text = "Login Method",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = keyManager.loginMethod ?: "None",
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
-            }
-
-            Spacer(Modifier.height(12.dp))
-            OutlinedButton(
-                onClick = onLogout,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("Logout")
-            }
-
-            HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
-
-            // --- Theme ---
-            Text(
-                "Theme",
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(bottom = 8.dp)
-            )
-            ThemeMode.entries.forEach { mode ->
-                Row(modifier = Modifier.fillMaxWidth()) {
-                    RadioButton(
-                        selected = themeMode == mode,
-                        onClick = { scope.launch { userPreferences.setThemeMode(mode) } }
-                    )
-                    Text(
-                        text = mode.name.lowercase().replaceFirstChar { it.uppercase() },
-                        style = MaterialTheme.typography.bodyLarge,
-                        modifier = Modifier.padding(start = 8.dp, top = 12.dp)
-                    )
-                }
-            }
-
             Spacer(Modifier.height(32.dp))
         }
     }
@@ -339,6 +256,158 @@ private fun normalizeRelayUrl(input: String): String? {
     val s = input.trim()
     if (s.isEmpty()) return null
     return if (s.startsWith("wss://") || s.startsWith("ws://")) s else "$WSS_PREFIX$s"
+}
+
+@Composable
+private fun ThemeSection(
+    themeMode: ThemeMode,
+    onThemeChange: (ThemeMode) -> Unit
+) {
+    val currentValue = when (themeMode) {
+        ThemeMode.LIGHT -> 0f
+        ThemeMode.SYSTEM -> 1f
+        ThemeMode.DARK -> 2f
+    }
+
+    Text(
+        "Theme",
+        style = MaterialTheme.typography.labelLarge,
+        modifier = Modifier.padding(bottom = 4.dp)
+    )
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(Icons.Default.LightMode, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(8.dp))
+                Text("Light", style = MaterialTheme.typography.bodySmall)
+                Spacer(Modifier.weight(1f))
+                Icon(Icons.Default.SettingsBrightness, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.width(8.dp))
+                Text("System", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.weight(1f))
+                Text("Dark", style = MaterialTheme.typography.bodySmall)
+                Spacer(Modifier.width(8.dp))
+                Icon(Icons.Default.DarkMode, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary)
+            }
+            Slider(
+                value = currentValue,
+                onValueChange = { value ->
+                    val mode = when (value.roundToInt()) {
+                        0 -> ThemeMode.LIGHT
+                        1 -> ThemeMode.SYSTEM
+                        else -> ThemeMode.DARK
+                    }
+                    onThemeChange(mode)
+                },
+                valueRange = 0f..2f,
+                steps = 1
+            )
+            Text(
+                text = when (themeMode) {
+                    ThemeMode.LIGHT -> "Light"
+                    ThemeMode.SYSTEM -> "System"
+                    ThemeMode.DARK -> "Dark"
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun IdentitySection(
+    keyManager: KeyManager,
+    onLogout: () -> Unit
+) {
+    val clipboardManager = LocalClipboardManager.current
+    var copiedLabel by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(copiedLabel) {
+        if (copiedLabel != null) {
+            kotlinx.coroutines.delay(1500)
+            copiedLabel = null
+        }
+    }
+
+    Text(
+        "Identity",
+        style = MaterialTheme.typography.titleMedium,
+        modifier = Modifier.padding(bottom = 8.dp)
+    )
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 4.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            val npub = keyManager.npub
+            val hex = keyManager.publicKeyHex
+
+            Text(
+                text = "Public Key (npub)",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = if (copiedLabel == "npub") "Copied!" else npub ?: "Not logged in",
+                style = MaterialTheme.typography.bodySmall,
+                color = if (copiedLabel == "npub") MaterialTheme.colorScheme.primary
+                       else MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier
+                    .padding(bottom = 8.dp)
+                    .then(
+                        if (npub != null) Modifier.clickable {
+                            clipboardManager.setText(AnnotatedString(npub))
+                            copiedLabel = "npub"
+                        } else Modifier
+                    )
+            )
+
+            Text(
+                text = "Public Key (hex)",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = if (copiedLabel == "hex") "Copied!" else hex ?: "Not logged in",
+                style = MaterialTheme.typography.bodySmall,
+                color = if (copiedLabel == "hex") MaterialTheme.colorScheme.primary
+                       else MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier
+                    .padding(bottom = 8.dp)
+                    .then(
+                        if (hex != null) Modifier.clickable {
+                            clipboardManager.setText(AnnotatedString(hex))
+                            copiedLabel = "hex"
+                        } else Modifier
+                    )
+            )
+
+            Text(
+                text = "Login Method",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = keyManager.loginMethod ?: "None",
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+    }
+
+    Spacer(Modifier.height(12.dp))
+    OutlinedButton(
+        onClick = onLogout,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Text("Logout")
+    }
 }
 
 @Composable
@@ -356,11 +425,12 @@ private fun RelayAddRow(
         OutlinedTextField(
             value = suffix,
             onValueChange = onSuffixChange,
-            leadingIcon = {
+            prefix = {
                 Text(
                     text = WSS_PREFIX,
                     style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(end = 8.dp)
                 )
             },
             label = { Text("Add relay") },

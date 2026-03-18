@@ -21,22 +21,37 @@ import com.erv.app.nostr.EventSigner
 import com.erv.app.nostr.RelayPool
 import com.erv.app.supplements.SupplementApiClient
 import com.erv.app.supplements.SupplementApiResult
+import com.erv.app.supplements.SupplementDosagePlan
 import com.erv.app.supplements.SupplementDayLog
 import com.erv.app.supplements.SupplementEntry
+import com.erv.app.supplements.SupplementForm
 import com.erv.app.supplements.SupplementLibraryState
 import com.erv.app.supplements.SupplementRepository
 import com.erv.app.supplements.SupplementRoutine
 import com.erv.app.supplements.SupplementRoutineStep
+import com.erv.app.supplements.SupplementTimeOfDay
+import com.erv.app.supplements.SupplementUnit
 import com.erv.app.supplements.SupplementSync
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 
-private enum class SupplementsTab { Routines, Supplements, Log }
+private enum class SupplementsTab { Supplements, Routines }
 
 private data class RoutineStepDraft(
     val supplementId: String? = null,
-    val dosageOverride: String = "",
+    val timeOfDay: SupplementTimeOfDay = SupplementTimeOfDay.MORNING,
+    val quantity: String = "1",
     val note: String = ""
+)
+
+private data class SupplementDraft(
+    val name: String = "",
+    val brand: String = "",
+    val servingSize: String = "",
+    val form: SupplementForm = SupplementForm.POWDER,
+    val servingAmount: String = "",
+    val servingUnit: SupplementUnit = SupplementUnit.MG,
+    val notes: String = ""
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -54,6 +69,7 @@ fun SupplementCategoryScreen(
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     var activeTab by rememberSaveable { mutableIntStateOf(0) }
+    var showLogDialog by remember { mutableStateOf(false) }
     var supplementEditor by remember { mutableStateOf<SupplementEntry?>(null) }
     var creatingSupplement by remember { mutableStateOf(false) }
     var routineEditor by remember { mutableStateOf<SupplementRoutine?>(null) }
@@ -88,6 +104,11 @@ fun SupplementCategoryScreen(
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
+                },
+                actions = {
+                    TextButton(onClick = { showLogDialog = true }) {
+                        Text("Log")
+                    }
                 }
             )
         }
@@ -108,6 +129,50 @@ fun SupplementCategoryScreen(
             }
 
             when (SupplementsTab.entries[activeTab]) {
+                SupplementsTab.Supplements -> SupplementsTabContent(
+                    state = state,
+                    onAddSupplement = {
+                        creatingSupplement = true
+                        supplementEditor = null
+                    },
+                    onEditSupplement = { supplementEditor = it },
+                    onDeleteSupplement = { supplementId ->
+                        scope.launch {
+                            repository.deleteSupplement(supplementId)
+                            syncMaster()
+                        }
+                    },
+                    onOpenDetail = onOpenSupplementDetail,
+                    onTakeNow = { supplement ->
+                        scope.launch {
+                            repository.logAdHocIntake(today, supplement.id)
+                            repository.currentState().logFor(today)?.let { syncDailyLog(it) }
+                            snackbarHostState.showSnackbar("Logged ${supplement.name}")
+                        }
+                    },
+                    supplementEditor = supplementEditor,
+                    creatingSupplement = creatingSupplement,
+                    onDismissSupplementEditor = {
+                        supplementEditor = null
+                        creatingSupplement = false
+                    },
+                    onResetSupplementEditorMode = { creatingSupplement = false },
+                    onCreateSupplement = { name, brand, dosagePlan, notes ->
+                        scope.launch {
+                            repository.addSupplement(name, brand, dosagePlan, notes)
+                            syncMaster()
+                            snackbarHostState.showSnackbar("Supplement saved")
+                        }
+                    },
+                    onUpdateSupplement = { id, name, brand, dosagePlan, notes ->
+                        scope.launch {
+                            repository.renameSupplement(id, name, brand, dosagePlan, notes)
+                            syncMaster()
+                            snackbarHostState.showSnackbar("Supplement updated")
+                        }
+                    }
+                )
+
                 SupplementsTab.Routines -> RoutinesTab(
                     state = state,
                     onAddClick = {
@@ -151,58 +216,17 @@ fun SupplementCategoryScreen(
                     onResetRoutineEditorMode = { creatingRoutine = false },
                     supplements = state.supplements,
                 )
-
-                SupplementsTab.Supplements -> SupplementsTabContent(
-                    state = state,
-                    onAddSupplement = {
-                        creatingSupplement = true
-                        supplementEditor = null
-                    },
-                    onEditSupplement = { supplementEditor = it },
-                    onDeleteSupplement = { supplementId ->
-                        scope.launch {
-                            repository.deleteSupplement(supplementId)
-                            syncMaster()
-                        }
-                    },
-                    onOpenDetail = onOpenSupplementDetail,
-                    onTakeNow = { supplement ->
-                        scope.launch {
-                            repository.logAdHocIntake(today, supplement.id)
-                            repository.currentState().logFor(today)?.let { syncDailyLog(it) }
-                            snackbarHostState.showSnackbar("Logged ${supplement.name}")
-                        }
-                    },
-                    supplementEditor = supplementEditor,
-                    creatingSupplement = creatingSupplement,
-                    onDismissSupplementEditor = {
-                        supplementEditor = null
-                        creatingSupplement = false
-                    },
-                    onResetSupplementEditorMode = { creatingSupplement = false },
-                    onCreateSupplement = { name, dosage, frequency, whenToTake, notes ->
-                        scope.launch {
-                            repository.addSupplement(name, dosage, frequency, whenToTake, notes)
-                            syncMaster()
-                            snackbarHostState.showSnackbar("Supplement saved")
-                        }
-                    },
-                    onUpdateSupplement = { id, name, dosage, frequency, whenToTake, notes ->
-                        scope.launch {
-                            repository.renameSupplement(id, name, dosage, frequency, whenToTake, notes)
-                            syncMaster()
-                            snackbarHostState.showSnackbar("Supplement updated")
-                        }
-                    }
-                )
-
-                SupplementsTab.Log -> LogTab(
-                    state = state,
-                    today = today,
-                    summary = todaySummary
-                )
             }
         }
+    }
+
+    if (showLogDialog) {
+        SupplementLogDialog(
+            state = state,
+            today = today,
+            summary = todaySummary,
+            onDismiss = { showLogDialog = false }
+        )
     }
 }
 
@@ -249,8 +273,7 @@ private fun RoutinesTab(
                             routine.steps.forEachIndexed { index, step ->
                                 val supplement = supplements.firstOrNull { it.id == step.supplementId }
                                 Text(
-                                    "${index + 1}. ${supplement?.name ?: "Missing supplement"}" +
-                                        (step.dosageOverride?.let { " • $it" } ?: ""),
+                                    "${index + 1}. ${step.describe(supplement?.name ?: "Missing supplement")}",
                                     style = MaterialTheme.typography.bodyMedium
                                 )
                             }
@@ -316,8 +339,8 @@ private fun SupplementsTabContent(
     creatingSupplement: Boolean,
     onDismissSupplementEditor: () -> Unit,
     onResetSupplementEditorMode: () -> Unit,
-    onCreateSupplement: (String, String, String, String, String) -> Unit,
-    onUpdateSupplement: (String, String, String, String, String, String) -> Unit
+    onCreateSupplement: (String, String, SupplementDosagePlan, String) -> Unit,
+    onUpdateSupplement: (String, String, String, SupplementDosagePlan, String) -> Unit
 ) {
     Box(modifier = Modifier.fillMaxSize()) {
         if (state.supplements.isEmpty()) {
@@ -338,9 +361,17 @@ private fun SupplementsTabContent(
                     ) {
                         Column(modifier = Modifier.padding(16.dp)) {
                             Text(supplement.name, style = MaterialTheme.typography.titleMedium)
+                            if (supplement.brand.isNotBlank()) {
+                                Spacer(Modifier.height(2.dp))
+                                Text(
+                                    supplement.brand,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                             Spacer(Modifier.height(4.dp))
                             Text(
-                                "${supplement.dosage} • ${supplement.frequency} • ${supplement.whenToTake}",
+                                supplement.dosagePlan.summary(),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -398,9 +429,9 @@ private fun SupplementsTabContent(
             creating = creatingSupplement,
             onDismiss = onDismissSupplementEditor,
             onDismissReset = onResetSupplementEditorMode,
-            onSave = { id, name, dosage, frequency, whenToTake, notes ->
-                if (id == null) onCreateSupplement(name, dosage, frequency, whenToTake, notes)
-                else onUpdateSupplement(id, name, dosage, frequency, whenToTake, notes)
+            onSave = { id, name, brand, plan, notes ->
+                if (id == null) onCreateSupplement(name, brand, plan, notes)
+                else onUpdateSupplement(id, name, brand, plan, notes)
                 onResetSupplementEditorMode()
                 onDismissSupplementEditor()
             }
@@ -408,89 +439,73 @@ private fun SupplementsTabContent(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun LogTab(
+private fun SupplementLogDialog(
     state: SupplementLibraryState,
     today: LocalDate,
-    summary: com.erv.app.supplements.SupplementDaySummary
+    summary: com.erv.app.supplements.SupplementDaySummary,
+    onDismiss: () -> Unit
 ) {
     val log = state.logFor(today)
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        item {
-            ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text("Today", style = MaterialTheme.typography.titleMedium)
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        if (summary.uniqueSupplementCount == 0) "No supplements logged yet"
-                        else "${summary.routineCount} routine run(s), ${summary.adHocCount} ad hoc intake(s)",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    if (summary.routineNames.isNotEmpty()) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Log") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text("Today", style = MaterialTheme.typography.titleMedium)
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            summary.routineNames.joinToString(),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            if (summary.uniqueSupplementCount == 0) "No supplements logged yet"
+                            else "${summary.routineCount} routine run(s), ${summary.adHocCount} ad hoc intake(s)",
+                            style = MaterialTheme.typography.bodyMedium
                         )
-                    }
-                }
-            }
-        }
-
-        if (log == null) {
-            item {
-                EmptyState(
-                    title = "No log for today",
-                    subtitle = "Run a routine or tap Take now on a supplement."
-                )
-            }
-        } else {
-            if (log.routineRuns.isNotEmpty()) {
-                item {
-                    Text("Routine runs", style = MaterialTheme.typography.titleMedium)
-                }
-                items(log.routineRuns, key = { it.id }) { run ->
-                    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Text(run.routineName, style = MaterialTheme.typography.titleSmall)
-                            Spacer(Modifier.height(4.dp))
-                            run.stepIntakes.forEach {
-                                Text(
-                                    "• ${it.supplementName} ${it.dosageTaken ?: ""}".trim(),
-                                    style = MaterialTheme.typography.bodySmall
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            if (log.adHocIntakes.isNotEmpty()) {
-                item {
-                    Text("Ad hoc intakes", style = MaterialTheme.typography.titleMedium)
-                }
-                items(log.adHocIntakes) { intake ->
-                    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Text(intake.supplementName, style = MaterialTheme.typography.titleSmall)
+                        if (summary.routineNames.isNotEmpty()) {
                             Spacer(Modifier.height(4.dp))
                             Text(
-                                intake.dosageTaken ?: "No dosage recorded",
+                                summary.routineNames.joinToString(),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
                 }
+
+                if (log == null) {
+                    Text(
+                        "No log for today.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    if (log.routineRuns.isNotEmpty()) {
+                        Text("Routine runs", style = MaterialTheme.typography.titleSmall)
+                        log.routineRuns.forEach { run ->
+                            Text(
+                                "• ${run.routineName}",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                    }
+                    if (log.adHocIntakes.isNotEmpty()) {
+                        Text("Recent intakes", style = MaterialTheme.typography.titleSmall)
+                        log.adHocIntakes.forEach { intake ->
+                            Text(
+                                "• ${intake.supplementName}",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                    }
+                }
             }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Close") }
         }
-    }
+    )
 }
 
 @Composable
@@ -521,50 +536,95 @@ private fun SupplementEditorDialog(
     creating: Boolean,
     onDismiss: () -> Unit,
     onDismissReset: () -> Unit,
-    onSave: (String?, String, String, String, String, String) -> Unit
+    onSave: (String?, String, String, SupplementDosagePlan, String) -> Unit
 ) {
-    var name by remember(supplement?.id, creating) { mutableStateOf(supplement?.name.orEmpty()) }
-    var dosage by remember(supplement?.id, creating) { mutableStateOf(supplement?.dosage.orEmpty()) }
-    var frequency by remember(supplement?.id, creating) { mutableStateOf(supplement?.frequency.orEmpty()) }
-    var whenToTake by remember(supplement?.id, creating) { mutableStateOf(supplement?.whenToTake.orEmpty()) }
-    var notes by remember(supplement?.id, creating) { mutableStateOf(supplement?.notes.orEmpty()) }
+    var draft by remember(supplement?.id, creating) {
+        mutableStateOf(supplement?.toSupplementDraft() ?: SupplementDraft())
+    }
+    val plan = remember(draft) { draft.toDosagePlan() }
+    val isValid = remember(draft) { draft.isValid() }
 
     AlertDialog(
         onDismissRequest = { onDismissReset(); onDismiss() },
         title = { Text(if (creating) "Add supplement" else "Edit supplement") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.verticalScroll(rememberScrollState())
+            ) {
                 OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
+                    value = draft.name,
+                    onValueChange = { draft = draft.copy(name = it) },
                     label = { Text("Name") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
                 OutlinedTextField(
-                    value = dosage,
-                    onValueChange = { dosage = it },
-                    label = { Text("Dosage") },
+                    value = draft.brand,
+                    onValueChange = { draft = draft.copy(brand = it) },
+                    label = { Text("Brand") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
                 OutlinedTextField(
-                    value = frequency,
-                    onValueChange = { frequency = it },
-                    label = { Text("Frequency") },
+                    value = draft.servingSize,
+                    onValueChange = { draft = draft.copy(servingSize = it) },
+                    label = { Text("Serving size") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
+
+                Text("Serving dosage", style = MaterialTheme.typography.titleSmall)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    EnumDropdownField(
+                        value = draft.form,
+                        label = "Form",
+                        options = SupplementForm.entries,
+                        optionLabel = {
+                            when (it) {
+                                SupplementForm.CAPSULE -> "Capsule"
+                                SupplementForm.POWDER -> "Powder"
+                            }
+                        },
+                        onSelected = { draft = draft.copy(form = it) },
+                        modifier = Modifier.weight(0.9f)
+                    )
+                    OutlinedTextField(
+                        value = draft.servingAmount,
+                        onValueChange = { draft = draft.copy(servingAmount = it) },
+                        label = { Text("Amount") },
+                        keyboardOptions = androidx.compose.ui.text.input.KeyboardOptions(
+                            keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal
+                        ),
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                    EnumDropdownField(
+                        value = draft.servingUnit,
+                        label = "Unit",
+                        options = SupplementUnit.entries,
+                        optionLabel = { it.label() },
+                        onSelected = { draft = draft.copy(servingUnit = it) },
+                        modifier = Modifier.weight(0.9f)
+                    )
+                }
+
+                ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text("Label preview", style = MaterialTheme.typography.labelMedium)
+                        Spacer(Modifier.height(4.dp))
+                        val preview = plan.summary()
+                        Text(
+                            if (preview.isBlank()) "Fill in the serving details to see the preview." else preview,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
                 OutlinedTextField(
-                    value = whenToTake,
-                    onValueChange = { whenToTake = it },
-                    label = { Text("When to take") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
-                    value = notes,
-                    onValueChange = { notes = it },
+                    value = draft.notes,
+                    onValueChange = { draft = draft.copy(notes = it) },
                     label = { Text("Notes") },
                     minLines = 2,
                     modifier = Modifier.fillMaxWidth()
@@ -574,9 +634,9 @@ private fun SupplementEditorDialog(
         confirmButton = {
             TextButton(
                 onClick = {
-                    onSave(supplement?.id, name.trim(), dosage.trim(), frequency.trim(), whenToTake.trim(), notes.trim())
+                    onSave(supplement?.id, draft.name.trim(), draft.brand.trim(), plan, draft.notes.trim())
                 },
-                enabled = name.isNotBlank() && dosage.isNotBlank() && frequency.isNotBlank() && whenToTake.isNotBlank()
+                enabled = isValid
             ) {
                 Text("Save")
             }
@@ -599,15 +659,25 @@ private fun RoutineEditorDialog(
 ) {
     var name by remember(routine?.id, creating) { mutableStateOf(routine?.name.orEmpty()) }
     var notes by remember(routine?.id, creating) { mutableStateOf(routine?.notes.orEmpty()) }
-    val steps = remember(routine?.id) {
+    val steps = remember(routine?.id, creating) {
         mutableStateListOf<RoutineStepDraft>().apply {
             if (routine?.steps.isNullOrEmpty()) {
                 add(RoutineStepDraft())
             } else {
-                routine!!.steps.forEach { add(RoutineStepDraft(it.supplementId, it.dosageOverride.orEmpty(), it.note.orEmpty())) }
+                routine!!.steps.forEach {
+                    add(
+                        RoutineStepDraft(
+                            supplementId = it.supplementId,
+                            timeOfDay = it.timeOfDay ?: SupplementTimeOfDay.MORNING,
+                            quantity = it.quantity?.toString() ?: "1",
+                            note = it.note.orEmpty()
+                        )
+                    )
+                }
             }
         }
     }
+    val timeSlots = remember { listOf(SupplementTimeOfDay.MORNING, SupplementTimeOfDay.AFTERNOON, SupplementTimeOfDay.NIGHT) }
 
     AlertDialog(
         onDismissRequest = { onDismissReset(); onDismiss() },
@@ -632,17 +702,40 @@ private fun RoutineEditorDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                Text("Steps", style = MaterialTheme.typography.titleSmall)
-                steps.forEachIndexed { index, step ->
-                    RoutineStepRow(
-                        step = step,
-                        supplements = supplements,
-                        onStepChange = { updated -> steps[index] = updated },
-                        onRemove = { if (steps.size > 1) steps.removeAt(index) }
-                    )
-                }
-                TextButton(onClick = { steps.add(RoutineStepDraft()) }) {
-                    Text("Add step")
+                Text("Schedule", style = MaterialTheme.typography.titleSmall)
+                Text(
+                    "Set the supplements you want to take in each part of the day.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                timeSlots.forEach { timeOfDay ->
+                    val slotSteps = steps.withIndex().filter { it.value.timeOfDay == timeOfDay }
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            timeOfDay.label(),
+                            style = MaterialTheme.typography.labelLarge
+                        )
+                        if (slotSteps.isEmpty()) {
+                            Text(
+                                "No supplements added for this time yet.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        } else {
+                            slotSteps.forEach { indexedStep ->
+                                RoutineStepRow(
+                                    step = indexedStep.value,
+                                    supplements = supplements,
+                                    onStepChange = { updated -> steps[indexedStep.index] = updated },
+                                    onRemove = { if (steps.size > 1) steps.removeAt(indexedStep.index) }
+                                )
+                            }
+                        }
+                        TextButton(onClick = { steps.add(RoutineStepDraft(timeOfDay = timeOfDay)) }) {
+                            Text("Add ${timeOfDay.label().lowercase()}")
+                        }
+                    }
                 }
             }
         },
@@ -656,7 +749,8 @@ private fun RoutineEditorDialog(
                             val supplementId = draft.supplementId ?: return@mapNotNull null
                             SupplementRoutineStep(
                                 supplementId = supplementId,
-                                dosageOverride = draft.dosageOverride.trim().ifBlank { null },
+                                timeOfDay = draft.timeOfDay,
+                                quantity = draft.quantity.toIntOrNull() ?: 1,
                                 note = draft.note.trim().ifBlank { null }
                             )
                         },
@@ -717,9 +811,9 @@ private fun RoutineStepRow(
         }
 
         OutlinedTextField(
-            value = step.dosageOverride,
-            onValueChange = { onStepChange(step.copy(dosageOverride = it)) },
-            label = { Text("Dosage override (optional)") },
+            value = step.quantity,
+            onValueChange = { onStepChange(step.copy(quantity = it.filter { ch -> ch.isDigit() })) },
+            label = { Text("Quantity") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth()
         )
@@ -739,6 +833,12 @@ private fun RoutineStepRow(
             Text("Remove step")
         }
     }
+}
+
+private fun SupplementTimeOfDay.label(): String = when (this) {
+    SupplementTimeOfDay.MORNING -> "Morning"
+    SupplementTimeOfDay.AFTERNOON -> "Afternoon"
+    SupplementTimeOfDay.NIGHT -> "Night"
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -815,9 +915,17 @@ fun SupplementDetailScreen(
                 ElevatedCard(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text(supplement.name, style = MaterialTheme.typography.titleLarge)
+                        if (supplement.brand.isNotBlank()) {
+                            Spacer(Modifier.height(2.dp))
+                            Text(
+                                supplement.brand,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            "${supplement.dosage} • ${supplement.frequency} • ${supplement.whenToTake}",
+                            supplement.dosagePlan.summary(),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -940,8 +1048,7 @@ fun SupplementDetailScreen(
                             Text(routine.name, style = MaterialTheme.typography.titleSmall)
                             Text(
                                 routine.steps.joinToString { step ->
-                                    val name = state.supplementById(step.supplementId)?.name ?: "Missing"
-                                    if (step.dosageOverride.isNullOrBlank()) name else "$name (${step.dosageOverride})"
+                                    step.describe(state.supplementById(step.supplementId)?.name ?: "Missing")
                                 },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -963,4 +1070,72 @@ private fun KeyValueRow(label: String, value: String?) {
         }
     }
 }
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun <T> EnumDropdownField(
+    value: T,
+    label: String,
+    options: List<T>,
+    optionLabel: (T) -> String,
+    onSelected: (T) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var expanded by remember { mutableStateOf(false) }
+    ExposedDropdownMenuBox(
+        expanded = expanded,
+        onExpandedChange = { expanded = !expanded },
+        modifier = modifier
+    ) {
+        OutlinedTextField(
+            value = optionLabel(value),
+            onValueChange = {},
+            readOnly = true,
+            label = { Text(label) },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            modifier = Modifier
+                .menuAnchor()
+                .fillMaxWidth()
+        )
+        ExposedDropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false }
+        ) {
+            options.forEach { option ->
+                DropdownMenuItem(
+                    text = { Text(optionLabel(option)) },
+                    onClick = {
+                        expanded = false
+                        onSelected(option)
+                    }
+                )
+            }
+        }
+    }
+}
+
+private fun SupplementEntry.toSupplementDraft(): SupplementDraft = SupplementDraft(
+    name = name,
+    brand = brand,
+    notes = notes,
+    form = dosagePlan.form,
+    servingSize = dosagePlan.servingSize,
+    servingAmount = dosagePlan.amount?.toDisplayNumber().orEmpty(),
+    servingUnit = dosagePlan.unit
+)
+
+private fun SupplementDraft.toDosagePlan(): SupplementDosagePlan = SupplementDosagePlan(
+    form = form,
+    servingSize = servingSize.trim(),
+    amount = servingAmount.toDoubleOrNull(),
+    unit = servingUnit
+)
+
+private fun SupplementDraft.isValid(): Boolean {
+    if (name.isBlank()) return false
+    return brand.isNotBlank() && servingSize.isNotBlank() && servingAmount.toDoubleOrNull() != null
+}
+
+private fun Double.toDisplayNumber(): String =
+    if (this % 1.0 == 0.0) toInt().toString() else toString()
 

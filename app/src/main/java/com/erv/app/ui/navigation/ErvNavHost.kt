@@ -55,6 +55,8 @@ fun ErvNavHost(
                     navController.navigate(Routes.SETTINGS)
                 },
                 supplementRepository = supplementRepository,
+                relayPool = relayPool,
+                signer = signer,
                 onNavigateToCategory = { category ->
                     navController.navigate(category.route)
                 }
