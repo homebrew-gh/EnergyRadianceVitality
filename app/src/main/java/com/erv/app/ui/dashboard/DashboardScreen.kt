@@ -30,12 +30,19 @@ import com.erv.app.R
 import com.erv.app.nostr.EventSigner
 import com.erv.app.nostr.RelayPool
 import com.erv.app.ui.navigation.Category
-import com.erv.app.ui.navigation.CategorySheet
+import com.erv.app.ui.navigation.categories
 import com.erv.app.supplements.SupplementLibraryState
 import com.erv.app.supplements.SupplementActivityRow
 import com.erv.app.supplements.SupplementRepository
 import com.erv.app.supplements.SupplementRoutine
 import com.erv.app.supplements.SupplementRoutineStep
+import com.erv.app.lighttherapy.LightActivityRow
+import com.erv.app.lighttherapy.LightLibraryState
+import com.erv.app.lighttherapy.LightRoutine
+import com.erv.app.lighttherapy.LightSync
+import com.erv.app.lighttherapy.LightTherapyRepository
+import com.erv.app.lighttherapy.LightTimeOfDay
+import com.erv.app.lighttherapy.lightActivityFor
 import com.erv.app.supplements.SupplementSync
 import com.erv.app.supplements.SupplementTimeOfDay
 import com.erv.app.supplements.describe
@@ -53,6 +60,7 @@ fun DashboardScreen(
     onNavigateToSettings: () -> Unit,
     onNavigateToCategory: (Category) -> Unit,
     supplementRepository: SupplementRepository,
+    lightTherapyRepository: LightTherapyRepository,
     relayPool: RelayPool?,
     signer: EventSigner?,
     pendingReminderRoutineId: String?,
@@ -63,15 +71,20 @@ fun DashboardScreen(
     val context = LocalContext.current
     val selectedDate by viewModel.selectedDate.collectAsState()
     val supplementState by supplementRepository.state.collectAsState(initial = SupplementLibraryState())
+    val lightState by lightTherapyRepository.state.collectAsState(initial = LightLibraryState())
     val reminderRepository = remember(context) { RoutineReminderRepository(context) }
     val supplementRows = remember(supplementState, selectedDate) {
         supplementState.groupedSupplementActivityFor(selectedDate)
+    }
+    val lightRows = remember(lightState, selectedDate) {
+        lightState.lightActivityFor(selectedDate)
     }
     val today = remember { LocalDate.now() }
     val scope = rememberCoroutineScope()
     var showCalendar by remember { mutableStateOf(false) }
     var routinePreview by remember { mutableStateOf<SupplementRoutine?>(null) }
     var routineEditor by remember { mutableStateOf<SupplementRoutine?>(null) }
+    var lightRoutinePreview by remember { mutableStateOf<LightRoutine?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
 
     val scaffoldState = rememberBottomSheetScaffoldState(
@@ -90,6 +103,9 @@ fun DashboardScreen(
         if (relayPool != null && signer != null) {
             supplementRepository.currentState().logFor(today)?.let { log ->
                 SupplementSync.publishDailyLog(relayPool, signer, log)
+            }
+            lightTherapyRepository.currentState().logFor(today)?.let { log ->
+                LightSync.publishDailyLog(relayPool, signer, log)
             }
         }
     }
@@ -178,15 +194,19 @@ fun DashboardScreen(
             Spacer(Modifier.height(16.dp))
 
             RoutinesSection(
-                routines = supplementState.routines,
-                onRoutineSelected = { routinePreview = it }
+                supplementRoutines = supplementState.routines,
+                lightRoutines = lightState.routines,
+                onSupplementRoutineSelected = { routinePreview = it },
+                onLightRoutineSelected = { lightRoutinePreview = it },
+                onNavigateToCategory = onNavigateToCategory
             )
 
             Spacer(Modifier.height(16.dp))
 
             ActivitySection(
                 selectedDate = selectedDate,
-                supplementRows = supplementRows
+                supplementRows = supplementRows,
+                lightRows = lightRows
             )
 
             Spacer(Modifier.height(16.dp))
@@ -264,6 +284,38 @@ fun DashboardScreen(
                 }
             )
         }
+
+        lightRoutinePreview?.let { routine ->
+            LightRoutinePreviewSheet(
+                routine = routine,
+                deviceName = routine.deviceId?.let { lightState.deviceById(it)?.name },
+                onDismiss = { lightRoutinePreview = null },
+                onLogSession = {
+                    scope.launch {
+                        val device = routine.deviceId?.let { lightState.deviceById(it) }
+                        lightTherapyRepository.logSession(
+                            date = today,
+                            minutes = routine.durationMinutes,
+                            deviceId = routine.deviceId,
+                            deviceName = device?.name,
+                            routineId = routine.id,
+                            routineName = routine.name
+                        )
+                        lightTherapyRepository.currentState().logFor(today)?.let { log ->
+                            if (relayPool != null && signer != null) {
+                                LightSync.publishDailyLog(relayPool, signer, log)
+                            }
+                        }
+                        snackbarHostState.showSnackbar("Logged ${routine.name} • ${routine.durationMinutes} min")
+                        lightRoutinePreview = null
+                    }
+                },
+                onStartTimer = {
+                    categories.firstOrNull { it.id == "light_therapy" }?.let { onNavigateToCategory(it) }
+                    lightRoutinePreview = null
+                }
+            )
+        }
     }
 }
 
@@ -302,8 +354,11 @@ private fun GoalsSection() {
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun RoutinesSection(
-    routines: List<SupplementRoutine>,
-    onRoutineSelected: (SupplementRoutine) -> Unit
+    supplementRoutines: List<SupplementRoutine>,
+    lightRoutines: List<LightRoutine>,
+    onSupplementRoutineSelected: (SupplementRoutine) -> Unit,
+    onLightRoutineSelected: (LightRoutine) -> Unit,
+    onNavigateToCategory: (Category) -> Unit
 ) {
     Text(
         text = "Routines",
@@ -319,9 +374,9 @@ private fun RoutinesSection(
                 .fillMaxWidth()
                 .padding(16.dp)
         ) {
-            if (routines.isEmpty()) {
+            if (supplementRoutines.isEmpty() && lightRoutines.isEmpty()) {
                 Text(
-                    text = "Create a routine in the Supplements silo to log it from here.",
+                    text = "Create a routine in Supplements or Light Therapy to log it from here.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -337,12 +392,21 @@ private fun RoutinesSection(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    routines.forEachIndexed { index, routine ->
+                    supplementRoutines.forEachIndexed { index, routine ->
                         RoutineTile(
                             icon = routineIconFor(index),
                             label = routine.name,
-                            subtitle = "Tap to log",
-                            onClick = { onRoutineSelected(routine) },
+                            subtitle = "Supplements",
+                            onClick = { onSupplementRoutineSelected(routine) },
+                            modifier = Modifier.width(120.dp)
+                        )
+                    }
+                    lightRoutines.forEachIndexed { _, routine ->
+                        RoutineTile(
+                            icon = Icons.Default.WbSunny,
+                            label = routine.name,
+                            subtitle = "Light • ${routine.durationMinutes} min",
+                            onClick = { onLightRoutineSelected(routine) },
                             modifier = Modifier.width(120.dp)
                         )
                     }
@@ -355,7 +419,8 @@ private fun RoutinesSection(
 @Composable
 private fun ActivitySection(
     selectedDate: LocalDate,
-    supplementRows: List<SupplementActivityRow>
+    supplementRows: List<SupplementActivityRow>,
+    lightRows: List<LightActivityRow>
 ) {
     Text(
         text = "Activity",
@@ -371,22 +436,33 @@ private fun ActivitySection(
                 .fillMaxWidth()
                 .padding(16.dp)
         ) {
-            val sectionsShown = buildList {
-                if (supplementRows.isNotEmpty()) add("Supplements")
-            }
+            val hasSupplements = supplementRows.isNotEmpty()
+            val hasLight = lightRows.isNotEmpty()
 
-            if (sectionsShown.isEmpty()) {
+            if (!hasSupplements && !hasLight) {
                 Text(
                     text = "No activity logged yet.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             } else {
-                if (supplementRows.isNotEmpty()) {
+                if (hasSupplements) {
                     ActivityCategorySection(title = "Supplements") {
                         supplementRows.forEach { row ->
                             Text(
                                 text = "${row.supplementName} ${row.amountDisplay}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+                if (hasLight) {
+                    if (hasSupplements) Spacer(Modifier.height(12.dp))
+                    ActivityCategorySection(title = "Light therapy") {
+                        lightRows.forEach { row ->
+                            Text(
+                                text = "${row.displayName} • ${row.minutes} min",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -411,6 +487,52 @@ private fun ActivityCategorySection(
     Spacer(Modifier.height(4.dp))
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         content()
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LightRoutinePreviewSheet(
+    routine: LightRoutine,
+    deviceName: String?,
+    onDismiss: () -> Unit,
+    onLogSession: () -> Unit,
+    onStartTimer: () -> Unit
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(routine.name, style = MaterialTheme.typography.titleLarge)
+            Text(
+                "${when (routine.timeOfDay) { LightTimeOfDay.MORNING -> "Morning"; LightTimeOfDay.AFTERNOON -> "Afternoon"; LightTimeOfDay.NIGHT -> "Night" }} • ${routine.durationMinutes} min${deviceName?.let { " • $it" }.orEmpty()}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            if (routine.notes.isNotBlank()) {
+                Text(
+                    routine.notes,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilledTonalButton(onClick = onLogSession) {
+                    Icon(Icons.Default.Check, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Log session")
+                }
+                OutlinedButton(onClick = onStartTimer) {
+                    Icon(Icons.Default.WbSunny, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Start timer")
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+        }
     }
 }
 

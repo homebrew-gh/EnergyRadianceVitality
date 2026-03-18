@@ -1,0 +1,1041 @@
+@file:OptIn(ExperimentalMaterial3Api::class)
+package com.erv.app.ui.lighttherapy
+
+import android.media.ToneGenerator
+import android.media.AudioManager
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.WbSunny
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.dp
+import com.erv.app.lighttherapy.*
+import com.erv.app.nostr.EventSigner
+import com.erv.app.nostr.RelayPool
+import com.erv.app.ui.dashboard.CalendarPopup
+import com.erv.app.ui.dashboard.DateNavigator
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
+
+private enum class LightTab { Timer, Routines, Log, Lights }
+
+// Red light theme for timer
+private val TimerRedDark = Color(0xFF4A0E0E)
+private val TimerRedMid = Color(0xFF8B0000)
+private val TimerRedGlow = Color(0xFFB22222)
+
+@Composable
+fun LightTherapyCategoryScreen(
+    repository: LightTherapyRepository,
+    relayPool: RelayPool?,
+    signer: EventSigner?,
+    onBack: () -> Unit,
+    onOpenLog: () -> Unit
+) {
+    val context = LocalContext.current
+    val state by repository.state.collectAsState(initial = LightLibraryState())
+    val today = remember { LocalDate.now() }
+    val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
+    var activeTab by rememberSaveable { mutableIntStateOf(0) }
+    var timerRunning by remember { mutableStateOf(false) }
+    var timerDurationMinutes by remember { mutableStateOf(15) }
+    var timerRoutineId by remember { mutableStateOf<String?>(null) }
+    var timerRoutineName by remember { mutableStateOf<String?>(null) }
+    var timerDeviceId by remember { mutableStateOf<String?>(null) }
+    var timerDeviceName by remember { mutableStateOf<String?>(null) }
+    var deviceEditor by remember { mutableStateOf<LightDevice?>(null) }
+    var creatingDevice by remember { mutableStateOf(false) }
+    var routineEditor by remember { mutableStateOf<LightRoutine?>(null) }
+    var creatingRoutine by remember { mutableStateOf(false) }
+
+    suspend fun syncMaster() {
+        if (relayPool != null && signer != null) {
+            LightSync.publishMaster(relayPool, signer, repository.currentState())
+        }
+    }
+
+    suspend fun syncDailyLog(log: LightDayLog) {
+        if (relayPool != null && signer != null) {
+            LightSync.publishDailyLog(relayPool, signer, log)
+        }
+    }
+
+    LaunchedEffect(relayPool, signer?.publicKey) {
+        if (relayPool != null && signer != null) {
+            LightSync.fetchFromNetwork(relayPool, signer, signer.publicKey)?.let { remote ->
+                repository.replaceAll(remote)
+            }
+        }
+    }
+
+    if (timerRunning) {
+        LightTimerFullScreen(
+            durationMinutes = timerDurationMinutes,
+            deviceName = timerDeviceName ?: "Light therapy",
+            onComplete = {
+                scope.launch {
+                    repository.logSession(
+                        date = today,
+                        minutes = timerDurationMinutes,
+                        deviceId = timerDeviceId,
+                        deviceName = timerDeviceName,
+                        routineId = timerRoutineId,
+                        routineName = timerRoutineName
+                    )
+                    repository.currentState().logFor(today)?.let { syncDailyLog(it) }
+                    snackbarHostState.showSnackbar("Logged ${timerDurationMinutes} min")
+                }
+                timerRunning = false
+            },
+            onCancel = { timerRunning = false }
+        )
+        return
+    }
+
+    Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+        topBar = {
+            TopAppBar(
+                title = { Text("Light Therapy") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = onOpenLog) {
+                        Icon(Icons.Default.DateRange, contentDescription = "Open log")
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = TimerRedMid,
+                    titleContentColor = Color.White,
+                    actionIconContentColor = Color.White,
+                    navigationIconContentColor = Color.White
+                )
+            )
+        }
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+        ) {
+            TabRow(
+                selectedTabIndex = activeTab,
+                containerColor = TimerRedDark,
+                contentColor = Color.White
+            ) {
+                LightTab.entries.forEachIndexed { index, tab ->
+                    Tab(
+                        selected = activeTab == index,
+                        onClick = { activeTab = index },
+                        text = { Text(tab.name.lowercase().replaceFirstChar { it.uppercase() }) }
+                    )
+                }
+            }
+
+            when (LightTab.entries[activeTab]) {
+                LightTab.Timer -> TimerTabContent(
+                    state = state,
+                    defaultMinutes = timerDurationMinutes,
+                    onMinutesChange = { timerDurationMinutes = it },
+                    onStartTimer = { minutes, routine, device ->
+                        timerDurationMinutes = minutes
+                        timerRoutineId = routine?.id
+                        timerRoutineName = routine?.name
+                        timerDeviceId = device?.id
+                        timerDeviceName = device?.name
+                        timerRunning = true
+                    }
+                )
+                LightTab.Routines -> RoutinesTabContent(
+                    state = state,
+                    onAddRoutine = {
+                        creatingRoutine = true
+                        routineEditor = null
+                    },
+                    onEditRoutine = { routineEditor = it },
+                    onDeleteRoutine = { routineId ->
+                        scope.launch {
+                            repository.deleteRoutine(routineId)
+                            syncMaster()
+                            snackbarHostState.showSnackbar("Routine deleted")
+                        }
+                    },
+                    onRunRoutine = { routine ->
+                        val device = routine.deviceId?.let { state.deviceById(it) }
+                        timerDurationMinutes = routine.durationMinutes
+                        timerRoutineId = routine.id
+                        timerRoutineName = routine.name
+                        timerDeviceId = routine.deviceId
+                        timerDeviceName = device?.name
+                        timerRunning = true
+                    },
+                    onCreateRoutine = { routine ->
+                        scope.launch {
+                            repository.addRoutine(routine)
+                            syncMaster()
+                            snackbarHostState.showSnackbar("Routine saved")
+                        }
+                        creatingRoutine = false
+                        routineEditor = null
+                    },
+                    onUpdateRoutine = { routine ->
+                        scope.launch {
+                            repository.updateRoutine(routine)
+                            syncMaster()
+                            snackbarHostState.showSnackbar("Routine updated")
+                        }
+                        routineEditor = null
+                    },
+                    routineEditor = routineEditor,
+                    creatingRoutine = creatingRoutine,
+                    onDismissRoutineEditor = {
+                        routineEditor = null
+                        creatingRoutine = false
+                    }
+                )
+                LightTab.Log -> LightLogTabContent(state = state)
+                LightTab.Lights -> LightsTabContent(
+                    state = state,
+                    onAddDevice = {
+                        creatingDevice = true
+                        deviceEditor = null
+                    },
+                    onEditDevice = { deviceEditor = it },
+                    onDeleteDevice = { deviceId ->
+                        scope.launch {
+                            repository.deleteDevice(deviceId)
+                            syncMaster()
+                            snackbarHostState.showSnackbar("Device removed")
+                        }
+                    },
+                    onCreateDevice = { device ->
+                        scope.launch {
+                            repository.addDevice(device)
+                            syncMaster()
+                            snackbarHostState.showSnackbar("Device saved")
+                        }
+                        creatingDevice = false
+                        deviceEditor = null
+                    },
+                    onUpdateDevice = { device ->
+                        scope.launch {
+                            repository.updateDevice(device)
+                            syncMaster()
+                            snackbarHostState.showSnackbar("Device updated")
+                        }
+                        deviceEditor = null
+                    },
+                    deviceEditor = deviceEditor,
+                    creatingDevice = creatingDevice,
+                    onDismissDeviceEditor = {
+                        deviceEditor = null
+                        creatingDevice = false
+                    }
+                )
+            }
+        }
+    }
+
+    if (creatingRoutine || routineEditor != null) {
+        LightRoutineEditorDialog(
+            routine = routineEditor,
+            creating = creatingRoutine,
+            devices = state.devices,
+            onDismiss = {
+                routineEditor = null
+                creatingRoutine = false
+            },
+            onSave = { routine ->
+                if (routine.id == routineEditor?.id) {
+                    scope.launch {
+                        repository.updateRoutine(routine)
+                        syncMaster()
+                        snackbarHostState.showSnackbar("Routine updated")
+                    }
+                } else {
+                    scope.launch {
+                        repository.addRoutine(routine)
+                        syncMaster()
+                        snackbarHostState.showSnackbar("Routine saved")
+                    }
+                }
+                routineEditor = null
+                creatingRoutine = false
+            }
+        )
+    }
+
+    if (creatingDevice || deviceEditor != null) {
+        LightDeviceEditorDialog(
+            device = deviceEditor,
+            creating = creatingDevice,
+            onDismiss = {
+                deviceEditor = null
+                creatingDevice = false
+            },
+            onSave = { device ->
+                if (device.id == deviceEditor?.id) {
+                    scope.launch {
+                        repository.updateDevice(device)
+                        syncMaster()
+                        snackbarHostState.showSnackbar("Device updated")
+                    }
+                } else {
+                    scope.launch {
+                        repository.addDevice(device)
+                        syncMaster()
+                        snackbarHostState.showSnackbar("Device saved")
+                    }
+                }
+                deviceEditor = null
+                creatingDevice = false
+            }
+        )
+    }
+}
+
+@Composable
+private fun LightTimerFullScreen(
+    durationMinutes: Int,
+    deviceName: String,
+    onComplete: () -> Unit,
+    onCancel: () -> Unit
+) {
+    val context = LocalContext.current
+    var remainingSeconds by remember(durationMinutes) { mutableIntStateOf(durationMinutes * 60) }
+
+    LaunchedEffect(remainingSeconds) {
+        if (remainingSeconds <= 0) {
+            try {
+                ToneGenerator(AudioManager.STREAM_NOTIFICATION, 80).use { tg ->
+                    tg.startTone(ToneGenerator.TONE_PROP_BEEP, 500)
+                }
+            } catch (_: Exception) { }
+            onComplete()
+            return@LaunchedEffect
+        }
+        delay(1000)
+        remainingSeconds -= 1
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                androidx.compose.ui.graphics.Brush.verticalGradient(
+                    colors = listOf(TimerRedDark, TimerRedMid, TimerRedGlow)
+                )
+            )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                "Session in progress",
+                style = MaterialTheme.typography.titleLarge,
+                color = Color.White.copy(alpha = 0.9f)
+            )
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                val mins = remainingSeconds / 60
+                val secs = remainingSeconds % 60
+                Text(
+                    text = "%d:%02d".format(mins, secs),
+                    style = MaterialTheme.typography.displayLarge,
+                    color = Color.White
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    deviceName,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = Color.White.copy(alpha = 0.8f)
+                )
+            }
+            OutlinedButton(
+                onClick = onCancel,
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                border = ButtonDefaults.outlinedButtonBorder.copy(brush = androidx.compose.ui.graphics.SolidColor(Color.White))
+            ) {
+                Icon(Icons.Default.Stop, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("Cancel")
+            }
+        }
+    }
+}
+
+@Composable
+private fun TimerTabContent(
+    state: LightLibraryState,
+    defaultMinutes: Int,
+    onMinutesChange: (Int) -> Unit,
+    onStartTimer: (Int, LightRoutine?, LightDevice?) -> Unit
+) {
+    val presets = listOf(5, 10, 15, 20, 30)
+    var selectedMinutes by remember(defaultMinutes) { mutableIntStateOf(defaultMinutes) }
+    var selectedRoutine by remember { mutableStateOf<LightRoutine?>(null) }
+    val selectedDevice = selectedRoutine?.deviceId?.let { state.deviceById(it) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+            .verticalScroll(rememberScrollState())
+    ) {
+        Text("Duration", style = MaterialTheme.typography.titleMedium)
+        Spacer(Modifier.height(8.dp))
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            presets.forEach { mins ->
+                FilterChip(
+                    selected = selectedMinutes == mins,
+                    onClick = {
+                        selectedMinutes = mins
+                        onMinutesChange(mins)
+                    },
+                    label = { Text("${mins} min") }
+                )
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(
+            value = selectedMinutes.toString(),
+            onValueChange = { it.filter { c -> c.isDigit() }.toIntOrNull()?.coerceIn(1, 120)?.let { selectedMinutes = it; onMinutesChange(it) } },
+            label = { Text("Custom minutes") },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Spacer(Modifier.height(24.dp))
+        Text("Routine (optional)", style = MaterialTheme.typography.titleMedium)
+        Spacer(Modifier.height(8.dp))
+        if (state.routines.isEmpty()) {
+            Text(
+                "Add routines in the Routines tab and assign a device.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        } else {
+            state.routines.forEach { routine ->
+                val device = routine.deviceId?.let { state.deviceById(it) }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    RadioButton(
+                        selected = selectedRoutine?.id == routine.id,
+                        onClick = { selectedRoutine = if (selectedRoutine?.id == routine.id) null else routine }
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(routine.name, style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            "${routine.durationMinutes} min • ${routine.timeOfDay.label()}${device?.let { " • ${it.name}" }.orEmpty()}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(24.dp))
+        Button(
+            onClick = {
+                val mins = selectedMinutes.coerceIn(1, 120)
+                onStartTimer(mins, selectedRoutine, selectedDevice)
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Icon(Icons.Default.PlayArrow, contentDescription = null)
+            Spacer(Modifier.width(8.dp))
+            Text("Start $selectedMinutes min session")
+        }
+    }
+}
+
+@Composable
+private fun RoutinesTabContent(
+    state: LightLibraryState,
+    onAddRoutine: () -> Unit,
+    onEditRoutine: (LightRoutine) -> Unit,
+    onDeleteRoutine: (String) -> Unit,
+    onRunRoutine: (LightRoutine) -> Unit,
+    onCreateRoutine: (LightRoutine) -> Unit,
+    onUpdateRoutine: (LightRoutine) -> Unit,
+    routineEditor: LightRoutine?,
+    creatingRoutine: Boolean,
+    onDismissRoutineEditor: () -> Unit
+) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        if (state.routines.isEmpty()) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("No routines yet", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "Create a routine for a part of the day and assign a device. You can set which days it applies to.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                items(state.routines, key = { it.id }) { routine ->
+                    val device = routine.deviceId?.let { state.deviceById(it) }
+                    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text(routine.name, style = MaterialTheme.typography.titleMedium)
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                "${routine.timeOfDay.label()} • ${routine.durationMinutes} min${device?.let { " • ${it.name}" }.orEmpty()}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            if (routine.repeatDays.isNotEmpty()) {
+                                Text(
+                                    "Days: ${routine.repeatDays.joinToString { it.shortLabel() }}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.outline
+                                )
+                            }
+                            Spacer(Modifier.height(12.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                FilledTonalButton(onClick = { onRunRoutine(routine) }) {
+                                    Icon(Icons.Default.PlayArrow, contentDescription = null)
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("Start")
+                                }
+                                OutlinedButton(onClick = { onEditRoutine(routine) }) {
+                                    Icon(Icons.Default.Edit, contentDescription = null)
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("Edit")
+                                }
+                                OutlinedButton(onClick = { onDeleteRoutine(routine.id) }) {
+                                    Icon(Icons.Default.Delete, contentDescription = null)
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("Delete")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        FloatingActionButton(
+            onClick = onAddRoutine,
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(16.dp)
+        ) {
+            Icon(Icons.Default.Add, contentDescription = "Add routine")
+        }
+    }
+}
+
+@Composable
+private fun LightLogTabContent(state: LightLibraryState) {
+    var selectedDate by remember { mutableStateOf(LocalDate.now()) }
+    var showCalendar by remember { mutableStateOf(false) }
+    val entries = remember(state, selectedDate) { state.chronologicalLightLogFor(selectedDate) }
+    LightLogContent(
+        selectedDate = selectedDate,
+        onSelectedDateChange = { selectedDate = it },
+        showCalendar = showCalendar,
+        onShowCalendarChange = { showCalendar = it },
+        entries = entries
+    )
+    if (showCalendar) {
+        CalendarPopup(
+            selectedDate = selectedDate,
+            onDateSelected = { selectedDate = it; showCalendar = false },
+            onDismiss = { showCalendar = false }
+        )
+    }
+}
+
+@Composable
+fun LightLogScreen(
+    state: LightLibraryState,
+    onBack: () -> Unit
+) {
+    var selectedDate by remember { mutableStateOf(LocalDate.now()) }
+    var showCalendar by remember { mutableStateOf(false) }
+    val entries = remember(state, selectedDate) { state.chronologicalLightLogFor(selectedDate) }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Light therapy log") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                }
+            )
+        }
+    ) { padding ->
+        LightLogContent(
+            selectedDate = selectedDate,
+            onSelectedDateChange = { selectedDate = it },
+            showCalendar = showCalendar,
+            onShowCalendarChange = { showCalendar = it },
+            entries = entries,
+            modifier = Modifier.padding(padding)
+        )
+    }
+    if (showCalendar) {
+        CalendarPopup(
+            selectedDate = selectedDate,
+            onDateSelected = { selectedDate = it; showCalendar = false },
+            onDismiss = { showCalendar = false }
+        )
+    }
+}
+
+@Composable
+private fun LightLogContent(
+    selectedDate: LocalDate,
+    onSelectedDateChange: (LocalDate) -> Unit,
+    showCalendar: Boolean,
+    onShowCalendarChange: (Boolean) -> Unit,
+    entries: List<LightSession>,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier.fillMaxSize()) {
+        DateNavigator(
+            selectedDate = selectedDate,
+            onPreviousDay = { onSelectedDateChange(selectedDate.minusDays(1)) },
+            onNextDay = { onSelectedDateChange(selectedDate.plusDays(1)) },
+            onPreviousWeek = { onSelectedDateChange(selectedDate.minusWeeks(1)) },
+            onNextWeek = { onSelectedDateChange(selectedDate.plusWeeks(1)) },
+            onTodayClick = { onSelectedDateChange(LocalDate.now()) },
+            onCalendarClick = { onShowCalendarChange(true) },
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+        )
+        HorizontalDivider()
+        if (entries.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    "No light therapy logged for this date.",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                items(entries, key = { it.loggedAtEpochSeconds.toString() + it.minutes }) { session ->
+                    val name = session.routineName ?: session.deviceName ?: "Light therapy"
+                    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(name, style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                "${session.minutes} min",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        Text(
+                            formatLogTime(session.loggedAtEpochSeconds),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 0.dp)
+                        )
+                        Spacer(Modifier.height(8.dp))
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun formatLogTime(epochSeconds: Long): String {
+    if (epochSeconds <= 0L) return "Unknown time"
+    val formatter = DateTimeFormatter.ofPattern("h:mm a", Locale.getDefault())
+    return Instant.ofEpochSecond(epochSeconds)
+        .atZone(ZoneId.systemDefault())
+        .toLocalTime()
+        .format(formatter)
+}
+
+@Composable
+private fun LightsTabContent(
+    state: LightLibraryState,
+    onAddDevice: () -> Unit,
+    onEditDevice: (LightDevice) -> Unit,
+    onDeleteDevice: (String) -> Unit,
+    onCreateDevice: (LightDevice) -> Unit,
+    onUpdateDevice: (LightDevice) -> Unit,
+    deviceEditor: LightDevice?,
+    creatingDevice: Boolean,
+    onDismissDeviceEditor: () -> Unit
+) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        if (state.devices.isEmpty()) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("No lights yet", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "Add your red light panels, SAD lamps, or other devices. Include wavelengths and recommended duration.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                items(state.devices, key = { it.id }) { device ->
+                    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text(device.name, style = MaterialTheme.typography.titleMedium)
+                            if (device.brand.isNotBlank()) {
+                                Text(device.brand, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Text(device.deviceType.label(), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                            if (device.wavelengths.isNotBlank()) {
+                                Text("Wavelengths: ${device.wavelengths}", style = MaterialTheme.typography.bodySmall)
+                            }
+                            if (device.powerOutput.isNotBlank()) {
+                                Text("Power: ${device.powerOutput}", style = MaterialTheme.typography.bodySmall)
+                            }
+                            device.recommendedDurationMinutes?.let { Text("Recommended: $it min", style = MaterialTheme.typography.bodySmall) }
+                            Spacer(Modifier.height(12.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedButton(onClick = { onEditDevice(device) }) {
+                                    Icon(Icons.Default.Edit, contentDescription = null)
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("Edit")
+                                }
+                                OutlinedButton(onClick = { onDeleteDevice(device.id) }) {
+                                    Icon(Icons.Default.Delete, contentDescription = null)
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("Delete")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        FloatingActionButton(
+            onClick = onAddDevice,
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(16.dp)
+        ) {
+            Icon(Icons.Default.Add, contentDescription = "Add device")
+        }
+    }
+}
+
+@Composable
+private fun LightRoutineEditorDialog(
+    routine: LightRoutine?,
+    creating: Boolean,
+    devices: List<LightDevice>,
+    onDismiss: () -> Unit,
+    onSave: (LightRoutine) -> Unit
+) {
+    var name by remember(routine?.id) { mutableStateOf(routine?.name.orEmpty()) }
+    var timeOfDay by remember(routine?.id) { mutableStateOf(routine?.timeOfDay ?: LightTimeOfDay.MORNING) }
+    var durationMinutes by remember(routine?.id) { mutableStateOf(routine?.durationMinutes?.toString() ?: "15") }
+    var deviceId by remember(routine?.id) { mutableStateOf(routine?.deviceId) }
+    var repeatDays by remember(routine?.id) {
+        mutableStateOf(routine?.repeatDaysSet() ?: emptySet())
+    }
+    var notes by remember(routine?.id) { mutableStateOf(routine?.notes.orEmpty()) }
+    var deviceExpanded by remember { mutableStateOf(false) }
+    val selectedDevice = deviceId?.let { id -> devices.firstOrNull { it.id == id } }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (creating) "Add routine" else "Edit routine") },
+        text = {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.verticalScroll(rememberScrollState())
+            ) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Routine name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Text("Time of day", style = MaterialTheme.typography.titleSmall)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    LightTimeOfDay.entries.forEach { slot ->
+                        FilterChip(
+                            selected = timeOfDay == slot,
+                            onClick = { timeOfDay = slot },
+                            label = { Text(slot.label()) }
+                        )
+                    }
+                }
+                OutlinedTextField(
+                    value = durationMinutes,
+                    onValueChange = { durationMinutes = it.filter { c -> c.isDigit() }.take(3) },
+                    label = { Text("Duration (minutes)") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Text("Device (optional)", style = MaterialTheme.typography.titleSmall)
+                ExposedDropdownMenuBox(
+                    expanded = deviceExpanded,
+                    onExpandedChange = { deviceExpanded = !deviceExpanded }
+                ) {
+                    OutlinedTextField(
+                        value = selectedDevice?.name ?: "None",
+                        onValueChange = {},
+                        readOnly = true,
+                        modifier = Modifier
+                            .menuAnchor()
+                            .fillMaxWidth(),
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = deviceExpanded) }
+                    )
+                    ExposedDropdownMenu(expanded = deviceExpanded, onDismissRequest = { deviceExpanded = false }) {
+                        DropdownMenuItem(
+                            text = { Text("None") },
+                            onClick = { deviceId = null; deviceExpanded = false }
+                        )
+                        devices.forEach { d ->
+                            DropdownMenuItem(
+                                text = { Text(d.name) },
+                                onClick = { deviceId = d.id; deviceExpanded = false }
+                            )
+                        }
+                    }
+                }
+                Text("Repeat on days (empty = every day)", style = MaterialTheme.typography.titleSmall)
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    LightWeekday.entries.forEach { day ->
+                        FilterChip(
+                            selected = day in repeatDays,
+                            onClick = {
+                                repeatDays = if (day in repeatDays) repeatDays - day else repeatDays + day
+                            },
+                            label = { Text(day.shortLabel()) }
+                        )
+                    }
+                }
+                OutlinedTextField(
+                    value = notes,
+                    onValueChange = { notes = it },
+                    label = { Text("Notes") },
+                    minLines = 2,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val id = routine?.id ?: java.util.UUID.randomUUID().toString()
+                    val mins = durationMinutes.toIntOrNull()?.coerceIn(1, 120) ?: 15
+                    onSave(
+                        LightRoutine(
+                            id = id,
+                            name = name.trim().ifBlank { "Light routine" },
+                            timeOfDay = timeOfDay,
+                            durationMinutes = mins,
+                            deviceId = deviceId,
+                            repeatDays = repeatDays.toList(),
+                            notes = notes.trim()
+                        )
+                    )
+                },
+                enabled = name.isNotBlank()
+            ) {
+                Text("Save")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
+}
+
+@Composable
+private fun LightDeviceEditorDialog(
+    device: LightDevice?,
+    creating: Boolean,
+    onDismiss: () -> Unit,
+    onSave: (LightDevice) -> Unit
+) {
+    var name by remember(device?.id) { mutableStateOf(device?.name.orEmpty()) }
+    var brand by remember(device?.id) { mutableStateOf(device?.brand.orEmpty()) }
+    var deviceType by remember(device?.id) { mutableStateOf(device?.deviceType ?: LightDeviceType.RED_NIR) }
+    var wavelengths by remember(device?.id) { mutableStateOf(device?.wavelengths.orEmpty()) }
+    var powerOutput by remember(device?.id) { mutableStateOf(device?.powerOutput.orEmpty()) }
+    var recommendedMinutes by remember(device?.id) {
+        mutableStateOf(device?.recommendedDurationMinutes?.toString().orEmpty())
+    }
+    var notes by remember(device?.id) { mutableStateOf(device?.notes.orEmpty()) }
+    var typeExpanded by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (creating) "Add light device" else "Edit device") },
+        text = {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.verticalScroll(rememberScrollState())
+            ) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = brand,
+                    onValueChange = { brand = it },
+                    label = { Text("Brand") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Text("Type", style = MaterialTheme.typography.titleSmall)
+                ExposedDropdownMenuBox(
+                    expanded = typeExpanded,
+                    onExpandedChange = { typeExpanded = !typeExpanded }
+                ) {
+                    OutlinedTextField(
+                        value = deviceType.label(),
+                        onValueChange = {},
+                        readOnly = true,
+                        modifier = Modifier.menuAnchor().fillMaxWidth(),
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = typeExpanded) }
+                    )
+                    ExposedDropdownMenu(expanded = typeExpanded, onDismissRequest = { typeExpanded = false }) {
+                        LightDeviceType.entries.forEach { t ->
+                            DropdownMenuItem(
+                                text = { Text(t.label()) },
+                                onClick = { deviceType = t; typeExpanded = false }
+                            )
+                        }
+                    }
+                }
+                OutlinedTextField(
+                    value = wavelengths,
+                    onValueChange = { wavelengths = it },
+                    label = { Text("Wavelengths (e.g. 660nm, 850nm)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = powerOutput,
+                    onValueChange = { powerOutput = it },
+                    label = { Text("Power output") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = recommendedMinutes,
+                    onValueChange = { recommendedMinutes = it.filter { c -> c.isDigit() }.take(3) },
+                    label = { Text("Recommended duration (min)") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = notes,
+                    onValueChange = { notes = it },
+                    label = { Text("Notes") },
+                    minLines = 2,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val id = device?.id ?: java.util.UUID.randomUUID().toString()
+                    onSave(
+                        LightDevice(
+                            id = id,
+                            name = name.trim().ifBlank { "Light device" },
+                            brand = brand.trim(),
+                            deviceType = deviceType,
+                            wavelengths = wavelengths.trim(),
+                            powerOutput = powerOutput.trim(),
+                            recommendedDurationMinutes = recommendedMinutes.toIntOrNull()?.takeIf { it in 1..120 },
+                            notes = notes.trim()
+                        )
+                    )
+                },
+                enabled = name.isNotBlank()
+            ) {
+                Text("Save")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
+}

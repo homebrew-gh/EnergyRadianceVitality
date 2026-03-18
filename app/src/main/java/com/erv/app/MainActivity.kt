@@ -29,6 +29,7 @@ import androidx.navigation.compose.rememberNavController
 import com.erv.app.data.ThemeMode
 import com.erv.app.data.UserPreferences
 import com.erv.app.nostr.*
+import com.erv.app.lighttherapy.LightTherapyRepository
 import com.erv.app.supplements.SupplementRepository
 import com.erv.app.reminders.RoutineReminderRepository
 import com.erv.app.reminders.RoutineReminderScheduler
@@ -231,6 +232,7 @@ private fun MainAppShell(
     val context = LocalContext.current
     val navController = rememberNavController()
     val supplementRepository = remember(context) { SupplementRepository(context) }
+    val lightTherapyRepository = remember(context) { LightTherapyRepository(context) }
     val reminderRepository = remember(context) { RoutineReminderRepository(context) }
     val signer = remember(keyManager, amberHost) {
         keyManager.createLocalSigner()
@@ -266,6 +268,7 @@ private fun MainAppShell(
         amberHost = amberHost,
         userPreferences = userPreferences,
         supplementRepository = supplementRepository,
+        lightTherapyRepository = lightTherapyRepository,
         relayPool = relayPool,
         signer = signer,
         pendingReminderRoutineId = pendingReminderRoutineId,

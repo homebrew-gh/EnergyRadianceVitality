@@ -58,7 +58,7 @@ Each category is a silo: its own screens and local models, but the same Nostr ki
 | Sauna         | `erv/sauna/<date>`     | Sessions with duration + optional temp; entries may reference a contrast routine; see §2.4 |
 | Cold plunge   | `erv/cold/<date>`      | Sessions with duration + optional temp; entries may reference a contrast routine; see §2.4 |
 | **Heat/cold routines (shared)** | `erv/heatcold/routines` (optional) | User-defined contrast routines (alternating sauna/cold steps); used by Sauna and Cold plunge; see §2.4 |
-| Light therapy | `erv/light/<date>`     | Sessions with time exposed (minutes); see §2.4 |
+| Light therapy | `erv/light/list` + `erv/light/<date>` | Master list (devices + routines) + daily log (sessions with minutes, optional device/routine); see §2.4 |
 | Supplements   | `erv/supplements/list` + `erv/supplements/<date>` | Master list (what to take) + daily log (what was taken); see §2.4 |
 | Sleep         | `erv/sleep/<date>`     | Sleep window (bed/wake or duration), quality, notes; optional `source` and `deviceMetrics` when from device; see §2.4 |
 | **Body weight (optional)** | `erv/bodyweight`      | Diary: date → weight in **lb or kg** (default lb); store in kg for formulas; MET and Pandolf use kg internally (convert from lb when needed); see §2.4 |
@@ -72,12 +72,12 @@ This section is the **authoritative source** for JSON field names, payload shape
 
 **Build order:** Light therapy and Supplements first; then Cardio; then Workout. See §9 for the full implementation phase order.
 
-**Light therapy** — Easiest. Track **time exposed** per session, with an in-session timer and automatic logging.
+**Light therapy** — Track **time exposed** per session, with an in-session timer and automatic logging. Extended with **device catalog** and **routines** (like Supplements).
 
-- **d-tag**: `erv/light/<date>` (one replaceable event per day).
-- **Content (encrypted JSON)**: e.g. `{ "sessions": [ { "minutes": 20 }, { "minutes": 15 } ] }` or a single `totalMinutes` if one session per day. Optional: `device` or `type` (e.g. "red light", "SAD lamp") for later.
-- **UI**: Log one or more sessions per day with duration (minutes). List by date; goal progress = sessions or total minutes per week.
-- **Session timer** — Provide a **built-in timer** for a light therapy session that **fits the app theme** (sun-themed: warm palette, consistent with §7.3). The user **sets the duration** (e.g. 10, 15, 20, 30 minutes or custom). The timer runs (countdown or elapsed) and, when **time is up**, plays an **audible “time’s up” notification** (e.g. a tone or chime) so the user knows the session is over without looking at the screen. When the session ends, the app **automatically logs the event**: add the completed session (with the timer duration in minutes) to the day’s light therapy log and persist/sync (Room + Nostr) so it counts toward goals and history. Optionally allow the user to start the timer from the Light therapy silo and show a simple “Session in progress” screen with the countdown and a stop/cancel option.
+- **d-tags**: `erv/light/list` (one replaceable event: devices + routines); `erv/light/<date>` (one replaceable event per day: sessions).
+- **Content (encrypted JSON)** — **Master** (`erv/light/list`): `{ "devices": [ { "id", "name", "brand", "deviceType", "wavelengths", "powerOutput", "recommendedDurationMinutes", "notes" } ], "routines": [ { "id", "name", "timeOfDay", "durationMinutes", "deviceId", "repeatDays", "notes" } ] }`. **Daily log** (`erv/light/<date>`): `{ "sessions": [ { "minutes", "deviceId", "deviceName", "routineId", "routineName", "loggedAtEpochSeconds" } ] }`.
+- **UI**: **Timer** tab — red-themed countdown; set duration (presets or custom), optional routine/device; start → full-screen countdown, audible “time’s up”, auto-log. **Routines** tab — create routines (name, time of day, duration, assigned device, repeat days); run (start timer) or edit/delete. **Log** tab — sessions by date (name + duration). **Lights** tab — catalog devices (name, brand, type e.g. red/NIR/UV/circadian, wavelengths, power, recommended duration); assign to routines. Routines and logged sessions appear on the dashboard (Routines section + Activity with “name • X min”).
+- **Session timer** — Red-themed full-screen countdown; user sets duration (e.g. 5, 10, 15, 20, 30 min or custom). At **time’s up**, **audible notification** (ToneGenerator) and **auto-log** (merge into `erv/light/<date>`). Cancel option. Can start from Timer tab or from a routine (dashboard or Routines tab).
 
 **Supplements** — Track what the user takes, dosage, frequency, when to take, and optionally enrich with API data (brand, nutrition facts, benefits).
 
