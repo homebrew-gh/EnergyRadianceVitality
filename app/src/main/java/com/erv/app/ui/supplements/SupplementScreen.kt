@@ -4,6 +4,8 @@ package com.erv.app.ui.supplements
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -11,6 +13,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
@@ -61,6 +64,7 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import kotlin.math.abs
 
 private enum class SupplementsTab { Supplements, Routines }
 
@@ -68,13 +72,15 @@ private data class RoutineStepDraft(
     val supplementId: String? = null,
     val timeOfDay: SupplementTimeOfDay = SupplementTimeOfDay.MORNING,
     val quantity: String = "1",
+    val dosageOverride: String = "",
     val note: String = ""
 )
 
 private data class RoutineReminderDraft(
     val enabled: Boolean = false,
-    val hour: String = "8",
-    val minute: String = "00",
+    val hour: Int = 8,
+    val minute: Int = 0,
+    val isPm: Boolean = false,
     val frequency: RoutineReminderFrequency = RoutineReminderFrequency.DAILY,
     val repeatDays: Set<SupplementWeekday> = SupplementWeekday.entries.toSet()
 )
@@ -292,7 +298,7 @@ private fun RoutinesTab(
         if (state.routines.isEmpty()) {
             EmptyState(
                 title = "No routines yet",
-                subtitle = "Create morning, night, or custom supplement routines."
+                subtitle = "Create separate morning, afternoon, or night supplement routines."
             )
         } else {
             LazyColumn(
@@ -787,6 +793,7 @@ private fun RoutineEditorDialog(
                             supplementId = it.supplementId,
                             timeOfDay = it.timeOfDay ?: SupplementTimeOfDay.MORNING,
                             quantity = it.quantity?.toString() ?: "1",
+                            dosageOverride = it.dosageOverride.orEmpty(),
                             note = it.note.orEmpty()
                         )
                     )
@@ -795,6 +802,7 @@ private fun RoutineEditorDialog(
         }
     }
     val timeSlots = remember { listOf(SupplementTimeOfDay.MORNING, SupplementTimeOfDay.AFTERNOON, SupplementTimeOfDay.NIGHT) }
+    var showTimePicker by remember { mutableStateOf(false) }
 
     AlertDialog(
         onDismissRequest = { onDismissReset(); onDismiss() },
@@ -821,41 +829,55 @@ private fun RoutineEditorDialog(
 
                 Text("Schedule", style = MaterialTheme.typography.titleSmall)
                 Text(
-                    "Set the supplements you want to take in each part of the day.",
+                    text = "Each daypart gets its own routine card so you can keep mornings, afternoons, and nights separate.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
                 timeSlots.forEach { timeOfDay ->
                     val slotSteps = steps.withIndex().filter { it.value.timeOfDay == timeOfDay }
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(
-                            timeOfDay.label(),
-                            style = MaterialTheme.typography.labelLarge
-                        )
-                        if (slotSteps.isEmpty()) {
+                    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
                             Text(
-                                "No supplements added for this time yet.",
+                                text = "${timeOfDay.label()} routine",
+                                style = MaterialTheme.typography.titleSmall
+                            )
+                            Text(
+                                text = when (timeOfDay) {
+                                    SupplementTimeOfDay.MORNING -> "Keep your morning supplements grouped here."
+                                    SupplementTimeOfDay.AFTERNOON -> "Keep your afternoon supplements grouped here."
+                                    SupplementTimeOfDay.NIGHT -> "Keep your night supplements grouped here."
+                                },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                        } else {
-                            slotSteps.forEach { indexedStep ->
-                                RoutineStepRow(
-                                    step = indexedStep.value,
-                                    supplements = supplements,
-                                    onStepChange = { updated -> steps[indexedStep.index] = updated },
-                                    onRemove = { if (steps.size > 1) steps.removeAt(indexedStep.index) }
+                            if (slotSteps.isEmpty()) {
+                                Text(
+                                    "No supplements added yet.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
+                            } else {
+                                slotSteps.forEach { indexedStep ->
+                                    RoutineStepRow(
+                                        step = indexedStep.value,
+                                        supplements = supplements,
+                                        onStepChange = { updated -> steps[indexedStep.index] = updated },
+                                        onRemove = { if (steps.size > 1) steps.removeAt(indexedStep.index) }
+                                    )
+                                }
                             }
-                        }
-                        TextButton(onClick = { steps.add(RoutineStepDraft(timeOfDay = timeOfDay)) }) {
-                            Text("Add ${timeOfDay.label().lowercase()}")
+                            TextButton(onClick = { steps.add(RoutineStepDraft(timeOfDay = timeOfDay)) }) {
+                                Text("Add ${timeOfDay.label().lowercase()}")
+                            }
                         }
                     }
                 }
 
-                Divider()
+                HorizontalDivider()
                 Text("Reminder", style = MaterialTheme.typography.titleSmall)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(
@@ -864,22 +886,23 @@ private fun RoutineEditorDialog(
                     )
                     Text("Enable reminder")
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                    OutlinedTextField(
-                        value = reminderDraft.hour,
-                        onValueChange = { reminderDraft = reminderDraft.copy(hour = it.filter { ch -> ch.isDigit() }.take(2)) },
-                        label = { Text("Hour") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.weight(1f)
-                    )
-                    OutlinedTextField(
-                        value = reminderDraft.minute,
-                        onValueChange = { reminderDraft = reminderDraft.copy(minute = it.filter { ch -> ch.isDigit() }.take(2)) },
-                        label = { Text("Minute") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.weight(1f)
+                OutlinedButton(
+                    onClick = { showTimePicker = true },
+                    enabled = reminderDraft.enabled,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Reminder time: ${reminderDraft.displayTimeLabel()}")
+                }
+                if (showTimePicker) {
+                    TimeWheelPickerDialog(
+                        initialHour = reminderDraft.hour,
+                        initialMinute = reminderDraft.minute,
+                        initialIsPm = reminderDraft.isPm,
+                        onDismiss = { showTimePicker = false },
+                        onConfirm = { hour, minute, isPm ->
+                            reminderDraft = reminderDraft.copy(hour = hour, minute = minute, isPm = isPm)
+                            showTimePicker = false
+                        }
                     )
                 }
                 EnumDropdownField(
@@ -951,10 +974,14 @@ private fun RoutineEditorDialog(
                         name.trim(),
                         steps.mapNotNull { draft ->
                             val supplementId = draft.supplementId ?: return@mapNotNull null
+                            val supplement = supplements.firstOrNull { it.id == supplementId }
                             SupplementRoutineStep(
                                 supplementId = supplementId,
                                 timeOfDay = draft.timeOfDay,
                                 quantity = draft.quantity.toIntOrNull() ?: 1,
+                                dosageOverride = draft.dosageOverride.trim().ifBlank {
+                                    supplement?.recommendedServingDisplay().orEmpty()
+                                }.ifBlank { null },
                                 note = draft.note.trim().ifBlank { null }
                             )
                         },
@@ -983,6 +1010,13 @@ private fun RoutineStepRow(
 ) {
     var expanded by remember { mutableStateOf(false) }
     val selectedSupplement = supplements.firstOrNull { it.id == step.supplementId }
+    val recommendedServing = selectedSupplement?.recommendedServingDisplay().orEmpty()
+
+    LaunchedEffect(step.supplementId, selectedSupplement?.id) {
+        if (selectedSupplement != null && step.dosageOverride.isBlank()) {
+            onStepChange(step.copy(dosageOverride = recommendedServing))
+        }
+    }
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         ExposedDropdownMenuBox(
@@ -1008,11 +1042,39 @@ private fun RoutineStepRow(
                         text = { Text(supplement.name) },
                         onClick = {
                             expanded = false
-                            onStepChange(step.copy(supplementId = supplement.id))
+                            onStepChange(
+                                step.copy(
+                                    supplementId = supplement.id,
+                                    dosageOverride = supplement.recommendedServingDisplay()
+                                )
+                            )
                         }
                     )
                 }
             }
+        }
+
+        if (selectedSupplement != null) {
+            ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        text = "Recommended daily serving size",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = recommendedServing.ifBlank { "Take as directed" },
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+            }
+            OutlinedTextField(
+                value = step.dosageOverride.ifBlank { recommendedServing },
+                onValueChange = { onStepChange(step.copy(dosageOverride = it)) },
+                label = { Text("Daily serving size") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
         }
 
         OutlinedTextField(
@@ -1046,10 +1108,27 @@ private fun SupplementTimeOfDay.label(): String = when (this) {
     SupplementTimeOfDay.NIGHT -> "Night"
 }
 
+private fun SupplementEntry.recommendedServingDisplay(): String =
+    info?.servingSize?.takeIf { it.isNotBlank() }
+        ?: dosagePlan.summary().takeIf { it.isNotBlank() }
+        ?: "Take as directed"
+
+private fun RoutineReminderDraft.displayTimeLabel(): String {
+    val hourDisplay = hour.coerceIn(1, 12)
+    val minuteDisplay = minute.coerceIn(0, 59).toString().padStart(2, '0')
+    return "$hourDisplay:$minuteDisplay ${if (isPm) "PM" else "AM"}"
+}
+
 private fun RoutineReminder.toDraft(): RoutineReminderDraft = RoutineReminderDraft(
     enabled = enabled,
-    hour = hour.coerceIn(0, 23).toString(),
-    minute = minute.coerceIn(0, 59).toString().padStart(2, '0'),
+    hour = when (val normalized = hour.coerceIn(0, 23)) {
+        0 -> 12
+        in 1..11 -> normalized
+        12 -> 12
+        else -> normalized - 12
+    },
+    minute = minute.coerceIn(0, 59),
+    isPm = hour.coerceIn(0, 23) >= 12,
     frequency = frequency,
     repeatDays = repeatDays.toSet()
 )
@@ -1058,19 +1137,172 @@ private fun RoutineReminderDraft.toReminder(routineId: String, routineName: Stri
     routineId = routineId,
     routineName = routineName,
     enabled = enabled,
-    hour = hour.toIntOrNull()?.coerceIn(0, 23) ?: 8,
-    minute = minute.toIntOrNull()?.coerceIn(0, 59) ?: 0,
+    hour = if (isPm) {
+        when (hour.coerceIn(1, 12)) {
+            12 -> 12
+            else -> hour.coerceIn(1, 12) + 12
+        }
+    } else {
+        when (hour.coerceIn(1, 12)) {
+            12 -> 0
+            else -> hour.coerceIn(1, 12)
+        }
+    },
+    minute = minute.coerceIn(0, 59),
     frequency = frequency,
     repeatDays = repeatDays.toList().sortedBy { it.ordinal }
 )
 
 private fun RoutineReminderDraft.isValid(): Boolean {
     if (!enabled) return true
-    val hourValue = hour.toIntOrNull()
-    val minuteValue = minute.toIntOrNull()
-    if (hourValue !in 0..23 || minuteValue !in 0..59) return false
+    if (hour !in 1..12 || minute !in 0..59) return false
     if ((frequency == RoutineReminderFrequency.WEEKLY || frequency == RoutineReminderFrequency.CUSTOM_DAYS) && repeatDays.isEmpty()) return false
     return true
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TimeWheelPickerDialog(
+    initialHour: Int,
+    initialMinute: Int,
+    initialIsPm: Boolean,
+    onDismiss: () -> Unit,
+    onConfirm: (Int, Int, Boolean) -> Unit
+) {
+    var hour by remember(initialHour, initialMinute, initialIsPm) { mutableIntStateOf(initialHour.coerceIn(1, 12)) }
+    var minute by remember(initialHour, initialMinute, initialIsPm) { mutableIntStateOf(initialMinute.coerceIn(0, 59)) }
+    var isPm by remember(initialHour, initialMinute, initialIsPm) { mutableStateOf(initialIsPm) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Set reminder time") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    text = "Scroll the wheels to choose the hour, minute, and AM or PM.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    WheelPickerColumn(
+                        label = "Hour",
+                        values = (1..12).map { it.toString() },
+                        selectedIndex = hour - 1,
+                        onSelectedIndexChange = { hour = it + 1 },
+                        modifier = Modifier.weight(1f)
+                    )
+                    WheelPickerColumn(
+                        label = "Minute",
+                        values = (0..59).map { it.toString().padStart(2, '0') },
+                        selectedIndex = minute,
+                        onSelectedIndexChange = { minute = it },
+                        modifier = Modifier.weight(1f)
+                    )
+                    WheelPickerColumn(
+                        label = "AM/PM",
+                        values = listOf("AM", "PM"),
+                        selectedIndex = if (isPm) 1 else 0,
+                        onSelectedIndexChange = { isPm = it == 1 },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(hour, minute, isPm) }) {
+                Text("Done")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+
+@Composable
+private fun WheelPickerColumn(
+    label: String,
+    values: List<String>,
+    selectedIndex: Int,
+    onSelectedIndexChange: (Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val listState = rememberLazyListState()
+    val itemHeight = 40.dp
+    val centerOffset = 2
+    val clampedSelectedIndex = selectedIndex.coerceIn(0, values.lastIndex.coerceAtLeast(0))
+    val totalItems = values.size + centerOffset * 2
+
+    LaunchedEffect(values, clampedSelectedIndex) {
+        if (values.isNotEmpty()) {
+            listState.scrollToItem(clampedSelectedIndex + centerOffset)
+        }
+    }
+
+    LaunchedEffect(listState, values) {
+        snapshotFlow { listState.isScrollInProgress }.collect { scrolling ->
+            if (!scrolling && values.isNotEmpty()) {
+                val viewportCenter = (listState.layoutInfo.viewportStartOffset + listState.layoutInfo.viewportEndOffset) / 2
+                val centeredIndex = listState.layoutInfo.visibleItemsInfo.minByOrNull { itemInfo ->
+                    abs((itemInfo.offset + itemInfo.size / 2) - viewportCenter)
+                }?.index ?: return@collect
+                onSelectedIndexChange((centeredIndex - centerOffset).coerceIn(0, values.lastIndex))
+            }
+        }
+    }
+
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(label, style = MaterialTheme.typography.labelMedium)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(itemHeight * 5)
+        ) {
+            LazyColumn(
+                state = listState,
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.fillMaxSize()
+            ) {
+                items(totalItems) { lazyIndex ->
+                    val valueIndex = lazyIndex - centerOffset
+                    val isSpacer = valueIndex !in values.indices
+                    val value = if (isSpacer) "" else values[valueIndex]
+                    val isSelected = valueIndex == clampedSelectedIndex
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(itemHeight)
+                            .clickable(enabled = !isSpacer) { onSelectedIndexChange(valueIndex) },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = value,
+                            style = if (isSelected) {
+                                MaterialTheme.typography.titleMedium
+                            } else {
+                                MaterialTheme.typography.bodyMedium
+                            },
+                            color = if (isSelected) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            }
+                        )
+                    }
+                }
+            }
+            Box(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .fillMaxWidth()
+                    .height(itemHeight)
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.08f))
+            )
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
