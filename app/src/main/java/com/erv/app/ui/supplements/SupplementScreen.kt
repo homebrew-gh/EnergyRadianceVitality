@@ -508,12 +508,14 @@ private fun SupplementsTabContent(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SupplementLogScreen(
+    repository: SupplementRepository,
     state: SupplementLibraryState,
     onBack: () -> Unit
 ) {
     var selectedDate by remember { mutableStateOf(LocalDate.now()) }
     var showCalendar by remember { mutableStateOf(false) }
     val entries = remember(state, selectedDate) { state.chronologicalSupplementLogFor(selectedDate) }
+    val scope = rememberCoroutineScope()
 
     Scaffold(
         topBar = {
@@ -566,7 +568,7 @@ fun SupplementLogScreen(
                 ) {
                     item {
                         Text(
-                            text = "Newest first",
+                            text = "Newest first. Tap delete on an entry to remove it; Activity summary updates automatically.",
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -574,9 +576,25 @@ fun SupplementLogScreen(
                     }
                     itemsIndexed(
                         items = entries,
-                        key = { index, entry -> "$index-${entry.takenAtEpochSeconds}-${entry.supplementId}-${entry.sourceLabel}" }
+                        key = { index, entry -> entry.intakeId ?: "$index-${entry.takenAtEpochSeconds}-${entry.supplementId}-${entry.sourceLabel}" }
                     ) { _, entry ->
-                        SupplementLogEntryCard(entry = entry)
+                        SupplementLogEntryCard(
+                            entry = entry,
+                            onDelete = {
+                                scope.launch {
+                                    if (entry.intakeId != null) {
+                                        repository.removeIntake(selectedDate, entry.intakeId!!)
+                                    } else {
+                                        repository.removeIntakeByMatch(
+                                            selectedDate,
+                                            entry.supplementId,
+                                            entry.takenAtEpochSeconds,
+                                            entry.sourceLabel
+                                        )
+                                    }
+                                }
+                            }
+                        )
                     }
                 }
             }
@@ -596,7 +614,10 @@ fun SupplementLogScreen(
 }
 
 @Composable
-private fun SupplementLogEntryCard(entry: SupplementLogEntry) {
+private fun SupplementLogEntryCard(
+    entry: SupplementLogEntry,
+    onDelete: () -> Unit
+) {
     ElevatedCard(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(
@@ -616,11 +637,23 @@ private fun SupplementLogEntryCard(entry: SupplementLogEntry) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                Text(
-                    text = formatLogTime(entry.takenAtEpochSeconds),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = formatLogTime(entry.takenAtEpochSeconds),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    IconButton(
+                        onClick = onDelete,
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Delete,
+                            contentDescription = "Remove this entry"
+                        )
+                    }
+                }
             }
 
             Spacer(Modifier.height(8.dp))
@@ -724,19 +757,35 @@ private fun SupplementEditorDialog(
                         onSelected = { draft = draft.copy(form = it) },
                         modifier = Modifier.weight(1f)
                     )
-                    EnumDropdownField(
-                        value = draft.servingUnit,
-                        label = "Unit",
-                        options = SupplementUnit.entries,
-                        optionLabel = { it.label() },
-                        onSelected = { draft = draft.copy(servingUnit = it) },
-                        modifier = Modifier.weight(1f)
-                    )
+                    if (draft.form == SupplementForm.CAPSULE) {
+                        OutlinedTextField(
+                            value = "-",
+                            onValueChange = { },
+                            label = { Text("Unit") },
+                            readOnly = true,
+                            enabled = false,
+                            modifier = Modifier.weight(1f)
+                        )
+                    } else {
+                        EnumDropdownField(
+                            value = draft.servingUnit,
+                            label = "Unit",
+                            options = SupplementUnit.entries,
+                            optionLabel = { it.label() },
+                            onSelected = { draft = draft.copy(servingUnit = it) },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
                 }
                 OutlinedTextField(
                     value = draft.servingAmount,
                     onValueChange = { draft = draft.copy(servingAmount = it) },
-                    label = { Text("Amount") },
+                    label = {
+                        Text(
+                            if (draft.form == SupplementForm.CAPSULE) "Capsules per serving"
+                            else "Amount"
+                        )
+                    },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
@@ -817,6 +866,10 @@ private fun RoutineEditorDialog(
         }
     }
     val timeSlots = remember { listOf(SupplementTimeOfDay.MORNING, SupplementTimeOfDay.AFTERNOON, SupplementTimeOfDay.NIGHT) }
+    var selectedTimeSlot by remember(routine?.id, creating) {
+        val firstWithSteps = timeSlots.firstOrNull { slot -> steps.any { it.timeOfDay == slot } }
+        mutableStateOf(firstWithSteps ?: SupplementTimeOfDay.MORNING)
+    }
     var showTimePicker by remember { mutableStateOf(false) }
 
     AlertDialog(
@@ -844,50 +897,59 @@ private fun RoutineEditorDialog(
 
                 Text("Schedule", style = MaterialTheme.typography.titleSmall)
                 Text(
-                    text = "Each daypart gets its own routine card so you can keep mornings, afternoons, and nights separate.",
+                    text = "Select a time of day, then add supplements to that slot. Switch tabs to edit another time.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
-                timeSlots.forEach { timeOfDay ->
-                    val slotSteps = steps.withIndex().filter { it.value.timeOfDay == timeOfDay }
-                    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-                        Column(
-                            modifier = Modifier.padding(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
+                TabRow(
+                    selectedTabIndex = timeSlots.indexOf(selectedTimeSlot).coerceIn(0, timeSlots.lastIndex),
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    contentColor = MaterialTheme.colorScheme.onSurface
+                ) {
+                    timeSlots.forEachIndexed { index, timeOfDay ->
+                        Tab(
+                            selected = selectedTimeSlot == timeOfDay,
+                            onClick = { selectedTimeSlot = timeOfDay },
+                            text = { Text(timeOfDay.label()) }
+                        )
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+
+                val slotStepsWithIndex = remember(steps, selectedTimeSlot) {
+                    steps.mapIndexed { index, draft -> index to draft }
+                        .filter { (_, draft) -> draft.timeOfDay == selectedTimeSlot }
+                }
+                ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text(
+                            text = "${selectedTimeSlot.label()} supplements",
+                            style = MaterialTheme.typography.titleSmall
+                        )
+                        if (slotStepsWithIndex.isEmpty()) {
                             Text(
-                                text = "${timeOfDay.label()} routine",
-                                style = MaterialTheme.typography.titleSmall
-                            )
-                            Text(
-                                text = when (timeOfDay) {
-                                    SupplementTimeOfDay.MORNING -> "Keep your morning supplements grouped here."
-                                    SupplementTimeOfDay.AFTERNOON -> "Keep your afternoon supplements grouped here."
-                                    SupplementTimeOfDay.NIGHT -> "Keep your night supplements grouped here."
-                                },
+                                "No supplements for ${selectedTimeSlot.label().lowercase()} yet. Tap below to add.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            if (slotSteps.isEmpty()) {
-                                Text(
-                                    "No supplements added yet.",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                        } else {
+                            slotStepsWithIndex.forEach { (fullIndex, draft) ->
+                                RoutineStepRow(
+                                    step = draft,
+                                    supplements = supplements,
+                                    onStepChange = { updated -> steps[fullIndex] = updated },
+                                    onRemove = { steps.removeAt(fullIndex) }
                                 )
-                            } else {
-                                slotSteps.forEach { indexedStep ->
-                                    RoutineStepRow(
-                                        step = indexedStep.value,
-                                        supplements = supplements,
-                                        onStepChange = { updated -> steps[indexedStep.index] = updated },
-                                        onRemove = { if (steps.size > 1) steps.removeAt(indexedStep.index) }
-                                    )
-                                }
                             }
-                            TextButton(onClick = { steps.add(RoutineStepDraft(timeOfDay = timeOfDay)) }) {
-                                Text("Add ${timeOfDay.label().lowercase()}")
-                            }
+                        }
+                        TextButton(
+                            onClick = { steps.add(RoutineStepDraft(timeOfDay = selectedTimeSlot)) }
+                        ) {
+                            Text("Add supplement to ${selectedTimeSlot.label().lowercase()}")
                         }
                     }
                 }
@@ -1095,7 +1157,8 @@ private fun RoutineStepRow(
         OutlinedTextField(
             value = step.quantity,
             onValueChange = { onStepChange(step.copy(quantity = it.filter { ch -> ch.isDigit() })) },
-            label = { Text("Quantity") },
+            label = { Text("Quantity (multiplier)") },
+            supportingText = { Text("e.g. 2 = 2× the serving size above") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth()
         )
@@ -1108,11 +1171,8 @@ private fun RoutineStepRow(
             modifier = Modifier.fillMaxWidth()
         )
 
-        TextButton(
-            onClick = onRemove,
-            enabled = supplements.size > 1
-        ) {
-            Text("Remove step")
+        TextButton(onClick = onRemove) {
+            Text("Remove from this time")
         }
     }
 }

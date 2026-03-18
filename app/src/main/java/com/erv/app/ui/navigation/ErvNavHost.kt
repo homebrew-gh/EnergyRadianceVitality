@@ -127,6 +127,7 @@ fun ErvNavHost(
         composable(Routes.supplementLog) {
             val state = supplementRepository.state.collectAsState(initial = SupplementLibraryState()).value
             SupplementLogScreen(
+                repository = supplementRepository,
                 state = state,
                 onBack = { navController.popBackStack() }
             )

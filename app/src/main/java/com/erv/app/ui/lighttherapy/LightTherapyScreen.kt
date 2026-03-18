@@ -10,6 +10,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
@@ -27,14 +28,23 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.isSystemInDarkTheme
 import com.erv.app.lighttherapy.*
 import com.erv.app.nostr.EventSigner
+import com.erv.app.ui.theme.ErvDarkTherapyRedDark
+import com.erv.app.ui.theme.ErvDarkTherapyRedGlow
+import com.erv.app.ui.theme.ErvDarkTherapyRedMid
+import com.erv.app.ui.theme.ErvLightTherapyRedDark
+import com.erv.app.ui.theme.ErvLightTherapyRedGlow
+import com.erv.app.ui.theme.ErvLightTherapyRedMid
 import com.erv.app.nostr.RelayPool
 import com.erv.app.ui.dashboard.CalendarPopup
 import com.erv.app.ui.dashboard.DateNavigator
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -42,11 +52,6 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 private enum class LightTab { Timer, Routines, Lights }
-
-// Red light theme for timer
-private val TimerRedDark = Color(0xFF4A0E0E)
-private val TimerRedMid = Color(0xFF8B0000)
-private val TimerRedGlow = Color(0xFFB22222)
 
 @Composable
 fun LightTherapyCategoryScreen(
@@ -57,6 +62,10 @@ fun LightTherapyCategoryScreen(
     onOpenLog: () -> Unit
 ) {
     val context = LocalContext.current
+    val darkTheme = isSystemInDarkTheme()
+    val therapyRedDark = if (darkTheme) ErvDarkTherapyRedDark else ErvLightTherapyRedDark
+    val therapyRedMid = if (darkTheme) ErvDarkTherapyRedMid else ErvLightTherapyRedMid
+    val therapyRedGlow = if (darkTheme) ErvDarkTherapyRedGlow else ErvLightTherapyRedGlow
     val state by repository.state.collectAsState(initial = LightLibraryState())
     val today = remember { LocalDate.now() }
     val scope = rememberCoroutineScope()
@@ -94,9 +103,12 @@ fun LightTherapyCategoryScreen(
     }
 
     if (timerRunning) {
-        LightTimerFullScreen(
+        LightTherapyTimerFullScreen(
             durationMinutes = timerDurationMinutes,
             deviceName = timerDeviceName ?: "Light therapy",
+            redDark = therapyRedDark,
+            redMid = therapyRedMid,
+            redGlow = therapyRedGlow,
             onComplete = {
                 scope.launch {
                     repository.logSession(
@@ -133,7 +145,7 @@ fun LightTherapyCategoryScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = TimerRedMid,
+                    containerColor = therapyRedMid,
                     titleContentColor = Color.White,
                     actionIconContentColor = Color.White,
                     navigationIconContentColor = Color.White
@@ -148,7 +160,7 @@ fun LightTherapyCategoryScreen(
         ) {
             TabRow(
                 selectedTabIndex = activeTab,
-                containerColor = TimerRedDark,
+                containerColor = therapyRedDark,
                 contentColor = Color.White
             ) {
                 LightTab.entries.forEachIndexed { index, tab ->
@@ -162,15 +174,13 @@ fun LightTherapyCategoryScreen(
 
             when (LightTab.entries[activeTab]) {
                 LightTab.Timer -> TimerTabContent(
-                    state = state,
                     defaultMinutes = timerDurationMinutes,
-                    onMinutesChange = { timerDurationMinutes = it },
-                    onStartTimer = { minutes, routine, device ->
+                    onStartTimer = { minutes ->
                         timerDurationMinutes = minutes
-                        timerRoutineId = routine?.id
-                        timerRoutineName = routine?.name
-                        timerDeviceId = device?.id
-                        timerDeviceName = device?.name
+                        timerRoutineId = null
+                        timerRoutineName = null
+                        timerDeviceId = null
+                        timerDeviceName = null
                         timerRunning = true
                     }
                 )
@@ -321,10 +331,14 @@ fun LightTherapyCategoryScreen(
     }
 }
 
+/** Full-screen countdown timer; can be used from Light Therapy screen or Dashboard. */
 @Composable
-private fun LightTimerFullScreen(
+fun LightTherapyTimerFullScreen(
     durationMinutes: Int,
     deviceName: String,
+    redDark: Color,
+    redMid: Color,
+    redGlow: Color,
     onComplete: () -> Unit,
     onCancel: () -> Unit
 ) {
@@ -350,7 +364,7 @@ private fun LightTimerFullScreen(
             .fillMaxSize()
             .background(
                 androidx.compose.ui.graphics.Brush.verticalGradient(
-                    colors = listOf(TimerRedDark, TimerRedMid, TimerRedGlow)
+                    colors = listOf(redDark, redMid, redGlow)
                 )
             )
     ) {
@@ -394,96 +408,80 @@ private fun LightTimerFullScreen(
     }
 }
 
+private val MINUTE_OPTIONS = (5..60 step 5).toList()
+private const val WHEEL_ITEM_HEIGHT_DP = 56
+private const val WHEEL_VISIBLE_ITEMS = 5
+
 @Composable
 private fun TimerTabContent(
-    state: LightLibraryState,
     defaultMinutes: Int,
-    onMinutesChange: (Int) -> Unit,
-    onStartTimer: (Int, LightRoutine?, LightDevice?) -> Unit
+    onStartTimer: (Int) -> Unit
 ) {
-    val presets = listOf(5, 10, 15, 20, 30)
-    var selectedMinutes by remember(defaultMinutes) { mutableIntStateOf(defaultMinutes) }
-    var selectedRoutine by remember { mutableStateOf<LightRoutine?>(null) }
-    val selectedDevice = selectedRoutine?.deviceId?.let { state.deviceById(it) }
+    val initialIndex = (MINUTE_OPTIONS.indexOf(defaultMinutes).coerceIn(0, MINUTE_OPTIONS.lastIndex)).coerceAtLeast(0)
+    val listState = rememberLazyListState(initialFirstVisibleItemIndex = initialIndex)
+    val itemHeightPx = with(androidx.compose.ui.platform.LocalDensity.current) { WHEEL_ITEM_HEIGHT_DP.dp.toPx() }
+    val selectedIndex by remember {
+        derivedStateOf {
+            val offset = listState.firstVisibleItemScrollOffset.toFloat()
+            val index = listState.firstVisibleItemIndex + (offset / itemHeightPx).roundToInt()
+            index.coerceIn(0, MINUTE_OPTIONS.lastIndex)
+        }
+    }
+    val selectedMinutes = MINUTE_OPTIONS[selectedIndex]
+
+    LaunchedEffect(listState.isScrollInProgress) {
+        if (!listState.isScrollInProgress) {
+            listState.animateScrollToItem(selectedIndex)
+        }
+    }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp)
-            .verticalScroll(rememberScrollState())
+            .padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.SpaceBetween
     ) {
-        Text("Duration", style = MaterialTheme.typography.titleMedium)
         Spacer(Modifier.height(8.dp))
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.fillMaxWidth()
+        Box(
+            modifier = Modifier
+                .height((WHEEL_ITEM_HEIGHT_DP * WHEEL_VISIBLE_ITEMS).dp)
+                .fillMaxWidth()
         ) {
-            presets.forEach { mins ->
-                FilterChip(
-                    selected = selectedMinutes == mins,
-                    onClick = {
-                        selectedMinutes = mins
-                        onMinutesChange(mins)
-                    },
-                    label = { Text("${mins} min") }
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(
+                    vertical = (WHEEL_ITEM_HEIGHT_DP * (WHEEL_VISIBLE_ITEMS / 2)).dp
                 )
-            }
-        }
-        Spacer(Modifier.height(8.dp))
-        OutlinedTextField(
-            value = selectedMinutes.toString(),
-            onValueChange = { it.filter { c -> c.isDigit() }.toIntOrNull()?.coerceIn(1, 120)?.let { selectedMinutes = it; onMinutesChange(it) } },
-            label = { Text("Custom minutes") },
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            modifier = Modifier.fillMaxWidth()
-        )
-
-        Spacer(Modifier.height(24.dp))
-        Text("Routine (optional)", style = MaterialTheme.typography.titleMedium)
-        Spacer(Modifier.height(8.dp))
-        if (state.routines.isEmpty()) {
-            Text(
-                "Add routines in the Routines tab and assign a device.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        } else {
-            state.routines.forEach { routine ->
-                val device = routine.deviceId?.let { state.deviceById(it) }
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    RadioButton(
-                        selected = selectedRoutine?.id == routine.id,
-                        onClick = { selectedRoutine = if (selectedRoutine?.id == routine.id) null else routine }
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(routine.name, style = MaterialTheme.typography.bodyLarge)
+            ) {
+                items(MINUTE_OPTIONS.size, key = { MINUTE_OPTIONS[it] }) { index ->
+                    val minutes = MINUTE_OPTIONS[index]
+                    val isSelected = index == selectedIndex
+                    Box(
+                        modifier = Modifier
+                            .height(WHEEL_ITEM_HEIGHT_DP.dp)
+                            .fillMaxWidth(),
+                        contentAlignment = Alignment.Center
+                    ) {
                         Text(
-                            "${routine.durationMinutes} min • ${routine.timeOfDay.label()}${device?.let { " • ${it.name}" }.orEmpty()}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            text = "$minutes",
+                            style = if (isSelected) MaterialTheme.typography.displayMedium else MaterialTheme.typography.headlineMedium,
+                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                         )
                     }
                 }
             }
         }
-
-        Spacer(Modifier.height(24.dp))
         Button(
-            onClick = {
-                val mins = selectedMinutes.coerceIn(1, 120)
-                onStartTimer(mins, selectedRoutine, selectedDevice)
-            },
-            modifier = Modifier.fillMaxWidth()
+            onClick = { onStartTimer(selectedMinutes) },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(56.dp)
         ) {
             Icon(Icons.Default.PlayArrow, contentDescription = null)
-            Spacer(Modifier.width(8.dp))
-            Text("Start $selectedMinutes min session")
+            Spacer(Modifier.width(12.dp))
+            Text("Start $selectedMinutes min")
         }
     }
 }

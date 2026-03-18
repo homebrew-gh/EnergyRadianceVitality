@@ -1,5 +1,6 @@
 package com.erv.app.ui.dashboard
 
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.rememberScrollState
@@ -24,6 +25,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.erv.app.R
@@ -42,8 +44,15 @@ import com.erv.app.lighttherapy.LightLibraryState
 import com.erv.app.lighttherapy.LightRoutine
 import com.erv.app.lighttherapy.LightSync
 import com.erv.app.lighttherapy.LightTherapyRepository
+import com.erv.app.lighttherapy.LightTherapyTimerFullScreen
 import com.erv.app.lighttherapy.LightTimeOfDay
 import com.erv.app.lighttherapy.lightActivityFor
+import com.erv.app.ui.theme.ErvDarkTherapyRedDark
+import com.erv.app.ui.theme.ErvDarkTherapyRedGlow
+import com.erv.app.ui.theme.ErvDarkTherapyRedMid
+import com.erv.app.ui.theme.ErvLightTherapyRedDark
+import com.erv.app.ui.theme.ErvLightTherapyRedGlow
+import com.erv.app.ui.theme.ErvLightTherapyRedMid
 import com.erv.app.supplements.SupplementSync
 import com.erv.app.supplements.SupplementTimeOfDay
 import com.erv.app.supplements.describe
@@ -54,6 +63,14 @@ import androidx.compose.ui.text.input.KeyboardType
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.LocalDate
+
+private data class LightTimerSession(
+    val minutes: Int,
+    val routineId: String?,
+    val routineName: String?,
+    val deviceId: String?,
+    val deviceName: String?
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -86,7 +103,12 @@ fun DashboardScreen(
     var routinePreview by remember { mutableStateOf<SupplementRoutine?>(null) }
     var routineEditor by remember { mutableStateOf<SupplementRoutine?>(null) }
     var lightRoutinePreview by remember { mutableStateOf<LightRoutine?>(null) }
+    var lightTimerSession by remember { mutableStateOf<LightTimerSession?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
+    val darkTheme = isSystemInDarkTheme()
+    val therapyRedDark = if (darkTheme) ErvDarkTherapyRedDark else ErvLightTherapyRedDark
+    val therapyRedMid = if (darkTheme) ErvDarkTherapyRedMid else ErvLightTherapyRedMid
+    val therapyRedGlow = if (darkTheme) ErvDarkTherapyRedGlow else ErvLightTherapyRedGlow
 
     val scaffoldState = rememberBottomSheetScaffoldState(
         bottomSheetState = rememberStandardBottomSheetState(
@@ -168,14 +190,14 @@ fun DashboardScreen(
         },
         modifier = modifier
     ) { padding ->
-        // The dashboard keeps routines lightweight: select, preview, then log or edit.
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp)
-        ) {
+        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
+            // The dashboard keeps routines lightweight: select, preview, then log or edit.
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp)
+            ) {
             Spacer(Modifier.height(8.dp))
 
             DateNavigator(
@@ -211,25 +233,25 @@ fun DashboardScreen(
             )
 
             Spacer(Modifier.height(16.dp))
-        }
+            }
 
-        if (showCalendar) {
-            CalendarPopup(
-                selectedDate = selectedDate,
-                onDateSelected = { date ->
-                    viewModel.selectDate(date)
-                    showCalendar = false
-                },
-                onDismiss = { showCalendar = false }
-            )
-        }
+            if (showCalendar) {
+                CalendarPopup(
+                    selectedDate = selectedDate,
+                    onDateSelected = { date ->
+                        viewModel.selectDate(date)
+                        showCalendar = false
+                    },
+                    onDismiss = { showCalendar = false }
+                )
+            }
 
-        routinePreview?.let { routine ->
-            RoutinePreviewSheet(
-                routine = routine,
-                supplements = supplementState.supplements,
-                onDismiss = { routinePreview = null },
-                onLogAsIs = {
+            routinePreview?.let { routine ->
+                RoutinePreviewSheet(
+                    routine = routine,
+                    supplements = supplementState.supplements,
+                    onDismiss = { routinePreview = null },
+                    onLogAsIs = {
                     scope.launch {
                         supplementRepository.logRoutineRun(today, routine.id, routine.name, routine.steps)
                         syncDailyLog()
@@ -237,19 +259,19 @@ fun DashboardScreen(
                         routinePreview = null
                     }
                 },
-                onModify = {
-                    routineEditor = routine
-                    routinePreview = null
-                }
-            )
-        }
+                    onModify = {
+                        routineEditor = routine
+                        routinePreview = null
+                    }
+                )
+            }
 
-        routineEditor?.let { routine ->
-            RoutineModifyDialog(
-                routine = routine,
-                supplements = supplementState.supplements,
-                onDismiss = { routineEditor = null },
-                onSave = { updatedName, steps, notes, savePermanently ->
+            routineEditor?.let { routine ->
+                RoutineModifyDialog(
+                    routine = routine,
+                    supplements = supplementState.supplements,
+                    onDismiss = { routineEditor = null },
+                    onSave = { updatedName, steps, notes, savePermanently ->
                     scope.launch {
                         val updatedRoutine = routine.copy(
                             name = updatedName,
@@ -283,15 +305,15 @@ fun DashboardScreen(
                         routineEditor = null
                     }
                 }
-            )
-        }
+                )
+            }
 
-        lightRoutinePreview?.let { routine ->
-            LightRoutinePreviewSheet(
-                routine = routine,
-                deviceName = routine.deviceId?.let { lightState.deviceById(it)?.name },
-                onDismiss = { lightRoutinePreview = null },
-                onLogSession = {
+            lightRoutinePreview?.let { routine ->
+                LightRoutinePreviewSheet(
+                    routine = routine,
+                    deviceName = routine.deviceId?.let { lightState.deviceById(it)?.name },
+                    onDismiss = { lightRoutinePreview = null },
+                    onLogSession = {
                     scope.launch {
                         val device = routine.deviceId?.let { lightState.deviceById(it) }
                         lightTherapyRepository.logSession(
@@ -311,11 +333,49 @@ fun DashboardScreen(
                         lightRoutinePreview = null
                     }
                 },
-                onStartTimer = {
-                    categories.firstOrNull { it.id == "light_therapy" }?.let { onNavigateToCategory(it) }
-                    lightRoutinePreview = null
-                }
-            )
+                    onStartTimer = { r ->
+                        val device = r.deviceId?.let { lightState.deviceById(it) }
+                        lightTimerSession = LightTimerSession(
+                            minutes = r.durationMinutes,
+                            routineId = r.id,
+                            routineName = r.name,
+                            deviceId = r.deviceId,
+                            deviceName = device?.name
+                        )
+                        lightRoutinePreview = null
+                    }
+                )
+            }
+
+            lightTimerSession?.let { session ->
+                LightTherapyTimerFullScreen(
+                    durationMinutes = session.minutes,
+                    deviceName = session.routineName ?: session.deviceName ?: "Light therapy",
+                    redDark = therapyRedDark,
+                    redMid = therapyRedMid,
+                    redGlow = therapyRedGlow,
+                    onComplete = {
+                    scope.launch {
+                        lightTherapyRepository.logSession(
+                            date = today,
+                            minutes = session.minutes,
+                            deviceId = session.deviceId,
+                            deviceName = session.deviceName,
+                            routineId = session.routineId,
+                            routineName = session.routineName
+                        )
+                        lightTherapyRepository.currentState().logFor(today)?.let { log ->
+                            if (relayPool != null && signer != null) {
+                                LightSync.publishDailyLog(relayPool, signer, log)
+                            }
+                        }
+                        snackbarHostState.showSnackbar("Logged ${session.routineName ?: "Light therapy"} • ${session.minutes} min")
+                        lightTimerSession = null
+                    }
+                },
+                    onCancel = { lightTimerSession = null }
+                )
+            }
         }
     }
 }
@@ -361,6 +421,9 @@ private fun RoutinesSection(
     onLightRoutineSelected: (LightRoutine) -> Unit,
     onNavigateToCategory: (Category) -> Unit
 ) {
+    var showSupplementPicker by remember { mutableStateOf(false) }
+    var showLightPicker by remember { mutableStateOf(false) }
+
     Text(
         text = "Routines",
         style = MaterialTheme.typography.titleLarge,
@@ -382,33 +445,142 @@ private fun RoutinesSection(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             } else {
-                Text(
-                    text = "Tap a routine to preview, log, or modify it.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.outline
-                )
-                Spacer(Modifier.height(12.dp))
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    supplementRoutines.forEachIndexed { index, routine ->
+                    if (supplementRoutines.isNotEmpty()) {
                         RoutineTile(
-                            icon = routineIconFor(index),
-                            label = routine.name,
-                            subtitle = "Supplements",
-                            onClick = { onSupplementRoutineSelected(routine) },
+                            icon = Icons.Default.Medication,
+                            label = "Supplements",
+                            subtitle = if (supplementRoutines.size == 1) "1 routine" else "${supplementRoutines.size} routines",
+                            onClick = {
+                                if (supplementRoutines.size == 1) {
+                                    onSupplementRoutineSelected(supplementRoutines.first())
+                                } else {
+                                    showSupplementPicker = true
+                                }
+                            },
                             modifier = Modifier.width(120.dp)
                         )
                     }
-                    lightRoutines.forEachIndexed { _, routine ->
+                    if (lightRoutines.isNotEmpty()) {
                         RoutineTile(
                             icon = Icons.Default.WbSunny,
-                            label = routine.name,
-                            subtitle = "Light • ${routine.durationMinutes} min",
-                            onClick = { onLightRoutineSelected(routine) },
+                            label = "Light therapy",
+                            subtitle = if (lightRoutines.size == 1) "1 routine" else "${lightRoutines.size} routines",
+                            onClick = {
+                                if (lightRoutines.size == 1) {
+                                    onLightRoutineSelected(lightRoutines.first())
+                                } else {
+                                    showLightPicker = true
+                                }
+                            },
                             modifier = Modifier.width(120.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    if (showSupplementPicker) {
+        SupplementRoutinePickerSheet(
+            routines = supplementRoutines,
+            onDismiss = { showSupplementPicker = false },
+            onSelect = { routine ->
+                onSupplementRoutineSelected(routine)
+                showSupplementPicker = false
+            }
+        )
+    }
+    if (showLightPicker) {
+        LightRoutinePickerSheet(
+            routines = lightRoutines,
+            onDismiss = { showLightPicker = false },
+            onSelect = { routine ->
+                onLightRoutineSelected(routine)
+                showLightPicker = false
+            }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SupplementRoutinePickerSheet(
+    routines: List<SupplementRoutine>,
+    onDismiss: () -> Unit,
+    onSelect: (SupplementRoutine) -> Unit
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 24.dp)
+        ) {
+            Text(
+                "Choose a supplement routine",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(bottom = 12.dp)
+            )
+            routines.forEach { routine ->
+                Surface(
+                    onClick = { onSelect(routine) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    shape = MaterialTheme.shapes.medium
+                ) {
+                    Text(
+                        text = routine.name,
+                        style = MaterialTheme.typography.bodyLarge,
+                        modifier = Modifier.padding(16.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LightRoutinePickerSheet(
+    routines: List<LightRoutine>,
+    onDismiss: () -> Unit,
+    onSelect: (LightRoutine) -> Unit
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 24.dp)
+        ) {
+            Text(
+                "Choose a light therapy routine",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(bottom = 12.dp)
+            )
+            routines.forEach { routine ->
+                Surface(
+                    onClick = { onSelect(routine) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    shape = MaterialTheme.shapes.medium
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            text = routine.name,
+                            style = MaterialTheme.typography.bodyLarge
+                        )
+                        Text(
+                            text = "${when (routine.timeOfDay) { LightTimeOfDay.MORNING -> "Morning"; LightTimeOfDay.AFTERNOON -> "Afternoon"; LightTimeOfDay.NIGHT -> "Night" }} • ${routine.durationMinutes} min",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
@@ -498,7 +670,7 @@ private fun LightRoutinePreviewSheet(
     deviceName: String?,
     onDismiss: () -> Unit,
     onLogSession: () -> Unit,
-    onStartTimer: () -> Unit
+    onStartTimer: (LightRoutine) -> Unit
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
@@ -526,7 +698,7 @@ private fun LightRoutinePreviewSheet(
                     Spacer(Modifier.width(8.dp))
                     Text("Log session")
                 }
-                OutlinedButton(onClick = onStartTimer) {
+                OutlinedButton(onClick = { onStartTimer(routine) }) {
                     Icon(Icons.Default.WbSunny, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
                     Text("Start timer")
@@ -758,7 +930,8 @@ private fun RoutineStepRow(
         OutlinedTextField(
             value = step.quantity,
             onValueChange = { onStepChange(step.copy(quantity = it.filter { ch -> ch.isDigit() })) },
-            label = { Text("Quantity") },
+            label = { Text("Quantity (multiplier)") },
+            supportingText = { Text("e.g. 2 = 2× the serving size above") },
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
             modifier = Modifier.fillMaxWidth()
@@ -819,13 +992,15 @@ private fun RoutineTile(
                 text = label,
                 style = MaterialTheme.typography.labelMedium,
                 maxLines = 2,
-                minLines = 2
+                minLines = 2,
+                textAlign = TextAlign.Center
             )
             Spacer(Modifier.height(2.dp))
             Text(
                 text = subtitle,
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
             )
         }
     }

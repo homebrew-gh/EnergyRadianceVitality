@@ -42,6 +42,9 @@ data class SupplementDosagePlan(
     val amount: Double? = null,
     val unit: SupplementUnit = SupplementUnit.MG,
 ) {
+    /** Display label for unit: "-" when form is Capsule (amount = number of capsules), else e.g. "mg". */
+    fun unitDisplayLabel(): String = if (form == SupplementForm.CAPSULE) "-" else unit.label()
+
     fun summary(): String = buildString {
         append(
             when (form) {
@@ -50,7 +53,10 @@ data class SupplementDosagePlan(
             }
         )
         if (servingSize.isNotBlank()) append(" • $servingSize")
-        val dosage = amount?.let { formatAmount(it) }?.let { "$it ${unit.label()} per serving" }
+        val dosage = when (form) {
+            SupplementForm.CAPSULE -> amount?.let { formatAmount(it) }?.let { "$it capsule${if (it == 1.0) "" else "s"} per serving" }
+            SupplementForm.POWDER -> amount?.let { formatAmount(it) }?.let { "$it ${unit.label()} per serving" }
+        }
         if (!dosage.isNullOrBlank()) append(" • $dosage")
     }.trim()
 
@@ -77,7 +83,10 @@ data class SupplementDosagePlan(
             note = buildString {
                 append(notePrefix)
                 append(": ")
-                val serving = amount?.let { formatAmount(it) }?.let { "$it ${unit.label()}" }
+                val serving = when (form) {
+                    SupplementForm.CAPSULE -> amount?.let { formatAmount(it) }?.let { "$it capsule${if (it == 1.0) "" else "s"}" }
+                    SupplementForm.POWDER -> amount?.let { formatAmount(it) }?.let { "$it ${unit.label()}" }
+                }
                 if (!serving.isNullOrBlank()) append("$quantity x $serving")
                 else if (servingSize.isNotBlank()) append("$quantity x $servingSize")
                 else append("$quantity serving${if (quantity == 1) "" else "s"}")
@@ -120,7 +129,11 @@ data class SupplementIntake(
     val supplementName: String,
     val dosageTaken: String? = null,
     val takenAtEpochSeconds: Long? = null,
-    val note: String? = null
+    val note: String? = null,
+    /** Multiplier for serving size (e.g. 2 = 2× the stated serving). Default 1. */
+    val quantity: Int? = 1,
+    /** Unique id for this intake (used to edit/delete from log). Omitted for legacy data. */
+    val id: String? = null
 )
 
 @Serializable
@@ -188,7 +201,9 @@ data class SupplementLogEntry(
     val supplementName: String,
     val dosageTaken: String,
     val takenAtEpochSeconds: Long,
-    val sourceLabel: String
+    val sourceLabel: String,
+    /** Intake id for delete; null for legacy entries. */
+    val intakeId: String? = null
 )
 
 fun SupplementLibraryState.groupedSupplementActivityFor(date: LocalDate): List<SupplementActivityRow> {
@@ -229,7 +244,8 @@ fun SupplementLibraryState.chronologicalSupplementLogFor(date: LocalDate): List<
                         dosageTaken = intake.dosageTaken?.takeIf { it.isNotBlank() }
                             ?: "take as directed",
                         takenAtEpochSeconds = intake.takenAtEpochSeconds ?: run.takenAtEpochSeconds,
-                        sourceLabel = "Routine: ${run.routineName}"
+                        sourceLabel = "Routine: ${run.routineName}",
+                        intakeId = intake.id
                     )
                 )
             }
@@ -242,7 +258,8 @@ fun SupplementLibraryState.chronologicalSupplementLogFor(date: LocalDate): List<
                     dosageTaken = intake.dosageTaken?.takeIf { it.isNotBlank() }
                         ?: "take as directed",
                     takenAtEpochSeconds = intake.takenAtEpochSeconds ?: 0L,
-                    sourceLabel = "Ad hoc"
+                    sourceLabel = "Ad hoc",
+                    intakeId = intake.id
                 )
             )
         }
@@ -308,10 +325,14 @@ private fun resolveSupplementAmountDisplay(
     supplement: SupplementEntry,
     intakes: List<SupplementIntake>
 ): String {
-    val amount = supplement.dosagePlan.amount
+    val plan = supplement.dosagePlan
+    val amount = plan.amount
     return if (amount != null) {
-        val total = amount * intakes.size
-        "${formatAmount(total)} ${supplement.dosagePlan.unit.label()}"
+        val total = intakes.sumOf { (it.quantity ?: 1).toDouble() } * amount
+        when (plan.form) {
+            SupplementForm.CAPSULE -> "${formatAmount(total)} capsule${if (total == 1.0) "" else "s"}"
+            SupplementForm.POWDER -> "${formatAmount(total)} ${plan.unit.label()}"
+        }
     } else {
         intakes.firstNotBlankDosageTaken()
             ?: supplement.dosagePlan.summary()

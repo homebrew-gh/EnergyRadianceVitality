@@ -23,6 +23,12 @@ data class SupplementApiResult(
     val info: SupplementInfo
 )
 
+/**
+ * Official NIH Dietary Supplement Label Database (DSLD) API.
+ * @see <a href="https://dsld.od.nih.gov/">dsld.od.nih.gov</a>
+ */
+private const val NIH_DSLD_BASE = "https://dsld.od.nih.gov/dsld/v8"
+
 class SupplementApiClient(
     private val client: OkHttpClient = OkHttpClient()
 ) {
@@ -47,30 +53,39 @@ class SupplementApiClient(
         if (normalized.isBlank()) return@withContext emptyList()
 
         try {
-            val url = "http://3.216.223.78/dsldnxt/api/search-filter".toHttpUrl().newBuilder()
+            val url = "$NIH_DSLD_BASE/search-filter".toHttpUrl().newBuilder()
                 .addQueryParameter("q", normalized)
                 .addQueryParameter("size", size.toString())
                 .build()
 
-            val request = Request.Builder()
-                .url(url)
-                .header("Accept", "application/json")
-                .build()
-
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@withContext emptyList()
-
-                val body = response.body?.string().orEmpty()
-                if (body.isBlank()) return@withContext emptyList()
-
-                val root = json.parseToJsonElement(body).jsonObject
-                root["hits"]
-                    ?.jsonArray
-                    ?.mapNotNull { it.asSupplementApiResult() }
-                    .orEmpty()
+            var results = executeSearch(url)
+            if (results.isEmpty() && normalized.contains(" ")) {
+                val quotedUrl = "$NIH_DSLD_BASE/search-filter".toHttpUrl().newBuilder()
+                    .addQueryParameter("q", "\"$normalized\"")
+                    .addQueryParameter("size", size.toString())
+                    .build()
+                results = executeSearch(quotedUrl)
             }
+            results
         } catch (_: Exception) {
             emptyList()
+        }
+    }
+
+    private fun executeSearch(url: okhttp3.HttpUrl): List<SupplementApiResult> {
+        val request = Request.Builder()
+            .url(url)
+            .header("Accept", "application/json")
+            .build()
+        client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) return emptyList()
+            val body = response.body?.string().orEmpty()
+            if (body.isBlank()) return emptyList()
+            val root = json.parseToJsonElement(body).jsonObject
+            return root["hits"]
+                ?.jsonArray
+                ?.mapNotNull { it.asSupplementApiResult() }
+                .orEmpty()
         }
     }
 

@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import java.time.LocalDate
+import java.util.UUID
 
 private val Context.supplementDataStore: DataStore<Preferences> by preferencesDataStore(name = "erv_supplements")
 
@@ -83,7 +84,8 @@ class SupplementRepository(context: Context) {
                 supplementName = supplement.name,
                 dosageTaken = dosageTaken ?: supplement.dosagePlan.summary(),
                 takenAtEpochSeconds = nowEpochSeconds(),
-                note = note
+                note = note,
+                id = UUID.randomUUID().toString()
             )
             current.copy(logs = current.logs.upsert(log.copy(adHocIntakes = log.adHocIntakes + intake)))
         }
@@ -113,11 +115,71 @@ class SupplementRepository(context: Context) {
                         supplementName = supplement.name,
                         dosageTaken = step.dosageOverride ?: step.describe(supplement.name),
                         takenAtEpochSeconds = nowEpochSeconds(),
-                        note = step.note
+                        note = step.note,
+                        quantity = step.quantity?.coerceAtLeast(1) ?: 1,
+                        id = UUID.randomUUID().toString()
                     )
                 }
             )
             current.copy(logs = current.logs.upsert(log.copy(routineRuns = log.routineRuns + run)))
+        }
+    }
+
+    /**
+     * Removes one intake from the log for the given date (by intake id).
+     * Activity summary and log list both derive from this state, so they update automatically.
+     */
+    suspend fun removeIntake(date: LocalDate, intakeId: String) {
+        updateState { current ->
+            val log = current.logFor(date) ?: return@updateState current
+            val newRoutineRuns = log.routineRuns.mapNotNull { run ->
+                val newSteps = run.stepIntakes.filterNot { it.id == intakeId }
+                if (newSteps.isEmpty()) null else run.copy(stepIntakes = newSteps)
+            }
+            val newAdHoc = log.adHocIntakes.filterNot { it.id == intakeId }
+            val newLog = log.copy(
+                routineRuns = newRoutineRuns,
+                adHocIntakes = newAdHoc
+            )
+            current.copy(logs = current.logs.upsert(newLog))
+        }
+    }
+
+    /**
+     * Removes one intake from the log by matching fields (for legacy entries that have no id).
+     * Removes the first matching intake in routine runs, then ad-hoc if not found.
+     */
+    suspend fun removeIntakeByMatch(
+        date: LocalDate,
+        supplementId: String,
+        takenAtEpochSeconds: Long,
+        sourceLabel: String
+    ) {
+        updateState { current ->
+            val log = current.logFor(date) ?: return@updateState current
+            val targetSec = takenAtEpochSeconds
+            fun matches(i: SupplementIntake): Boolean =
+                i.supplementId == supplementId && (i.takenAtEpochSeconds ?: 0L) == targetSec
+            var removed = false
+            val newRoutineRuns = log.routineRuns.mapNotNull { run ->
+                if (removed) return@mapNotNull run
+                val idx = run.stepIntakes.indexOfFirst { matches(it) }
+                if (idx < 0) return@mapNotNull run
+                removed = true
+                val newSteps = run.stepIntakes.toMutableList().apply { removeAt(idx) }
+                if (newSteps.isEmpty()) null else run.copy(stepIntakes = newSteps)
+            }
+            val newAdHoc = if (!removed) {
+                val idx = log.adHocIntakes.indexOfFirst { matches(it) }
+                if (idx >= 0) log.adHocIntakes.toMutableList().apply { removeAt(idx) } else log.adHocIntakes
+            } else {
+                log.adHocIntakes
+            }
+            val newLog = log.copy(
+                routineRuns = newRoutineRuns,
+                adHocIntakes = newAdHoc
+            )
+            current.copy(logs = current.logs.upsert(newLog))
         }
     }
 

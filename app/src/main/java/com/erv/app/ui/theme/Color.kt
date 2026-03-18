@@ -79,3 +79,13 @@ val ErvDarkInverseOnSurface = Color(0xFF2C1810)
 val ErvDarkInversePrimary = Color(0xFFC45C26)
 
 val ErvDarkScrim = Color(0xFF000000)
+
+// --- Light Therapy accent (theme-aware) ---
+// Light theme: darker red so cards/top bar stand out on light background
+val ErvLightTherapyRedDark = Color(0xFF2E0808)
+val ErvLightTherapyRedMid = Color(0xFF6B0000)
+val ErvLightTherapyRedGlow = Color(0xFF7A1515)
+// Dark theme: slightly lighter red so they stand out on dark background
+val ErvDarkTherapyRedDark = Color(0xFF3D1212)
+val ErvDarkTherapyRedMid = Color(0xFF9B2222)
+val ErvDarkTherapyRedGlow = Color(0xFFB83A3A)
