@@ -241,11 +241,12 @@ private fun MainAppShell(
             else null)
     }
     val relayPool = remember(signer) { signer?.let { RelayPool(it) } }
+    var relayUrlsVersion by remember { mutableIntStateOf(0) }
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { }
 
-    LaunchedEffect(relayPool) {
+    LaunchedEffect(relayPool, relayUrlsVersion) {
         relayPool?.setRelays(keyManager.allRelayUrls())
     }
     LaunchedEffect(reminderRepository) {
@@ -273,6 +274,7 @@ private fun MainAppShell(
         signer = signer,
         pendingReminderRoutineId = pendingReminderRoutineId,
         consumePendingReminderRoutineId = consumePendingReminderRoutineId,
+        onRelaysChanged = { relayUrlsVersion++ },
         onLogout = onLogout
     )
 }

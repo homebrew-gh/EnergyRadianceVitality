@@ -43,6 +43,7 @@ fun SettingsScreen(
     amberHost: AmberLauncherHost,
     userPreferences: UserPreferences,
     onBack: () -> Unit,
+    onRelaysChanged: () -> Unit = {},
     onLogout: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
@@ -137,16 +138,19 @@ fun SettingsScreen(
                     onToggleData = { enabled ->
                         if (enabled) keyManager.addRelay(url) else keyManager.removeRelay(url)
                         relayRevision++
+                        onRelaysChanged()
                         hasUnsavedChanges = true
                     },
                     onToggleSocial = { enabled ->
                         if (enabled) keyManager.addSocialRelay(url) else keyManager.removeSocialRelay(url)
                         relayRevision++
+                        onRelaysChanged()
                         hasUnsavedChanges = true
                     },
                     onRemove = {
                         keyManager.removeRelayCompletely(url)
                         relayRevision++
+                        onRelaysChanged()
                         hasUnsavedChanges = true
                     }
                 )
@@ -169,6 +173,7 @@ fun SettingsScreen(
                     if (url != null) {
                         keyManager.addRelay(url)
                         relayRevision++
+                        onRelaysChanged()
                         hasUnsavedChanges = true
                         newRelaySuffix = ""
                     }

@@ -55,6 +55,7 @@ fun ErvNavHost(
     signer: EventSigner?,
     pendingReminderRoutineId: StateFlow<String?>,
     consumePendingReminderRoutineId: () -> Unit,
+    onRelaysChanged: () -> Unit = {},
     onLogout: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -94,6 +95,7 @@ fun ErvNavHost(
                 amberHost = amberHost,
                 userPreferences = userPreferences,
                 onBack = { navController.popBackStack() },
+                onRelaysChanged = onRelaysChanged,
                 onLogout = onLogout
             )
         }

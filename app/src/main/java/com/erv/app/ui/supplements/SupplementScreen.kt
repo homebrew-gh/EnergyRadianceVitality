@@ -26,6 +26,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -67,6 +68,10 @@ import java.util.Locale
 import kotlin.math.abs
 
 private enum class SupplementsTab { Supplements, Routines }
+
+// Match Light Therapy header color scheme: lighter red top bar, darker wine tab row
+private val SupplementRedDark = Color(0xFF4A0E0E)
+private val SupplementRedMid = Color(0xFF8B0000)
 
 private data class RoutineStepDraft(
     val supplementId: String? = null,
@@ -156,7 +161,13 @@ fun SupplementCategoryScreen(
                     IconButton(onClick = onOpenLog) {
                         Icon(Icons.Default.DateRange, contentDescription = "Open log")
                     }
-                }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = SupplementRedMid,
+                    titleContentColor = Color.White,
+                    actionIconContentColor = Color.White,
+                    navigationIconContentColor = Color.White
+                )
             )
         }
     ) { padding ->
@@ -165,7 +176,11 @@ fun SupplementCategoryScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            TabRow(selectedTabIndex = activeTab) {
+            TabRow(
+                selectedTabIndex = activeTab,
+                containerColor = SupplementRedDark,
+                contentColor = Color.White
+            ) {
                 SupplementsTab.entries.forEachIndexed { index, tab ->
                     Tab(
                         selected = activeTab == index,
@@ -1344,6 +1359,21 @@ fun SupplementDetailScreen(
         try {
             query = cleaned
             apiResults = apiClient.search(cleaned)
+            if (apiResults.isEmpty() && supplement != null) {
+                val fallbacks = listOfNotNull(
+                    apiClient.normalizeSearchQuery(cleaned).takeIf { it != cleaned },
+                    supplement.name.takeIf { it.isNotBlank() && it != cleaned },
+                    supplement.brand.takeIf { it.isNotBlank() && it != cleaned }
+                ).distinct()
+                for (fallback in fallbacks) {
+                    if (apiResults.isNotEmpty()) break
+                    apiResults = apiClient.search(fallback)
+                    if (apiResults.isNotEmpty()) {
+                        query = fallback
+                        break
+                    }
+                }
+            }
             if (apiResults.isEmpty()) {
                 snackbarHostState.showSnackbar("No API results found")
             }

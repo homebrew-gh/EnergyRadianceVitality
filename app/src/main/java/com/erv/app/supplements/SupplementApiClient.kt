@@ -29,13 +29,26 @@ class SupplementApiClient(
 
     private val json = Json { ignoreUnknownKeys = true }
 
-    suspend fun search(query: String, size: Int = 10): List<SupplementApiResult> = withContext(Dispatchers.IO) {
-        val trimmed = query.trim()
-        if (trimmed.isBlank()) return@withContext emptyList()
+    /**
+     * Normalizes a search query for the DSLD API: replace commas (and similar) with spaces
+     * and collapse runs of whitespace. E.g. "Thorne, Creatine" -> "Thorne Creatine"
+     * so the backend can match products that appear as "Thorne Creatine" in the database.
+     */
+    fun normalizeSearchQuery(query: String): String {
+        return query
+            .replace(",", " ")
+            .replace(";", " ")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+    }
+
+    suspend fun search(query: String, size: Int = 20): List<SupplementApiResult> = withContext(Dispatchers.IO) {
+        val normalized = normalizeSearchQuery(query)
+        if (normalized.isBlank()) return@withContext emptyList()
 
         try {
             val url = "http://3.216.223.78/dsldnxt/api/search-filter".toHttpUrl().newBuilder()
-                .addQueryParameter("q", trimmed)
+                .addQueryParameter("q", normalized)
                 .addQueryParameter("size", size.toString())
                 .build()
 
