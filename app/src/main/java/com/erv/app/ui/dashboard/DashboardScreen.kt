@@ -44,7 +44,7 @@ import com.erv.app.lighttherapy.LightLibraryState
 import com.erv.app.lighttherapy.LightRoutine
 import com.erv.app.lighttherapy.LightSync
 import com.erv.app.lighttherapy.LightTherapyRepository
-import com.erv.app.lighttherapy.LightTherapyTimerFullScreen
+import com.erv.app.ui.lighttherapy.LightTherapyTimerFullScreen
 import com.erv.app.lighttherapy.LightTimeOfDay
 import com.erv.app.lighttherapy.lightActivityFor
 import com.erv.app.ui.theme.ErvDarkTherapyRedDark

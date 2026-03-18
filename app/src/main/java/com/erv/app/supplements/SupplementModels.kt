@@ -54,8 +54,8 @@ data class SupplementDosagePlan(
         )
         if (servingSize.isNotBlank()) append(" • $servingSize")
         val dosage = when (form) {
-            SupplementForm.CAPSULE -> amount?.let { formatAmount(it) }?.let { "$it capsule${if (it == 1.0) "" else "s"} per serving" }
-            SupplementForm.POWDER -> amount?.let { formatAmount(it) }?.let { "$it ${unit.label()} per serving" }
+            SupplementForm.CAPSULE -> amount?.let { a -> "${formatAmount(a)} capsule${if (a == 1.0) "" else "s"} per serving" }
+            SupplementForm.POWDER -> amount?.let { a -> "${formatAmount(a)} ${unit.label()} per serving" }
         }
         if (!dosage.isNullOrBlank()) append(" • $dosage")
     }.trim()
@@ -84,8 +84,8 @@ data class SupplementDosagePlan(
                 append(notePrefix)
                 append(": ")
                 val serving = when (form) {
-                    SupplementForm.CAPSULE -> amount?.let { formatAmount(it) }?.let { "$it capsule${if (it == 1.0) "" else "s"}" }
-                    SupplementForm.POWDER -> amount?.let { formatAmount(it) }?.let { "$it ${unit.label()}" }
+                    SupplementForm.CAPSULE -> amount?.let { a -> "${formatAmount(a)} capsule${if (a == 1.0) "" else "s"}" }
+                    SupplementForm.POWDER -> amount?.let { a -> "${formatAmount(a)} ${unit.label()}" }
                 }
                 if (!serving.isNullOrBlank()) append("$quantity x $serving")
                 else if (servingSize.isNotBlank()) append("$quantity x $servingSize")
