@@ -371,36 +371,29 @@ private fun ActivitySection(
                 .fillMaxWidth()
                 .padding(16.dp)
         ) {
-            Text(
-                text = selectedDate.toString(),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary
-            )
-            Spacer(Modifier.height(4.dp))
-            ActivityCategorySection(title = "Supplements") {
-                if (supplementRows.isEmpty()) {
-                    Text(
-                        text = "No supplements logged",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                } else {
-                    supplementRows.forEach { row ->
-                        Text(
-                            text = "${row.supplementName} ${row.amountDisplay}",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+            val sectionsShown = buildList {
+                if (supplementRows.isNotEmpty()) add("Supplements")
+            }
+
+            if (sectionsShown.isEmpty()) {
+                Text(
+                    text = "No activity logged yet.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                if (supplementRows.isNotEmpty()) {
+                    ActivityCategorySection(title = "Supplements") {
+                        supplementRows.forEach { row ->
+                            Text(
+                                text = "${row.supplementName} ${row.amountDisplay}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
             }
-
-            Spacer(Modifier.height(12.dp))
-            ActivityCategorySection(title = "Workouts", emptyMessage = "No workouts logged")
-            Spacer(Modifier.height(12.dp))
-            ActivityCategorySection(title = "Cardio", emptyMessage = "No cardio logged")
-            Spacer(Modifier.height(12.dp))
-            ActivityCategorySection(title = "Sauna", emptyMessage = "No sauna logged")
         }
     }
 }
@@ -419,24 +412,6 @@ private fun ActivityCategorySection(
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         content()
     }
-}
-
-@Composable
-private fun ActivityCategorySection(
-    title: String,
-    emptyMessage: String
-) {
-    Text(
-        text = title,
-        style = MaterialTheme.typography.labelMedium,
-        color = MaterialTheme.colorScheme.primary
-    )
-    Spacer(Modifier.height(4.dp))
-    Text(
-        text = emptyMessage,
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant
-    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -491,6 +466,7 @@ private data class RoutineStepDraft(
     val supplementId: String? = null,
     val timeOfDay: SupplementTimeOfDay = SupplementTimeOfDay.MORNING,
     val quantity: String = "1",
+    val dosageOverride: String = "",
     val note: String = ""
 )
 
@@ -516,6 +492,7 @@ private fun RoutineModifyDialog(
                             supplementId = it.supplementId,
                             timeOfDay = it.timeOfDay ?: SupplementTimeOfDay.MORNING,
                             quantity = it.quantity?.toString() ?: "1",
+                            dosageOverride = it.dosageOverride.orEmpty(),
                             note = it.note.orEmpty()
                         )
                     )
@@ -594,6 +571,7 @@ private fun RoutineModifyDialog(
                                 supplementId = supplementId,
                                 timeOfDay = draft.timeOfDay,
                                 quantity = draft.quantity.toIntOrNull() ?: 1,
+                                dosageOverride = draft.dosageOverride.trim().ifBlank { null },
                                 note = draft.note.trim().ifBlank { null }
                             )
                         },
