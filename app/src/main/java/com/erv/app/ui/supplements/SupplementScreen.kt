@@ -122,6 +122,9 @@ fun SupplementCategoryScreen(
     var creatingSupplement by remember { mutableStateOf(false) }
     var routineEditor by remember { mutableStateOf<SupplementRoutine?>(null) }
     var creatingRoutine by remember { mutableStateOf(false) }
+    var showRoutineTimePicker by remember { mutableStateOf(false) }
+    var initialTimeForNewRoutine by remember { mutableStateOf<SupplementTimeOfDay?>(null) }
+    val singleTimeSlots = remember { listOf(SupplementTimeOfDay.MORNING, SupplementTimeOfDay.MIDDAY, SupplementTimeOfDay.NIGHT) }
 
     suspend fun syncMaster() {
         if (relayPool != null && signer != null) {
@@ -138,7 +141,17 @@ fun SupplementCategoryScreen(
     LaunchedEffect(relayPool, signer?.publicKey) {
         if (relayPool != null && signer != null) {
             SupplementSync.fetchFromNetwork(relayPool, signer, signer.publicKey)?.let { remote ->
-                repository.replaceAll(remote)
+                val local = repository.currentState()
+                val preferLocalDates = repository.getRecentlyPublishedLogDates()
+                val merged = if (preferLocalDates.isEmpty()) remote else {
+                    val remoteDates = remote.logs.map { it.date }.toSet()
+                    val replaced = remote.logs.map { log ->
+                        if (log.date in preferLocalDates) local.logFor(LocalDate.parse(log.date)) ?: log else log
+                    }
+                    val localOnly = preferLocalDates.filter { it !in remoteDates }.mapNotNull { local.logFor(LocalDate.parse(it)) }
+                    remote.copy(logs = (replaced + localOnly).sortedBy { it.date })
+                }
+                repository.replaceAll(merged)
             }
         }
     }
@@ -239,9 +252,21 @@ fun SupplementCategoryScreen(
                     state = state,
                     reminderForRoutine = { routineId -> reminderState.reminderForRoutine(routineId) },
                     onAddClick = {
-                        creatingRoutine = true
-                        routineEditor = null
+                        showRoutineTimePicker = true
                     },
+                    showRoutineTimePicker = showRoutineTimePicker,
+                    onTimeSelectedForNew = { slot ->
+                        if (slot in singleTimeSlots && state.routines.any { it.timeOfDay == slot }) {
+                            scope.launch {
+                                snackbarHostState.showSnackbar("You already have a ${slot.label()} routine. Edit it instead.")
+                            }
+                        } else {
+                            initialTimeForNewRoutine = slot
+                            creatingRoutine = true
+                            showRoutineTimePicker = false
+                        }
+                    },
+                    onDismissRoutineTimePicker = { showRoutineTimePicker = false },
                     onEditRoutine = { routineEditor = it },
                     onDeleteRoutine = { routineId ->
                         scope.launch {
@@ -257,9 +282,9 @@ fun SupplementCategoryScreen(
                             snackbarHostState.showSnackbar("Logged ${routine.name}")
                         }
                     },
-                    onCreateRoutine = { name, steps, notes, reminderDraft ->
+                    onCreateRoutine = { name, timeOfDay, steps, notes, reminderDraft ->
                         scope.launch {
-                            val created = repository.addRoutine(name, steps, notes)
+                            val created = repository.addRoutine(name, timeOfDay, steps, notes)
                             val scheduled = reminderRepository.upsertReminder(reminderDraft.toReminder(created.id, created.name))
                             syncMaster()
                             snackbarHostState.showSnackbar("Routine saved")
@@ -268,9 +293,9 @@ fun SupplementCategoryScreen(
                             }
                         }
                     },
-                    onUpdateRoutine = { id, name, steps, notes, reminderDraft ->
+                    onUpdateRoutine = { id, name, timeOfDay, steps, notes, reminderDraft ->
                         scope.launch {
-                            repository.renameRoutine(id, name, steps, notes)
+                            repository.renameRoutine(id, name, timeOfDay, steps, notes)
                             val scheduled = reminderRepository.upsertReminder(reminderDraft.toReminder(id, name))
                             syncMaster()
                             snackbarHostState.showSnackbar("Routine updated")
@@ -284,8 +309,10 @@ fun SupplementCategoryScreen(
                     onDismissRoutineEditor = {
                         routineEditor = null
                         creatingRoutine = false
+                        initialTimeForNewRoutine = null
                     },
                     onResetRoutineEditorMode = { creatingRoutine = false },
+                    initialTimeForNewRoutine = initialTimeForNewRoutine,
                     supplements = state.supplements,
                 )
             }
@@ -299,21 +326,25 @@ private fun RoutinesTab(
     supplements: List<SupplementEntry>,
     reminderForRoutine: (String) -> RoutineReminder?,
     onAddClick: () -> Unit,
+    showRoutineTimePicker: Boolean,
+    onTimeSelectedForNew: (SupplementTimeOfDay) -> Unit,
+    onDismissRoutineTimePicker: () -> Unit,
     onEditRoutine: (SupplementRoutine) -> Unit,
     onDeleteRoutine: (String) -> Unit,
     onRunRoutine: (SupplementRoutine) -> Unit,
-    onCreateRoutine: (String, List<SupplementRoutineStep>, String, RoutineReminderDraft) -> Unit,
-    onUpdateRoutine: (String, String, List<SupplementRoutineStep>, String, RoutineReminderDraft) -> Unit,
+    onCreateRoutine: (String, SupplementTimeOfDay, List<SupplementRoutineStep>, String, RoutineReminderDraft) -> Unit,
+    onUpdateRoutine: (String, String, SupplementTimeOfDay, List<SupplementRoutineStep>, String, RoutineReminderDraft) -> Unit,
     routineEditor: SupplementRoutine?,
     creatingRoutine: Boolean,
     onDismissRoutineEditor: () -> Unit,
-    onResetRoutineEditorMode: () -> Unit
+    onResetRoutineEditorMode: () -> Unit,
+    initialTimeForNewRoutine: SupplementTimeOfDay?
 ) {
     Box(modifier = Modifier.fillMaxSize()) {
         if (state.routines.isEmpty()) {
             EmptyState(
                 title = "No routines yet",
-                subtitle = "Create separate morning, afternoon, or night supplement routines."
+                subtitle = "Add a routine for Morning, Midday, Night, or Other. One routine per time (except Other)."
             )
         } else {
             LazyColumn(
@@ -324,7 +355,10 @@ private fun RoutinesTab(
                 items(state.routines, key = { it.id }) { routine ->
                     ElevatedCard(modifier = Modifier.fillMaxWidth()) {
                         Column(modifier = Modifier.padding(16.dp)) {
-                            Text(routine.name, style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                if (routine.timeOfDay == SupplementTimeOfDay.OTHER) routine.name else "${routine.timeOfDay.label()} • ${routine.name}",
+                                style = MaterialTheme.typography.titleMedium
+                            )
                             if (routine.notes.isNotBlank()) {
                                 Spacer(Modifier.height(4.dp))
                                 Text(
@@ -375,17 +409,53 @@ private fun RoutinesTab(
         }
     }
 
+    if (showRoutineTimePicker) {
+        AlertDialog(
+            onDismissRequest = onDismissRoutineTimePicker,
+            title = { Text("Select time of day") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "One routine per Morning, Midday, or Night. You can create multiple \"Other\" routines.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    listOf(
+                        SupplementTimeOfDay.MORNING,
+                        SupplementTimeOfDay.MIDDAY,
+                        SupplementTimeOfDay.NIGHT,
+                        SupplementTimeOfDay.OTHER
+                    ).forEach { slot ->
+                        val alreadyExists = slot != SupplementTimeOfDay.OTHER && state.routines.any { it.timeOfDay == slot }
+                        FilledTonalButton(
+                            onClick = { onTimeSelectedForNew(slot) },
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = !alreadyExists
+                        ) {
+                            Text(
+                                if (alreadyExists) "${slot.label()} (already have one — edit it)"
+                                else slot.label()
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = { TextButton(onClick = onDismissRoutineTimePicker) { Text("Cancel") } }
+        )
+    }
     if (creatingRoutine || routineEditor != null) {
         RoutineEditorDialog(
             routine = routineEditor,
             creating = creatingRoutine,
+            initialTimeOfDay = routineEditor?.timeOfDay ?: initialTimeForNewRoutine ?: SupplementTimeOfDay.MORNING,
             supplements = supplements,
             existingReminder = routineEditor?.id?.let(reminderForRoutine),
             onDismiss = onDismissRoutineEditor,
             onDismissReset = onResetRoutineEditorMode,
-            onSave = { id, name, steps, notes, reminderDraft ->
-                if (id == null) onCreateRoutine(name, steps, notes, reminderDraft)
-                else onUpdateRoutine(id, name, steps, notes, reminderDraft)
+            onSave = { id, name, timeOfDay, steps, notes, reminderDraft ->
+                if (id == null) onCreateRoutine(name, timeOfDay, steps, notes, reminderDraft)
+                else onUpdateRoutine(id, name, timeOfDay, steps, notes, reminderDraft)
                 onResetRoutineEditorMode()
                 onDismissRoutineEditor()
             }
@@ -510,12 +580,23 @@ private fun SupplementsTabContent(
 fun SupplementLogScreen(
     repository: SupplementRepository,
     state: SupplementLibraryState,
+    relayPool: RelayPool?,
+    signer: EventSigner?,
     onBack: () -> Unit
 ) {
     var selectedDate by remember { mutableStateOf(LocalDate.now()) }
     var showCalendar by remember { mutableStateOf(false) }
     val entries = remember(state, selectedDate) { state.chronologicalSupplementLogFor(selectedDate) }
     val scope = rememberCoroutineScope()
+
+    suspend fun syncDailyLog() {
+        if (relayPool != null && signer != null) {
+            repository.currentState().logFor(selectedDate)?.let { log ->
+                SupplementSync.publishDailyLog(relayPool, signer, log)
+                repository.markLogPublished(selectedDate.toString())
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -592,6 +673,7 @@ fun SupplementLogScreen(
                                             entry.sourceLabel
                                         )
                                     }
+                                    syncDailyLog()
                                 }
                             }
                         )
@@ -834,14 +916,18 @@ private fun SupplementEditorDialog(
 private fun RoutineEditorDialog(
     routine: SupplementRoutine?,
     creating: Boolean,
+    initialTimeOfDay: SupplementTimeOfDay,
     supplements: List<SupplementEntry>,
     existingReminder: RoutineReminder?,
     onDismiss: () -> Unit,
     onDismissReset: () -> Unit,
-    onSave: (String?, String, List<SupplementRoutineStep>, String, RoutineReminderDraft) -> Unit
+    onSave: (String?, String, SupplementTimeOfDay, List<SupplementRoutineStep>, String, RoutineReminderDraft) -> Unit
 ) {
     val context = LocalContext.current
-    var name by remember(routine?.id, creating) { mutableStateOf(routine?.name.orEmpty()) }
+    val routineTimeOfDay = routine?.timeOfDay ?: initialTimeOfDay
+    var name by remember(routine?.id, creating, initialTimeOfDay) {
+        mutableStateOf(routine?.name.orEmpty().ifBlank { "${initialTimeOfDay.label()} routine" })
+    }
     var notes by remember(routine?.id, creating) { mutableStateOf(routine?.notes.orEmpty()) }
     var reminderDraft by remember(routine?.id, creating, existingReminder) {
         mutableStateOf(existingReminder?.toDraft() ?: RoutineReminderDraft())
@@ -849,13 +935,13 @@ private fun RoutineEditorDialog(
     val steps = remember(routine?.id, creating) {
         mutableStateListOf<RoutineStepDraft>().apply {
             if (routine?.steps.isNullOrEmpty()) {
-                add(RoutineStepDraft())
+                add(RoutineStepDraft(timeOfDay = routineTimeOfDay))
             } else {
                 routine!!.steps.forEach {
                     add(
                         RoutineStepDraft(
                             supplementId = it.supplementId,
-                            timeOfDay = it.timeOfDay ?: SupplementTimeOfDay.MORNING,
+                            timeOfDay = it.timeOfDay ?: routineTimeOfDay,
                             quantity = it.quantity?.toString() ?: "1",
                             dosageOverride = it.dosageOverride.orEmpty(),
                             note = it.note.orEmpty()
@@ -865,16 +951,11 @@ private fun RoutineEditorDialog(
             }
         }
     }
-    val timeSlots = remember { listOf(SupplementTimeOfDay.MORNING, SupplementTimeOfDay.AFTERNOON, SupplementTimeOfDay.NIGHT) }
-    var selectedTimeSlot by remember(routine?.id, creating) {
-        val firstWithSteps = timeSlots.firstOrNull { slot -> steps.any { it.timeOfDay == slot } }
-        mutableStateOf(firstWithSteps ?: SupplementTimeOfDay.MORNING)
-    }
     var showTimePicker by remember { mutableStateOf(false) }
 
     AlertDialog(
         onDismissRequest = { onDismissReset(); onDismiss() },
-        title = { Text(if (creating) "Add routine" else "Edit routine") },
+        title = { Text(if (creating) "Add ${initialTimeOfDay.label().lowercase()} routine" else "Edit routine") },
         text = {
             Column(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -895,63 +976,26 @@ private fun RoutineEditorDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                Text("Schedule", style = MaterialTheme.typography.titleSmall)
-                Text(
-                    text = "Select a time of day, then add supplements to that slot. Switch tabs to edit another time.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-
-                TabRow(
-                    selectedTabIndex = timeSlots.indexOf(selectedTimeSlot).coerceIn(0, timeSlots.lastIndex),
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                    contentColor = MaterialTheme.colorScheme.onSurface
+                Text("Supplements for ${routineTimeOfDay.label()}", style = MaterialTheme.typography.titleSmall)
+                if (steps.isEmpty()) {
+                    Text(
+                        "Tap \"Add supplement\" below. Then tap \"Select supplement\" and pick one — serving size will appear.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                steps.forEachIndexed { index, draft ->
+                    RoutineStepRow(
+                        step = draft,
+                        supplements = supplements,
+                        onStepChange = { steps[index] = it },
+                        onRemove = { steps.removeAt(index) }
+                    )
+                }
+                TextButton(
+                    onClick = { steps.add(RoutineStepDraft(timeOfDay = routineTimeOfDay)) }
                 ) {
-                    timeSlots.forEachIndexed { index, timeOfDay ->
-                        Tab(
-                            selected = selectedTimeSlot == timeOfDay,
-                            onClick = { selectedTimeSlot = timeOfDay },
-                            text = { Text(timeOfDay.label()) }
-                        )
-                    }
-                }
-                Spacer(Modifier.height(8.dp))
-
-                val slotStepsWithIndex = remember(steps, selectedTimeSlot) {
-                    steps.mapIndexed { index, draft -> index to draft }
-                        .filter { (_, draft) -> draft.timeOfDay == selectedTimeSlot }
-                }
-                ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-                    Column(
-                        modifier = Modifier.padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Text(
-                            text = "${selectedTimeSlot.label()} supplements",
-                            style = MaterialTheme.typography.titleSmall
-                        )
-                        if (slotStepsWithIndex.isEmpty()) {
-                            Text(
-                                "No supplements for ${selectedTimeSlot.label().lowercase()} yet. Tap below to add.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        } else {
-                            slotStepsWithIndex.forEach { (fullIndex, draft) ->
-                                RoutineStepRow(
-                                    step = draft,
-                                    supplements = supplements,
-                                    onStepChange = { updated -> steps[fullIndex] = updated },
-                                    onRemove = { steps.removeAt(fullIndex) }
-                                )
-                            }
-                        }
-                        TextButton(
-                            onClick = { steps.add(RoutineStepDraft(timeOfDay = selectedTimeSlot)) }
-                        ) {
-                            Text("Add supplement to ${selectedTimeSlot.label().lowercase()}")
-                        }
-                    }
+                    Text("Add supplement")
                 }
 
                 HorizontalDivider()
@@ -1049,12 +1093,13 @@ private fun RoutineEditorDialog(
                     onSave(
                         routine?.id,
                         name.trim(),
+                        routineTimeOfDay,
                         steps.mapNotNull { draft ->
                             val supplementId = draft.supplementId ?: return@mapNotNull null
                             val supplement = supplements.firstOrNull { it.id == supplementId }
                             SupplementRoutineStep(
                                 supplementId = supplementId,
-                                timeOfDay = draft.timeOfDay,
+                                timeOfDay = routineTimeOfDay,
                                 quantity = draft.quantity.toIntOrNull() ?: 1,
                                 dosageOverride = draft.dosageOverride.trim().ifBlank {
                                     supplement?.recommendedServingDisplay().orEmpty()
@@ -1085,9 +1130,12 @@ private fun RoutineStepRow(
     onStepChange: (RoutineStepDraft) -> Unit,
     onRemove: () -> Unit
 ) {
-    var expanded by remember { mutableStateOf(false) }
+    var showSupplementPicker by remember { mutableStateOf(false) }
     val selectedSupplement = supplements.firstOrNull { it.id == step.supplementId }
     val recommendedServing = selectedSupplement?.recommendedServingDisplay().orEmpty()
+    val servingSizeLabel = selectedSupplement?.info?.servingSize?.takeIf { it.isNotBlank() }
+        ?: selectedSupplement?.dosagePlan?.summary()?.takeIf { it.isNotBlank() }
+        ?: recommendedServing
 
     LaunchedEffect(step.supplementId, selectedSupplement?.id) {
         if (selectedSupplement != null && step.dosageOverride.isBlank()) {
@@ -1096,51 +1144,69 @@ private fun RoutineStepRow(
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        ExposedDropdownMenuBox(
-            expanded = expanded,
-            onExpandedChange = { expanded = !expanded }
+        OutlinedButton(
+            onClick = { showSupplementPicker = true },
+            modifier = Modifier.fillMaxWidth()
         ) {
-            OutlinedTextField(
-                value = selectedSupplement?.name.orEmpty(),
-                onValueChange = {},
-                readOnly = true,
-                label = { Text("Supplement") },
-                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-                modifier = Modifier
-                    .menuAnchor()
-                    .fillMaxWidth()
+            Text(
+                if (selectedSupplement != null) selectedSupplement.name
+                else "Select supplement"
             )
-            ExposedDropdownMenu(
-                expanded = expanded,
-                onDismissRequest = { expanded = false }
-            ) {
-                supplements.forEach { supplement ->
-                    DropdownMenuItem(
-                        text = { Text(supplement.name) },
-                        onClick = {
-                            expanded = false
-                            onStepChange(
-                                step.copy(
-                                    supplementId = supplement.id,
-                                    dosageOverride = supplement.recommendedServingDisplay()
-                                )
-                            )
+        }
+        if (showSupplementPicker) {
+            AlertDialog(
+                onDismissRequest = { showSupplementPicker = false },
+                title = { Text("Choose supplement") },
+                text = {
+                    LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier.heightIn(max = 400.dp)
+                    ) {
+                        items(supplements, key = { it.id }) { supplement ->
+                            TextButton(
+                                onClick = {
+                                    onStepChange(
+                                        step.copy(
+                                            supplementId = supplement.id,
+                                            dosageOverride = supplement.recommendedServingDisplay()
+                                        )
+                                    )
+                                    showSupplementPicker = false
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalAlignment = Alignment.Start
+                                ) {
+                                    Text(supplement.name, style = MaterialTheme.typography.bodyLarge)
+                                    if (supplement.brand.isNotBlank()) {
+                                        Text(
+                                            supplement.brand,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
                         }
-                    )
-                }
-            }
+                    }
+                },
+                confirmButton = {},
+                dismissButton = { TextButton(onClick = { showSupplementPicker = false }) { Text("Cancel") } }
+            )
         }
 
         if (selectedSupplement != null) {
             ElevatedCard(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(
-                        text = "Recommended daily serving size",
+                        text = "Serving size for this supplement",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Text(
-                        text = recommendedServing.ifBlank { "Take as directed" },
+                        text = servingSizeLabel.ifBlank { "Take as directed" },
                         style = MaterialTheme.typography.bodyMedium
                     )
                 }
@@ -1148,7 +1214,7 @@ private fun RoutineStepRow(
             OutlinedTextField(
                 value = step.dosageOverride.ifBlank { recommendedServing },
                 onValueChange = { onStepChange(step.copy(dosageOverride = it)) },
-                label = { Text("Daily serving size") },
+                label = { Text("Daily serving (edit if needed)") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
@@ -1179,8 +1245,9 @@ private fun RoutineStepRow(
 
 private fun SupplementTimeOfDay.label(): String = when (this) {
     SupplementTimeOfDay.MORNING -> "Morning"
-    SupplementTimeOfDay.AFTERNOON -> "Afternoon"
+    SupplementTimeOfDay.MIDDAY -> "Midday"
     SupplementTimeOfDay.NIGHT -> "Night"
+    SupplementTimeOfDay.OTHER -> "Other"
 }
 
 private fun SupplementEntry.recommendedServingDisplay(): String =

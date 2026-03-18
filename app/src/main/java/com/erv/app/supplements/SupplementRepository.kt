@@ -13,15 +13,33 @@ import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import java.time.LocalDate
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 
 private val Context.supplementDataStore: DataStore<Preferences> by preferencesDataStore(name = "erv_supplements")
+
+/** Tracks log dates we just published so fetch doesn't overwrite with stale relay data. */
+private const val PREFER_LOCAL_LOG_MS = 90_000L
 
 class SupplementRepository(context: Context) {
 
     private val appContext = context.applicationContext
+    private val lastPublishedLogDates = ConcurrentHashMap<String, Long>()
 
     private object Keys {
         val STATE = stringPreferencesKey("supplement_state")
+    }
+
+    /** Call after publishing a daily log so the next fetch won't overwrite it with stale relay data. */
+    fun markLogPublished(date: String) {
+        lastPublishedLogDates[date] = System.currentTimeMillis()
+    }
+
+    /** Returns date strings for which we should prefer local log over remote when merging. */
+    fun getRecentlyPublishedLogDates(withinMs: Long = PREFER_LOCAL_LOG_MS): Set<String> {
+        val now = System.currentTimeMillis()
+        val expired = lastPublishedLogDates.filter { now - it.value > withinMs }.keys
+        expired.forEach { lastPublishedLogDates.remove(it) }
+        return lastPublishedLogDates.filter { now - it.value <= withinMs }.keys.toSet()
     }
 
     private val json = Json {
@@ -218,12 +236,14 @@ class SupplementRepository(context: Context) {
     suspend fun renameRoutine(
         routineId: String,
         name: String,
+        timeOfDay: SupplementTimeOfDay,
         steps: List<SupplementRoutineStep>,
         notes: String = ""
     ) {
         updateState { current ->
             val updated = current.routineById(routineId)?.copy(
                 name = name,
+                timeOfDay = timeOfDay,
                 steps = steps,
                 notes = notes
             ) ?: return@updateState current
@@ -249,11 +269,13 @@ class SupplementRepository(context: Context) {
 
     suspend fun addRoutine(
         name: String,
+        timeOfDay: SupplementTimeOfDay,
         steps: List<SupplementRoutineStep>,
         notes: String = ""
     ): SupplementRoutine {
         val routine = SupplementRoutine(
             name = name,
+            timeOfDay = timeOfDay,
             steps = steps,
             notes = notes
         )

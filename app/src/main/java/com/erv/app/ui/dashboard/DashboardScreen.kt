@@ -282,6 +282,7 @@ fun DashboardScreen(
                             supplementRepository.renameRoutine(
                                 routineId = routine.id,
                                 name = updatedRoutine.name,
+                                timeOfDay = updatedRoutine.timeOfDay,
                                 steps = updatedRoutine.steps,
                                 notes = updatedRoutine.notes
                             )
@@ -468,7 +469,7 @@ private fun RoutinesSection(
                     if (lightRoutines.isNotEmpty()) {
                         RoutineTile(
                             icon = Icons.Default.WbSunny,
-                            label = "Light therapy",
+                            label = "Light Therapy",
                             subtitle = if (lightRoutines.size == 1) "1 routine" else "${lightRoutines.size} routines",
                             onClick = {
                                 if (lightRoutines.size == 1) {
@@ -795,7 +796,7 @@ private fun RoutineModifyDialog(
             }
         }
     }
-    val timeSlots = remember { listOf(SupplementTimeOfDay.MORNING, SupplementTimeOfDay.AFTERNOON, SupplementTimeOfDay.NIGHT) }
+    val timeSlots = remember { listOf(SupplementTimeOfDay.MORNING, SupplementTimeOfDay.MIDDAY, SupplementTimeOfDay.NIGHT, SupplementTimeOfDay.OTHER) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -956,8 +957,9 @@ private fun RoutineStepRow(
 
 private fun SupplementTimeOfDay.label(): String = when (this) {
     SupplementTimeOfDay.MORNING -> "Morning"
-    SupplementTimeOfDay.AFTERNOON -> "Afternoon"
+    SupplementTimeOfDay.MIDDAY -> "Midday"
     SupplementTimeOfDay.NIGHT -> "Night"
+    SupplementTimeOfDay.OTHER -> "Other"
 }
 
 @Composable

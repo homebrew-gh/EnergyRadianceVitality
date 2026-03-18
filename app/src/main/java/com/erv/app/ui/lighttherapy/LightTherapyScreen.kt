@@ -408,7 +408,7 @@ fun LightTherapyTimerFullScreen(
     }
 }
 
-private val MINUTE_OPTIONS = (5..60 step 5).toList()
+private val MINUTE_OPTIONS = listOf(1, 2, 3, 4, 5, 6, 7, 8, 9, 10) + (15..60 step 5).toList()
 private const val WHEEL_ITEM_HEIGHT_DP = 56
 private const val WHEEL_VISIBLE_ITEMS = 5
 
@@ -417,7 +417,9 @@ private fun TimerTabContent(
     defaultMinutes: Int,
     onStartTimer: (Int) -> Unit
 ) {
-    val initialIndex = (MINUTE_OPTIONS.indexOf(defaultMinutes).coerceIn(0, MINUTE_OPTIONS.lastIndex)).coerceAtLeast(0)
+    val initialIndex = MINUTE_OPTIONS.indexOf(
+        MINUTE_OPTIONS.minByOrNull { kotlin.math.abs(it - defaultMinutes.coerceIn(1, 60)) } ?: 15
+    ).coerceIn(0, MINUTE_OPTIONS.lastIndex)
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = initialIndex)
     val itemHeightPx = with(androidx.compose.ui.platform.LocalDensity.current) { WHEEL_ITEM_HEIGHT_DP.dp.toPx() }
     val selectedIndex by remember {

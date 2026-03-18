@@ -14,7 +14,12 @@ enum class SupplementFrequency { DAILY, WEEKLY, MONTHLY, MORE_THAN_ONCE_PER_DAY 
 enum class SupplementUnit { MG, MCG, G, IU, ML, DROPS }
 
 @Serializable
-enum class SupplementTimeOfDay { MORNING, AFTERNOON, NIGHT }
+enum class SupplementTimeOfDay {
+    MORNING,
+    @kotlinx.serialization.SerialName("AFTERNOON") MIDDAY, // was AFTERNOON, label "Midday"
+    NIGHT,
+    OTHER
+}
 
 @Serializable
 enum class SupplementWeekday { MONDAY, TUESDAY, WEDNESDAY, THURSDAY, FRIDAY, SATURDAY, SUNDAY }
@@ -119,6 +124,7 @@ data class SupplementRoutineStep(
 data class SupplementRoutine(
     val id: String = UUID.randomUUID().toString(),
     val name: String,
+    val timeOfDay: SupplementTimeOfDay = SupplementTimeOfDay.MORNING,
     val steps: List<SupplementRoutineStep> = emptyList(),
     val notes: String = ""
 )
@@ -292,8 +298,9 @@ fun SupplementRoutineStep.describe(supplementName: String): String = buildString
         append(
             when (it) {
                 SupplementTimeOfDay.MORNING -> "morning"
-                SupplementTimeOfDay.AFTERNOON -> "afternoon"
+                SupplementTimeOfDay.MIDDAY -> "midday"
                 SupplementTimeOfDay.NIGHT -> "night"
+                SupplementTimeOfDay.OTHER -> "other"
             }
         )
     }

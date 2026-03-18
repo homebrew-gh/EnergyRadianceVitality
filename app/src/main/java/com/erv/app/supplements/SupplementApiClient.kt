@@ -27,7 +27,7 @@ data class SupplementApiResult(
  * Official NIH Dietary Supplement Label Database (DSLD) API.
  * @see <a href="https://dsld.od.nih.gov/">dsld.od.nih.gov</a>
  */
-private const val NIH_DSLD_BASE = "https://dsld.od.nih.gov/dsld/v8"
+private const val NIH_DSLD_BASE = "https://api.ods.od.nih.gov/dsld/v9"
 
 class SupplementApiClient(
     private val client: OkHttpClient = OkHttpClient()
@@ -92,9 +92,11 @@ class SupplementApiClient(
     private fun JsonElement.asSupplementApiResult(): SupplementApiResult? {
         val obj = jsonObject
         val source = obj["_source"]?.jsonObject ?: return null
-        val productName = source.string("productName") ?: return null
-        val brand = source.string("brand")
-        val productId = source.string("dsldId") ?: obj.string("_id") ?: productName
+        val productName = source.string("fullName")
+            ?: source.string("productName")
+            ?: return null
+        val brand = source.string("brandName") ?: source.string("brand")
+        val productId = obj.string("_id") ?: productName
         return SupplementApiResult(
             productId = productId,
             productName = productName,
@@ -104,27 +106,53 @@ class SupplementApiClient(
     }
 
     private fun JsonObject.toSupplementInfo(productId: String): SupplementInfo {
-        val facts = arrayOrEmpty("dietarySupplementsFacts")
-        val firstFact = facts.firstOrNull()?.jsonObject
-        val ingredients = facts.flatMap { fact ->
-            fact.jsonObject.arrayOrEmpty("ingredients").flatMap { ingredient ->
-                val ingredientObj = ingredient.jsonObject
-                listOfNotNull(
-                    ingredientObj.string("name"),
-                    ingredientObj.string("altName")
-                )
-            }
+        val ingredients = arrayOrEmpty("allIngredients").mapNotNull { elem ->
+            elem.jsonObject.string("name")
         }.distinct()
+            .ifEmpty {
+                arrayOrEmpty("dietarySupplementsFacts").flatMap { fact ->
+                    fact.jsonObject.arrayOrEmpty("ingredients").flatMap { ingredient ->
+                        val ingredientObj = ingredient.jsonObject
+                        listOfNotNull(ingredientObj.string("name"), ingredientObj.string("altName"))
+                    }
+                }.distinct()
+            }
 
-        val claims = stringArray("langualClaimsOrUses")
+        val claims = langualDescriptions("claims")
+            .ifEmpty { stringArray("langualClaimsOrUses") }
             .ifEmpty { stringArray("claimsOrUses") }
-        val form = stringArray("langualSupplementForm")
+
+        val form = langualDescriptions("physicalState")
+            .ifEmpty { stringArray("langualSupplementForm") }
             .ifEmpty { stringArray("supplementForm") }
-        val targetGroup = stringArray("langualTargetGroup")
+
+        val targetGroup = langualDescriptions("userGroups")
+            .ifEmpty { stringArray("langualTargetGroup") }
             .ifEmpty { stringArray("targetGroup") }
-        val servingSize = when {
-            firstFact == null -> null
-            else -> {
+
+        val suggestedUse = runCatching {
+            this["statements"]?.jsonArray
+                ?.firstOrNull { stmt ->
+                    val type = stmt.jsonObject.string("type") ?: ""
+                    type.contains("suggest", ignoreCase = true) ||
+                            type.contains("usage", ignoreCase = true) ||
+                            type.contains("direction", ignoreCase = true)
+                }?.jsonObject?.string("notes")
+        }.getOrNull() ?: string("suggestedUse")
+
+        val servingSize = this["servingSizes"]?.jsonArray?.firstOrNull()?.jsonObject?.let { ss ->
+            val quantity = ss.doubleOrNull("minQuantity")
+                ?: ss.intOrNull("minQuantity")?.toDouble()
+            val unit = ss.string("unit")
+            when {
+                quantity != null && unit != null -> "${trimNumber(quantity)} $unit"
+                quantity != null -> trimNumber(quantity)
+                else -> unit
+            }
+        } ?: run {
+            val firstFact = arrayOrEmpty("dietarySupplementsFacts").firstOrNull()?.jsonObject
+            if (firstFact == null) null
+            else {
                 val quantity = firstFact.doubleOrNull("servingSizeQuantity")
                     ?: firstFact.intOrNull("servingSizeQuantity")?.toDouble()
                 val unit = firstFact.string("servingSizeUnitName")
@@ -136,19 +164,32 @@ class SupplementApiClient(
             }
         }
 
+        val otherIngredients = runCatching {
+            this["otheringredients"]?.jsonObject?.string("text")
+        }.getOrNull() ?: string("otheringredients")
+
         return SupplementInfo(
             productId = productId,
-            productName = string("productName"),
-            brand = string("brand"),
-            suggestedUse = string("suggestedUse"),
+            productName = string("fullName") ?: string("productName"),
+            brand = string("brandName") ?: string("brand"),
+            suggestedUse = suggestedUse,
             claimsOrUses = claims,
             supplementForm = form,
             targetGroup = targetGroup,
             ingredients = ingredients,
-            otherIngredients = string("otheringredients"),
+            otherIngredients = otherIngredients,
             servingSize = servingSize,
             fetchedAtEpochSeconds = nowEpochSeconds()
         )
+    }
+
+    private fun JsonObject.langualDescriptions(name: String): List<String> {
+        val elem = this[name] ?: return emptyList()
+        return when {
+            elem is JsonArray -> elem.mapNotNull { it.jsonObject.string("langualCodeDescription") }
+            elem is JsonObject -> listOfNotNull(elem.string("langualCodeDescription"))
+            else -> emptyList()
+        }
     }
 
     private fun JsonObject.string(name: String): String? =

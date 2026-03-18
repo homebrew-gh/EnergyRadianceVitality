@@ -129,6 +129,8 @@ fun ErvNavHost(
             SupplementLogScreen(
                 repository = supplementRepository,
                 state = state,
+                relayPool = relayPool,
+                signer = signer,
                 onBack = { navController.popBackStack() }
             )
         }
