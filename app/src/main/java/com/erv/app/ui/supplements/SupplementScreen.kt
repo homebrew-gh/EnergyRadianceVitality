@@ -1,20 +1,21 @@
+@file:OptIn(ExperimentalLayoutApi::class)
 package com.erv.app.ui.supplements
 
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -33,11 +34,13 @@ import com.erv.app.reminders.RoutineReminderState
 import com.erv.app.reminders.RoutineReminderScheduler
 import com.erv.app.supplements.SupplementApiClient
 import com.erv.app.supplements.SupplementApiResult
+import com.erv.app.supplements.SupplementActivityRow
 import com.erv.app.supplements.SupplementDosagePlan
 import com.erv.app.supplements.SupplementDayLog
 import com.erv.app.supplements.SupplementEntry
 import com.erv.app.supplements.SupplementForm
 import com.erv.app.supplements.SupplementLibraryState
+import com.erv.app.supplements.SupplementLogEntry
 import com.erv.app.supplements.SupplementRepository
 import com.erv.app.supplements.SupplementRoutine
 import com.erv.app.supplements.SupplementRoutineStep
@@ -48,8 +51,15 @@ import com.erv.app.supplements.describe
 import com.erv.app.supplements.label
 import com.erv.app.supplements.shortLabel
 import com.erv.app.supplements.SupplementSync
+import com.erv.app.supplements.chronologicalSupplementLogFor
+import com.erv.app.ui.dashboard.CalendarPopup
+import com.erv.app.ui.dashboard.DateNavigator
 import kotlinx.coroutines.launch
+import java.time.Instant
 import java.time.LocalDate
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 private enum class SupplementsTab { Supplements, Routines }
 
@@ -85,6 +95,7 @@ fun SupplementCategoryScreen(
     relayPool: RelayPool?,
     signer: EventSigner?,
     onBack: () -> Unit,
+    onOpenLog: () -> Unit,
     onOpenSupplementDetail: (String) -> Unit
 ) {
     val context = LocalContext.current
@@ -92,11 +103,9 @@ fun SupplementCategoryScreen(
     val reminderRepository = remember(context) { RoutineReminderRepository(context) }
     val reminderState by reminderRepository.state.collectAsState(initial = RoutineReminderState())
     val today = remember { LocalDate.now() }
-    val todaySummary = remember(state, today) { state.summaryFor(today) }
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     var activeTab by rememberSaveable { mutableIntStateOf(0) }
-    var showLogDialog by remember { mutableStateOf(false) }
     var supplementEditor by remember { mutableStateOf<SupplementEntry?>(null) }
     var creatingSupplement by remember { mutableStateOf(false) }
     var routineEditor by remember { mutableStateOf<SupplementRoutine?>(null) }
@@ -137,8 +146,8 @@ fun SupplementCategoryScreen(
                     }
                 },
                 actions = {
-                    TextButton(onClick = { showLogDialog = true }) {
-                        Text("Log")
+                    IconButton(onClick = onOpenLog) {
+                        Icon(Icons.Default.DateRange, contentDescription = "Open log")
                     }
                 }
             )
@@ -259,15 +268,6 @@ fun SupplementCategoryScreen(
                 )
             }
         }
-    }
-
-    if (showLogDialog) {
-        SupplementLogDialog(
-            state = state,
-            today = today,
-            summary = todaySummary,
-            onDismiss = { showLogDialog = false }
-        )
     }
 }
 
@@ -485,71 +485,140 @@ private fun SupplementsTabContent(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SupplementLogDialog(
+fun SupplementLogScreen(
     state: SupplementLibraryState,
-    today: LocalDate,
-    summary: com.erv.app.supplements.SupplementDaySummary,
-    onDismiss: () -> Unit
+    onBack: () -> Unit
 ) {
-    val log = state.logFor(today)
+    var selectedDate by remember { mutableStateOf(LocalDate.now()) }
+    var showCalendar by remember { mutableStateOf(false) }
+    val entries = remember(state, selectedDate) { state.chronologicalSupplementLogFor(selectedDate) }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Log") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text("Today", style = MaterialTheme.typography.titleMedium)
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            if (summary.uniqueSupplementCount == 0) "No supplements logged yet"
-                            else "${summary.routineCount} routine run(s), ${summary.adHocCount} ad hoc intake(s)",
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                        if (summary.routineNames.isNotEmpty()) {
-                            Spacer(Modifier.height(4.dp))
-                            Text(
-                                summary.routineNames.joinToString(),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Log") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 }
+            )
+        }
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+        ) {
+            DateNavigator(
+                selectedDate = selectedDate,
+                onPreviousDay = { selectedDate = selectedDate.minusDays(1) },
+                onNextDay = { selectedDate = selectedDate.plusDays(1) },
+                onPreviousWeek = { selectedDate = selectedDate.minusWeeks(1) },
+                onNextWeek = { selectedDate = selectedDate.plusWeeks(1) },
+                onTodayClick = { selectedDate = LocalDate.now() },
+                onCalendarClick = { showCalendar = true },
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+            )
 
-                if (log == null) {
+            HorizontalDivider()
+
+            if (entries.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(24.dp),
+                    contentAlignment = Alignment.Center
+                ) {
                     Text(
-                        "No log for today.",
-                        style = MaterialTheme.typography.bodySmall,
+                        text = "No supplements logged for this date.",
+                        style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                } else {
-                    if (log.routineRuns.isNotEmpty()) {
-                        Text("Routine runs", style = MaterialTheme.typography.titleSmall)
-                        log.routineRuns.forEach { run ->
-                            Text(
-                                "• ${run.routineName}",
-                                style = MaterialTheme.typography.bodySmall
-                            )
-                        }
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    item {
+                        Text(
+                            text = "Newest first",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(Modifier.height(8.dp))
                     }
-                    if (log.adHocIntakes.isNotEmpty()) {
-                        Text("Recent intakes", style = MaterialTheme.typography.titleSmall)
-                        log.adHocIntakes.forEach { intake ->
-                            Text(
-                                "• ${intake.supplementName}",
-                                style = MaterialTheme.typography.bodySmall
-                            )
-                        }
+                    itemsIndexed(
+                        items = entries,
+                        key = { index, entry -> "$index-${entry.takenAtEpochSeconds}-${entry.supplementId}-${entry.sourceLabel}" }
+                    ) { _, entry ->
+                        SupplementLogEntryCard(entry = entry)
                     }
                 }
             }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Close") }
         }
-    )
+    }
+
+    if (showCalendar) {
+        CalendarPopup(
+            selectedDate = selectedDate,
+            onDateSelected = {
+                selectedDate = it
+                showCalendar = false
+            },
+            onDismiss = { showCalendar = false }
+        )
+    }
+}
+
+@Composable
+private fun SupplementLogEntryCard(entry: SupplementLogEntry) {
+    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = entry.supplementName,
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        text = entry.dosageTaken,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Text(
+                    text = formatLogTime(entry.takenAtEpochSeconds),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+
+            Spacer(Modifier.height(8.dp))
+
+            Text(
+                text = entry.sourceLabel,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+private fun formatLogTime(epochSeconds: Long): String {
+    if (epochSeconds <= 0L) return "Unknown time"
+    val formatter = DateTimeFormatter.ofPattern("h:mm a", Locale.getDefault())
+    return Instant.ofEpochSecond(epochSeconds)
+        .atZone(ZoneId.systemDefault())
+        .toLocalTime()
+        .format(formatter)
 }
 
 @Composable
@@ -631,14 +700,6 @@ private fun SupplementEditorDialog(
                             }
                         },
                         onSelected = { draft = draft.copy(form = it) },
-                        modifier = Modifier.weight(0.9f)
-                    )
-                    OutlinedTextField(
-                        value = draft.servingAmount,
-                        onValueChange = { draft = draft.copy(servingAmount = it) },
-                        label = { Text("Amount") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                        singleLine = true,
                         modifier = Modifier.weight(1f)
                     )
                     EnumDropdownField(
@@ -647,9 +708,17 @@ private fun SupplementEditorDialog(
                         options = SupplementUnit.entries,
                         optionLabel = { it.label() },
                         onSelected = { draft = draft.copy(servingUnit = it) },
-                        modifier = Modifier.weight(0.9f)
+                        modifier = Modifier.weight(1f)
                     )
                 }
+                OutlinedTextField(
+                    value = draft.servingAmount,
+                    onValueChange = { draft = draft.copy(servingAmount = it) },
+                    label = { Text("Amount") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
 
                 ElevatedCard(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(12.dp)) {
@@ -1017,13 +1086,53 @@ fun SupplementDetailScreen(
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     val apiClient = remember { SupplementApiClient() }
-    var query by rememberSaveable(supplementId) { mutableStateOf(supplement?.name.orEmpty()) }
+    val defaultQuery = remember(supplementId, supplement?.name, supplement?.brand) {
+        listOfNotNull(
+            supplement?.brand?.takeIf { it.isNotBlank() },
+            supplement?.name?.takeIf { it.isNotBlank() }
+        ).joinToString(" ").trim()
+    }
+    var query by rememberSaveable(supplementId) { mutableStateOf(defaultQuery) }
     var apiResults by remember { mutableStateOf<List<SupplementApiResult>>(emptyList()) }
     var searching by remember { mutableStateOf(false) }
+    var autoSearchDone by rememberSaveable(supplementId) { mutableStateOf(false) }
+    var autoAttachDone by rememberSaveable(supplementId) { mutableStateOf(false) }
 
     suspend fun syncMaster() {
         if (relayPool != null && signer != null) {
             SupplementSync.publishMaster(relayPool, signer, repository.currentState())
+        }
+    }
+
+    suspend fun searchNih(term: String) {
+        val cleaned = term.trim()
+        if (cleaned.isBlank()) return
+        searching = true
+        try {
+            query = cleaned
+            apiResults = apiClient.search(cleaned)
+            if (apiResults.isEmpty()) {
+                snackbarHostState.showSnackbar("No API results found")
+            }
+        } finally {
+            searching = false
+        }
+    }
+
+    LaunchedEffect(supplement?.id) {
+        if (!autoSearchDone && defaultQuery.isNotBlank()) {
+            autoSearchDone = true
+            searchNih(defaultQuery)
+        }
+    }
+
+    LaunchedEffect(apiResults) {
+        if (!autoAttachDone && apiResults.size == 1 && supplement != null) {
+            autoAttachDone = true
+            val match = apiResults.first()
+            repository.attachInfo(supplement.id, match.info, match.productId)
+            syncMaster()
+            snackbarHostState.showSnackbar("Matched ${match.productName}")
         }
     }
 
@@ -1146,15 +1255,7 @@ fun SupplementDetailScreen(
                         Button(
                             onClick = {
                                 scope.launch {
-                                    searching = true
-                                    try {
-                                        apiResults = apiClient.search(query)
-                                        if (apiResults.isEmpty()) {
-                                            snackbarHostState.showSnackbar("No API results found")
-                                        }
-                                    } finally {
-                                        searching = false
-                                    }
+                                    searchNih(query)
                                 }
                             },
                             enabled = query.isNotBlank() && !searching,
@@ -1173,6 +1274,11 @@ fun SupplementDetailScreen(
                 items(apiResults, key = { it.productId }) { result ->
                     ElevatedCard(
                         modifier = Modifier.fillMaxWidth(),
+                        colors = if (apiResults.size == 1) {
+                            CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+                        } else {
+                            CardDefaults.elevatedCardColors()
+                        },
                         onClick = {
                             scope.launch {
                                 repository.attachInfo(supplement.id, result.info, result.productId)

@@ -20,11 +20,13 @@ import com.erv.app.nostr.AmberLauncherHost
 import com.erv.app.nostr.KeyManager
 import com.erv.app.nostr.EventSigner
 import com.erv.app.nostr.RelayPool
+import com.erv.app.supplements.SupplementLibraryState
 import com.erv.app.ui.dashboard.DashboardScreen
 import com.erv.app.ui.settings.SettingsScreen
 import com.erv.app.supplements.SupplementRepository
 import com.erv.app.ui.supplements.SupplementCategoryScreen
 import com.erv.app.ui.supplements.SupplementDetailScreen
+import com.erv.app.ui.supplements.SupplementLogScreen
 import kotlinx.coroutines.flow.StateFlow
 
 object Routes {
@@ -33,6 +35,7 @@ object Routes {
     const val GOALS = "goals"
     fun category(id: String) = "category/$id"
     fun supplementDetail(id: String) = "category/supplements/detail/$id"
+    const val supplementLog = "category/supplements/log"
 }
 
 @Composable
@@ -101,9 +104,22 @@ fun ErvNavHost(
                 relayPool = relayPool,
                 signer = signer,
                 onBack = { navController.popBackStack() },
+                onOpenLog = {
+                    navController.navigate(Routes.supplementLog) {
+                        launchSingleTop = true
+                    }
+                },
                 onOpenSupplementDetail = { id ->
                     navController.navigate(Routes.supplementDetail(id))
                 }
+            )
+        }
+
+        composable(Routes.supplementLog) {
+            val state = supplementRepository.state.collectAsState(initial = SupplementLibraryState()).value
+            SupplementLogScreen(
+                state = state,
+                onBack = { navController.popBackStack() }
             )
         }
 

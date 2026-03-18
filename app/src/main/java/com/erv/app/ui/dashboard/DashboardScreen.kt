@@ -32,14 +32,14 @@ import com.erv.app.nostr.RelayPool
 import com.erv.app.ui.navigation.Category
 import com.erv.app.ui.navigation.CategorySheet
 import com.erv.app.supplements.SupplementLibraryState
-import com.erv.app.supplements.SupplementDayLog
-import com.erv.app.supplements.SupplementDaySummary
+import com.erv.app.supplements.SupplementActivityRow
 import com.erv.app.supplements.SupplementRepository
 import com.erv.app.supplements.SupplementRoutine
 import com.erv.app.supplements.SupplementRoutineStep
 import com.erv.app.supplements.SupplementSync
 import com.erv.app.supplements.SupplementTimeOfDay
 import com.erv.app.supplements.describe
+import com.erv.app.supplements.groupedSupplementActivityFor
 import com.erv.app.reminders.RoutineReminderRepository
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
@@ -64,8 +64,8 @@ fun DashboardScreen(
     val selectedDate by viewModel.selectedDate.collectAsState()
     val supplementState by supplementRepository.state.collectAsState(initial = SupplementLibraryState())
     val reminderRepository = remember(context) { RoutineReminderRepository(context) }
-    val supplementSummary = remember(supplementState, selectedDate) {
-        supplementState.summaryFor(selectedDate)
+    val supplementRows = remember(supplementState, selectedDate) {
+        supplementState.groupedSupplementActivityFor(selectedDate)
     }
     val today = remember { LocalDate.now() }
     val scope = rememberCoroutineScope()
@@ -186,8 +186,7 @@ fun DashboardScreen(
 
             ActivitySection(
                 selectedDate = selectedDate,
-                summary = supplementSummary,
-                log = supplementState.logFor(selectedDate)
+                supplementRows = supplementRows
             )
 
             Spacer(Modifier.height(16.dp))
@@ -356,8 +355,7 @@ private fun RoutinesSection(
 @Composable
 private fun ActivitySection(
     selectedDate: LocalDate,
-    summary: SupplementDaySummary,
-    log: SupplementDayLog?
+    supplementRows: List<SupplementActivityRow>
 ) {
     Text(
         text = "Activity",
@@ -379,55 +377,66 @@ private fun ActivitySection(
                 color = MaterialTheme.colorScheme.primary
             )
             Spacer(Modifier.height(4.dp))
-            Text(
-                text = if (summary.uniqueSupplementCount == 0) {
-                    "No supplement activity logged"
+            ActivityCategorySection(title = "Supplements") {
+                if (supplementRows.isEmpty()) {
+                    Text(
+                        text = "No supplements logged",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 } else {
-                    "${summary.routineCount} routine run(s), ${summary.adHocCount} ad hoc intake(s)"
-                },
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Spacer(Modifier.height(4.dp))
-            if (log == null) {
-                Text(
-                    text = "Log a routine from the dashboard to see it reflected here.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.outline
-                )
-            } else {
-                if (log.routineRuns.isNotEmpty()) {
-                    Text(
-                        text = "Routines",
-                        style = MaterialTheme.typography.labelMedium
-                    )
-                    Spacer(Modifier.height(2.dp))
-                    log.routineRuns.take(3).forEach { run ->
+                    supplementRows.forEach { row ->
                         Text(
-                            text = "• ${run.routineName}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-                if (log.adHocIntakes.isNotEmpty()) {
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        text = "Recent intakes",
-                        style = MaterialTheme.typography.labelMedium
-                    )
-                    Spacer(Modifier.height(2.dp))
-                    log.adHocIntakes.take(3).forEach { intake ->
-                        Text(
-                            text = "• ${intake.supplementName}",
-                            style = MaterialTheme.typography.bodySmall,
+                            text = "${row.supplementName} ${row.amountDisplay}",
+                            style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
             }
+
+            Spacer(Modifier.height(12.dp))
+            ActivityCategorySection(title = "Workouts", emptyMessage = "No workouts logged")
+            Spacer(Modifier.height(12.dp))
+            ActivityCategorySection(title = "Cardio", emptyMessage = "No cardio logged")
+            Spacer(Modifier.height(12.dp))
+            ActivityCategorySection(title = "Sauna", emptyMessage = "No sauna logged")
         }
     }
+}
+
+@Composable
+private fun ActivityCategorySection(
+    title: String,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Text(
+        text = title,
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.primary
+    )
+    Spacer(Modifier.height(4.dp))
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        content()
+    }
+}
+
+@Composable
+private fun ActivityCategorySection(
+    title: String,
+    emptyMessage: String
+) {
+    Text(
+        text = title,
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.primary
+    )
+    Spacer(Modifier.height(4.dp))
+    Text(
+        text = emptyMessage,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

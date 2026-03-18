@@ -176,6 +176,84 @@ data class SupplementDaySummary(
     val routineNames: List<String>
 )
 
+data class SupplementActivityRow(
+    val supplementId: String,
+    val supplementName: String,
+    val amountDisplay: String,
+    val intakeCount: Int
+)
+
+data class SupplementLogEntry(
+    val supplementId: String,
+    val supplementName: String,
+    val dosageTaken: String,
+    val takenAtEpochSeconds: Long,
+    val sourceLabel: String
+)
+
+fun SupplementLibraryState.groupedSupplementActivityFor(date: LocalDate): List<SupplementActivityRow> {
+    val log = logFor(date) ?: return emptyList()
+    val intakesBySupplementId = linkedMapOf<String, MutableList<SupplementIntake>>()
+
+    fun record(intake: SupplementIntake) {
+        intakesBySupplementId.getOrPut(intake.supplementId) { mutableListOf() }.add(intake)
+    }
+
+    log.routineRuns.forEach { run -> run.stepIntakes.forEach(::record) }
+    log.adHocIntakes.forEach(::record)
+
+    return intakesBySupplementId.entries.mapNotNull { (supplementId, intakes) ->
+        val supplement = supplementById(supplementId)
+        val supplementName = supplement?.name ?: intakes.firstOrNull()?.supplementName ?: return@mapNotNull null
+        val amountDisplay = supplement?.let { resolveSupplementAmountDisplay(it, intakes) }
+            ?: intakes.firstNotBlankDosageTaken()
+            ?: "take as directed"
+        SupplementActivityRow(
+            supplementId = supplementId,
+            supplementName = supplementName,
+            amountDisplay = amountDisplay,
+            intakeCount = intakes.size
+        )
+    }.sortedBy { it.supplementName.lowercase() }
+}
+
+fun SupplementLibraryState.chronologicalSupplementLogFor(date: LocalDate): List<SupplementLogEntry> {
+    val log = logFor(date) ?: return emptyList()
+    val entries = buildList {
+        log.routineRuns.forEach { run ->
+            run.stepIntakes.forEach { intake ->
+                add(
+                    SupplementLogEntry(
+                        supplementId = intake.supplementId,
+                        supplementName = intake.supplementName,
+                        dosageTaken = intake.dosageTaken?.takeIf { it.isNotBlank() }
+                            ?: "take as directed",
+                        takenAtEpochSeconds = intake.takenAtEpochSeconds ?: run.takenAtEpochSeconds,
+                        sourceLabel = "Routine: ${run.routineName}"
+                    )
+                )
+            }
+        }
+        log.adHocIntakes.forEach { intake ->
+            add(
+                SupplementLogEntry(
+                    supplementId = intake.supplementId,
+                    supplementName = intake.supplementName,
+                    dosageTaken = intake.dosageTaken?.takeIf { it.isNotBlank() }
+                        ?: "take as directed",
+                    takenAtEpochSeconds = intake.takenAtEpochSeconds ?: 0L,
+                    sourceLabel = "Ad hoc"
+                )
+            )
+        }
+    }
+
+    return entries.sortedWith(
+        compareByDescending<SupplementLogEntry> { it.takenAtEpochSeconds }
+            .thenBy { it.supplementName.lowercase() }
+    )
+}
+
 fun nowEpochSeconds(): Long = System.currentTimeMillis() / 1000
 
 private fun formatAmount(amount: Double): String =
@@ -225,4 +303,21 @@ fun SupplementWeekday.shortLabel(): String = when (this) {
     SupplementWeekday.SATURDAY -> "Sat"
     SupplementWeekday.SUNDAY -> "Sun"
 }
+
+private fun resolveSupplementAmountDisplay(
+    supplement: SupplementEntry,
+    intakes: List<SupplementIntake>
+): String {
+    val amount = supplement.dosagePlan.amount
+    return if (amount != null) {
+        val total = amount * intakes.size
+        "${formatAmount(total)} ${supplement.dosagePlan.unit.label()}"
+    } else {
+        intakes.firstNotBlankDosageTaken()
+            ?: supplement.dosagePlan.summary()
+    }
+}
+
+private fun List<SupplementIntake>.firstNotBlankDosageTaken(): String? =
+    firstNotNullOfOrNull { it.dosageTaken?.takeIf { text -> text.isNotBlank() } }
 

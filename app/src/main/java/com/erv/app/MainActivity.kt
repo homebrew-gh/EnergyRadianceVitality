@@ -104,12 +104,14 @@ private fun ErvApp(
     }
     var onboardingLoading by remember { mutableStateOf(false) }
 
-    val signer = remember(appState) {
-        if (appState == AppState.LoggedOut) null
-        else keyManager.createLocalSigner()
+    fun resolveSigner(): EventSigner? {
+        return keyManager.createLocalSigner()
             ?: (if (keyManager.loginMethod == KeyManager.LOGIN_AMBER && keyManager.publicKeyHex != null)
                 AmberSigner(keyManager.publicKeyHex!!, amberHost)
             else null)
+    }
+    val signer = remember(appState) {
+        if (appState == AppState.LoggedOut) null else resolveSigner()
     }
     val onboardingPool = remember(signer, appState) {
         if (appState == AppState.Onboarding && signer != null) RelayPool(signer) else null
@@ -125,12 +127,17 @@ private fun ErvApp(
             keyManager = keyManager,
             amberHost = amberHost,
             onLoginSuccess = {
-                appState = AppState.Onboarding
-                onboardingLoading = true
-                scope.launch {
-                    val resolved = runPostLoginSetup(keyManager, signer!!)
+                resolveSigner()?.let { activeSigner ->
+                    appState = AppState.Onboarding
+                    onboardingLoading = true
+                    scope.launch {
+                        val resolved = runPostLoginSetup(keyManager, activeSigner)
+                        onboardingLoading = false
+                        if (resolved) appState = AppState.Ready
+                    }
+                } ?: run {
                     onboardingLoading = false
-                    if (resolved) appState = AppState.Ready
+                    appState = AppState.LoggedOut
                 }
             }
         )
@@ -152,7 +159,9 @@ private fun ErvApp(
                             onboardingPool?.let { pool ->
                                 pool.setRelays(keyManager.allRelayUrls())
                                 delay(1500)
-                                if (signer != null) SettingsSync.saveToNetwork(pool, signer, keyManager)
+                            resolveSigner()?.let { currentSigner ->
+                                SettingsSync.saveToNetwork(pool, currentSigner, keyManager)
+                            }
                             }
                             appState = AppState.Ready
                         }
