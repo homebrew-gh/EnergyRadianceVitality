@@ -10,7 +10,6 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -23,7 +22,6 @@ import com.erv.app.nostr.KeyManager
 import com.erv.app.nostr.Nip65
 import com.erv.app.nostr.RelayPool
 import androidx.compose.runtime.snapshotFlow
-import kotlinx.coroutines.delay
 
 private const val WSS_PREFIX = "wss://"
 
@@ -43,19 +41,7 @@ fun RelaySetupScreen(
     LaunchedEffect(relayUrlsForPool, relayPool) {
         relayPool?.setRelays(relayUrlsForPool)
     }
-    var socialRelaysImported by rememberSaveable { mutableStateOf(false) }
-    LaunchedEffect(relayPool, keyManager.publicKeyHex, allRelays) {
-        if (socialRelaysImported || relayPool == null || keyManager.publicKeyHex.isNullOrBlank()) return@LaunchedEffect
-
-        socialRelaysImported = true
-        delay(1500)
-        val fetchedRelays = Nip65.fetchRelayListFromNetwork(relayPool, keyManager.publicKeyHex!!)
-        val newlyAdded = fetchedRelays.filterNot { keyManager.isSocialRelay(it) }
-        newlyAdded.forEach { keyManager.addSocialRelay(it) }
-        if (newlyAdded.isNotEmpty()) {
-            relayRevision++
-        }
-    }
+    // Relays (including NIP-65 social) are already populated in runPostLoginSetup before this screen loads.
 
     val relayStates by (relayPool?.relayStates ?: snapshotFlow { emptyMap<String, ConnectionState>() })
         .collectAsState(initial = emptyMap())

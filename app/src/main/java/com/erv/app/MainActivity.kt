@@ -29,8 +29,10 @@ import androidx.navigation.compose.rememberNavController
 import com.erv.app.data.ThemeMode
 import com.erv.app.data.UserPreferences
 import com.erv.app.nostr.*
+import com.erv.app.lighttherapy.LightSync
 import com.erv.app.lighttherapy.LightTherapyRepository
 import com.erv.app.supplements.SupplementRepository
+import com.erv.app.supplements.SupplementSync
 import com.erv.app.reminders.RoutineReminderRepository
 import com.erv.app.reminders.RoutineReminderScheduler
 import com.erv.app.ui.navigation.ErvNavHost
@@ -38,6 +40,8 @@ import com.erv.app.ui.onboarding.RelaySetupScreen
 import com.erv.app.ui.theme.ErvTheme
 import androidx.core.content.ContextCompat
 import android.os.Build
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -115,11 +119,10 @@ private fun ErvApp(
     val signer = remember(appState) {
         if (appState == AppState.LoggedOut) null else resolveSigner()
     }
-    val onboardingPool = remember(signer, appState) {
-        if (appState == AppState.Onboarding && signer != null) RelayPool(signer) else null
-    }
+    var onboardingPool by remember { mutableStateOf<RelayPool?>(null) }
     DisposableEffect(onboardingPool) {
-        onDispose { onboardingPool?.disconnect() }
+        val pool = onboardingPool
+        onDispose { pool?.disconnect() }
     }
 
     val scope = rememberCoroutineScope()
@@ -132,10 +135,18 @@ private fun ErvApp(
                 resolveSigner()?.let { activeSigner ->
                     appState = AppState.Onboarding
                     onboardingLoading = true
+                    onboardingPool = null
                     scope.launch {
                         val resolved = runPostLoginSetup(keyManager, activeSigner)
-                        onboardingLoading = false
-                        if (resolved) appState = AppState.Ready
+                        if (resolved) {
+                            onboardingLoading = false
+                            appState = AppState.Ready
+                        } else {
+                            val pool = RelayPool(activeSigner)
+                            pool.setRelays(keyManager.allRelayUrls())
+                            onboardingPool = pool
+                            onboardingLoading = false
+                        }
                     }
                 } ?: run {
                     onboardingLoading = false
@@ -161,11 +172,12 @@ private fun ErvApp(
                             onboardingPool?.let { pool ->
                                 pool.setRelays(keyManager.allRelayUrls())
                                 delay(1500)
-                            resolveSigner()?.let { currentSigner ->
-                                SettingsSync.saveToNetwork(pool, currentSigner, keyManager)
-                            }
+                                resolveSigner()?.let { currentSigner ->
+                                    SettingsSync.saveToNetwork(pool, currentSigner, keyManager)
+                                }
                             }
                             appState = AppState.Ready
+                            onboardingPool = null
                         }
                     }
                 )
@@ -243,12 +255,34 @@ private fun MainAppShell(
     }
     val relayPool = remember(signer) { signer?.let { RelayPool(it) } }
     var relayUrlsVersion by remember { mutableIntStateOf(0) }
+    var initialSyncDone by remember { mutableStateOf(false) }
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { }
 
     LaunchedEffect(relayPool, relayUrlsVersion) {
         relayPool?.setRelays(keyManager.allRelayUrls())
+    }
+    LaunchedEffect(relayPool, signer, supplementRepository, lightTherapyRepository) {
+        if (relayPool == null || signer == null) {
+            initialSyncDone = true
+            return@LaunchedEffect
+        }
+        delay(1500)
+        val pubkey = signer.publicKey
+        kotlinx.coroutines.coroutineScope {
+            awaitAll(
+                async {
+                    SupplementSync.fetchFromNetwork(relayPool, signer, pubkey, timeoutMs = 8000)
+                        ?.let { supplementRepository.replaceAll(it) }
+                },
+                async {
+                    LightSync.fetchFromNetwork(relayPool, signer, pubkey, timeoutMs = 8000)
+                        ?.let { lightTherapyRepository.replaceAll(it) }
+                }
+            )
+        }
+        initialSyncDone = true
     }
     LaunchedEffect(reminderRepository) {
         reminderRepository.restoreAllSchedules()
@@ -264,7 +298,8 @@ private fun MainAppShell(
         onDispose { relayPool?.disconnect() }
     }
 
-    ErvNavHost(
+    Box(Modifier.fillMaxSize()) {
+        ErvNavHost(
         navController = navController,
         keyManager = keyManager,
         amberHost = amberHost,
@@ -277,7 +312,25 @@ private fun MainAppShell(
         consumePendingReminderRoutineId = consumePendingReminderRoutineId,
         onRelaysChanged = { relayUrlsVersion++ },
         onLogout = onLogout
-    )
+        )
+        if (!initialSyncDone) {
+            Surface(
+                modifier = Modifier.fillMaxSize(),
+                color = MaterialTheme.colorScheme.surface
+            ) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator()
+                        Spacer(Modifier.height(16.dp))
+                        Text(
+                            "Restoring your data…",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                }
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
