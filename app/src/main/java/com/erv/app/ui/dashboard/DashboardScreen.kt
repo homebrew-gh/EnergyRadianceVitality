@@ -30,6 +30,7 @@ import com.erv.app.R
 import com.erv.app.nostr.EventSigner
 import com.erv.app.nostr.RelayPool
 import com.erv.app.ui.navigation.Category
+import com.erv.app.ui.navigation.CategorySheet
 import com.erv.app.ui.navigation.categories
 import com.erv.app.supplements.SupplementLibraryState
 import com.erv.app.supplements.SupplementActivityRow

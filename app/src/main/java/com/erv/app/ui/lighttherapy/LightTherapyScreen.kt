@@ -335,9 +335,9 @@ private fun LightTimerFullScreen(
     LaunchedEffect(remainingSeconds) {
         if (remainingSeconds <= 0) {
             try {
-                ToneGenerator(AudioManager.STREAM_NOTIFICATION, 80).use { tg ->
-                    tg.startTone(ToneGenerator.TONE_PROP_BEEP, 500)
-                }
+                val tg = ToneGenerator(AudioManager.STREAM_NOTIFICATION, 80)
+                tg.startTone(ToneGenerator.TONE_PROP_BEEP, 500)
+                tg.release()
             } catch (_: Exception) { }
             onComplete()
             return@LaunchedEffect
