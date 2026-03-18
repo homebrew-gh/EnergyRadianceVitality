@@ -30,7 +30,6 @@ import com.erv.app.nostr.AmberLauncherHost
 import com.erv.app.nostr.AmberSigner
 import com.erv.app.nostr.ConnectionState
 import com.erv.app.nostr.KeyManager
-import com.erv.app.nostr.Nip65
 import com.erv.app.nostr.RelayPool
 import com.erv.app.nostr.SettingsSync
 import kotlinx.coroutines.launch
@@ -59,14 +58,10 @@ fun SettingsScreen(
     val relayPool = remember(signer) { signer?.let { RelayPool(it) } }
     var relayRevision by remember { mutableIntStateOf(0) }
     val allRelays = remember(relayRevision) { keyManager.allRelayUrls() }
-    var fetchingRelays by remember { mutableStateOf(false) }
     var snackbarMessage by remember { mutableStateOf<String?>(null) }
 
-    val relaysForPool = remember(allRelays, fetchingRelays) {
-        (allRelays + if (fetchingRelays) Nip65.bootstrapRelays else emptyList()).distinct()
-    }
-    LaunchedEffect(relaysForPool, relayPool) {
-        relayPool?.setRelays(relaysForPool)
+    LaunchedEffect(allRelays, relayPool) {
+        relayPool?.setRelays(allRelays)
     }
     DisposableEffect(relayPool) {
         onDispose { relayPool?.disconnect() }
@@ -181,42 +176,11 @@ fun SettingsScreen(
             )
 
             Spacer(Modifier.height(8.dp))
-            if (keyManager.socialRelayUrls.isEmpty()) {
-                OutlinedButton(
-                    onClick = {
-                        val pubkey = keyManager.publicKeyHex ?: return@OutlinedButton
-                        scope.launch {
-                            fetchingRelays = true
-                            try {
-                                kotlinx.coroutines.delay(1500)
-                                val urls = Nip65.fetchRelayListFromNetwork(relayPool!!, pubkey)
-                                if (urls.isEmpty()) {
-                                    snackbarMessage = "No relay list found. Set up relays in Damus/Primal first, or add manually."
-                                } else {
-                                    urls.forEach { keyManager.addSocialRelay(it) }
-                                    relayRevision++
-                                    hasUnsavedChanges = true
-                                    snackbarMessage = "Added ${urls.size} relay(s) as social."
-                                }
-                            } catch (e: Exception) {
-                                snackbarMessage = "Fetch failed: ${e.message}"
-                            } finally {
-                                fetchingRelays = false
-                            }
-                        }
-                    },
-                    enabled = relayPool != null && keyManager.publicKeyHex != null && !fetchingRelays,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(if (fetchingRelays) "Fetching…" else "Fetch social relays from network")
-                }
-            } else {
-                Text(
-                    "Social relays imported from network.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
+            Text(
+                "Social relays are imported automatically during relay setup.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
 
             if (hasUnsavedChanges) {
                 Spacer(Modifier.height(8.dp))
@@ -295,27 +259,21 @@ private fun ThemeSection(
                     onClick = { onThemeChange(ThemeMode.LIGHT) },
                     shape = SegmentedButtonDefaults.itemShape(0, 3)
                 ) {
-                    Icon(Icons.Default.LightMode, contentDescription = null)
-                    Spacer(Modifier.height(4.dp))
-                    Text("Light", style = MaterialTheme.typography.labelSmall)
+                    Icon(Icons.Default.LightMode, contentDescription = "Light theme")
                 }
                 SegmentedButton(
                     selected = themeMode == ThemeMode.SYSTEM,
                     onClick = { onThemeChange(ThemeMode.SYSTEM) },
                     shape = SegmentedButtonDefaults.itemShape(1, 3)
                 ) {
-                    Icon(Icons.Default.SettingsBrightness, contentDescription = null)
-                    Spacer(Modifier.height(4.dp))
-                    Text("System", style = MaterialTheme.typography.labelSmall)
+                    Icon(Icons.Default.SettingsBrightness, contentDescription = "System theme")
                 }
                 SegmentedButton(
                     selected = themeMode == ThemeMode.DARK,
                     onClick = { onThemeChange(ThemeMode.DARK) },
                     shape = SegmentedButtonDefaults.itemShape(2, 3)
                 ) {
-                    Icon(Icons.Default.DarkMode, contentDescription = null)
-                    Spacer(Modifier.height(4.dp))
-                    Text("Dark", style = MaterialTheme.typography.labelSmall)
+                    Icon(Icons.Default.DarkMode, contentDescription = "Dark theme")
                 }
             }
         }

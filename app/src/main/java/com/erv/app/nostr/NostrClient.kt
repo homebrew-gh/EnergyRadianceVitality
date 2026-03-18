@@ -43,6 +43,9 @@ class NostrClient(
     private val okHttpClient = OkHttpClient()
     private var webSocket: WebSocket? = null
     private var relayUrl: String? = null
+    private var reconnectJob: Job? = null
+    private var reconnectAttempts = 0
+    private var shouldReconnect = false
 
     private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
     val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
@@ -58,14 +61,23 @@ class NostrClient(
     private var pendingChallenge: String? = null
 
     fun connect(url: String) {
-        disconnect()
+        shouldReconnect = true
+        reconnectAttempts = 0
+        reconnectJob?.cancel()
+        reconnectJob = null
         relayUrl = url
+        webSocket?.cancel()
+        webSocket = null
         _connectionState.value = ConnectionState.Connecting
+        openSocket(url)
+    }
 
+    private fun openSocket(url: String) {
         val request = Request.Builder().url(url).build()
         webSocket = okHttpClient.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(ws: WebSocket, response: Response) {
                 if (ws !== webSocket) return
+                reconnectAttempts = 0
                 _connectionState.value = ConnectionState.Connected
             }
 
@@ -76,23 +88,53 @@ class NostrClient(
 
             override fun onFailure(ws: WebSocket, t: Throwable, response: Response?) {
                 if (ws !== webSocket) return
+                webSocket = null
                 _connectionState.value = ConnectionState.Error(t.message ?: "Connection failed")
                 failAllPending()
+                scheduleReconnect(url)
             }
 
             override fun onClosed(ws: WebSocket, code: Int, reason: String) {
                 if (ws !== webSocket) return
+                webSocket = null
                 _connectionState.value = ConnectionState.Disconnected
                 failAllPending()
+                scheduleReconnect(url)
             }
         })
     }
 
     fun disconnect() {
-        webSocket?.close(1000, "Client disconnect")
+        shouldReconnect = false
+        reconnectJob?.cancel()
+        reconnectJob = null
+        relayUrl = null
+        webSocket?.cancel()
         webSocket = null
         _connectionState.value = ConnectionState.Disconnected
         failAllPending()
+    }
+
+    private fun scheduleReconnect(url: String) {
+        if (!shouldReconnect || relayUrl != url) return
+        reconnectJob?.cancel()
+
+        val attempt = reconnectAttempts
+        reconnectAttempts = (reconnectAttempts + 1).coerceAtMost(6)
+        val delayMs = reconnectDelayMs(attempt)
+
+        reconnectJob = scope.launch {
+            delay(delayMs)
+            if (!shouldReconnect || relayUrl != url || webSocket != null) return@launch
+            _connectionState.value = ConnectionState.Connecting
+            openSocket(url)
+        }
+    }
+
+    private fun reconnectDelayMs(attempt: Int): Long {
+        val cappedAttempt = attempt.coerceIn(0, 5)
+        val delayMs = 1_000L * (1L shl cappedAttempt)
+        return delayMs.coerceAtMost(30_000L)
     }
 
     /**

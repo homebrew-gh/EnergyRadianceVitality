@@ -19,8 +19,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.erv.app.nostr.ConnectionState
 import com.erv.app.nostr.KeyManager
+import com.erv.app.nostr.Nip65
 import com.erv.app.nostr.RelayPool
 import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.delay
 
 private const val WSS_PREFIX = "wss://"
 
@@ -33,9 +35,25 @@ fun RelaySetupScreen(
 ) {
     var relayRevision by remember { mutableIntStateOf(0) }
     val allRelays = remember(relayRevision) { keyManager.allRelayUrls() }
+    val relayUrlsForPool = remember(allRelays) {
+        if (allRelays.isEmpty()) Nip65.bootstrapRelays else allRelays
+    }
 
-    LaunchedEffect(allRelays, relayPool) {
-        relayPool?.setRelays(allRelays)
+    LaunchedEffect(relayUrlsForPool, relayPool) {
+        relayPool?.setRelays(relayUrlsForPool)
+    }
+    var socialRelaysImported by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(relayPool, keyManager.publicKeyHex, allRelays) {
+        if (socialRelaysImported || relayPool == null || keyManager.publicKeyHex.isNullOrBlank()) return@LaunchedEffect
+
+        socialRelaysImported = true
+        delay(1500)
+        val fetchedRelays = Nip65.fetchRelayListFromNetwork(relayPool, keyManager.publicKeyHex!!)
+        val newlyAdded = fetchedRelays.filterNot { keyManager.isSocialRelay(it) }
+        newlyAdded.forEach { keyManager.addSocialRelay(it) }
+        if (newlyAdded.isNotEmpty()) {
+            relayRevision++
+        }
     }
 
     val relayStates by (relayPool?.relayStates ?: snapshotFlow { emptyMap<String, ConnectionState>() })

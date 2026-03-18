@@ -33,27 +33,31 @@ class SupplementApiClient(
         val trimmed = query.trim()
         if (trimmed.isBlank()) return@withContext emptyList()
 
-        val url = "http://3.216.223.78/dsldnxt/api/search-filter".toHttpUrl().newBuilder()
-            .addQueryParameter("q", trimmed)
-            .addQueryParameter("size", size.toString())
-            .build()
+        try {
+            val url = "http://3.216.223.78/dsldnxt/api/search-filter".toHttpUrl().newBuilder()
+                .addQueryParameter("q", trimmed)
+                .addQueryParameter("size", size.toString())
+                .build()
 
-        val request = Request.Builder()
-            .url(url)
-            .header("Accept", "application/json")
-            .build()
+            val request = Request.Builder()
+                .url(url)
+                .header("Accept", "application/json")
+                .build()
 
-        client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) return@withContext emptyList()
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@withContext emptyList()
 
-            val body = response.body?.string().orEmpty()
-            if (body.isBlank()) return@withContext emptyList()
+                val body = response.body?.string().orEmpty()
+                if (body.isBlank()) return@withContext emptyList()
 
-            val root = json.parseToJsonElement(body).jsonObject
-            root["hits"]
-                ?.jsonArray
-                ?.mapNotNull { it.asSupplementApiResult() }
-                .orEmpty()
+                val root = json.parseToJsonElement(body).jsonObject
+                root["hits"]
+                    ?.jsonArray
+                    ?.mapNotNull { it.asSupplementApiResult() }
+                    .orEmpty()
+            }
+        } catch (_: Exception) {
+            emptyList()
         }
     }
 
