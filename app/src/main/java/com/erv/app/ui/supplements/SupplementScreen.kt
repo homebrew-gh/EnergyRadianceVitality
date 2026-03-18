@@ -46,6 +46,7 @@ import com.erv.app.supplements.SupplementWeekday
 import com.erv.app.supplements.SupplementUnit
 import com.erv.app.supplements.describe
 import com.erv.app.supplements.label
+import com.erv.app.supplements.shortLabel
 import com.erv.app.supplements.SupplementSync
 import kotlinx.coroutines.launch
 import java.time.LocalDate
@@ -688,7 +689,7 @@ private fun SupplementEditorDialog(
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 private fun RoutineEditorDialog(
     routine: SupplementRoutine?,

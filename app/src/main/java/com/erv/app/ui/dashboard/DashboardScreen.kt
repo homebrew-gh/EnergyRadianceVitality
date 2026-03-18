@@ -39,6 +39,7 @@ import com.erv.app.supplements.SupplementRoutine
 import com.erv.app.supplements.SupplementRoutineStep
 import com.erv.app.supplements.SupplementSync
 import com.erv.app.supplements.SupplementTimeOfDay
+import com.erv.app.supplements.describe
 import com.erv.app.reminders.RoutineReminderRepository
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
