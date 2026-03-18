@@ -1,3 +1,4 @@
+@file:OptIn(ExperimentalMaterial3Api::class)
 package com.erv.app.ui.settings
 
 import androidx.compose.foundation.background
