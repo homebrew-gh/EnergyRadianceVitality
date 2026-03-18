@@ -33,7 +33,6 @@ import com.erv.app.nostr.Nip65
 import com.erv.app.nostr.RelayPool
 import com.erv.app.nostr.SettingsSync
 import kotlinx.coroutines.launch
-import kotlin.math.roundToInt
 
 private const val WSS_PREFIX = "wss://"
 
@@ -263,12 +262,6 @@ private fun ThemeSection(
     themeMode: ThemeMode,
     onThemeChange: (ThemeMode) -> Unit
 ) {
-    val currentValue = when (themeMode) {
-        ThemeMode.LIGHT -> 0f
-        ThemeMode.SYSTEM -> 1f
-        ThemeMode.DARK -> 2f
-    }
-
     Text(
         "Theme",
         style = MaterialTheme.typography.labelLarge,
@@ -278,45 +271,52 @@ private fun ThemeSection(
         modifier = Modifier.fillMaxWidth(),
         elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
     ) {
-        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(Icons.Default.LightMode, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Default.SettingsBrightness,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
                 Spacer(Modifier.width(8.dp))
-                Text("Light", style = MaterialTheme.typography.bodySmall)
-                Spacer(Modifier.weight(1f))
-                Icon(Icons.Default.SettingsBrightness, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.width(8.dp))
-                Text("System", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.weight(1f))
-                Text("Dark", style = MaterialTheme.typography.bodySmall)
-                Spacer(Modifier.width(8.dp))
-                Icon(Icons.Default.DarkMode, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary)
+                Text(
+                    text = when (themeMode) {
+                        ThemeMode.LIGHT -> "Light"
+                        ThemeMode.SYSTEM -> "System"
+                        ThemeMode.DARK -> "Dark"
+                    },
+                    style = MaterialTheme.typography.bodyMedium
+                )
             }
-            Slider(
-                value = currentValue,
-                onValueChange = { value ->
-                    val mode = when (value.roundToInt()) {
-                        0 -> ThemeMode.LIGHT
-                        1 -> ThemeMode.SYSTEM
-                        else -> ThemeMode.DARK
-                    }
-                    onThemeChange(mode)
-                },
-                valueRange = 0f..2f,
-                steps = 1
-            )
-            Text(
-                text = when (themeMode) {
-                    ThemeMode.LIGHT -> "Light"
-                    ThemeMode.SYSTEM -> "System"
-                    ThemeMode.DARK -> "Dark"
-                },
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                SegmentedButton(
+                    selected = themeMode == ThemeMode.LIGHT,
+                    onClick = { onThemeChange(ThemeMode.LIGHT) },
+                    shape = SegmentedButtonDefaults.itemShape(0, 3)
+                ) {
+                    Icon(Icons.Default.LightMode, contentDescription = null)
+                    Spacer(Modifier.height(4.dp))
+                    Text("Light", style = MaterialTheme.typography.labelSmall)
+                }
+                SegmentedButton(
+                    selected = themeMode == ThemeMode.SYSTEM,
+                    onClick = { onThemeChange(ThemeMode.SYSTEM) },
+                    shape = SegmentedButtonDefaults.itemShape(1, 3)
+                ) {
+                    Icon(Icons.Default.SettingsBrightness, contentDescription = null)
+                    Spacer(Modifier.height(4.dp))
+                    Text("System", style = MaterialTheme.typography.labelSmall)
+                }
+                SegmentedButton(
+                    selected = themeMode == ThemeMode.DARK,
+                    onClick = { onThemeChange(ThemeMode.DARK) },
+                    shape = SegmentedButtonDefaults.itemShape(2, 3)
+                ) {
+                    Icon(Icons.Default.DarkMode, contentDescription = null)
+                    Spacer(Modifier.height(4.dp))
+                    Text("Dark", style = MaterialTheme.typography.labelSmall)
+                }
+            }
         }
     }
 }
