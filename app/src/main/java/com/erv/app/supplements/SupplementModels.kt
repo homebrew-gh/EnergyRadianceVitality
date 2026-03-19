@@ -291,6 +291,34 @@ fun SupplementUnit.label(): String = when (this) {
     SupplementUnit.DROPS -> "drops"
 }
 
+/**
+ * Short dose text for routine cards (matches [groupedSupplementActivityFor] / dashboard Activity when plan has [SupplementDosagePlan.amount]).
+ */
+fun routineStepListAmountDisplay(step: SupplementRoutineStep, supplement: SupplementEntry?): String {
+    val plan = supplement?.dosagePlan
+    val qty = (step.quantity ?: 1).coerceAtLeast(1).toDouble()
+    if (plan != null && plan.amount != null) {
+        val total = qty * plan.amount
+        return when (plan.form) {
+            SupplementForm.CAPSULE -> "${formatAmount(total)} capsule${if (total == 1.0) "" else "s"}"
+            SupplementForm.POWDER -> "${formatAmount(total)} ${plan.unit.label()}"
+        }
+    }
+    step.dosageOverride?.takeIf { it.isNotBlank() }?.trim()?.let { return it }
+    plan?.servingSize?.takeIf { it.isNotBlank() }?.let { return it }
+    return when (plan?.form) {
+        SupplementForm.CAPSULE -> "capsule"
+        SupplementForm.POWDER -> "powder"
+        else -> "take as directed"
+    }
+}
+
+/** One line per step: "Name amount" like dashboard supplement activity rows. */
+fun SupplementRoutineStep.activityStyleSummary(supplement: SupplementEntry?): String {
+    val name = supplement?.name ?: "Missing supplement"
+    return "$name ${routineStepListAmountDisplay(this, supplement)}"
+}
+
 fun SupplementRoutineStep.describe(supplementName: String): String = buildString {
     append(supplementName)
     timeOfDay?.let {

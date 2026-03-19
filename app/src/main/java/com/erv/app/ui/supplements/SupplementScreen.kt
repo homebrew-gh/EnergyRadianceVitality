@@ -51,7 +51,7 @@ import com.erv.app.supplements.SupplementRoutineStep
 import com.erv.app.supplements.SupplementTimeOfDay
 import com.erv.app.supplements.SupplementWeekday
 import com.erv.app.supplements.SupplementUnit
-import com.erv.app.supplements.describe
+import com.erv.app.supplements.activityStyleSummary
 import com.erv.app.supplements.label
 import com.erv.app.supplements.shortLabel
 import com.erv.app.supplements.SupplementSync
@@ -347,21 +347,16 @@ private fun RoutinesTab(
                                 if (routine.timeOfDay == SupplementTimeOfDay.OTHER) routine.name else "${routine.timeOfDay.label()} • ${routine.name}",
                                 style = MaterialTheme.typography.titleMedium
                             )
-                            if (routine.notes.isNotBlank()) {
-                                Spacer(Modifier.height(4.dp))
-                                Text(
-                                    routine.notes,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
                             Spacer(Modifier.height(8.dp))
-                            routine.steps.forEachIndexed { index, step ->
-                                val supplement = supplements.firstOrNull { it.id == step.supplementId }
-                                Text(
-                                    "${index + 1}. ${step.describe(supplement?.name ?: "Missing supplement")}",
-                                    style = MaterialTheme.typography.bodyMedium
-                                )
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                routine.steps.forEach { step ->
+                                    val supplement = supplements.firstOrNull { it.id == step.supplementId }
+                                    Text(
+                                        text = step.activityStyleSummary(supplement),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
                             }
                             Spacer(Modifier.height(12.dp))
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1182,6 +1177,10 @@ fun SupplementDetailScreen(
     var searching by remember { mutableStateOf(false) }
     var autoSearchDone by rememberSaveable(supplementId) { mutableStateOf(false) }
     var autoAttachDone by rememberSaveable(supplementId) { mutableStateOf(false) }
+    /** When true: no auto-search on open; lookup field hidden until user unchecks. */
+    var turnOffSearch by rememberSaveable(supplementId) { mutableStateOf(false) }
+    /** One-time: if supplement already has NIH info when first seen, default turnOffSearch on without clobbering user later. */
+    var seededTurnOffFromInfo by rememberSaveable(supplementId) { mutableStateOf(false) }
 
     suspend fun syncMaster() {
         if (relayPool != null && signer != null) {
@@ -1219,19 +1218,31 @@ fun SupplementDetailScreen(
         }
     }
 
-    LaunchedEffect(supplement?.id) {
+    LaunchedEffect(supplement?.id, supplement?.info, defaultQuery, turnOffSearch, autoSearchDone, seededTurnOffFromInfo) {
+        val s = supplement ?: return@LaunchedEffect
+        var skipAutoLookup = turnOffSearch
+        if (s.info != null && !seededTurnOffFromInfo) {
+            turnOffSearch = true
+            seededTurnOffFromInfo = true
+            skipAutoLookup = true
+        }
+        if (skipAutoLookup) return@LaunchedEffect
         if (!autoSearchDone && defaultQuery.isNotBlank()) {
             autoSearchDone = true
             searchNih(defaultQuery)
         }
     }
 
-    LaunchedEffect(apiResults) {
-        if (!autoAttachDone && apiResults.size == 1 && supplement != null) {
+    LaunchedEffect(apiResults, supplement?.id, turnOffSearch, autoAttachDone) {
+        val s = supplement ?: return@LaunchedEffect
+        if (turnOffSearch || autoAttachDone) return@LaunchedEffect
+        if (apiResults.size == 1) {
             autoAttachDone = true
             val match = apiResults.first()
-            repository.attachInfo(supplement.id, match.info, match.productId)
+            repository.attachInfo(s.id, match.info, match.productId)
             syncMaster()
+            turnOffSearch = true
+            seededTurnOffFromInfo = true
             snackbarHostState.showSnackbar("Matched ${match.productName}")
         }
     }
@@ -1345,29 +1356,58 @@ fun SupplementDetailScreen(
                 ElevatedCard(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text("Lookup from NIH DSLD", style = MaterialTheme.typography.titleMedium)
-                        OutlinedTextField(
-                            value = query,
-                            onValueChange = { query = it },
-                            label = { Text("Search query") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        Button(
-                            onClick = {
-                                scope.launch {
-                                    searchNih(query)
-                                }
-                            },
-                            enabled = query.isNotBlank() && !searching,
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text(if (searching) "Searching…" else "Search")
+                            Checkbox(
+                                checked = turnOffSearch,
+                                onCheckedChange = { checked ->
+                                    turnOffSearch = checked
+                                    if (checked) {
+                                        apiResults = emptyList()
+                                    } else {
+                                        autoAttachDone = false
+                                    }
+                                }
+                            )
+                            Text(
+                                "Turn off search",
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                        if (turnOffSearch) {
+                            Text(
+                                "Automatic lookup is disabled. Uncheck \"Turn off search\" to run a new NIH search.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        } else {
+                            OutlinedTextField(
+                                value = query,
+                                onValueChange = { query = it },
+                                label = { Text("Search query") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Button(
+                                onClick = {
+                                    scope.launch {
+                                        searchNih(query)
+                                    }
+                                },
+                                enabled = query.isNotBlank() && !searching,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(if (searching) "Searching…" else "Search")
+                            }
                         }
                     }
                 }
             }
 
-            if (apiResults.isNotEmpty()) {
+            if (!turnOffSearch && apiResults.isNotEmpty()) {
                 item {
                     Text("Results", style = MaterialTheme.typography.titleMedium)
                 }
@@ -1383,6 +1423,9 @@ fun SupplementDetailScreen(
                             scope.launch {
                                 repository.attachInfo(supplement.id, result.info, result.productId)
                                 syncMaster()
+                                turnOffSearch = true
+                                seededTurnOffFromInfo = true
+                                apiResults = emptyList()
                                 snackbarHostState.showSnackbar("Saved ${result.productName}")
                             }
                         }
@@ -1415,8 +1458,8 @@ fun SupplementDetailScreen(
                         Column(modifier = Modifier.padding(16.dp)) {
                             Text(routine.name, style = MaterialTheme.typography.titleSmall)
                             Text(
-                                routine.steps.joinToString { step ->
-                                    step.describe(state.supplementById(step.supplementId)?.name ?: "Missing")
+                                routine.steps.joinToString(" · ") { step ->
+                                    step.activityStyleSummary(state.supplementById(step.supplementId))
                                 },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant

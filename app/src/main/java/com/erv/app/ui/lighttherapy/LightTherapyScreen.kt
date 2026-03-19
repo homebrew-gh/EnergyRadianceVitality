@@ -3,6 +3,7 @@ package com.erv.app.ui.lighttherapy
 
 import android.media.ToneGenerator
 import android.media.AudioManager
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -19,12 +20,15 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.WbIncandescent
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
@@ -82,7 +86,7 @@ fun LightTherapyCategoryScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     var activeTab by rememberSaveable { mutableIntStateOf(0) }
     var timerRunning by remember { mutableStateOf(false) }
-    var timerDurationMinutes by remember { mutableStateOf(15) }
+    var timerDurationMinutes by remember { mutableStateOf(5) }
     var timerRoutineId by remember { mutableStateOf<String?>(null) }
     var timerRoutineName by remember { mutableStateOf<String?>(null) }
     var timerDeviceId by remember { mutableStateOf<String?>(null) }
@@ -418,8 +422,11 @@ private fun TimerTabContent(
     defaultMinutes: Int,
     onStartTimer: (Int) -> Unit
 ) {
+    val darkTheme = isSystemInDarkTheme()
+    val therapyRedGlow = if (darkTheme) ErvDarkTherapyRedGlow else ErvLightTherapyRedGlow
+    val therapyRedMid = if (darkTheme) ErvDarkTherapyRedMid else ErvLightTherapyRedMid
     val initialIndex = MINUTE_OPTIONS.indexOf(
-        MINUTE_OPTIONS.minByOrNull { kotlin.math.abs(it - defaultMinutes.coerceIn(1, 60)) } ?: 15
+        MINUTE_OPTIONS.minByOrNull { kotlin.math.abs(it - defaultMinutes.coerceIn(1, 60)) } ?: 5
     ).coerceIn(0, MINUTE_OPTIONS.lastIndex)
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = initialIndex)
     val itemHeightPx = with(androidx.compose.ui.platform.LocalDensity.current) { WHEEL_ITEM_HEIGHT_DP.dp.toPx() }
@@ -438,53 +445,82 @@ private fun TimerTabContent(
         }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.SpaceBetween
-    ) {
-        Spacer(Modifier.height(8.dp))
-        Box(
+    Box(modifier = Modifier.fillMaxSize()) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val iconCenter = Offset(40.dp.toPx(), 40.dp.toPx())
+            val radius = size.maxDimension * 0.72f
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        therapyRedGlow.copy(alpha = 0.55f),
+                        therapyRedMid.copy(alpha = 0.28f),
+                        therapyRedGlow.copy(alpha = 0.08f),
+                        Color.Transparent
+                    ),
+                    center = iconCenter,
+                    radius = radius
+                ),
+                radius = radius,
+                center = iconCenter
+            )
+        }
+        Icon(
+            imageVector = Icons.Default.WbIncandescent,
+            contentDescription = null,
             modifier = Modifier
-                .height((WHEEL_ITEM_HEIGHT_DP * WHEEL_VISIBLE_ITEMS).dp)
-                .fillMaxWidth()
+                .align(Alignment.TopStart)
+                .padding(16.dp)
+                .size(48.dp),
+            tint = therapyRedMid
+        )
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.SpaceBetween
         ) {
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(
-                    vertical = (WHEEL_ITEM_HEIGHT_DP * (WHEEL_VISIBLE_ITEMS / 2)).dp
-                )
+            Spacer(Modifier.height(8.dp))
+            Box(
+                modifier = Modifier
+                    .height((WHEEL_ITEM_HEIGHT_DP * WHEEL_VISIBLE_ITEMS).dp)
+                    .fillMaxWidth()
             ) {
-                items(MINUTE_OPTIONS.size, key = { MINUTE_OPTIONS[it] }) { index ->
-                    val minutes = MINUTE_OPTIONS[index]
-                    val isSelected = index == selectedIndex
-                    Box(
-                        modifier = Modifier
-                            .height(WHEEL_ITEM_HEIGHT_DP.dp)
-                            .fillMaxWidth(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "$minutes",
-                            style = if (isSelected) MaterialTheme.typography.displayMedium else MaterialTheme.typography.headlineMedium,
-                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                        )
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(
+                        vertical = (WHEEL_ITEM_HEIGHT_DP * (WHEEL_VISIBLE_ITEMS / 2)).dp
+                    )
+                ) {
+                    items(MINUTE_OPTIONS.size, key = { MINUTE_OPTIONS[it] }) { index ->
+                        val minutes = MINUTE_OPTIONS[index]
+                        val isSelected = index == selectedIndex
+                        Box(
+                            modifier = Modifier
+                                .height(WHEEL_ITEM_HEIGHT_DP.dp)
+                                .fillMaxWidth(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "$minutes",
+                                style = if (isSelected) MaterialTheme.typography.displayMedium else MaterialTheme.typography.headlineMedium,
+                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                            )
+                        }
                     }
                 }
             }
-        }
-        Button(
-            onClick = { onStartTimer(selectedMinutes) },
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(56.dp)
-        ) {
-            Icon(Icons.Default.PlayArrow, contentDescription = null)
-            Spacer(Modifier.width(12.dp))
-            Text("Start $selectedMinutes min")
+            Button(
+                onClick = { onStartTimer(selectedMinutes) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp)
+            ) {
+                Icon(Icons.Default.PlayArrow, contentDescription = null)
+                Spacer(Modifier.width(12.dp))
+                Text("Start $selectedMinutes min")
+            }
         }
     }
 }

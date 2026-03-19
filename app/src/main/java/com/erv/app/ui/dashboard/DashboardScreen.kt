@@ -73,7 +73,7 @@ import com.erv.app.ui.theme.ErvLightTherapyRedGlow
 import com.erv.app.ui.theme.ErvLightTherapyRedMid
 import com.erv.app.supplements.SupplementSync
 import com.erv.app.supplements.SupplementTimeOfDay
-import com.erv.app.supplements.describe
+import com.erv.app.supplements.activityStyleSummary
 import com.erv.app.supplements.groupedSupplementActivityFor
 import com.erv.app.reminders.RoutineReminderRepository
 import androidx.compose.foundation.text.KeyboardOptions
@@ -1037,12 +1037,15 @@ private fun RoutinePreviewSheet(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            routine.steps.forEachIndexed { index, step ->
-                val supplement = supplements.firstOrNull { it.id == step.supplementId }
-                Text(
-                    text = "${index + 1}. ${step.describe(supplement?.name ?: "Missing supplement")}",
-                    style = MaterialTheme.typography.bodyMedium
-                )
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                routine.steps.forEach { step ->
+                    val supplement = supplements.firstOrNull { it.id == step.supplementId }
+                    Text(
+                        text = step.activityStyleSummary(supplement),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilledTonalButton(onClick = onLogAsIs) {

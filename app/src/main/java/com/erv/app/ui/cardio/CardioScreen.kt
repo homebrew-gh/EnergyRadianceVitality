@@ -1277,7 +1277,7 @@ fun CardioMultiLegTimerFullScreen(
                         color = Color.White.copy(alpha = 0.75f)
                     )
                 }
-                Column(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     OutlinedButton(
                         onClick = { onFinishLeg(elapsed) },
                         modifier = Modifier.fillMaxWidth(),

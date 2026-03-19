@@ -7,7 +7,10 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.provider.Settings
+import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import com.erv.app.MainActivity
 import com.erv.app.R
 import com.erv.app.supplements.SupplementWeekday
@@ -40,8 +43,13 @@ object RoutineReminderScheduler {
         val triggerAtMillis = nextTriggerMillis(reminder) ?: return false
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
         val pendingIntent = reminderAlarmPendingIntent(context, reminder)
-        alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent)
-        return true
+        return try {
+            alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent)
+            true
+        } catch (e: SecurityException) {
+            Log.w(TAG, "Exact alarm not permitted; open Settings → Alarms & reminders", e)
+            false
+        }
     }
 
     fun cancel(context: Context, routineId: String) {
@@ -50,19 +58,45 @@ object RoutineReminderScheduler {
     }
 
     fun showNotification(context: Context, reminder: RoutineReminder) {
-        ensureChannel(context)
-        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_launcher)
+        val appContext = context.applicationContext
+        if (!NotificationManagerCompat.from(appContext).areNotificationsEnabled()) {
+            Log.w(TAG, "Skipping reminder notification: notifications disabled for app")
+            return
+        }
+        ensureChannel(appContext)
+        val notificationManager = appContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val ch = notificationManager.getNotificationChannel(CHANNEL_ID)
+            if (ch != null && ch.importance == NotificationManager.IMPORTANCE_NONE) {
+                Log.w(TAG, "Skipping reminder notification: channel blocked")
+                return
+            }
+        }
+        val notification = NotificationCompat.Builder(appContext, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_stat_routine)
             .setContentTitle(reminder.routineName)
             .setContentText("Time for your routine.")
             .setStyle(NotificationCompat.BigTextStyle().bigText("Time for your routine. Tap to open and log it."))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
-            .setContentIntent(reminderTapPendingIntent(context, reminder))
+            .setContentIntent(reminderTapPendingIntent(appContext, reminder))
             .build()
-        notificationManager.notify(notificationId(reminder.routineId), notification)
+        try {
+            notificationManager.notify(notificationId(reminder.routineId), notification)
+        } catch (e: SecurityException) {
+            Log.w(TAG, "notify() blocked (notification permission?)", e)
+        }
+    }
+
+    /** Opens system UI where the user can enable notifications for this app (and the routine channel on O+). */
+    fun openAppNotificationSettings(context: Context) {
+        val app = context.applicationContext
+        val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+            putExtra(Settings.EXTRA_APP_PACKAGE, app.packageName)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        runCatching { context.startActivity(intent) }
     }
 
     fun reminderTapPendingIntent(context: Context, reminder: RoutineReminder): PendingIntent {

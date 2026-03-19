@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.ComponentActivity
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -14,6 +15,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -263,6 +266,21 @@ private fun MainAppShell(
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { }
+    val mainScope = rememberCoroutineScope()
+    val activityForLifecycle = context as? ComponentActivity
+    DisposableEffect(activityForLifecycle, reminderRepository) {
+        if (activityForLifecycle == null) {
+            onDispose { }
+        } else {
+            val observer = LifecycleEventObserver { _, event ->
+                if (event == Lifecycle.Event.ON_RESUME) {
+                    mainScope.launch { reminderRepository.restoreAllSchedules() }
+                }
+            }
+            activityForLifecycle.lifecycle.addObserver(observer)
+            onDispose { activityForLifecycle.lifecycle.removeObserver(observer) }
+        }
+    }
 
     LaunchedEffect(relayPool, relayUrlsVersion) {
         relayPool?.setRelays(keyManager.allRelayUrls())

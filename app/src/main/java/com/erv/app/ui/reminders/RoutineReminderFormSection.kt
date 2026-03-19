@@ -2,9 +2,15 @@
 
 package com.erv.app.ui.reminders
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Column
@@ -41,6 +47,13 @@ fun RoutineReminderFormSection(
 ) {
     val context = LocalContext.current
     var showTimePicker by remember { mutableStateOf(false) }
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { }
+
+    val notificationsGranted = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
+        PackageManager.PERMISSION_GRANTED
 
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         HorizontalDivider()
@@ -48,9 +61,29 @@ fun RoutineReminderFormSection(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Checkbox(
                 checked = reminderDraft.enabled,
-                onCheckedChange = { onReminderDraftChange(reminderDraft.copy(enabled = it)) }
+                onCheckedChange = { enabled ->
+                    onReminderDraftChange(reminderDraft.copy(enabled = enabled))
+                    if (enabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                        ContextCompat.checkSelfPermission(
+                            context,
+                            Manifest.permission.POST_NOTIFICATIONS
+                        ) != PackageManager.PERMISSION_GRANTED
+                    ) {
+                        notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    }
+                }
             )
             Text("Enable reminder")
+        }
+        if (reminderDraft.enabled && !notificationsGranted) {
+            Text(
+                "Notifications are off for this app. Reminders will not appear until you allow them.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error
+            )
+            TextButton(onClick = { RoutineReminderScheduler.openAppNotificationSettings(context) }) {
+                Text("Open notification settings")
+            }
         }
         OutlinedButton(
             onClick = { showTimePicker = true },
