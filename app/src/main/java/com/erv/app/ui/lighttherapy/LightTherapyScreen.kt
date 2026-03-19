@@ -44,7 +44,6 @@ import com.erv.app.reminders.RoutineReminder
 import com.erv.app.reminders.RoutineReminderDraft
 import com.erv.app.reminders.RoutineReminderRepository
 import com.erv.app.reminders.RoutineReminderState
-import com.erv.app.reminders.RoutineReminderScheduler
 import com.erv.app.reminders.isValid
 import com.erv.app.reminders.toDraft
 import com.erv.app.reminders.toReminder
@@ -76,6 +75,8 @@ fun LightTherapyCategoryScreen(
     val therapyRedMid = if (darkTheme) ErvDarkTherapyRedMid else ErvLightTherapyRedMid
     val therapyRedGlow = if (darkTheme) ErvDarkTherapyRedGlow else ErvLightTherapyRedGlow
     val state by repository.state.collectAsState(initial = LightLibraryState())
+    val reminderRepository = remember(context) { RoutineReminderRepository(context) }
+    val reminderState by reminderRepository.state.collectAsState(initial = RoutineReminderState())
     val today = remember { LocalDate.now() }
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
