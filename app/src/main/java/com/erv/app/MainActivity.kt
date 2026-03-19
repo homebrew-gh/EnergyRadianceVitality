@@ -29,6 +29,8 @@ import androidx.navigation.compose.rememberNavController
 import com.erv.app.data.ThemeMode
 import com.erv.app.data.UserPreferences
 import com.erv.app.nostr.*
+import com.erv.app.cardio.CardioRepository
+import com.erv.app.cardio.CardioSync
 import com.erv.app.lighttherapy.LightSync
 import com.erv.app.lighttherapy.LightTherapyRepository
 import com.erv.app.supplements.SupplementRepository
@@ -246,6 +248,7 @@ private fun MainAppShell(
     val navController = rememberNavController()
     val supplementRepository = remember(context) { SupplementRepository(context) }
     val lightTherapyRepository = remember(context) { LightTherapyRepository(context) }
+    val cardioRepository = remember(context) { CardioRepository(context) }
     val reminderRepository = remember(context) { RoutineReminderRepository(context) }
     val signer = remember(keyManager, amberHost) {
         keyManager.createLocalSigner()
@@ -263,7 +266,7 @@ private fun MainAppShell(
     LaunchedEffect(relayPool, relayUrlsVersion) {
         relayPool?.setRelays(keyManager.allRelayUrls())
     }
-    LaunchedEffect(relayPool, signer, supplementRepository, lightTherapyRepository) {
+    LaunchedEffect(relayPool, signer, supplementRepository, lightTherapyRepository, cardioRepository) {
         if (relayPool == null || signer == null) {
             initialSyncDone = true
             return@LaunchedEffect
@@ -279,6 +282,10 @@ private fun MainAppShell(
                 async {
                     LightSync.fetchFromNetwork(relayPool, signer, pubkey, timeoutMs = 8000)
                         ?.let { lightTherapyRepository.replaceAll(it) }
+                },
+                async {
+                    CardioSync.fetchFromNetwork(relayPool, signer, pubkey, timeoutMs = 8000)
+                        ?.let { cardioRepository.replaceAll(it) }
                 }
             )
         }
@@ -306,6 +313,7 @@ private fun MainAppShell(
         userPreferences = userPreferences,
         supplementRepository = supplementRepository,
         lightTherapyRepository = lightTherapyRepository,
+        cardioRepository = cardioRepository,
         relayPool = relayPool,
         signer = signer,
         pendingReminderRoutineId = pendingReminderRoutineId,

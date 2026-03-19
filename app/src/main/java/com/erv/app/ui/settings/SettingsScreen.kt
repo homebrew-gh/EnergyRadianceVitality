@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -24,7 +25,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.erv.app.data.BodyWeightUnit
 import com.erv.app.data.ThemeMode
 import com.erv.app.data.UserPreferences
 import com.erv.app.nostr.AmberLauncherHost
@@ -50,6 +53,8 @@ fun SettingsScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val themeMode by userPreferences.themeMode.collectAsState(initial = ThemeMode.SYSTEM)
+    val bodyWeightValue by userPreferences.bodyWeightValue.collectAsState(initial = "")
+    val bodyWeightUnit by userPreferences.bodyWeightUnit.collectAsState(initial = BodyWeightUnit.LB)
 
     val signer = remember(keyManager, amberHost) {
         keyManager.createLocalSigner()
@@ -108,6 +113,16 @@ fun SettingsScreen(
             ThemeSection(
                 themeMode = themeMode,
                 onThemeChange = { mode -> scope.launch { userPreferences.setThemeMode(mode) } }
+            )
+
+            Spacer(Modifier.height(12.dp))
+
+            BodyWeightSection(
+                value = bodyWeightValue,
+                unit = bodyWeightUnit,
+                onSave = { raw, u ->
+                    scope.launch { userPreferences.setFallbackBodyWeight(raw, u) }
+                }
             )
 
             Spacer(Modifier.height(12.dp))
@@ -227,6 +242,57 @@ private fun normalizeRelayUrl(input: String): String? {
     val s = input.trim()
     if (s.isEmpty()) return null
     return if (s.startsWith("wss://") || s.startsWith("ws://")) s else "$WSS_PREFIX$s"
+}
+
+@Composable
+private fun BodyWeightSection(
+    value: String,
+    unit: BodyWeightUnit,
+    onSave: (String, BodyWeightUnit) -> Unit
+) {
+    var draft by remember(value) { mutableStateOf(value) }
+    var draftUnit by remember(unit) { mutableStateOf(unit) }
+    Text(
+        "Body weight (for cardio calories)",
+        style = MaterialTheme.typography.titleMedium,
+        modifier = Modifier.padding(bottom = 8.dp)
+    )
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                "Optional. Used with MET estimates. Stored on device.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            OutlinedTextField(
+                value = draft,
+                onValueChange = { draft = it },
+                label = { Text("Weight") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                modifier = Modifier.fillMaxWidth()
+            )
+            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                SegmentedButton(
+                    selected = draftUnit == BodyWeightUnit.LB,
+                    onClick = { draftUnit = BodyWeightUnit.LB },
+                    shape = SegmentedButtonDefaults.itemShape(0, 2)
+                ) { Text("lb") }
+                SegmentedButton(
+                    selected = draftUnit == BodyWeightUnit.KG,
+                    onClick = { draftUnit = BodyWeightUnit.KG },
+                    shape = SegmentedButtonDefaults.itemShape(1, 2)
+                ) { Text("kg") }
+            }
+            Button(
+                onClick = { onSave(draft, draftUnit) },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("Save weight") }
+        }
+    }
 }
 
 @Composable

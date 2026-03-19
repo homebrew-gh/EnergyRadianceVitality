@@ -54,7 +54,7 @@ Each category is a silo: its own screens and local models, but the same Nostr ki
 |---------------|------------------------|---------------------------|
 | Stretching    | `erv/stretching/poses` (optional) + `erv/stretching/routines` (optional) + `erv/stretching/<date>` | Pose library (if synced) + user-defined routines + session log by date; see §2.4 |
 | Weight training | `erv/weight/exercises` + `erv/weight/<date>` or `erv/weight/<uuid>` | Exercise list (4 compounds + custom; muscle group, push/pull, equipment) + workout logs; see §2.4 |
-| Cardio        | `erv/cardio/<date>` or `erv/cardio/<uuid>` | Sessions: duration, activity type, optional estimatedKcal, optional GPS track, optional HR/HR zones when monitor connected; see §2.4, §12 |
+| Cardio        | `erv/cardio/routines` (optional master) + `erv/cardio/<date>` or `erv/cardio/<uuid>` | Master: saved routines + custom activity types. Daily log: sessions (duration, activity, modality outdoor/treadmill, treadmill params, optional distance, optional estimatedKcal, optional GPS track, optional HR scaffolding when monitor connected); see §2.4, §12 |
 | Sauna         | `erv/sauna/<date>`     | Sessions with duration + optional temp; entries may reference a contrast routine; see §2.4 |
 | Cold plunge   | `erv/cold/<date>`      | Sessions with duration + optional temp; entries may reference a contrast routine; see §2.4 |
 | **Heat/cold routines (shared)** | `erv/heatcold/routines` (optional) | User-defined contrast routines (alternating sauna/cold steps); used by Sauna and Cold plunge; see §2.4 |

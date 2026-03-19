@@ -11,6 +11,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.DirectionsRun
 import androidx.compose.material.icons.filled.FitnessCenter
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Medication
 import androidx.compose.material.icons.filled.Spa
 import androidx.compose.material.icons.filled.WbSunny
@@ -43,7 +44,18 @@ import com.erv.app.lighttherapy.LightActivityRow
 import com.erv.app.lighttherapy.LightLibraryState
 import com.erv.app.lighttherapy.LightRoutine
 import com.erv.app.lighttherapy.LightSync
+import com.erv.app.cardio.CardioLibraryState
+import com.erv.app.cardio.CardioActivityRow
+import com.erv.app.cardio.CardioMetEstimator
+import com.erv.app.cardio.CardioSessionSource
+import com.erv.app.cardio.CardioRepository
+import com.erv.app.cardio.CardioRoutine
+import com.erv.app.cardio.CardioSync
+import com.erv.app.cardio.CardioTimerSessionDraft
+import com.erv.app.cardio.cardioActivityRowsFor
+import com.erv.app.data.UserPreferences
 import com.erv.app.lighttherapy.LightTherapyRepository
+import com.erv.app.ui.cardio.CardioElapsedTimerFullScreen
 import com.erv.app.ui.lighttherapy.LightTherapyTimerFullScreen
 import com.erv.app.lighttherapy.LightTimeOfDay
 import com.erv.app.lighttherapy.lightActivityFor
@@ -62,7 +74,10 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import com.erv.app.cardio.label
+import com.erv.app.cardio.nowEpochSeconds
 import java.time.LocalDate
+import kotlin.math.max
 
 private data class LightTimerSession(
     val minutes: Int,
@@ -72,13 +87,20 @@ private data class LightTimerSession(
     val deviceName: String?
 )
 
+private val DashboardCardioBlueDark = Color(0xFF0D47A1)
+private val DashboardCardioBlueMid = Color(0xFF1565C0)
+private val DashboardCardioBlueGlow = Color(0xFF42A5F5)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DashboardScreen(
     onNavigateToSettings: () -> Unit,
     onNavigateToCategory: (Category) -> Unit,
+    onOpenCardioNewWorkout: () -> Unit,
     supplementRepository: SupplementRepository,
     lightTherapyRepository: LightTherapyRepository,
+    cardioRepository: CardioRepository,
+    userPreferences: UserPreferences,
     relayPool: RelayPool?,
     signer: EventSigner?,
     pendingReminderRoutineId: String?,
@@ -90,12 +112,17 @@ fun DashboardScreen(
     val selectedDate by viewModel.selectedDate.collectAsState()
     val supplementState by supplementRepository.state.collectAsState(initial = SupplementLibraryState())
     val lightState by lightTherapyRepository.state.collectAsState(initial = LightLibraryState())
+    val cardioState by cardioRepository.state.collectAsState(initial = CardioLibraryState())
+    val weightKg by userPreferences.fallbackBodyWeightKg.collectAsState(initial = null)
     val reminderRepository = remember(context) { RoutineReminderRepository(context) }
     val supplementRows = remember(supplementState, selectedDate) {
         supplementState.groupedSupplementActivityFor(selectedDate)
     }
     val lightRows = remember(lightState, selectedDate) {
         lightState.lightActivityFor(selectedDate)
+    }
+    val cardioRows = remember(cardioState, selectedDate) {
+        cardioState.cardioActivityRowsFor(selectedDate)
     }
     val today = remember { LocalDate.now() }
     val scope = rememberCoroutineScope()
@@ -104,6 +131,8 @@ fun DashboardScreen(
     var routineEditor by remember { mutableStateOf<SupplementRoutine?>(null) }
     var lightRoutinePreview by remember { mutableStateOf<LightRoutine?>(null) }
     var lightTimerSession by remember { mutableStateOf<LightTimerSession?>(null) }
+    var cardioRoutinePreview by remember { mutableStateOf<CardioRoutine?>(null) }
+    var cardioTimerDraft by remember { mutableStateOf<CardioTimerSessionDraft?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
     val darkTheme = isSystemInDarkTheme()
     val therapyRedDark = if (darkTheme) ErvDarkTherapyRedDark else ErvLightTherapyRedDark
@@ -129,6 +158,9 @@ fun DashboardScreen(
             }
             lightTherapyRepository.currentState().logFor(today)?.let { log ->
                 LightSync.publishDailyLog(relayPool, signer, log)
+            }
+            cardioRepository.currentState().logFor(selectedDate)?.let { log ->
+                CardioSync.publishDailyLog(relayPool, signer, log)
             }
         }
     }
@@ -219,8 +251,11 @@ fun DashboardScreen(
             RoutinesSection(
                 supplementRoutines = supplementState.routines,
                 lightRoutines = lightState.routines,
+                cardioRoutines = cardioState.routines,
                 onSupplementRoutineSelected = { routinePreview = it },
                 onLightRoutineSelected = { lightRoutinePreview = it },
+                onCardioRoutineSelected = { cardioRoutinePreview = it },
+                onOpenCardioNewWorkout = onOpenCardioNewWorkout,
                 onNavigateToCategory = onNavigateToCategory
             )
 
@@ -229,7 +264,8 @@ fun DashboardScreen(
             ActivitySection(
                 selectedDate = selectedDate,
                 supplementRows = supplementRows,
-                lightRows = lightRows
+                lightRows = lightRows,
+                cardioRows = cardioRows
             )
 
             Spacer(Modifier.height(16.dp))
@@ -377,6 +413,66 @@ fun DashboardScreen(
                     onCancel = { lightTimerSession = null }
                 )
             }
+
+            cardioRoutinePreview?.let { routine ->
+                CardioRoutinePreviewSheet(
+                    routine = routine,
+                    onDismiss = { cardioRoutinePreview = null },
+                    onLogSession = {
+                        scope.launch {
+                            val mins = routine.targetDurationMinutes ?: 30
+                            val session = CardioMetEstimator.buildSessionFromRoutine(
+                                routine = routine,
+                                durationMinutes = mins,
+                                source = CardioSessionSource.MANUAL,
+                                weightKg = weightKg,
+                                library = cardioRepository.currentState()
+                            )
+                            cardioRepository.addSession(selectedDate, session)
+                            cardioRepository.currentState().logFor(selectedDate)?.let { log ->
+                                if (relayPool != null && signer != null) {
+                                    CardioSync.publishDailyLog(relayPool, signer, log)
+                                }
+                            }
+                            snackbarHostState.showSnackbar("Logged ${routine.name}")
+                            cardioRoutinePreview = null
+                        }
+                    },
+                    onStartTimer = { r ->
+                        cardioTimerDraft = CardioTimerSessionDraft.fromRoutine(r)
+                        cardioRoutinePreview = null
+                    }
+                )
+            }
+
+            cardioTimerDraft?.let { draft ->
+                CardioElapsedTimerFullScreen(
+                    titleLabel = draft.title,
+                    dark = DashboardCardioBlueDark,
+                    mid = DashboardCardioBlueMid,
+                    glow = DashboardCardioBlueGlow,
+                    onStop = { elapsedSeconds ->
+                        scope.launch {
+                            val durationMinutes = max(1, (elapsedSeconds + 59) / 60)
+                            val raw = draft.toSession(durationMinutes, nowEpochSeconds())
+                            val session = CardioMetEstimator.applyEstimatedKcal(
+                                raw,
+                                cardioRepository.currentState(),
+                                weightKg
+                            )
+                            cardioRepository.addSession(selectedDate, session)
+                            cardioRepository.currentState().logFor(selectedDate)?.let { log ->
+                                if (relayPool != null && signer != null) {
+                                    CardioSync.publishDailyLog(relayPool, signer, log)
+                                }
+                            }
+                            snackbarHostState.showSnackbar("Logged ${draft.title} • ${durationMinutes} min")
+                            cardioTimerDraft = null
+                        }
+                    },
+                    onCancel = { cardioTimerDraft = null }
+                )
+            }
         }
     }
 }
@@ -418,12 +514,16 @@ private fun GoalsSection() {
 private fun RoutinesSection(
     supplementRoutines: List<SupplementRoutine>,
     lightRoutines: List<LightRoutine>,
+    cardioRoutines: List<CardioRoutine>,
     onSupplementRoutineSelected: (SupplementRoutine) -> Unit,
     onLightRoutineSelected: (LightRoutine) -> Unit,
+    onCardioRoutineSelected: (CardioRoutine) -> Unit,
+    onOpenCardioNewWorkout: () -> Unit,
     onNavigateToCategory: (Category) -> Unit
 ) {
     var showSupplementPicker by remember { mutableStateOf(false) }
     var showLightPicker by remember { mutableStateOf(false) }
+    var showCardioPicker by remember { mutableStateOf(false) }
 
     Text(
         text = "Routines",
@@ -441,47 +541,54 @@ private fun RoutinesSection(
         ) {
             if (supplementRoutines.isEmpty() && lightRoutines.isEmpty()) {
                 Text(
-                    text = "Create a routine in Supplements or Light Therapy to log it from here.",
+                    text = "Create supplement or light routines, or tap Cardio to log a workout.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-            } else {
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    if (supplementRoutines.isNotEmpty()) {
-                        RoutineTile(
-                            icon = Icons.Default.Medication,
-                            label = "Supplements",
-                            subtitle = if (supplementRoutines.size == 1) "1 routine" else "${supplementRoutines.size} routines",
-                            onClick = {
-                                if (supplementRoutines.size == 1) {
-                                    onSupplementRoutineSelected(supplementRoutines.first())
-                                } else {
-                                    showSupplementPicker = true
-                                }
-                            },
-                            modifier = Modifier.width(120.dp)
-                        )
-                    }
-                    if (lightRoutines.isNotEmpty()) {
-                        RoutineTile(
-                            icon = Icons.Default.WbSunny,
-                            label = "Light Therapy",
-                            subtitle = if (lightRoutines.size == 1) "1 routine" else "${lightRoutines.size} routines",
-                            onClick = {
-                                if (lightRoutines.size == 1) {
-                                    onLightRoutineSelected(lightRoutines.first())
-                                } else {
-                                    showLightPicker = true
-                                }
-                            },
-                            modifier = Modifier.width(120.dp)
-                        )
-                    }
+                Spacer(Modifier.height(8.dp))
+            }
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                if (supplementRoutines.isNotEmpty()) {
+                    RoutineTile(
+                        icon = Icons.Default.Medication,
+                        label = "Supplements",
+                        subtitle = if (supplementRoutines.size == 1) "1 routine" else "${supplementRoutines.size} routines",
+                        onClick = {
+                            if (supplementRoutines.size == 1) {
+                                onSupplementRoutineSelected(supplementRoutines.first())
+                            } else {
+                                showSupplementPicker = true
+                            }
+                        },
+                        modifier = Modifier.width(120.dp)
+                    )
                 }
+                if (lightRoutines.isNotEmpty()) {
+                    RoutineTile(
+                        icon = Icons.Default.WbSunny,
+                        label = "Light Therapy",
+                        subtitle = if (lightRoutines.size == 1) "1 routine" else "${lightRoutines.size} routines",
+                        onClick = {
+                            if (lightRoutines.size == 1) {
+                                onLightRoutineSelected(lightRoutines.first())
+                            } else {
+                                showLightPicker = true
+                            }
+                        },
+                        modifier = Modifier.width(120.dp)
+                    )
+                }
+                RoutineTile(
+                    icon = Icons.Default.DirectionsRun,
+                    label = "Cardio",
+                    subtitle = if (cardioRoutines.isEmpty()) "New workout" else "${cardioRoutines.size} routines",
+                    onClick = { showCardioPicker = true },
+                    modifier = Modifier.width(120.dp)
+                )
             }
         }
     }
@@ -505,6 +612,122 @@ private fun RoutinesSection(
                 showLightPicker = false
             }
         )
+    }
+    if (showCardioPicker) {
+        CardioRoutinePickerSheet(
+            routines = cardioRoutines,
+            onDismiss = { showCardioPicker = false },
+            onNewWorkout = {
+                onOpenCardioNewWorkout()
+                showCardioPicker = false
+            },
+            onSelectRoutine = { routine ->
+                onCardioRoutineSelected(routine)
+                showCardioPicker = false
+            }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CardioRoutinePickerSheet(
+    routines: List<CardioRoutine>,
+    onDismiss: () -> Unit,
+    onNewWorkout: () -> Unit,
+    onSelectRoutine: (CardioRoutine) -> Unit
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 24.dp)
+        ) {
+            Text(
+                "Cardio",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(bottom = 12.dp)
+            )
+            Surface(
+                onClick = onNewWorkout,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 8.dp),
+                shape = MaterialTheme.shapes.medium,
+                color = MaterialTheme.colorScheme.primaryContainer
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("New workout", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "Log a session, save a routine, or start a timer",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            routines.forEach { routine ->
+                Surface(
+                    onClick = { onSelectRoutine(routine) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    shape = MaterialTheme.shapes.medium
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(routine.name, style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            "${routine.activity.displayLabel} • ${routine.modality.label()}" +
+                                (routine.targetDurationMinutes?.let { " • $it min" } ?: ""),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CardioRoutinePreviewSheet(
+    routine: CardioRoutine,
+    onDismiss: () -> Unit,
+    onLogSession: () -> Unit,
+    onStartTimer: (CardioRoutine) -> Unit
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(routine.name, style = MaterialTheme.typography.titleLarge)
+            Text(
+                "${routine.activity.displayLabel} • ${routine.modality.label()}" +
+                    (routine.targetDurationMinutes?.let { " • $it min target" } ?: ""),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            if (routine.notes.isNotBlank()) {
+                Text(routine.notes, style = MaterialTheme.typography.bodySmall)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilledTonalButton(onClick = onLogSession) {
+                    Icon(Icons.Default.Check, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Log session")
+                }
+                OutlinedButton(onClick = { onStartTimer(routine) }) {
+                    Icon(Icons.Default.PlayArrow, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Start timer")
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+        }
     }
 }
 
@@ -594,7 +817,8 @@ private fun LightRoutinePickerSheet(
 private fun ActivitySection(
     selectedDate: LocalDate,
     supplementRows: List<SupplementActivityRow>,
-    lightRows: List<LightActivityRow>
+    lightRows: List<LightActivityRow>,
+    cardioRows: List<CardioActivityRow>
 ) {
     Text(
         text = "Activity",
@@ -612,8 +836,9 @@ private fun ActivitySection(
         ) {
             val hasSupplements = supplementRows.isNotEmpty()
             val hasLight = lightRows.isNotEmpty()
+            val hasCardio = cardioRows.isNotEmpty()
 
-            if (!hasSupplements && !hasLight) {
+            if (!hasSupplements && !hasLight && !hasCardio) {
                 Text(
                     text = "No activity logged yet.",
                     style = MaterialTheme.typography.bodySmall,
@@ -637,6 +862,18 @@ private fun ActivitySection(
                         lightRows.forEach { row ->
                             Text(
                                 text = "${row.displayName} • ${row.minutes} min",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+                if (hasCardio) {
+                    if (hasSupplements || hasLight) Spacer(Modifier.height(12.dp))
+                    ActivityCategorySection(title = "Cardio") {
+                        cardioRows.forEach { row ->
+                            Text(
+                                text = row.summaryLine,
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )

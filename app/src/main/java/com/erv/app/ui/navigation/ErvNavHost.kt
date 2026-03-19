@@ -27,7 +27,11 @@ import com.erv.app.ui.dashboard.DashboardScreen
 import com.erv.app.ui.lighttherapy.LightLogScreen
 import com.erv.app.ui.lighttherapy.LightTherapyCategoryScreen
 import com.erv.app.ui.settings.SettingsScreen
+import com.erv.app.cardio.CardioLibraryState
+import com.erv.app.cardio.CardioRepository
 import com.erv.app.supplements.SupplementRepository
+import com.erv.app.ui.cardio.CardioCategoryScreen
+import com.erv.app.ui.cardio.CardioLogScreen
 import com.erv.app.ui.supplements.SupplementCategoryScreen
 import com.erv.app.ui.supplements.SupplementDetailScreen
 import com.erv.app.ui.supplements.SupplementLogScreen
@@ -41,6 +45,9 @@ object Routes {
     fun supplementDetail(id: String) = "category/supplements/detail/$id"
     const val supplementLog = "category/supplements/log"
     const val lightTherapyLog = "category/light_therapy/log"
+    const val cardioLog = "category/cardio/log"
+    const val cardioCategory = "category/cardio"
+    const val cardioCategoryNewWorkout = "category/cardio?openNewWorkout=true"
 }
 
 @Composable
@@ -51,6 +58,7 @@ fun ErvNavHost(
     userPreferences: UserPreferences,
     supplementRepository: SupplementRepository,
     lightTherapyRepository: LightTherapyRepository,
+    cardioRepository: CardioRepository,
     relayPool: RelayPool?,
     signer: EventSigner?,
     pendingReminderRoutineId: StateFlow<String?>,
@@ -79,12 +87,19 @@ fun ErvNavHost(
                 },
                 supplementRepository = supplementRepository,
                 lightTherapyRepository = lightTherapyRepository,
+                cardioRepository = cardioRepository,
+                userPreferences = userPreferences,
                 relayPool = relayPool,
                 signer = signer,
                 pendingReminderRoutineId = pendingRoutineId,
                 onConsumePendingReminderRoutineId = consumePendingReminderRoutineId,
                 onNavigateToCategory = { category ->
                     navController.navigate(category.route)
+                },
+                onOpenCardioNewWorkout = {
+                    navController.navigate(Routes.cardioCategoryNewWorkout) {
+                        launchSingleTop = true
+                    }
                 }
             )
         }
@@ -155,6 +170,44 @@ fun ErvNavHost(
             )
         }
 
+        composable(Routes.cardioCategoryNewWorkout) {
+            CardioCategoryScreen(
+                repository = cardioRepository,
+                userPreferences = userPreferences,
+                relayPool = relayPool,
+                signer = signer,
+                onBack = { navController.popBackStack() },
+                onOpenLog = {
+                    navController.navigate(Routes.cardioLog) { launchSingleTop = true }
+                },
+                initialOpenNewWorkout = true,
+                onConsumedInitialOpenNewWorkout = {}
+            )
+        }
+
+        composable(Routes.cardioCategory) {
+            CardioCategoryScreen(
+                repository = cardioRepository,
+                userPreferences = userPreferences,
+                relayPool = relayPool,
+                signer = signer,
+                onBack = { navController.popBackStack() },
+                onOpenLog = {
+                    navController.navigate(Routes.cardioLog) { launchSingleTop = true }
+                },
+                initialOpenNewWorkout = false,
+                onConsumedInitialOpenNewWorkout = {}
+            )
+        }
+
+        composable(Routes.cardioLog) {
+            val state = cardioRepository.state.collectAsState(initial = CardioLibraryState()).value
+            CardioLogScreen(
+                state = state,
+                onBack = { navController.popBackStack() }
+            )
+        }
+
         composable(
             route = Routes.supplementDetail("{supplementId}"),
             arguments = listOf(navArgument("supplementId") { type = NavType.StringType })
@@ -170,7 +223,7 @@ fun ErvNavHost(
         }
 
         categories.forEach { cat ->
-            if (cat.id == "supplements" || cat.id == "light_therapy") return@forEach
+            if (cat.id == "supplements" || cat.id == "light_therapy" || cat.id == "cardio") return@forEach
             composable(cat.route) {
                 ComingSoonScreen(
                     title = cat.label,
