@@ -97,6 +97,8 @@ import com.erv.app.cardio.displayName
 import com.erv.app.cardio.label
 import com.erv.app.cardio.nowEpochSeconds
 import com.erv.app.cardio.resolveSnapshot
+import com.erv.app.cardio.shortLabel
+import com.erv.app.cardio.summaryLine
 import com.erv.app.cardio.supportsTreadmillModality
 import com.erv.app.data.UserPreferences
 import com.erv.app.nostr.EventSigner
@@ -829,13 +831,13 @@ private fun CardioLogTabEmbedded(
     state: CardioLibraryState,
     onOpenFullLog: () -> Unit
 ) {
+    var selectedDate by remember { mutableStateOf(LocalDate.now()) }
+    var showCal by remember { mutableStateOf(false) }
+    val entries = remember(state, selectedDate) { state.chronologicalCardioLogFor(selectedDate) }
     Column(modifier = Modifier.fillMaxSize()) {
         TextButton(onClick = onOpenFullLog, modifier = Modifier.align(Alignment.End).padding(8.dp)) {
             Text("Full-screen log")
         }
-        var selectedDate by remember { mutableStateOf(LocalDate.now()) }
-        var showCal by remember { mutableStateOf(false) }
-        val entries = remember(state, selectedDate) { state.chronologicalCardioLogFor(selectedDate) }
         DateNavigator(
             selectedDate = selectedDate,
             onPreviousDay = { selectedDate = selectedDate.minusDays(1) },
@@ -1059,11 +1061,10 @@ private fun CustomActivityDialog(
             TextButton(
                 onClick = {
                     val met = metStr.toDoubleOrNull()
+                    val trimmed = name.trim().ifBlank { "Custom" }
                     onSave(
-                        (existing ?: CardioCustomActivityType()).copy(
-                            name = name.trim().ifBlank { "Custom" },
-                            optionalMet = met?.takeIf { it > 0 }
-                        )
+                        existing?.copy(name = trimmed, optionalMet = met?.takeIf { it > 0 })
+                            ?: CardioCustomActivityType(name = trimmed, optionalMet = met?.takeIf { it > 0 })
                     )
                 },
                 enabled = name.isNotBlank()
@@ -1226,14 +1227,24 @@ private fun RoutineEditorDialog(
                         )
                     } else null
                     val dur = durationStr.toIntOrNull() ?: return@TextButton
+                    val routineName = name.trim().ifBlank { "Routine" }
+                    val days = selectedDaySet.toList().sortedBy { it.ordinal }
                     onSave(
-                        (routine ?: CardioRoutine()).copy(
-                            name = name.trim().ifBlank { "Routine" },
+                        routine?.copy(
+                            name = routineName,
                             activity = snap,
                             modality = modality,
                             treadmill = tm,
                             targetDurationMinutes = dur,
-                            repeatDays = selectedDaySet.toList().sortedBy { it.ordinal },
+                            repeatDays = days,
+                            notes = notes
+                        ) ?: CardioRoutine(
+                            name = routineName,
+                            activity = snap,
+                            modality = modality,
+                            treadmill = tm,
+                            targetDurationMinutes = dur,
+                            repeatDays = days,
                             notes = notes
                         )
                     )
