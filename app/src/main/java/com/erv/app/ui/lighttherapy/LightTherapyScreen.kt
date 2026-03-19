@@ -40,6 +40,15 @@ import com.erv.app.ui.theme.ErvLightTherapyRedDark
 import com.erv.app.ui.theme.ErvLightTherapyRedGlow
 import com.erv.app.ui.theme.ErvLightTherapyRedMid
 import com.erv.app.nostr.RelayPool
+import com.erv.app.reminders.RoutineReminder
+import com.erv.app.reminders.RoutineReminderDraft
+import com.erv.app.reminders.RoutineReminderRepository
+import com.erv.app.reminders.RoutineReminderState
+import com.erv.app.reminders.RoutineReminderScheduler
+import com.erv.app.reminders.isValid
+import com.erv.app.reminders.toDraft
+import com.erv.app.reminders.toReminder
+import com.erv.app.ui.reminders.RoutineReminderFormSection
 import com.erv.app.ui.dashboard.CalendarPopup
 import com.erv.app.ui.dashboard.DateNavigator
 import kotlinx.coroutines.delay
@@ -100,6 +109,10 @@ fun LightTherapyCategoryScreen(
                 repository.replaceAll(remote)
             }
         }
+    }
+
+    LaunchedEffect(reminderRepository) {
+        reminderRepository.restoreAllSchedules()
     }
 
     if (timerRunning) {
@@ -194,6 +207,7 @@ fun LightTherapyCategoryScreen(
                     onDeleteRoutine = { routineId ->
                         scope.launch {
                             repository.deleteRoutine(routineId)
+                            reminderRepository.deleteReminder(routineId)
                             syncMaster()
                             snackbarHostState.showSnackbar("Routine deleted")
                         }
@@ -206,29 +220,6 @@ fun LightTherapyCategoryScreen(
                         timerDeviceId = routine.deviceId
                         timerDeviceName = device?.name
                         timerRunning = true
-                    },
-                    onCreateRoutine = { routine ->
-                        scope.launch {
-                            repository.addRoutine(routine)
-                            syncMaster()
-                            snackbarHostState.showSnackbar("Routine saved")
-                        }
-                        creatingRoutine = false
-                        routineEditor = null
-                    },
-                    onUpdateRoutine = { routine ->
-                        scope.launch {
-                            repository.updateRoutine(routine)
-                            syncMaster()
-                            snackbarHostState.showSnackbar("Routine updated")
-                        }
-                        routineEditor = null
-                    },
-                    routineEditor = routineEditor,
-                    creatingRoutine = creatingRoutine,
-                    onDismissRoutineEditor = {
-                        routineEditor = null
-                        creatingRoutine = false
                     }
                 )
                 LightTab.Lights -> LightsTabContent(
@@ -278,22 +269,31 @@ fun LightTherapyCategoryScreen(
             routine = routineEditor,
             creating = creatingRoutine,
             devices = state.devices,
+            existingReminder = routineEditor?.id?.let { reminderState.reminderForRoutine(it) },
             onDismiss = {
                 routineEditor = null
                 creatingRoutine = false
             },
-            onSave = { routine ->
+            onSave = { routine, reminderDraft ->
                 if (routine.id == routineEditor?.id) {
                     scope.launch {
                         repository.updateRoutine(routine)
+                        val scheduled = reminderRepository.upsertReminder(reminderDraft.toReminder(routine.id, routine.name))
                         syncMaster()
                         snackbarHostState.showSnackbar("Routine updated")
+                        if (reminderDraft.enabled && !scheduled) {
+                            snackbarHostState.showSnackbar("Enable exact alarms for reminder notifications")
+                        }
                     }
                 } else {
                     scope.launch {
                         repository.addRoutine(routine)
+                        val scheduled = reminderRepository.upsertReminder(reminderDraft.toReminder(routine.id, routine.name))
                         syncMaster()
                         snackbarHostState.showSnackbar("Routine saved")
+                        if (reminderDraft.enabled && !scheduled) {
+                            snackbarHostState.showSnackbar("Enable exact alarms for reminder notifications")
+                        }
                     }
                 }
                 routineEditor = null
@@ -494,12 +494,7 @@ private fun RoutinesTabContent(
     onAddRoutine: () -> Unit,
     onEditRoutine: (LightRoutine) -> Unit,
     onDeleteRoutine: (String) -> Unit,
-    onRunRoutine: (LightRoutine) -> Unit,
-    onCreateRoutine: (LightRoutine) -> Unit,
-    onUpdateRoutine: (LightRoutine) -> Unit,
-    routineEditor: LightRoutine?,
-    creatingRoutine: Boolean,
-    onDismissRoutineEditor: () -> Unit
+    onRunRoutine: (LightRoutine) -> Unit
 ) {
     Box(modifier = Modifier.fillMaxSize()) {
         if (state.routines.isEmpty()) {
@@ -777,8 +772,9 @@ private fun LightRoutineEditorDialog(
     routine: LightRoutine?,
     creating: Boolean,
     devices: List<LightDevice>,
+    existingReminder: RoutineReminder?,
     onDismiss: () -> Unit,
-    onSave: (LightRoutine) -> Unit
+    onSave: (LightRoutine, RoutineReminderDraft) -> Unit
 ) {
     var name by remember(routine?.id) { mutableStateOf(routine?.name.orEmpty()) }
     var timeOfDay by remember(routine?.id) { mutableStateOf(routine?.timeOfDay ?: LightTimeOfDay.MORNING) }
@@ -788,6 +784,9 @@ private fun LightRoutineEditorDialog(
         mutableStateOf(routine?.repeatDaysSet() ?: emptySet())
     }
     var notes by remember(routine?.id) { mutableStateOf(routine?.notes.orEmpty()) }
+    var reminderDraft by remember(routine?.id, creating, existingReminder) {
+        mutableStateOf(existingReminder?.toDraft() ?: RoutineReminderDraft())
+    }
     var deviceExpanded by remember { mutableStateOf(false) }
     val selectedDevice = deviceId?.let { id -> devices.firstOrNull { it.id == id } }
 
@@ -865,6 +864,10 @@ private fun LightRoutineEditorDialog(
                         )
                     }
                 }
+                RoutineReminderFormSection(
+                    reminderDraft = reminderDraft,
+                    onReminderDraftChange = { reminderDraft = it }
+                )
                 OutlinedTextField(
                     value = notes,
                     onValueChange = { notes = it },
@@ -888,10 +891,11 @@ private fun LightRoutineEditorDialog(
                             deviceId = deviceId,
                             repeatDays = repeatDays.toList(),
                             notes = notes.trim()
-                        )
+                        ),
+                        reminderDraft
                     )
                 },
-                enabled = name.isNotBlank()
+                enabled = name.isNotBlank() && reminderDraft.isValid()
             ) {
                 Text("Save")
             }

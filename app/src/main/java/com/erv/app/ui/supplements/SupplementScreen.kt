@@ -1,9 +1,6 @@
 @file:OptIn(ExperimentalLayoutApi::class)
 package com.erv.app.ui.supplements
 
-import android.content.Intent
-import android.net.Uri
-import android.provider.Settings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -13,7 +10,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
@@ -33,10 +29,13 @@ import androidx.compose.ui.unit.dp
 import com.erv.app.nostr.EventSigner
 import com.erv.app.nostr.RelayPool
 import com.erv.app.reminders.RoutineReminder
-import com.erv.app.reminders.RoutineReminderFrequency
+import com.erv.app.reminders.RoutineReminderDraft
 import com.erv.app.reminders.RoutineReminderRepository
 import com.erv.app.reminders.RoutineReminderState
-import com.erv.app.reminders.RoutineReminderScheduler
+import com.erv.app.reminders.isValid
+import com.erv.app.reminders.toDraft
+import com.erv.app.reminders.toReminder
+import com.erv.app.ui.reminders.RoutineReminderFormSection
 import com.erv.app.supplements.SupplementApiClient
 import com.erv.app.supplements.SupplementApiResult
 import com.erv.app.supplements.SupplementActivityRow
@@ -65,8 +64,6 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
-import kotlin.math.abs
-
 private enum class SupplementsTab { Supplements, Routines }
 
 // Match Light Therapy header color scheme: lighter red top bar, darker wine tab row
@@ -79,15 +76,6 @@ private data class RoutineStepDraft(
     val quantity: String = "1",
     val dosageOverride: String = "",
     val note: String = ""
-)
-
-private data class RoutineReminderDraft(
-    val enabled: Boolean = false,
-    val hour: Int = 8,
-    val minute: Int = 0,
-    val isPm: Boolean = false,
-    val frequency: RoutineReminderFrequency = RoutineReminderFrequency.DAILY,
-    val repeatDays: Set<SupplementWeekday> = SupplementWeekday.entries.toSet()
 )
 
 private data class SupplementDraft(
@@ -923,7 +911,6 @@ private fun RoutineEditorDialog(
     onDismissReset: () -> Unit,
     onSave: (String?, String, SupplementTimeOfDay, List<SupplementRoutineStep>, String, RoutineReminderDraft) -> Unit
 ) {
-    val context = LocalContext.current
     val routineTimeOfDay = routine?.timeOfDay ?: initialTimeOfDay
     var name by remember(routine?.id, creating, initialTimeOfDay) {
         mutableStateOf(routine?.name.orEmpty().ifBlank { "${initialTimeOfDay.label()} routine" })
@@ -951,8 +938,6 @@ private fun RoutineEditorDialog(
             }
         }
     }
-    var showTimePicker by remember { mutableStateOf(false) }
-
     AlertDialog(
         onDismissRequest = { onDismissReset(); onDismiss() },
         title = { Text(if (creating) "Add ${initialTimeOfDay.label().lowercase()} routine" else "Edit routine") },
@@ -998,93 +983,10 @@ private fun RoutineEditorDialog(
                     Text("Add supplement")
                 }
 
-                HorizontalDivider()
-                Text("Reminder", style = MaterialTheme.typography.titleSmall)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(
-                        checked = reminderDraft.enabled,
-                        onCheckedChange = { reminderDraft = reminderDraft.copy(enabled = it) }
-                    )
-                    Text("Enable reminder")
-                }
-                OutlinedButton(
-                    onClick = { showTimePicker = true },
-                    enabled = reminderDraft.enabled,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Reminder time: ${reminderDraft.displayTimeLabel()}")
-                }
-                if (showTimePicker) {
-                    TimeWheelPickerDialog(
-                        initialHour = reminderDraft.hour,
-                        initialMinute = reminderDraft.minute,
-                        initialIsPm = reminderDraft.isPm,
-                        onDismiss = { showTimePicker = false },
-                        onConfirm = { hour, minute, isPm ->
-                            reminderDraft = reminderDraft.copy(hour = hour, minute = minute, isPm = isPm)
-                            showTimePicker = false
-                        }
-                    )
-                }
-                EnumDropdownField(
-                    value = reminderDraft.frequency,
-                    label = "Repeat",
-                    options = RoutineReminderFrequency.entries,
-                    optionLabel = {
-                        when (it) {
-                            RoutineReminderFrequency.ONCE -> "Once"
-                            RoutineReminderFrequency.DAILY -> "Daily"
-                            RoutineReminderFrequency.WEEKLY -> "Weekly"
-                            RoutineReminderFrequency.CUSTOM_DAYS -> "Specific days"
-                        }
-                    },
-                    onSelected = { selected ->
-                        reminderDraft = reminderDraft.copy(
-                            frequency = selected,
-                            repeatDays = if (selected == RoutineReminderFrequency.DAILY || selected == RoutineReminderFrequency.ONCE) {
-                                emptySet()
-                            } else reminderDraft.repeatDays.ifEmpty { SupplementWeekday.entries.toSet() }
-                        )
-                    },
-                    modifier = Modifier.fillMaxWidth()
+                RoutineReminderFormSection(
+                    reminderDraft = reminderDraft,
+                    onReminderDraftChange = { reminderDraft = it }
                 )
-                if (reminderDraft.frequency == RoutineReminderFrequency.WEEKLY || reminderDraft.frequency == RoutineReminderFrequency.CUSTOM_DAYS) {
-                    Text("Select days", style = MaterialTheme.typography.labelMedium)
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        SupplementWeekday.entries.forEach { weekday ->
-                            FilterChip(
-                                selected = weekday in reminderDraft.repeatDays,
-                                onClick = {
-                                    val updated = reminderDraft.repeatDays.toMutableSet()
-                                    if (!updated.add(weekday)) updated.remove(weekday)
-                                    reminderDraft = reminderDraft.copy(repeatDays = updated)
-                                },
-                                label = { Text(weekday.shortLabel()) }
-                            )
-                        }
-                    }
-                }
-                if (!RoutineReminderScheduler.canScheduleExactAlarms(context)) {
-                    Text(
-                        "Enable exact alarms on this device to keep reminder times precise.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    TextButton(
-                        onClick = {
-                            val intent = Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
-                                data = Uri.parse("package:${context.packageName}")
-                            }
-                            context.startActivity(intent)
-                        }
-                    ) {
-                        Text("Allow exact alarms")
-                    }
-                }
             }
         },
         confirmButton = {
@@ -1254,198 +1156,6 @@ private fun SupplementEntry.recommendedServingDisplay(): String =
     info?.servingSize?.takeIf { it.isNotBlank() }
         ?: dosagePlan.summary().takeIf { it.isNotBlank() }
         ?: "Take as directed"
-
-private fun RoutineReminderDraft.displayTimeLabel(): String {
-    val hourDisplay = hour.coerceIn(1, 12)
-    val minuteDisplay = minute.coerceIn(0, 59).toString().padStart(2, '0')
-    return "$hourDisplay:$minuteDisplay ${if (isPm) "PM" else "AM"}"
-}
-
-private fun RoutineReminder.toDraft(): RoutineReminderDraft = RoutineReminderDraft(
-    enabled = enabled,
-    hour = when (val normalized = hour.coerceIn(0, 23)) {
-        0 -> 12
-        in 1..11 -> normalized
-        12 -> 12
-        else -> normalized - 12
-    },
-    minute = minute.coerceIn(0, 59),
-    isPm = hour.coerceIn(0, 23) >= 12,
-    frequency = frequency,
-    repeatDays = repeatDays.toSet()
-)
-
-private fun RoutineReminderDraft.toReminder(routineId: String, routineName: String): RoutineReminder = RoutineReminder(
-    routineId = routineId,
-    routineName = routineName,
-    enabled = enabled,
-    hour = if (isPm) {
-        when (hour.coerceIn(1, 12)) {
-            12 -> 12
-            else -> hour.coerceIn(1, 12) + 12
-        }
-    } else {
-        when (hour.coerceIn(1, 12)) {
-            12 -> 0
-            else -> hour.coerceIn(1, 12)
-        }
-    },
-    minute = minute.coerceIn(0, 59),
-    frequency = frequency,
-    repeatDays = repeatDays.toList().sortedBy { it.ordinal }
-)
-
-private fun RoutineReminderDraft.isValid(): Boolean {
-    if (!enabled) return true
-    if (hour !in 1..12 || minute !in 0..59) return false
-    if ((frequency == RoutineReminderFrequency.WEEKLY || frequency == RoutineReminderFrequency.CUSTOM_DAYS) && repeatDays.isEmpty()) return false
-    return true
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun TimeWheelPickerDialog(
-    initialHour: Int,
-    initialMinute: Int,
-    initialIsPm: Boolean,
-    onDismiss: () -> Unit,
-    onConfirm: (Int, Int, Boolean) -> Unit
-) {
-    var hour by remember(initialHour, initialMinute, initialIsPm) { mutableIntStateOf(initialHour.coerceIn(1, 12)) }
-    var minute by remember(initialHour, initialMinute, initialIsPm) { mutableIntStateOf(initialMinute.coerceIn(0, 59)) }
-    var isPm by remember(initialHour, initialMinute, initialIsPm) { mutableStateOf(initialIsPm) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Set reminder time") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(
-                    text = "Scroll the wheels to choose the hour, minute, and AM or PM.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                    WheelPickerColumn(
-                        label = "Hour",
-                        values = (1..12).map { it.toString() },
-                        selectedIndex = hour - 1,
-                        onSelectedIndexChange = { hour = it + 1 },
-                        modifier = Modifier.weight(1f)
-                    )
-                    WheelPickerColumn(
-                        label = "Minute",
-                        values = (0..59).map { it.toString().padStart(2, '0') },
-                        selectedIndex = minute,
-                        onSelectedIndexChange = { minute = it },
-                        modifier = Modifier.weight(1f)
-                    )
-                    WheelPickerColumn(
-                        label = "AM/PM",
-                        values = listOf("AM", "PM"),
-                        selectedIndex = if (isPm) 1 else 0,
-                        onSelectedIndexChange = { isPm = it == 1 },
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = { onConfirm(hour, minute, isPm) }) {
-                Text("Done")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
-        }
-    )
-}
-
-@Composable
-private fun WheelPickerColumn(
-    label: String,
-    values: List<String>,
-    selectedIndex: Int,
-    onSelectedIndexChange: (Int) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val listState = rememberLazyListState()
-    val itemHeight = 40.dp
-    val centerOffset = 2
-    val clampedSelectedIndex = selectedIndex.coerceIn(0, values.lastIndex.coerceAtLeast(0))
-    val totalItems = values.size + centerOffset * 2
-
-    LaunchedEffect(values, clampedSelectedIndex) {
-        if (values.isNotEmpty()) {
-            listState.scrollToItem(clampedSelectedIndex + centerOffset)
-        }
-    }
-
-    LaunchedEffect(listState, values) {
-        snapshotFlow { listState.isScrollInProgress }.collect { scrolling ->
-            if (!scrolling && values.isNotEmpty()) {
-                val viewportCenter = (listState.layoutInfo.viewportStartOffset + listState.layoutInfo.viewportEndOffset) / 2
-                val centeredIndex = listState.layoutInfo.visibleItemsInfo.minByOrNull { itemInfo ->
-                    abs((itemInfo.offset + itemInfo.size / 2) - viewportCenter)
-                }?.index ?: return@collect
-                onSelectedIndexChange((centeredIndex - centerOffset).coerceIn(0, values.lastIndex))
-            }
-        }
-    }
-
-    Column(
-        modifier = modifier,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text(label, style = MaterialTheme.typography.labelMedium)
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(itemHeight * 5)
-        ) {
-            LazyColumn(
-                state = listState,
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.fillMaxSize()
-            ) {
-                items(totalItems) { lazyIndex ->
-                    val valueIndex = lazyIndex - centerOffset
-                    val isSpacer = valueIndex !in values.indices
-                    val value = if (isSpacer) "" else values[valueIndex]
-                    val isSelected = valueIndex == clampedSelectedIndex
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(itemHeight)
-                            .clickable(enabled = !isSpacer) { onSelectedIndexChange(valueIndex) },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = value,
-                            style = if (isSelected) {
-                                MaterialTheme.typography.titleMedium
-                            } else {
-                                MaterialTheme.typography.bodyMedium
-                            },
-                            color = if (isSelected) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            }
-                        )
-                    }
-                }
-            }
-            Box(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .fillMaxWidth()
-                    .height(itemHeight)
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.08f))
-            )
-        }
-    }
-}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
