@@ -22,6 +22,8 @@ import java.time.ZoneId
 
 object RoutineReminderScheduler {
 
+    private const val TAG = "RoutineReminderScheduler"
+
     const val ACTION_ROUTINE_REMINDER = "com.erv.app.reminders.ACTION_ROUTINE_REMINDER"
     const val EXTRA_ROUTINE_ID = "extra_routine_id"
     const val EXTRA_ROUTINE_NAME = "extra_routine_name"
