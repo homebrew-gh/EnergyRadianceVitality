@@ -46,16 +46,22 @@ import com.erv.app.lighttherapy.LightRoutine
 import com.erv.app.lighttherapy.LightSync
 import com.erv.app.cardio.CardioLibraryState
 import com.erv.app.cardio.CardioActivityRow
+import com.erv.app.cardio.CardioActiveTimerSession
 import com.erv.app.cardio.CardioMetEstimator
+import com.erv.app.cardio.CardioMultiLegTimerState
 import com.erv.app.cardio.CardioSessionSource
 import com.erv.app.cardio.CardioRepository
 import com.erv.app.cardio.CardioRoutine
 import com.erv.app.cardio.CardioSync
 import com.erv.app.cardio.CardioTimerSessionDraft
 import com.erv.app.cardio.cardioActivityRowsFor
+import com.erv.app.cardio.effectiveSteps
+import com.erv.app.cardio.stepsSummaryLabel
+import com.erv.app.cardio.summaryLine
 import com.erv.app.data.UserPreferences
 import com.erv.app.lighttherapy.LightTherapyRepository
 import com.erv.app.ui.cardio.CardioElapsedTimerFullScreen
+import com.erv.app.ui.cardio.CardioMultiLegTimerFullScreen
 import com.erv.app.ui.lighttherapy.LightTherapyTimerFullScreen
 import com.erv.app.lighttherapy.LightTimeOfDay
 import com.erv.app.lighttherapy.lightActivityFor
@@ -86,10 +92,6 @@ private data class LightTimerSession(
     val deviceId: String?,
     val deviceName: String?
 )
-
-private val DashboardCardioBlueDark = Color(0xFF0D47A1)
-private val DashboardCardioBlueMid = Color(0xFF1565C0)
-private val DashboardCardioBlueGlow = Color(0xFF42A5F5)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -132,7 +134,7 @@ fun DashboardScreen(
     var lightRoutinePreview by remember { mutableStateOf<LightRoutine?>(null) }
     var lightTimerSession by remember { mutableStateOf<LightTimerSession?>(null) }
     var cardioRoutinePreview by remember { mutableStateOf<CardioRoutine?>(null) }
-    var cardioTimerDraft by remember { mutableStateOf<CardioTimerSessionDraft?>(null) }
+    var cardioActiveTimer by remember { mutableStateOf<CardioActiveTimerSession?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
     val darkTheme = isSystemInDarkTheme()
     val therapyRedDark = if (darkTheme) ErvDarkTherapyRedDark else ErvLightTherapyRedDark
@@ -439,39 +441,85 @@ fun DashboardScreen(
                         }
                     },
                     onStartTimer = { r ->
-                        cardioTimerDraft = CardioTimerSessionDraft.fromRoutine(r)
+                        CardioTimerSessionDraft.fromRoutine(r)?.let { d ->
+                            cardioActiveTimer = CardioActiveTimerSession.Single(d)
+                        } ?: CardioMultiLegTimerState.fromRoutine(r)?.let { m ->
+                            cardioActiveTimer = CardioActiveTimerSession.Multi(m)
+                        }
                         cardioRoutinePreview = null
                     }
                 )
             }
 
-            cardioTimerDraft?.let { draft ->
-                CardioElapsedTimerFullScreen(
-                    titleLabel = draft.title,
-                    dark = DashboardCardioBlueDark,
-                    mid = DashboardCardioBlueMid,
-                    glow = DashboardCardioBlueGlow,
-                    onStop = { elapsedSeconds ->
-                        scope.launch {
-                            val durationMinutes = max(1, (elapsedSeconds + 59) / 60)
-                            val raw = draft.toSession(durationMinutes, nowEpochSeconds())
-                            val session = CardioMetEstimator.applyEstimatedKcal(
-                                raw,
-                                cardioRepository.currentState(),
-                                weightKg
-                            )
-                            cardioRepository.addSession(selectedDate, session)
-                            cardioRepository.currentState().logFor(selectedDate)?.let { log ->
-                                if (relayPool != null && signer != null) {
-                                    CardioSync.publishDailyLog(relayPool, signer, log)
+            when (val ct = cardioActiveTimer) {
+                is CardioActiveTimerSession.Single -> {
+                    val draft = ct.draft
+                    CardioElapsedTimerFullScreen(
+                        titleLabel = draft.title,
+                        subtitle = null,
+                        dark = therapyRedDark,
+                        mid = therapyRedMid,
+                        glow = therapyRedGlow,
+                        onStop = { elapsedSeconds ->
+                            scope.launch {
+                                val durationMinutes = max(1, (elapsedSeconds + 59) / 60)
+                                val raw = draft.toSession(durationMinutes, nowEpochSeconds())
+                                val session = CardioMetEstimator.applyEstimatedKcal(
+                                    raw,
+                                    cardioRepository.currentState(),
+                                    weightKg
+                                )
+                                cardioRepository.addSession(selectedDate, session)
+                                cardioRepository.currentState().logFor(selectedDate)?.let { log ->
+                                    if (relayPool != null && signer != null) {
+                                        CardioSync.publishDailyLog(relayPool, signer, log)
+                                    }
+                                }
+                                snackbarHostState.showSnackbar("Logged ${draft.title} • ${durationMinutes} min")
+                                cardioActiveTimer = null
+                            }
+                        },
+                        onCancel = { cardioActiveTimer = null }
+                    )
+                }
+                is CardioActiveTimerSession.Multi -> {
+                    val multiKey = ct.state.currentLegIndex to ct.state.completedSegments.size
+                    CardioMultiLegTimerFullScreen(
+                        state = ct.state,
+                        stateKey = multiKey,
+                        dark = therapyRedDark,
+                        mid = therapyRedMid,
+                        glow = therapyRedGlow,
+                        onFinishLeg = { elapsedSeconds ->
+                            scope.launch {
+                                val durationMinutes = max(1, (elapsedSeconds + 59) / 60)
+                                val end = nowEpochSeconds()
+                                val (next, session) = CardioMetEstimator.advanceMultiLegTimer(
+                                    ct.state,
+                                    durationMinutes,
+                                    end,
+                                    cardioRepository.currentState(),
+                                    weightKg
+                                )
+                                if (session != null) {
+                                    cardioRepository.addSession(selectedDate, session)
+                                    cardioRepository.currentState().logFor(selectedDate)?.let { log ->
+                                        if (relayPool != null && signer != null) {
+                                            CardioSync.publishDailyLog(relayPool, signer, log)
+                                        }
+                                    }
+                                    snackbarHostState.showSnackbar(session.summaryLine())
+                                    cardioActiveTimer = null
+                                } else if (next != null) {
+                                    cardioActiveTimer = CardioActiveTimerSession.Multi(next)
+                                    snackbarHostState.showSnackbar("Leg saved — start next when ready")
                                 }
                             }
-                            snackbarHostState.showSnackbar("Logged ${draft.title} • ${durationMinutes} min")
-                            cardioTimerDraft = null
-                        }
-                    },
-                    onCancel = { cardioTimerDraft = null }
-                )
+                        },
+                        onCancel = { cardioActiveTimer = null }
+                    )
+                }
+                null -> Unit
             }
         }
     }
@@ -509,7 +557,6 @@ private fun GoalsSection() {
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun RoutinesSection(
     supplementRoutines: List<SupplementRoutine>,
@@ -547,10 +594,9 @@ private fun RoutinesSection(
                 )
                 Spacer(Modifier.height(8.dp))
             }
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.fillMaxWidth()
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 if (supplementRoutines.isNotEmpty()) {
                     RoutineTile(
@@ -564,7 +610,7 @@ private fun RoutinesSection(
                                 showSupplementPicker = true
                             }
                         },
-                        modifier = Modifier.width(120.dp)
+                        modifier = Modifier.weight(1f)
                     )
                 }
                 if (lightRoutines.isNotEmpty()) {
@@ -579,7 +625,7 @@ private fun RoutinesSection(
                                 showLightPicker = true
                             }
                         },
-                        modifier = Modifier.width(120.dp)
+                        modifier = Modifier.weight(1f)
                     )
                 }
                 RoutineTile(
@@ -587,7 +633,7 @@ private fun RoutinesSection(
                     label = "Cardio",
                     subtitle = if (cardioRoutines.isEmpty()) "New workout" else "${cardioRoutines.size} routines",
                     onClick = { showCardioPicker = true },
-                    modifier = Modifier.width(120.dp)
+                    modifier = Modifier.weight(1f)
                 )
             }
         }
@@ -676,9 +722,19 @@ private fun CardioRoutinePickerSheet(
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text(routine.name, style = MaterialTheme.typography.bodyLarge)
+                        val legs = routine.effectiveSteps()
+                        val sub = buildString {
+                            append(routine.stepsSummaryLabel())
+                            append(" • ")
+                            append(legs.firstOrNull()?.modality?.label() ?: routine.modality.label())
+                            val tgt = if (legs.size > 1) {
+                                legs.mapNotNull { it.targetDurationMinutes }.takeIf { it.size == legs.size }?.sum()
+                            } else null
+                            val minHint = tgt ?: routine.targetDurationMinutes
+                            minHint?.let { append(" • $it min") }
+                        }
                         Text(
-                            "${routine.activity.displayLabel} • ${routine.modality.label()}" +
-                                (routine.targetDurationMinutes?.let { " • $it min" } ?: ""),
+                            sub,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -705,9 +761,19 @@ private fun CardioRoutinePreviewSheet(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text(routine.name, style = MaterialTheme.typography.titleLarge)
+            val legs = routine.effectiveSteps()
+            val sub = buildString {
+                append(routine.stepsSummaryLabel())
+                append(" • ")
+                append(legs.firstOrNull()?.modality?.label() ?: routine.modality.label())
+                val tgt = if (legs.size > 1) {
+                    legs.mapNotNull { it.targetDurationMinutes }.takeIf { it.size == legs.size }?.sum()
+                } else null
+                val minHint = tgt ?: routine.targetDurationMinutes
+                minHint?.let { append(" • $it min target") }
+            }
             Text(
-                "${routine.activity.displayLabel} • ${routine.modality.label()}" +
-                    (routine.targetDurationMinutes?.let { " • $it min target" } ?: ""),
+                sub,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
