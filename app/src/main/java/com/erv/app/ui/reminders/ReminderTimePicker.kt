@@ -10,8 +10,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.scrollToItem
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
@@ -19,10 +21,12 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -30,6 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import kotlin.math.abs
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -94,6 +99,34 @@ fun TimeWheelPickerDialog(
     )
 }
 
+private const val CENTER_OFFSET = 2
+
+/** Lazy row index (including spacers) whose center is nearest the viewport center. */
+private fun nearestLazyIndexToViewportCenter(listState: LazyListState): Int? {
+    val layout = listState.layoutInfo
+    val visible = layout.visibleItemsInfo
+    if (visible.isEmpty()) return null
+    val viewportCenter = (layout.viewportStartOffset + layout.viewportEndOffset) / 2
+    return visible.minByOrNull { item ->
+        abs((item.offset + item.size / 2) - viewportCenter)
+    }?.index
+}
+
+/** True when value row [valueIndex] (0..valuesLast) is aligned under the viewport center line. */
+private fun isValueRowSnapped(
+    listState: LazyListState,
+    valueIndex: Int,
+    tolerancePx: Int
+): Boolean {
+    val lazyIndex = valueIndex + CENTER_OFFSET
+    val layout = listState.layoutInfo
+    val item = layout.visibleItemsInfo.find { it.index == lazyIndex } ?: return false
+    val viewportCenter = (layout.viewportStartOffset + layout.viewportEndOffset) / 2
+    val rowCenter = item.offset + item.size / 2
+    val dist = abs(rowCenter - viewportCenter)
+    return dist <= tolerancePx
+}
+
 @Composable
 private fun WheelPickerColumn(
     label: String,
@@ -102,36 +135,53 @@ private fun WheelPickerColumn(
     onSelectedIndexChange: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val listState = rememberLazyListState()
     val itemHeight = 40.dp
     val visibleRowCount = 5
-    val density = LocalDensity.current
     val centerRowIndex = visibleRowCount / 2
+    val density = LocalDensity.current
     val centerScrollOffsetPx = remember(density, itemHeight) {
         with(density) { (itemHeight * centerRowIndex).roundToPx() }
     }
-    val centerOffset = 2
     val clampedSelectedIndex = selectedIndex.coerceIn(0, values.lastIndex.coerceAtLeast(0))
-    val totalItems = values.size + centerOffset * 2
+    val totalItems = values.size + CENTER_OFFSET * 2
 
-    LaunchedEffect(values, clampedSelectedIndex, centerScrollOffsetPx) {
-        if (values.isNotEmpty()) {
-            listState.scrollToItem(
-                index = clampedSelectedIndex + centerOffset,
-                scrollOffset = centerScrollOffsetPx
-            )
+    // Initial scroll only — do NOT re-scroll when parent updates from our own onSelectedIndexChange (that caused the wheel to jump).
+    val listState = rememberLazyListState(
+        initialFirstVisibleItemIndex = clampedSelectedIndex + CENTER_OFFSET,
+        initialFirstVisibleItemScrollOffset = centerScrollOffsetPx
+    )
+    val scope = rememberCoroutineScope()
+
+    val centerValueIndex by remember(listState, values.size) {
+        derivedStateOf {
+            val lazyIdx = nearestLazyIndexToViewportCenter(listState) ?: return@derivedStateOf clampedSelectedIndex
+            (lazyIdx - CENTER_OFFSET).coerceIn(0, values.lastIndex.coerceAtLeast(0))
         }
     }
 
-    LaunchedEffect(listState, values) {
-        snapshotFlow { listState.isScrollInProgress }.collect { scrolling ->
-            if (!scrolling && values.isNotEmpty()) {
-                val viewportCenter = (listState.layoutInfo.viewportStartOffset + listState.layoutInfo.viewportEndOffset) / 2
-                val centeredIndex = listState.layoutInfo.visibleItemsInfo.minByOrNull { itemInfo ->
-                    abs((itemInfo.offset + itemInfo.size / 2) - viewportCenter)
-                }?.index ?: return@collect
-                onSelectedIndexChange((centeredIndex - centerOffset).coerceIn(0, values.lastIndex))
+    // Observe scroll position as well as isScrollInProgress so we re-run after programmatic scrollToItem
+    // (scrollToItem may not flip isScrollInProgress, and we need a final pass when layout settles).
+    LaunchedEffect(listState, values.size) {
+        snapshotFlow {
+            Triple(
+                listState.isScrollInProgress,
+                listState.firstVisibleItemIndex,
+                listState.firstVisibleItemScrollOffset
+            )
+        }.collect { (scrolling, _, _) ->
+            if (scrolling || values.isEmpty()) return@collect
+            if (listState.layoutInfo.visibleItemsInfo.isEmpty()) return@collect
+
+            val lazyNearest = nearestLazyIndexToViewportCenter(listState) ?: return@collect
+            val valueIndex = (lazyNearest - CENTER_OFFSET).coerceIn(0, values.lastIndex)
+
+            if (!isValueRowSnapped(listState, valueIndex, tolerancePx = 4)) {
+                listState.scrollToItem(
+                    index = valueIndex + CENTER_OFFSET,
+                    scrollOffset = centerScrollOffsetPx
+                )
             }
+            onSelectedIndexChange(valueIndex)
         }
     }
 
@@ -150,16 +200,30 @@ private fun WheelPickerColumn(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier.fillMaxSize()
             ) {
-                items(totalItems) { lazyIndex ->
-                    val valueIndex = lazyIndex - centerOffset
+                items(
+                    count = totalItems,
+                    key = { lazyIndex ->
+                        val v = lazyIndex - CENTER_OFFSET
+                        if (v in values.indices) values[v] + "@$v" else "pad$lazyIndex"
+                    }
+                ) { lazyIndex ->
+                    val valueIndex = lazyIndex - CENTER_OFFSET
                     val isSpacer = valueIndex !in values.indices
                     val value = if (isSpacer) "" else values[valueIndex]
-                    val isSelected = valueIndex == clampedSelectedIndex
+                    val isSelected = !isSpacer && valueIndex == centerValueIndex
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(itemHeight)
-                            .clickable(enabled = !isSpacer) { onSelectedIndexChange(valueIndex) },
+                            .clickable(enabled = !isSpacer) {
+                                onSelectedIndexChange(valueIndex)
+                                scope.launch {
+                                    listState.scrollToItem(
+                                        index = valueIndex + CENTER_OFFSET,
+                                        scrollOffset = centerScrollOffsetPx
+                                    )
+                                }
+                            },
                         contentAlignment = Alignment.Center
                     ) {
                         Text(

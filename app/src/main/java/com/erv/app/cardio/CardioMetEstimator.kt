@@ -9,9 +9,31 @@ import kotlin.math.max
 object CardioMetEstimator {
 
     fun applyEstimatedKcal(session: CardioSession, library: CardioLibraryState, weightKg: Double?): CardioSession {
-        val customMet = session.activity.customTypeId?.let { id -> library.customTypeById(id)?.optionalMet }
-        return session.copy(estimatedKcal = estimateKcal(session, customMet, weightKg))
+        if (session.segments.isEmpty()) {
+            val customMet = session.activity.customTypeId?.let { id -> library.customTypeById(id)?.optionalMet }
+            return session.copy(estimatedKcal = estimateKcal(session, customMet, weightKg))
+        }
+        val updated = session.segments.map { seg ->
+            val mini = segmentToSession(seg)
+            val customMet = seg.activity.customTypeId?.let { id -> library.customTypeById(id)?.optionalMet }
+            seg.copy(estimatedKcal = estimateKcal(mini, customMet, weightKg))
+        }
+        val total = updated.mapNotNull { it.estimatedKcal }.sum().takeIf { it > 0 }
+        return session.copy(segments = updated, estimatedKcal = total)
     }
+
+    private fun segmentToSession(seg: CardioSessionSegment): CardioSession =
+        CardioSession(
+            activity = seg.activity,
+            modality = seg.modality,
+            treadmill = seg.treadmill,
+            durationMinutes = seg.durationMinutes,
+            distanceMeters = seg.distanceMeters,
+            source = CardioSessionSource.MANUAL,
+            heartRate = CardioHrScaffolding(),
+            estimatedKcal = null,
+            segments = emptyList()
+        )
 
     fun estimateKcal(
         session: CardioSession,
@@ -87,6 +109,23 @@ object CardioMetEstimator {
         else -> 12.5
     }
 
+    /** Per-leg minutes for quick log when the routine has multiple legs. */
+    fun segmentDurationsForQuickLog(routine: CardioRoutine, fallbackTotalMinutes: Int): List<Int> {
+        val legs = routine.effectiveSteps()
+        require(legs.isNotEmpty())
+        if (legs.size == 1) {
+            return listOf(legs.first().targetDurationMinutes ?: fallbackTotalMinutes)
+        }
+        val targets = legs.map { it.targetDurationMinutes }
+        if (targets.all { it != null && it!! > 0 }) {
+            return targets.map { it!! }
+        }
+        val total = routine.targetDurationMinutes ?: fallbackTotalMinutes
+        val base = total / legs.size
+        val rem = total % legs.size
+        return legs.indices.map { i -> base + if (i < rem) 1 else 0 }
+    }
+
     fun buildSessionFromRoutine(
         routine: CardioRoutine,
         durationMinutes: Int,
@@ -94,22 +133,210 @@ object CardioMetEstimator {
         weightKg: Double?,
         library: CardioLibraryState
     ): CardioSession {
-        var dist = routine.treadmill?.distanceMeters
-        if (dist == null && routine.modality == CardioModality.INDOOR_TREADMILL && routine.treadmill != null) {
-            dist = derivedTreadmillDistanceMeters(routine.treadmill, durationMinutes)
+        val durs = segmentDurationsForQuickLog(routine, durationMinutes)
+        return buildSessionFromRoutineWithSegmentDurations(routine, durs, source, weightKg, library)
+    }
+
+    fun buildSessionFromRoutineWithSegmentDurations(
+        routine: CardioRoutine,
+        segmentMinutes: List<Int>,
+        source: CardioSessionSource,
+        weightKg: Double?,
+        library: CardioLibraryState
+    ): CardioSession {
+        val legs = routine.effectiveSteps()
+        require(segmentMinutes.size == legs.size && segmentMinutes.all { it > 0 }) {
+            "segment minutes must match legs"
         }
+        if (legs.size == 1) {
+            val leg = legs.first()
+            var dist = leg.treadmill?.distanceMeters
+            if (dist == null && leg.modality == CardioModality.INDOOR_TREADMILL && leg.treadmill != null) {
+                dist = derivedTreadmillDistanceMeters(leg.treadmill, segmentMinutes.first())
+            }
+            val base = CardioSession(
+                activity = leg.activity,
+                modality = leg.modality,
+                treadmill = leg.treadmill,
+                durationMinutes = segmentMinutes.first(),
+                distanceMeters = dist,
+                routineId = routine.id,
+                routineName = routine.name,
+                source = source,
+                heartRate = CardioHrScaffolding(),
+                estimatedKcal = null,
+                segments = emptyList()
+            )
+            return applyEstimatedKcal(base, library, weightKg)
+        }
+        val segments = legs.mapIndexed { idx, leg ->
+            val dur = segmentMinutes[idx]
+            var dist = leg.treadmill?.distanceMeters
+            if (dist == null && leg.modality == CardioModality.INDOOR_TREADMILL && leg.treadmill != null) {
+                dist = derivedTreadmillDistanceMeters(leg.treadmill, dur)
+            }
+            val mini = CardioSession(
+                activity = leg.activity,
+                modality = leg.modality,
+                treadmill = leg.treadmill,
+                durationMinutes = dur,
+                distanceMeters = dist,
+                source = source,
+                heartRate = CardioHrScaffolding(),
+                estimatedKcal = null,
+                segments = emptyList()
+            )
+            val customMet = leg.activity.customTypeId?.let { id -> library.customTypeById(id)?.optionalMet }
+            val kcal = estimateKcal(mini, customMet, weightKg)
+            CardioSessionSegment(
+                activity = leg.activity,
+                modality = leg.modality,
+                treadmill = leg.treadmill,
+                durationMinutes = dur,
+                distanceMeters = dist,
+                estimatedKcal = kcal,
+                orderIndex = idx
+            )
+        }
+        val totalMin = segmentMinutes.sum()
+        val distParts = segments.mapNotNull { it.distanceMeters }
+        val totalDist = distParts.takeIf { it.size == segments.size }?.sum()
+        val rollup = CardioActivitySnapshot(
+            builtin = null,
+            customTypeId = null,
+            customName = null,
+            displayLabel = routine.stepsSummaryLabel()
+        )
+        val totalKcal = segments.mapNotNull { it.estimatedKcal }.sum().takeIf { it > 0 }
         val base = CardioSession(
-            activity = routine.activity,
-            modality = routine.modality,
-            treadmill = routine.treadmill,
-            durationMinutes = durationMinutes,
-            distanceMeters = dist,
+            activity = rollup,
+            modality = legs.first().modality,
+            treadmill = null,
+            durationMinutes = totalMin,
+            distanceMeters = totalDist?.takeIf { it > 1 },
+            estimatedKcal = totalKcal,
             routineId = routine.id,
             routineName = routine.name,
             source = source,
             heartRate = CardioHrScaffolding(),
-            estimatedKcal = null
+            segments = segments
         )
         return applyEstimatedKcal(base, library, weightKg)
+    }
+
+    fun segmentFromLeg(
+        leg: CardioRoutineStep,
+        durationMinutes: Int,
+        orderIndex: Int,
+        library: CardioLibraryState,
+        weightKg: Double?
+    ): CardioSessionSegment {
+        var dist = leg.treadmill?.distanceMeters
+        if (dist == null && leg.modality == CardioModality.INDOOR_TREADMILL && leg.treadmill != null) {
+            dist = derivedTreadmillDistanceMeters(leg.treadmill, durationMinutes)
+        }
+        val mini = CardioSession(
+            activity = leg.activity,
+            modality = leg.modality,
+            treadmill = leg.treadmill,
+            durationMinutes = durationMinutes,
+            distanceMeters = dist,
+            source = CardioSessionSource.DURATION_TIMER,
+            heartRate = CardioHrScaffolding(),
+            estimatedKcal = null,
+            segments = emptyList()
+        )
+        val customMet = leg.activity.customTypeId?.let { id -> library.customTypeById(id)?.optionalMet }
+        val kcal = estimateKcal(mini, customMet, weightKg)
+        return CardioSessionSegment(
+            activity = leg.activity,
+            modality = leg.modality,
+            treadmill = leg.treadmill,
+            durationMinutes = durationMinutes,
+            distanceMeters = dist,
+            estimatedKcal = kcal,
+            orderIndex = orderIndex
+        )
+    }
+
+    fun rollupSessionFromSegments(
+        routineId: String?,
+        routineName: String?,
+        segments: List<CardioSessionSegment>,
+        workoutStartEpoch: Long,
+        workoutEndEpoch: Long,
+        library: CardioLibraryState,
+        weightKg: Double?
+    ): CardioSession {
+        val ordered = segments.sortedBy { it.orderIndex }
+        val totalMin = ordered.sumOf { it.durationMinutes }
+        val label = ordered.joinToString(" → ") { it.activity.displayLabel }
+        val distParts = ordered.mapNotNull { it.distanceMeters }
+        val totalDist = distParts.takeIf { it.size == ordered.size }?.sum()
+        val rollup = CardioActivitySnapshot(
+            builtin = null,
+            customTypeId = null,
+            customName = null,
+            displayLabel = label
+        )
+        val base = CardioSession(
+            activity = rollup,
+            modality = ordered.first().modality,
+            treadmill = null,
+            durationMinutes = totalMin,
+            distanceMeters = totalDist?.takeIf { it > 1 },
+            estimatedKcal = null,
+            routineId = routineId,
+            routineName = routineName,
+            source = CardioSessionSource.DURATION_TIMER,
+            startEpochSeconds = workoutStartEpoch,
+            endEpochSeconds = workoutEndEpoch,
+            heartRate = CardioHrScaffolding(),
+            segments = ordered
+        )
+        return applyEstimatedKcal(base, library, weightKg)
+    }
+
+    /**
+     * After logging one leg of a multi-leg timer: either advance to the next leg or produce the final session.
+     */
+    fun advanceMultiLegTimer(
+        state: CardioMultiLegTimerState,
+        legDurationMinutes: Int,
+        legEndEpoch: Long,
+        library: CardioLibraryState,
+        weightKg: Double?
+    ): Pair<CardioMultiLegTimerState?, CardioSession?> {
+        val leg = state.currentLeg
+        val seg = segmentFromLeg(
+            leg = leg,
+            durationMinutes = max(1, legDurationMinutes),
+            orderIndex = state.completedSegments.size,
+            library = library,
+            weightKg = weightKg
+        )
+        val done = state.completedSegments + seg
+        if (state.currentLegIndex < state.legs.lastIndex) {
+            val next = CardioMultiLegTimerState(
+                routineId = state.routineId,
+                routineName = state.routineName,
+                legs = state.legs,
+                completedSegments = done,
+                currentLegIndex = state.currentLegIndex + 1,
+                workoutStartEpoch = state.workoutStartEpoch,
+                legStartedEpoch = legEndEpoch
+            )
+            return next to null
+        }
+        val finalSession = rollupSessionFromSegments(
+            routineId = state.routineId,
+            routineName = state.routineName,
+            segments = done,
+            workoutStartEpoch = state.workoutStartEpoch,
+            workoutEndEpoch = legEndEpoch,
+            library = library,
+            weightKg = weightKg
+        )
+        return null to finalSession
     }
 }

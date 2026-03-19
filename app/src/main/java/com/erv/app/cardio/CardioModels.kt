@@ -76,6 +76,18 @@ data class CardioActivitySnapshot(
 )
 
 @Serializable
+data class CardioSessionSegment(
+    val id: String = UUID.randomUUID().toString(),
+    val activity: CardioActivitySnapshot,
+    val modality: CardioModality = CardioModality.OUTDOOR,
+    val treadmill: CardioTreadmillParams? = null,
+    val durationMinutes: Int,
+    val distanceMeters: Double? = null,
+    val estimatedKcal: Double? = null,
+    val orderIndex: Int = 0
+)
+
+@Serializable
 data class CardioSession(
     val id: String = UUID.randomUUID().toString(),
     val activity: CardioActivitySnapshot,
@@ -91,7 +103,9 @@ data class CardioSession(
     val startEpochSeconds: Long? = null,
     val endEpochSeconds: Long? = null,
     val loggedAtEpochSeconds: Long = nowEpochSeconds(),
-    val heartRate: CardioHrScaffolding? = null
+    val heartRate: CardioHrScaffolding? = null,
+    /** Non-empty = multi-activity workout (brick, tri prep, etc.); top-level fields are rollups. */
+    val segments: List<CardioSessionSegment> = emptyList()
 )
 
 @Serializable
@@ -110,9 +124,21 @@ fun CardioWeekday.shortLabel(): String = when (this) {
 }
 
 @Serializable
+data class CardioRoutineStep(
+    val id: String = UUID.randomUUID().toString(),
+    val activity: CardioActivitySnapshot,
+    val modality: CardioModality = CardioModality.OUTDOOR,
+    val treadmill: CardioTreadmillParams? = null,
+    val targetDurationMinutes: Int? = null,
+    val orderIndex: Int = 0
+)
+
+@Serializable
 data class CardioRoutine(
     val id: String = UUID.randomUUID().toString(),
     val name: String,
+    /** Ordered legs; empty means legacy single-activity fields below apply. */
+    val steps: List<CardioRoutineStep> = emptyList(),
     val activity: CardioActivitySnapshot,
     val modality: CardioModality = CardioModality.OUTDOOR,
     val treadmill: CardioTreadmillParams? = null,
@@ -120,6 +146,22 @@ data class CardioRoutine(
     val repeatDays: List<CardioWeekday> = emptyList(),
     val notes: String = ""
 )
+
+fun CardioRoutine.effectiveSteps(): List<CardioRoutineStep> {
+    if (steps.isNotEmpty()) return steps.sortedBy { it.orderIndex }
+    return listOf(
+        CardioRoutineStep(
+            activity = activity,
+            modality = modality,
+            treadmill = treadmill,
+            targetDurationMinutes = targetDurationMinutes,
+            orderIndex = 0
+        )
+    )
+}
+
+fun CardioRoutine.stepsSummaryLabel(): String =
+    effectiveSteps().joinToString(" → ") { it.activity.displayLabel }
 
 @Serializable
 data class CardioCustomActivityType(
@@ -160,7 +202,17 @@ fun CardioLibraryState.cardioActivityRowsFor(date: LocalDate): List<CardioActivi
 }
 
 fun CardioSession.summaryLine(): String {
-    val base = buildString {
+    if (segments.isNotEmpty()) {
+        val ordered = segments.sortedBy { it.orderIndex }
+        return buildString {
+            append(ordered.joinToString(" → ") { it.activity.displayLabel })
+            append(" • ${durationMinutes} min total")
+            val dist = distanceMeters
+            if (dist != null && dist > 1) append(" • ${formatDistanceKm(dist)}")
+            estimatedKcal?.let { k -> append(" • ~${k.toInt()} kcal") }
+        }
+    }
+    return buildString {
         append(activity.displayLabel)
         if (modality == CardioModality.INDOOR_TREADMILL) append(" (treadmill)")
         append(" • ${durationMinutes} min")
@@ -178,7 +230,6 @@ fun CardioSession.summaryLine(): String {
             append(" • ~${k.toInt()} kcal")
         }
     }
-    return base
 }
 
 private fun formatSpeed(speed: Double, unit: CardioSpeedUnit): String =
@@ -222,20 +273,26 @@ data class CardioTimerSessionDraft(
             startEpochSeconds = startEpoch,
             endEpochSeconds = endEpoch,
             heartRate = CardioHrScaffolding(),
-            estimatedKcal = null
+            estimatedKcal = null,
+            segments = emptyList()
         )
     }
 
     companion object {
-        fun fromRoutine(routine: CardioRoutine) = CardioTimerSessionDraft(
-            title = routine.name,
-            activity = routine.activity,
-            modality = routine.modality,
-            treadmill = routine.treadmill,
-            startEpoch = nowEpochSeconds(),
-            routineId = routine.id,
-            routineName = routine.name
-        )
+        fun fromRoutine(routine: CardioRoutine): CardioTimerSessionDraft? {
+            val legs = routine.effectiveSteps()
+            if (legs.size != 1) return null
+            val leg = legs.first()
+            return CardioTimerSessionDraft(
+                title = routine.name,
+                activity = leg.activity,
+                modality = leg.modality,
+                treadmill = leg.treadmill,
+                startEpoch = nowEpochSeconds(),
+                routineId = routine.id,
+                routineName = routine.name
+            )
+        }
 
         fun fromQuickSnapshot(
             activity: CardioActivitySnapshot,
@@ -251,7 +308,53 @@ data class CardioTimerSessionDraft(
             routineId = null,
             routineName = null
         )
+
+        fun fromActivitySnapshot(snapshot: CardioActivitySnapshot) = fromQuickSnapshot(
+            activity = snapshot,
+            modality = CardioModality.OUTDOOR,
+            treadmill = null,
+            title = snapshot.displayLabel
+        )
     }
+}
+
+/** Sequential timer for multi-leg routines (brick, tri prep, etc.). */
+data class CardioMultiLegTimerState(
+    val routineId: String?,
+    val routineName: String?,
+    val legs: List<CardioRoutineStep>,
+    val completedSegments: List<CardioSessionSegment>,
+    val currentLegIndex: Int,
+    val workoutStartEpoch: Long,
+    val legStartedEpoch: Long
+) {
+    val currentLeg: CardioRoutineStep get() = legs[currentLegIndex]
+
+    fun legProgressLabel(): String =
+        "Leg ${currentLegIndex + 1} of ${legs.size}: ${currentLeg.activity.displayLabel}"
+
+    companion object {
+        fun fromRoutine(routine: CardioRoutine): CardioMultiLegTimerState? {
+            val legs = routine.effectiveSteps()
+            if (legs.size <= 1) return null
+            val now = nowEpochSeconds()
+            return CardioMultiLegTimerState(
+                routineId = routine.id,
+                routineName = routine.name,
+                legs = legs,
+                completedSegments = emptyList(),
+                currentLegIndex = 0,
+                workoutStartEpoch = now,
+                legStartedEpoch = now
+            )
+        }
+    }
+}
+
+/** Single- or multi-leg timer shown full-screen from Cardio or the dashboard. */
+sealed class CardioActiveTimerSession {
+    data class Single(val draft: CardioTimerSessionDraft) : CardioActiveTimerSession()
+    data class Multi(val state: CardioMultiLegTimerState) : CardioActiveTimerSession()
 }
 
 fun CardioLibraryState.resolveSnapshot(

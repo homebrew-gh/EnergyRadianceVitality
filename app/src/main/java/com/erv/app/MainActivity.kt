@@ -210,7 +210,8 @@ private suspend fun runPostLoginSetup(
 ): Boolean {
     val pool = RelayPool(signer)
     try {
-        pool.setRelays(keyManager.allRelayUrls())
+        val connectUrls = (keyManager.allRelayUrls() + Nip65.bootstrapRelays).distinct()
+        pool.setRelays(connectUrls)
         delay(2000)
 
         val pubkey = keyManager.publicKeyHex ?: return false

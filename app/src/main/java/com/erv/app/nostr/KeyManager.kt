@@ -26,6 +26,7 @@ class KeyManager(context: Context) {
             EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
             EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
         )
+        ensureDefaultRelaysIfNeeded()
     }
 
     // --- Stored values ---
@@ -155,6 +156,18 @@ class KeyManager(context: Context) {
     }
 
     /**
+     * Amber login (and legacy sessions) may have pubkey but no relays; without relays we cannot
+     * fetch NIP-65 or settings. Nsec login always calls [populateDefaultRelays].
+     */
+    private fun ensureDefaultRelaysIfNeeded() {
+        if (publicKeyHex == null) return
+        migrateRelayUrlIfNeeded()
+        val data = prefs.getStringSet(KEY_RELAY_URLS, emptySet()) ?: emptySet()
+        val social = prefs.getStringSet(KEY_SOCIAL_RELAY_URLS, emptySet()) ?: emptySet()
+        if (data.isEmpty() && social.isEmpty()) populateDefaultRelays()
+    }
+
+    /**
      * Package name of the NIP-55 signer app (e.g. Amber), saved after initial login.
      * If missing (pre-existing logins), discovered from the package manager on first access.
      */
@@ -181,6 +194,7 @@ class KeyManager(context: Context) {
         publicKeyHex = pubkeyHex
         loginMethod = LOGIN_AMBER
         prefs.edit().putString(KEY_AMBER_PACKAGE, packageName).apply()
+        ensureDefaultRelaysIfNeeded()
     }
 
     fun createLocalSigner(): LocalSigner? {
