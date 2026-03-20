@@ -56,4 +56,17 @@ class WeightModelsSerializationTest {
         assertEquals("2026-01-01", parsed.date)
         assertEquals(0, parsed.workouts.size)
     }
+
+    @Test
+    fun exercisesGroupedByMuscle_knownOrderThenAlpha() {
+        val state = WeightLibraryState(
+            exercises = listOf(
+                WeightExercise(name = "Z Custom", muscleGroup = "zebra", pushOrPull = WeightPushPull.PUSH, equipment = WeightEquipment.DUMBBELL),
+                WeightExercise(name = "Bench", muscleGroup = "chest", pushOrPull = WeightPushPull.PUSH, equipment = WeightEquipment.BARBELL),
+                WeightExercise(name = "Antagonist", muscleGroup = "arms", pushOrPull = WeightPushPull.PULL, equipment = WeightEquipment.DUMBBELL)
+            )
+        )
+        val groups = state.exercisesGroupedByMuscle().map { it.first }
+        assertEquals(listOf("chest", "arms", "zebra"), groups)
+    }
 }

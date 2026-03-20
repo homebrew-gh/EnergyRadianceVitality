@@ -11,12 +11,14 @@ Use this section so work is **not repeated** across sessions. Update it when you
 | **A** | Done | `WeightModels.kt`, `WeightRepository.kt` (DataStore), seeded compounds when store empty, `WeightModelsSerializationTest` |
 | **B** | Done | `WeightSync.kt` (kind **30078**, d-tags `erv/weight/exercises`, `erv/weight/routines`, `erv/weight/<date>`), `MainAppShell` parallel fetch + `replaceAll` |
 | **C** | Done | Activity-scoped `DashboardViewModel` in `MainActivity` → `ErvNavHost` → `DashboardScreen`; route `category/weight_training` + `WeightTrainingCategoryScreen` (placeholder: shows **dashboard date** + library counts); **Weight Training** removed from generic Coming Soon |
-| **D** | Not started | … |
+| **D** | Done | `WeightTrainingCategoryScreen`: **Exercises** / **Routines** tabs, theme-aware red header (matches cardio therapy reds), muscle-group **sticky** sections, add/edit/delete exercises, build/edit/delete routines (ordered picks, reorder), **FAB** per tab; CRUD publishes `erv/weight/exercises` + `erv/weight/routines` via `WeightSync` |
 | **E–K** | Not started | … |
 
-**How to verify this checkpoint:** Run `./gradlew :app:testDebugUnitTest :app:assembleDebug`. In the app: change the dashboard date, open **Categories → Weight Training**, confirm the screen shows the **same date** and **Exercises loaded: 4** (defaults) on first install.
+**How to verify stage A–C:** Run `./gradlew :app:testDebugUnitTest :app:assembleDebug`. Dashboard date on weight screen; **4** default exercises.
 
-**Resume next:** Stage **D** (Exercises + Routines tabs, CRUD, theme).
+**How to verify stage D:** Open Weight Training → **Exercises**: add a custom lift, edit a compound, confirm grouped list + sticky header. **Routines**: create a routine with two exercises, reorder with ↑↓, save; pull-to-refresh data on second device optional (relay). Delete flows ask for confirmation.
+
+**Resume next:** Stage **E** (live workout: timer, list UI, start blank / from routine, `addWorkout` when non-empty).
 
 ## Locked product rules
 

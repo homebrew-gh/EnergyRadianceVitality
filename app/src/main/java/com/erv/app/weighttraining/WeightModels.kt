@@ -3,6 +3,7 @@ package com.erv.app.weighttraining
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import java.time.LocalDate
+import java.util.Locale
 import java.util.UUID
 
 @Serializable
@@ -85,6 +86,38 @@ data class WeightLibraryState(
 
     fun exerciseById(id: String): WeightExercise? = exercises.firstOrNull { it.id == id }
 }
+
+private val muscleGroupDisplayOrder: List<String> =
+    listOf("chest", "back", "legs", "shoulders", "arms", "core")
+
+/** Sticky list sections: known groups first, then remaining alpha. */
+fun WeightLibraryState.exercisesGroupedByMuscle(): List<Pair<String, List<WeightExercise>>> {
+    val grouped = exercises.groupBy { ex ->
+        ex.muscleGroup.trim().lowercase().ifBlank { "other" }
+    }
+    val orderedKeys = buildList {
+        val known = muscleGroupDisplayOrder.filter { it in grouped }
+        addAll(known)
+        addAll((grouped.keys - known.toSet()).sorted())
+    }
+    return orderedKeys.map { key -> key to grouped.getValue(key).sortedBy { it.name.lowercase() } }
+}
+
+fun WeightEquipment.displayLabel(): String = when (this) {
+    WeightEquipment.BARBELL -> "Barbell"
+    WeightEquipment.DUMBBELL -> "Dumbbell"
+    WeightEquipment.KETTLEBELL -> "Kettlebell"
+    WeightEquipment.MACHINE -> "Machine"
+    WeightEquipment.OTHER -> "Other"
+}
+
+fun WeightPushPull.displayLabel(): String = when (this) {
+    WeightPushPull.PUSH -> "Push"
+    WeightPushPull.PULL -> "Pull"
+}
+
+fun formatMuscleGroupHeader(key: String): String =
+    key.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.ROOT) else it.toString() }
 
 /** Stable IDs so synced devices agree on built-in compounds. */
 fun defaultCompoundExercises(): List<WeightExercise> = listOf(

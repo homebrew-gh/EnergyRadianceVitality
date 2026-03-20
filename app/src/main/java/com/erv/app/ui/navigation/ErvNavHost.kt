@@ -225,6 +225,8 @@ fun ErvNavHost(
             WeightTrainingCategoryScreen(
                 selectedDate = selectedDate,
                 repository = weightRepository,
+                relayPool = relayPool,
+                signer = signer,
                 onBack = { navController.popBackStack() }
             )
         }
