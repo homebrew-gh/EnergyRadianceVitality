@@ -47,6 +47,7 @@ import com.erv.app.lighttherapy.LightSync
 import com.erv.app.cardio.CardioLibraryState
 import com.erv.app.cardio.CardioActivityRow
 import com.erv.app.cardio.CardioActiveTimerSession
+import com.erv.app.cardio.CardioDistanceUnit
 import com.erv.app.cardio.CardioTimerCompletionResult
 import com.erv.app.cardio.CardioMetEstimator
 import com.erv.app.cardio.CardioMultiLegTimerState
@@ -118,6 +119,7 @@ fun DashboardScreen(
     val lightState by lightTherapyRepository.state.collectAsState(initial = LightLibraryState())
     val cardioState by cardioRepository.state.collectAsState(initial = CardioLibraryState())
     val weightKg by userPreferences.fallbackBodyWeightKg.collectAsState(initial = null)
+    val cardioDistanceUnit by userPreferences.cardioDistanceUnit.collectAsState(initial = CardioDistanceUnit.MILES)
     val reminderRepository = remember(context) { RoutineReminderRepository(context) }
     val supplementRows = remember(supplementState, selectedDate) {
         supplementState.groupedSupplementActivityFor(selectedDate)
@@ -125,8 +127,8 @@ fun DashboardScreen(
     val lightRows = remember(lightState, selectedDate) {
         lightState.lightActivityFor(selectedDate)
     }
-    val cardioRows = remember(cardioState, selectedDate) {
-        cardioState.cardioActivityRowsFor(selectedDate)
+    val cardioRows = remember(cardioState, selectedDate, cardioDistanceUnit) {
+        cardioState.cardioActivityRowsFor(selectedDate, cardioDistanceUnit)
     }
     val today = remember { LocalDate.now() }
     val scope = rememberCoroutineScope()
@@ -459,17 +461,20 @@ fun DashboardScreen(
                 CardioWorkoutSummaryFullScreen(
                     session = cSummary.session,
                     elapsedSeconds = cSummary.elapsedSeconds,
+                    distanceUnit = cardioDistanceUnit,
                     dark = therapyRedDark,
                     mid = therapyRedMid,
                     glow = therapyRedGlow,
+                    relayPool = relayPool,
+                    signer = signer,
                     onDone = { cardioWorkoutSummary = null }
                 )
             } else when (val ct = cardioActiveTimer) {
                 is CardioActiveTimerSession.Single -> {
                     val draft = ct.draft
                     CardioElapsedTimerFullScreen(
-                        titleLabel = draft.title,
-                        subtitle = draft.modality.label(),
+                        draft = draft,
+                        distanceUnit = cardioDistanceUnit,
                         dark = therapyRedDark,
                         mid = therapyRedMid,
                         glow = therapyRedGlow,
@@ -477,7 +482,11 @@ fun DashboardScreen(
                             scope.launch {
                                 val durationMinutes = max(1, (elapsedSeconds + 59) / 60)
                                 val end = nowEpochSeconds()
-                                val raw = draft.toSession(durationMinutes, end)
+                                val raw = draft.toSession(
+                                    durationMinutes = durationMinutes,
+                                    endEpoch = end,
+                                    elapsedSecondsForDistance = elapsedSeconds
+                                )
                                 val session = CardioMetEstimator.applyEstimatedKcal(
                                     raw,
                                     cardioRepository.currentState(),
@@ -929,7 +938,7 @@ private fun ActivitySection(
                     ActivityCategorySection(title = "Supplements") {
                         supplementRows.forEach { row ->
                             Text(
-                                text = "${row.supplementName} ${row.amountDisplay}",
+                                text = "${row.supplementName} • ${row.amountDisplay}",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
