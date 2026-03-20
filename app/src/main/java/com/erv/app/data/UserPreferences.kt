@@ -26,6 +26,7 @@ class UserPreferences(private val context: Context) {
         val BODY_WEIGHT_UNIT = stringPreferencesKey("body_weight_unit")
         val CARDIO_DISTANCE_UNIT = stringPreferencesKey("cardio_distance_unit")
         val WEIGHT_TRAINING_LOAD_UNIT = stringPreferencesKey("weight_training_load_unit")
+        val SELECTED_GOAL_IDS = stringPreferencesKey("selected_goal_ids")
     }
 
     val themeMode: Flow<ThemeMode> = context.dataStore.data.map { prefs ->
@@ -93,6 +94,17 @@ class UserPreferences(private val context: Context) {
     suspend fun setWeightTrainingLoadUnit(unit: BodyWeightUnit) {
         context.dataStore.edit { prefs ->
             prefs[Keys.WEIGHT_TRAINING_LOAD_UNIT] = unit.name
+        }
+    }
+
+    /** User-selected goals from [AllUserGoalOptions]; empty until they configure on Edit goals. */
+    val selectedGoalIds: Flow<Set<String>> = context.dataStore.data.map { prefs ->
+        parseGoalIdsFromStorage(prefs[Keys.SELECTED_GOAL_IDS])
+    }
+
+    suspend fun setSelectedGoalIds(ids: Set<String>) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.SELECTED_GOAL_IDS] = encodeGoalIdsForStorage(ids)
         }
     }
 }
