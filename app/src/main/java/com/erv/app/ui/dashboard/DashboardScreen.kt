@@ -474,17 +474,17 @@ fun DashboardScreen(
                         mid = therapyRedMid,
                         glow = therapyRedGlow,
                         onStop = { elapsedSeconds ->
-                            val durationMinutes = max(1, (elapsedSeconds + 59) / 60)
-                            val end = nowEpochSeconds()
-                            val raw = draft.toSession(durationMinutes, end)
-                            val session = CardioMetEstimator.applyEstimatedKcal(
-                                raw,
-                                cardioRepository.currentState(),
-                                weightKg
-                            )
-                            cardioActiveTimer = null
-                            cardioWorkoutSummary = CardioTimerCompletionResult(session, elapsedSeconds)
                             scope.launch {
+                                val durationMinutes = max(1, (elapsedSeconds + 59) / 60)
+                                val end = nowEpochSeconds()
+                                val raw = draft.toSession(durationMinutes, end)
+                                val session = CardioMetEstimator.applyEstimatedKcal(
+                                    raw,
+                                    cardioRepository.currentState(),
+                                    weightKg
+                                )
+                                cardioActiveTimer = null
+                                cardioWorkoutSummary = CardioTimerCompletionResult(session, elapsedSeconds)
                                 cardioRepository.addSession(selectedDate, session)
                                 cardioRepository.currentState().logFor(selectedDate)?.let { log ->
                                     if (relayPool != null && signer != null) {
@@ -505,29 +505,27 @@ fun DashboardScreen(
                         mid = therapyRedMid,
                         glow = therapyRedGlow,
                         onFinishLeg = { elapsedSeconds ->
-                            val durationMinutes = max(1, (elapsedSeconds + 59) / 60)
-                            val end = nowEpochSeconds()
-                            val (next, session) = CardioMetEstimator.advanceMultiLegTimer(
-                                ct.state,
-                                durationMinutes,
-                                end,
-                                cardioRepository.currentState(),
-                                weightKg
-                            )
-                            if (session != null) {
-                                cardioActiveTimer = null
-                                cardioWorkoutSummary = CardioTimerCompletionResult(session, null)
-                                scope.launch {
+                            scope.launch {
+                                val durationMinutes = max(1, (elapsedSeconds + 59) / 60)
+                                val end = nowEpochSeconds()
+                                val (next, session) = CardioMetEstimator.advanceMultiLegTimer(
+                                    ct.state,
+                                    durationMinutes,
+                                    end,
+                                    cardioRepository.currentState(),
+                                    weightKg
+                                )
+                                if (session != null) {
+                                    cardioActiveTimer = null
+                                    cardioWorkoutSummary = CardioTimerCompletionResult(session, null)
                                     cardioRepository.addSession(selectedDate, session)
                                     cardioRepository.currentState().logFor(selectedDate)?.let { log ->
                                         if (relayPool != null && signer != null) {
                                             CardioSync.publishDailyLog(relayPool, signer, log)
                                         }
                                     }
-                                }
-                            } else if (next != null) {
-                                cardioActiveTimer = CardioActiveTimerSession.Multi(next)
-                                scope.launch {
+                                } else if (next != null) {
+                                    cardioActiveTimer = CardioActiveTimerSession.Multi(next)
                                     snackbarHostState.showSnackbar("Leg saved — start next when ready")
                                 }
                             }

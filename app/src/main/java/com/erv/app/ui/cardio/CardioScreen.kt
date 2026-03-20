@@ -219,13 +219,13 @@ fun CardioCategoryScreen(
                 mid = therapyRedMid,
                 glow = therapyRedGlow,
                 onStop = { elapsedSeconds ->
-                    val durationMinutes = max(1, (elapsedSeconds + 59) / 60)
-                    val end = nowEpochSeconds()
-                    val raw = draft.toSession(durationMinutes = durationMinutes, endEpoch = end)
-                    val session = CardioMetEstimator.applyEstimatedKcal(raw, repository.currentState(), weightKg)
-                    activeTimer = null
-                    completedWorkoutSummary = CardioTimerCompletionResult(session, elapsedSeconds)
                     scope.launch {
+                        val durationMinutes = max(1, (elapsedSeconds + 59) / 60)
+                        val end = nowEpochSeconds()
+                        val raw = draft.toSession(durationMinutes = durationMinutes, endEpoch = end)
+                        val session = CardioMetEstimator.applyEstimatedKcal(raw, repository.currentState(), weightKg)
+                        activeTimer = null
+                        completedWorkoutSummary = CardioTimerCompletionResult(session, elapsedSeconds)
                         repository.addSession(today, session)
                         repository.currentState().logFor(today)?.let { syncDailyLog(it) }
                     }
@@ -243,25 +243,23 @@ fun CardioCategoryScreen(
                 mid = therapyRedMid,
                 glow = therapyRedGlow,
                 onFinishLeg = { elapsedSeconds ->
-                    val durationMinutes = max(1, (elapsedSeconds + 59) / 60)
-                    val end = nowEpochSeconds()
-                    val (next, session) = CardioMetEstimator.advanceMultiLegTimer(
-                        timer.state,
-                        durationMinutes,
-                        end,
-                        repository.currentState(),
-                        weightKg
-                    )
-                    if (session != null) {
-                        activeTimer = null
-                        completedWorkoutSummary = CardioTimerCompletionResult(session, null)
-                        scope.launch {
+                    scope.launch {
+                        val durationMinutes = max(1, (elapsedSeconds + 59) / 60)
+                        val end = nowEpochSeconds()
+                        val (next, session) = CardioMetEstimator.advanceMultiLegTimer(
+                            timer.state,
+                            durationMinutes,
+                            end,
+                            repository.currentState(),
+                            weightKg
+                        )
+                        if (session != null) {
+                            activeTimer = null
+                            completedWorkoutSummary = CardioTimerCompletionResult(session, null)
                             repository.addSession(today, session)
                             repository.currentState().logFor(today)?.let { syncDailyLog(it) }
-                        }
-                    } else if (next != null) {
-                        activeTimer = CardioActiveTimerSession.Multi(next)
-                        scope.launch {
+                        } else if (next != null) {
+                            activeTimer = CardioActiveTimerSession.Multi(next)
                             snackbarHostState.showSnackbar("Leg saved — start next when ready")
                         }
                     }
@@ -1470,7 +1468,7 @@ fun CardioWorkoutSummaryFullScreen(
             }
             val hr = session.heartRate
             when {
-                hr.avgBpm != null || hr.maxBpm != null || hr.minBpm != null -> {
+                hr != null && (hr.avgBpm != null || hr.maxBpm != null || hr.minBpm != null) -> {
                     hr.avgBpm?.let {
                         Text(
                             "Avg heart rate: $it bpm",
