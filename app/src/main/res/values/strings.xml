@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">ERV</string>
+    <string name="dashboard_categories_menu">Categories</string>
 
     <!-- Toast feedback for publish and errors -->
     <string name="toast_event_published">Saved and synced</string>

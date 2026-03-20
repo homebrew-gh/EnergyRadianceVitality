@@ -8,7 +8,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.erv.app.R
 
 data class Category(
     val id: String,
@@ -40,7 +42,7 @@ fun CategorySheet(
             .padding(bottom = 16.dp)
     ) {
         Text(
-            text = "Categories",
+            text = stringResource(R.string.dashboard_categories_menu),
             style = MaterialTheme.typography.titleMedium,
             modifier = Modifier.padding(bottom = 12.dp)
         )
