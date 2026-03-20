@@ -609,22 +609,74 @@ private fun RoutinesTabContent(
 
 @Composable
 fun LightLogScreen(
+    repository: LightTherapyRepository,
     state: LightLibraryState,
+    relayPool: RelayPool?,
+    signer: EventSigner?,
     onBack: () -> Unit
 ) {
     var selectedDate by remember { mutableStateOf(LocalDate.now()) }
     var showCalendar by remember { mutableStateOf(false) }
+    var pendingDelete by remember { mutableStateOf<LightSession?>(null) }
     val entries = remember(state, selectedDate) { state.chronologicalLightLogFor(selectedDate) }
+    val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
+    val darkTheme = isSystemInDarkTheme()
+    val headerMid = if (darkTheme) ErvDarkTherapyRedMid else ErvLightTherapyRedMid
+
+    suspend fun syncDailyLogForSelected() {
+        if (relayPool != null && signer != null) {
+            repository.currentState().logFor(selectedDate)?.let { log ->
+                LightSync.publishDailyLog(relayPool, signer, log)
+            }
+        }
+    }
+
+    pendingDelete?.let { session ->
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = { Text("Remove session?") },
+            text = {
+                Text(
+                    "This removes the entry from your log on this device and updates your synced day log.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val id = session.id
+                        pendingDelete = null
+                        scope.launch {
+                            repository.deleteSession(selectedDate, id)
+                            syncDailyLogForSelected()
+                            snackbarHostState.showSnackbar("Session removed")
+                        }
+                    }
+                ) { Text("Remove") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDelete = null }) { Text("Cancel") }
+            }
+        )
+    }
 
     Scaffold(
+        modifier = Modifier.fillMaxSize(),
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
-                title = { Text("Light therapy log") },
+                title = { Text("Light Therapy Log") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
-                }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = headerMid,
+                    titleContentColor = Color.White,
+                    navigationIconContentColor = Color.White
+                )
             )
         }
     ) { padding ->
@@ -634,6 +686,7 @@ fun LightLogScreen(
             showCalendar = showCalendar,
             onShowCalendarChange = { showCalendar = it },
             entries = entries,
+            onRequestDelete = { pendingDelete = it },
             modifier = Modifier.padding(padding)
         )
     }
@@ -653,6 +706,7 @@ private fun LightLogContent(
     showCalendar: Boolean,
     onShowCalendarChange: (Boolean) -> Unit,
     entries: List<LightSession>,
+    onRequestDelete: (LightSession) -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(modifier = modifier.fillMaxSize()) {
@@ -674,11 +728,19 @@ private fun LightLogContent(
                     .padding(24.dp),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    "No light therapy logged for this date.",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        "No light therapy logged for this date.",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "Start a session from the Light therapy tab to log time for this day.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         } else {
             LazyColumn(
@@ -686,30 +748,41 @@ private fun LightLogContent(
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                items(entries, key = { it.loggedAtEpochSeconds.toString() + it.minutes }) { session ->
+                item {
+                    Text(
+                        "Tap delete on an entry to remove it from this day.",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(8.dp))
+                }
+                items(entries, key = { it.id }) { session ->
                     val name = session.routineName ?: session.deviceName ?: "Light therapy"
                     ElevatedCard(modifier = Modifier.fillMaxWidth()) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(16.dp),
+                                .padding(12.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalAlignment = Alignment.Top
                         ) {
-                            Text(name, style = MaterialTheme.typography.titleMedium)
-                            Text(
-                                "${session.minutes} min",
-                                style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.primary
-                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(name, style = MaterialTheme.typography.titleMedium)
+                                Text(
+                                    "${session.minutes} min",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    formatLogTime(session.loggedAtEpochSeconds),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            IconButton(onClick = { onRequestDelete(session) }) {
+                                Icon(Icons.Default.Delete, contentDescription = "Delete session")
+                            }
                         }
-                        Text(
-                            formatLogTime(session.loggedAtEpochSeconds),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 0.dp)
-                        )
-                        Spacer(Modifier.height(8.dp))
                     }
                 }
             }

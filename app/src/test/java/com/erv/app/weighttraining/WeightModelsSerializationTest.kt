@@ -90,19 +90,117 @@ class WeightModelsSerializationTest {
         assertEquals(catalog.size, catalog.map { it.id }.toSet().size)
         assertTrue(catalog.any { it.id == "erv-weight-exercise-bench-v1" })
         assertTrue(catalog.any { it.id == "erv-weight-exercise-squat-v1" })
+        assertTrue(catalog.any { it.id == "erv-weight-exercise-bw-pullup-v1" })
+        assertTrue(catalog.any { it.id == "erv-weight-exercise-bw-chinup-v1" })
+        assertTrue(catalog.any { it.id == "erv-weight-exercise-bw-dip-v1" })
+        assertTrue(catalog.any { it.id == "erv-weight-exercise-bb-ezbar-curl-v1" })
     }
 
     @Test
     fun exercisesGroupedByMuscle_knownOrderThenAlpha() {
+        val list = listOf(
+            WeightExercise(name = "Z Custom", muscleGroup = "zebra", pushOrPull = WeightPushPull.PUSH, equipment = WeightEquipment.DUMBBELL),
+            WeightExercise(name = "Bench", muscleGroup = "chest", pushOrPull = WeightPushPull.PUSH, equipment = WeightEquipment.BARBELL),
+            WeightExercise(name = "Curl", muscleGroup = "biceps", pushOrPull = WeightPushPull.PULL, equipment = WeightEquipment.DUMBBELL),
+            WeightExercise(name = "Pushdown", muscleGroup = "triceps", pushOrPull = WeightPushPull.PUSH, equipment = WeightEquipment.MACHINE)
+        )
+        val state = WeightLibraryState(exercises = list)
+        val groups = state.exercisesGroupedByMuscle().map { it.first }
+        assertEquals(listOf("chest", "biceps", "triceps", "zebra"), groups)
+        assertEquals(groups, groupExercisesByMuscle(list).map { it.first })
+    }
+
+    @Test
+    fun groupExercisesByMuscle_emptyList() {
+        assertTrue(groupExercisesByMuscle(emptyList()).isEmpty())
+    }
+
+    @Test
+    fun withMigratedArmsMuscleGroup_mapsBuiltinCatalogIds_only() {
+        val curl = WeightExercise(
+            id = "erv-weight-exercise-bb-barbell-curl-v1",
+            name = "Barbell Curl",
+            muscleGroup = "arms",
+            pushOrPull = WeightPushPull.PULL,
+            equipment = WeightEquipment.BARBELL
+        )
+        assertEquals("biceps", curl.withMigratedArmsMuscleGroup().muscleGroup)
+        val pushdown = WeightExercise(
+            id = "erv-weight-exercise-m-tricep-pushdown-v1",
+            name = "Tricep Pushdown",
+            muscleGroup = "arms",
+            pushOrPull = WeightPushPull.PUSH,
+            equipment = WeightEquipment.MACHINE
+        )
+        assertEquals("triceps", pushdown.withMigratedArmsMuscleGroup().muscleGroup)
+        val customStillArms = WeightExercise(
+            id = "custom-arm-day",
+            name = "Custom",
+            muscleGroup = "arms",
+            pushOrPull = WeightPushPull.PULL,
+            equipment = WeightEquipment.OTHER
+        )
+        assertEquals("arms", customStillArms.withMigratedArmsMuscleGroup().muscleGroup)
+    }
+
+    @Test
+    fun estimatedOneRmKg_100kg5reps() {
+        val e = estimatedOneRmKg(100.0, 5)
+        assertNotNull(e)
+        assertEquals(116.67, e!!, 0.05)
+    }
+
+    @Test
+    fun withRebuiltExerciseSessionSummaries_populatesFromLogs() {
+        val benchId = "erv-weight-exercise-bench-v1"
         val state = WeightLibraryState(
-            exercises = listOf(
-                WeightExercise(name = "Z Custom", muscleGroup = "zebra", pushOrPull = WeightPushPull.PUSH, equipment = WeightEquipment.DUMBBELL),
-                WeightExercise(name = "Bench", muscleGroup = "chest", pushOrPull = WeightPushPull.PUSH, equipment = WeightEquipment.BARBELL),
-                WeightExercise(name = "Antagonist", muscleGroup = "arms", pushOrPull = WeightPushPull.PULL, equipment = WeightEquipment.DUMBBELL)
+            exercises = defaultCompoundExercises(),
+            logs = listOf(
+                WeightDayLog(
+                    date = "2026-03-20",
+                    workouts = listOf(
+                        WeightWorkoutSession(
+                            id = "w1",
+                            source = WeightWorkoutSource.MANUAL,
+                            entries = listOf(
+                                WeightWorkoutEntry(benchId, listOf(WeightSet(reps = 5, weightKg = 100.0)))
+                            )
+                        )
+                    )
+                )
             )
         )
-        val groups = state.exercisesGroupedByMuscle().map { it.first }
-        assertEquals(listOf("chest", "arms", "zebra"), groups)
+        val rebuilt = state.withRebuiltExerciseSessionSummaries()
+        val bench = rebuilt.exercises.first { it.id == benchId }
+        assertEquals(1, bench.sessionSummaries.size)
+        val s = bench.sessionSummaries.first()
+        assertEquals("2026-03-20", s.date)
+        assertEquals("w1", s.workoutId)
+        assertEquals(500.0, s.volumeKg, 0.001)
+        assertNotNull(s.bestEstOneRmKg)
+        assertEquals(1, s.workingSetCount)
+    }
+
+    @Test
+    fun weightExercise_sessionSummaries_roundTrip() {
+        val ex = WeightExercise(
+            name = "Test",
+            muscleGroup = "chest",
+            pushOrPull = WeightPushPull.PUSH,
+            equipment = WeightEquipment.BARBELL,
+            sessionSummaries = listOf(
+                WeightExerciseSessionSummary(
+                    date = "2026-01-01",
+                    workoutId = "wid",
+                    volumeKg = 300.0,
+                    bestEstOneRmKg = 110.0,
+                    workingSetCount = 3
+                )
+            )
+        )
+        val encoded = json.encodeToString(WeightExercise.serializer(), ex)
+        val decoded = json.decodeFromString(WeightExercise.serializer(), encoded)
+        assertEquals(ex, decoded)
     }
 
     @Test

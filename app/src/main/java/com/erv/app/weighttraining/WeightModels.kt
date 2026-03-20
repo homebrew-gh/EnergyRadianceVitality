@@ -1,5 +1,6 @@
 package com.erv.app.weighttraining
 
+import kotlinx.serialization.EncodeDefault
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import java.time.LocalDate
@@ -25,10 +26,16 @@ enum class WeightEquipment {
 data class WeightExercise(
     val id: String = UUID.randomUUID().toString(),
     val name: String,
-    /** Lowercase slug e.g. chest, back, legs, shoulders, arms, core, or custom label */
+    /** Lowercase slug e.g. chest, back, legs, shoulders, biceps, triceps, core, or custom label */
     val muscleGroup: String,
     val pushOrPull: WeightPushPull,
-    val equipment: WeightEquipment
+    val equipment: WeightEquipment,
+    /**
+     * Per-workout rollup for this exercise only (date + workout id, volume, est. 1RM).
+     * Rebuilt from [WeightLibraryState.logs] on save; omitted when syncing the shared exercise list.
+     */
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val sessionSummaries: List<WeightExerciseSessionSummary> = emptyList()
 )
 
 @Serializable
@@ -88,10 +95,14 @@ data class WeightLibraryState(
 }
 
 private val muscleGroupDisplayOrder: List<String> =
-    listOf("chest", "back", "legs", "shoulders", "arms", "core")
+    listOf("chest", "back", "legs", "shoulders", "biceps", "triceps", "core")
 
-/** Sticky list sections: known groups first, then remaining alpha. */
-fun WeightLibraryState.exercisesGroupedByMuscle(): List<Pair<String, List<WeightExercise>>> {
+/**
+ * Same section order as the exercise library (known muscle keys first, then alpha).
+ * Used by the library list and the workout exercise picker.
+ */
+fun groupExercisesByMuscle(exercises: List<WeightExercise>): List<Pair<String, List<WeightExercise>>> {
+    if (exercises.isEmpty()) return emptyList()
     val grouped = exercises.groupBy { ex ->
         ex.muscleGroup.trim().lowercase().ifBlank { "other" }
     }
@@ -102,6 +113,10 @@ fun WeightLibraryState.exercisesGroupedByMuscle(): List<Pair<String, List<Weight
     }
     return orderedKeys.map { key -> key to grouped.getValue(key).sortedBy { it.name.lowercase() } }
 }
+
+/** Sticky list sections: known groups first, then remaining alpha. */
+fun WeightLibraryState.exercisesGroupedByMuscle(): List<Pair<String, List<WeightExercise>>> =
+    groupExercisesByMuscle(exercises)
 
 fun WeightEquipment.displayLabel(): String = when (this) {
     WeightEquipment.BARBELL -> "Barbell"

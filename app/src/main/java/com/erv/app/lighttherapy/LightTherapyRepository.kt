@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import java.time.LocalDate
+import java.util.UUID
 
 private val Context.lightTherapyDataStore: DataStore<Preferences> by preferencesDataStore(name = "erv_light_therapy")
 
@@ -36,8 +37,8 @@ class LightTherapyRepository(context: Context) {
     suspend fun currentState(): LightLibraryState =
         decodeState(appContext.lightTherapyDataStore.data.first()[Keys.STATE])
 
-    suspend fun replaceAll(state: LightLibraryState) {
-        updateState { state }
+    suspend fun replaceAll(newState: LightLibraryState) {
+        updateState { newState.withStableSessionIds() }
     }
 
     suspend fun addDevice(device: LightDevice) {
@@ -90,13 +91,23 @@ class LightTherapyRepository(context: Context) {
                 deviceName = name,
                 routineId = routineId,
                 routineName = routineName,
-                loggedAtEpochSeconds = nowEpochSeconds()
+                loggedAtEpochSeconds = nowEpochSeconds(),
+                id = UUID.randomUUID().toString()
             )
             current.copy(
                 logs = current.logs.upsert(
                     log.copy(sessions = log.sessions + session)
                 )
             )
+        }
+    }
+
+    suspend fun deleteSession(date: LocalDate, sessionId: String) {
+        updateState { current ->
+            val log = current.logFor(date) ?: return@updateState current
+            val newSessions = log.sessions.filterNot { it.id == sessionId }
+            if (newSessions.size == log.sessions.size) return@updateState current
+            current.copy(logs = current.logs.upsert(log.copy(sessions = newSessions)))
         }
     }
 
@@ -111,7 +122,7 @@ class LightTherapyRepository(context: Context) {
     private fun decodeState(raw: String?): LightLibraryState {
         if (raw.isNullOrBlank()) return LightLibraryState()
         return try {
-            json.decodeFromString(LightLibraryState.serializer(), raw)
+            json.decodeFromString(LightLibraryState.serializer(), raw).withStableSessionIds()
         } catch (_: SerializationException) {
             LightLibraryState()
         } catch (_: IllegalArgumentException) {

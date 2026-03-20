@@ -8,7 +8,7 @@ internal fun builtinCatalogBeyondCompounds(): List<WeightExercise> = listOf(
     // —— Barbell ——
     WeightExercise(id = "erv-weight-exercise-bb-incline-bench-v1", name = "Incline Bench Press", muscleGroup = "chest", pushOrPull = WeightPushPull.PUSH, equipment = WeightEquipment.BARBELL),
     WeightExercise(id = "erv-weight-exercise-bb-decline-bench-v1", name = "Decline Bench Press", muscleGroup = "chest", pushOrPull = WeightPushPull.PUSH, equipment = WeightEquipment.BARBELL),
-    WeightExercise(id = "erv-weight-exercise-bb-close-grip-bench-v1", name = "Close-Grip Bench Press", muscleGroup = "arms", pushOrPull = WeightPushPull.PUSH, equipment = WeightEquipment.BARBELL),
+    WeightExercise(id = "erv-weight-exercise-bb-close-grip-bench-v1", name = "Close-Grip Bench Press", muscleGroup = "triceps", pushOrPull = WeightPushPull.PUSH, equipment = WeightEquipment.BARBELL),
     WeightExercise(id = "erv-weight-exercise-bb-floor-press-v1", name = "Floor Press", muscleGroup = "chest", pushOrPull = WeightPushPull.PUSH, equipment = WeightEquipment.BARBELL),
     WeightExercise(id = "erv-weight-exercise-bb-bent-over-row-v1", name = "Bent-Over Row", muscleGroup = "back", pushOrPull = WeightPushPull.PULL, equipment = WeightEquipment.BARBELL),
     WeightExercise(id = "erv-weight-exercise-bb-pendlay-row-v1", name = "Pendlay Row", muscleGroup = "back", pushOrPull = WeightPushPull.PULL, equipment = WeightEquipment.BARBELL),
@@ -27,11 +27,12 @@ internal fun builtinCatalogBeyondCompounds(): List<WeightExercise> = listOf(
     WeightExercise(id = "erv-weight-exercise-bb-bulgarian-split-v1", name = "Bulgarian Split Squat", muscleGroup = "legs", pushOrPull = WeightPushPull.PUSH, equipment = WeightEquipment.BARBELL),
     WeightExercise(id = "erv-weight-exercise-bb-lunge-walk-v1", name = "Barbell Walking Lunge", muscleGroup = "legs", pushOrPull = WeightPushPull.PUSH, equipment = WeightEquipment.BARBELL),
     WeightExercise(id = "erv-weight-exercise-bb-push-press-v1", name = "Push Press", muscleGroup = "shoulders", pushOrPull = WeightPushPull.PUSH, equipment = WeightEquipment.BARBELL),
-    WeightExercise(id = "erv-weight-exercise-bb-jm-press-v1", name = "JM Press", muscleGroup = "arms", pushOrPull = WeightPushPull.PUSH, equipment = WeightEquipment.BARBELL),
-    WeightExercise(id = "erv-weight-exercise-bb-skull-crusher-v1", name = "Skull Crusher", muscleGroup = "arms", pushOrPull = WeightPushPull.PUSH, equipment = WeightEquipment.BARBELL),
-    WeightExercise(id = "erv-weight-exercise-bb-barbell-curl-v1", name = "Barbell Curl", muscleGroup = "arms", pushOrPull = WeightPushPull.PULL, equipment = WeightEquipment.BARBELL),
-    WeightExercise(id = "erv-weight-exercise-bb-drag-curl-v1", name = "Drag Curl", muscleGroup = "arms", pushOrPull = WeightPushPull.PULL, equipment = WeightEquipment.BARBELL),
-    WeightExercise(id = "erv-weight-exercise-bb-preacher-curl-v1", name = "Preacher Curl", muscleGroup = "arms", pushOrPull = WeightPushPull.PULL, equipment = WeightEquipment.BARBELL),
+    WeightExercise(id = "erv-weight-exercise-bb-jm-press-v1", name = "JM Press", muscleGroup = "triceps", pushOrPull = WeightPushPull.PUSH, equipment = WeightEquipment.BARBELL),
+    WeightExercise(id = "erv-weight-exercise-bb-skull-crusher-v1", name = "Skull Crusher", muscleGroup = "triceps", pushOrPull = WeightPushPull.PUSH, equipment = WeightEquipment.BARBELL),
+    WeightExercise(id = "erv-weight-exercise-bb-barbell-curl-v1", name = "Barbell Curl", muscleGroup = "biceps", pushOrPull = WeightPushPull.PULL, equipment = WeightEquipment.BARBELL),
+    WeightExercise(id = "erv-weight-exercise-bb-drag-curl-v1", name = "Drag Curl", muscleGroup = "biceps", pushOrPull = WeightPushPull.PULL, equipment = WeightEquipment.BARBELL),
+    WeightExercise(id = "erv-weight-exercise-bb-preacher-curl-v1", name = "Preacher Curl", muscleGroup = "biceps", pushOrPull = WeightPushPull.PULL, equipment = WeightEquipment.BARBELL),
+    WeightExercise(id = "erv-weight-exercise-bb-ezbar-curl-v1", name = "EZ-Bar Curl", muscleGroup = "biceps", pushOrPull = WeightPushPull.PULL, equipment = WeightEquipment.BARBELL),
     WeightExercise(id = "erv-weight-exercise-bb-landmine-press-v1", name = "Landmine Press", muscleGroup = "shoulders", pushOrPull = WeightPushPull.PUSH, equipment = WeightEquipment.BARBELL),
     WeightExercise(id = "erv-weight-exercise-bb-landmine-row-v1", name = "Landmine Row", muscleGroup = "back", pushOrPull = WeightPushPull.PULL, equipment = WeightEquipment.BARBELL),
     WeightExercise(id = "erv-weight-exercise-bb-rollout-v1", name = "Barbell Rollout", muscleGroup = "core", pushOrPull = WeightPushPull.PULL, equipment = WeightEquipment.BARBELL),
@@ -50,14 +51,14 @@ internal fun builtinCatalogBeyondCompounds(): List<WeightExercise> = listOf(
     WeightExercise(id = "erv-weight-exercise-db-front-raise-v1", name = "Front Raise", muscleGroup = "shoulders", pushOrPull = WeightPushPull.PUSH, equipment = WeightEquipment.DUMBBELL),
     WeightExercise(id = "erv-weight-exercise-db-rear-fly-v1", name = "Rear Delt Fly", muscleGroup = "shoulders", pushOrPull = WeightPushPull.PULL, equipment = WeightEquipment.DUMBBELL),
     WeightExercise(id = "erv-weight-exercise-db-shrug-v1", name = "Dumbbell Shrug", muscleGroup = "shoulders", pushOrPull = WeightPushPull.PULL, equipment = WeightEquipment.DUMBBELL),
-    WeightExercise(id = "erv-weight-exercise-db-curl-v1", name = "Dumbbell Curl", muscleGroup = "arms", pushOrPull = WeightPushPull.PULL, equipment = WeightEquipment.DUMBBELL),
-    WeightExercise(id = "erv-weight-exercise-db-hammer-curl-v1", name = "Hammer Curl", muscleGroup = "arms", pushOrPull = WeightPushPull.PULL, equipment = WeightEquipment.DUMBBELL),
-    WeightExercise(id = "erv-weight-exercise-db-incline-curl-v1", name = "Incline Dumbbell Curl", muscleGroup = "arms", pushOrPull = WeightPushPull.PULL, equipment = WeightEquipment.DUMBBELL),
-    WeightExercise(id = "erv-weight-exercise-db-concentration-curl-v1", name = "Concentration Curl", muscleGroup = "arms", pushOrPull = WeightPushPull.PULL, equipment = WeightEquipment.DUMBBELL),
-    WeightExercise(id = "erv-weight-exercise-db-zottman-curl-v1", name = "Zottman Curl", muscleGroup = "arms", pushOrPull = WeightPushPull.PULL, equipment = WeightEquipment.DUMBBELL),
-    WeightExercise(id = "erv-weight-exercise-db-tricep-kickback-v1", name = "Tricep Kickback", muscleGroup = "arms", pushOrPull = WeightPushPull.PUSH, equipment = WeightEquipment.DUMBBELL),
-    WeightExercise(id = "erv-weight-exercise-db-overhead-ext-v1", name = "Overhead Tricep Extension", muscleGroup = "arms", pushOrPull = WeightPushPull.PUSH, equipment = WeightEquipment.DUMBBELL),
-    WeightExercise(id = "erv-weight-exercise-db-tate-press-v1", name = "Tate Press", muscleGroup = "arms", pushOrPull = WeightPushPull.PUSH, equipment = WeightEquipment.DUMBBELL),
+    WeightExercise(id = "erv-weight-exercise-db-curl-v1", name = "Dumbbell Curl", muscleGroup = "biceps", pushOrPull = WeightPushPull.PULL, equipment = WeightEquipment.DUMBBELL),
+    WeightExercise(id = "erv-weight-exercise-db-hammer-curl-v1", name = "Hammer Curl", muscleGroup = "biceps", pushOrPull = WeightPushPull.PULL, equipment = WeightEquipment.DUMBBELL),
+    WeightExercise(id = "erv-weight-exercise-db-incline-curl-v1", name = "Incline Dumbbell Curl", muscleGroup = "biceps", pushOrPull = WeightPushPull.PULL, equipment = WeightEquipment.DUMBBELL),
+    WeightExercise(id = "erv-weight-exercise-db-concentration-curl-v1", name = "Concentration Curl", muscleGroup = "biceps", pushOrPull = WeightPushPull.PULL, equipment = WeightEquipment.DUMBBELL),
+    WeightExercise(id = "erv-weight-exercise-db-zottman-curl-v1", name = "Zottman Curl", muscleGroup = "biceps", pushOrPull = WeightPushPull.PULL, equipment = WeightEquipment.DUMBBELL),
+    WeightExercise(id = "erv-weight-exercise-db-tricep-kickback-v1", name = "Tricep Kickback", muscleGroup = "triceps", pushOrPull = WeightPushPull.PUSH, equipment = WeightEquipment.DUMBBELL),
+    WeightExercise(id = "erv-weight-exercise-db-overhead-ext-v1", name = "Overhead Tricep Extension", muscleGroup = "triceps", pushOrPull = WeightPushPull.PUSH, equipment = WeightEquipment.DUMBBELL),
+    WeightExercise(id = "erv-weight-exercise-db-tate-press-v1", name = "Tate Press", muscleGroup = "triceps", pushOrPull = WeightPushPull.PUSH, equipment = WeightEquipment.DUMBBELL),
     WeightExercise(id = "erv-weight-exercise-db-goblet-squat-v1", name = "Goblet Squat", muscleGroup = "legs", pushOrPull = WeightPushPull.PUSH, equipment = WeightEquipment.DUMBBELL),
     WeightExercise(id = "erv-weight-exercise-db-rdl-v1", name = "Dumbbell Romanian Deadlift", muscleGroup = "legs", pushOrPull = WeightPushPull.PULL, equipment = WeightEquipment.DUMBBELL),
     WeightExercise(id = "erv-weight-exercise-db-lunge-v1", name = "Dumbbell Lunge", muscleGroup = "legs", pushOrPull = WeightPushPull.PUSH, equipment = WeightEquipment.DUMBBELL),
@@ -69,6 +70,11 @@ internal fun builtinCatalogBeyondCompounds(): List<WeightExercise> = listOf(
     WeightExercise(id = "erv-weight-exercise-db-farmers-carry-v1", name = "Farmer's Carry", muscleGroup = "core", pushOrPull = WeightPushPull.PULL, equipment = WeightEquipment.DUMBBELL),
     WeightExercise(id = "erv-weight-exercise-db-renegade-row-v1", name = "Renegade Row", muscleGroup = "back", pushOrPull = WeightPushPull.PULL, equipment = WeightEquipment.DUMBBELL),
     WeightExercise(id = "erv-weight-exercise-db-swing-v1", name = "Dumbbell Swing", muscleGroup = "legs", pushOrPull = WeightPushPull.PULL, equipment = WeightEquipment.DUMBBELL),
+
+    // —— Bodyweight ——
+    WeightExercise(id = "erv-weight-exercise-bw-pullup-v1", name = "Pull-Up", muscleGroup = "back", pushOrPull = WeightPushPull.PULL, equipment = WeightEquipment.OTHER),
+    WeightExercise(id = "erv-weight-exercise-bw-chinup-v1", name = "Chin-Up", muscleGroup = "back", pushOrPull = WeightPushPull.PULL, equipment = WeightEquipment.OTHER),
+    WeightExercise(id = "erv-weight-exercise-bw-dip-v1", name = "Dip", muscleGroup = "chest", pushOrPull = WeightPushPull.PUSH, equipment = WeightEquipment.OTHER),
 
     // —— Machine / selectorized ——
     WeightExercise(id = "erv-weight-exercise-m-leg-press-v1", name = "Leg Press", muscleGroup = "legs", pushOrPull = WeightPushPull.PUSH, equipment = WeightEquipment.MACHINE),
@@ -95,10 +101,10 @@ internal fun builtinCatalogBeyondCompounds(): List<WeightExercise> = listOf(
     WeightExercise(id = "erv-weight-exercise-m-reverse-fly-machine-v1", name = "Reverse Fly Machine", muscleGroup = "shoulders", pushOrPull = WeightPushPull.PULL, equipment = WeightEquipment.MACHINE),
     WeightExercise(id = "erv-weight-exercise-m-face-pull-v1", name = "Face Pull", muscleGroup = "shoulders", pushOrPull = WeightPushPull.PULL, equipment = WeightEquipment.MACHINE),
     WeightExercise(id = "erv-weight-exercise-m-cable-crossover-v1", name = "Cable Crossover", muscleGroup = "chest", pushOrPull = WeightPushPull.PUSH, equipment = WeightEquipment.MACHINE),
-    WeightExercise(id = "erv-weight-exercise-m-tricep-pushdown-v1", name = "Tricep Pushdown", muscleGroup = "arms", pushOrPull = WeightPushPull.PUSH, equipment = WeightEquipment.MACHINE),
-    WeightExercise(id = "erv-weight-exercise-m-rope-pushdown-v1", name = "Rope Tricep Pushdown", muscleGroup = "arms", pushOrPull = WeightPushPull.PUSH, equipment = WeightEquipment.MACHINE),
-    WeightExercise(id = "erv-weight-exercise-m-overhead-cable-ext-v1", name = "Overhead Cable Extension", muscleGroup = "arms", pushOrPull = WeightPushPull.PUSH, equipment = WeightEquipment.MACHINE),
-    WeightExercise(id = "erv-weight-exercise-m-cable-curl-v1", name = "Cable Curl", muscleGroup = "arms", pushOrPull = WeightPushPull.PULL, equipment = WeightEquipment.MACHINE),
+    WeightExercise(id = "erv-weight-exercise-m-tricep-pushdown-v1", name = "Tricep Pushdown", muscleGroup = "triceps", pushOrPull = WeightPushPull.PUSH, equipment = WeightEquipment.MACHINE),
+    WeightExercise(id = "erv-weight-exercise-m-rope-pushdown-v1", name = "Rope Tricep Pushdown", muscleGroup = "triceps", pushOrPull = WeightPushPull.PUSH, equipment = WeightEquipment.MACHINE),
+    WeightExercise(id = "erv-weight-exercise-m-overhead-cable-ext-v1", name = "Overhead Cable Extension", muscleGroup = "triceps", pushOrPull = WeightPushPull.PUSH, equipment = WeightEquipment.MACHINE),
+    WeightExercise(id = "erv-weight-exercise-m-cable-curl-v1", name = "Cable Curl", muscleGroup = "biceps", pushOrPull = WeightPushPull.PULL, equipment = WeightEquipment.MACHINE),
     WeightExercise(id = "erv-weight-exercise-m-pallof-press-v1", name = "Pallof Press", muscleGroup = "core", pushOrPull = WeightPushPull.PUSH, equipment = WeightEquipment.MACHINE),
     WeightExercise(id = "erv-weight-exercise-m-cable-crunch-v1", name = "Cable Crunch", muscleGroup = "core", pushOrPull = WeightPushPull.PULL, equipment = WeightEquipment.MACHINE),
     WeightExercise(id = "erv-weight-exercise-m-back-extension-v1", name = "Back Extension", muscleGroup = "back", pushOrPull = WeightPushPull.PULL, equipment = WeightEquipment.MACHINE),
@@ -134,3 +140,24 @@ internal fun builtinCatalogBeyondCompounds(): List<WeightExercise> = listOf(
 /** Full built-in catalog: four compounds + [builtinCatalogBeyondCompounds]. */
 fun defaultCatalogExercises(): List<WeightExercise> =
     defaultCompoundExercises() + builtinCatalogBeyondCompounds()
+
+private object CatalogBicepsTricepsIds {
+    val biceps: Set<String> by lazy {
+        defaultCatalogExercises().filter { it.muscleGroup.equals("biceps", ignoreCase = true) }
+            .map { it.id }.toSet()
+    }
+    val triceps: Set<String> by lazy {
+        defaultCatalogExercises().filter { it.muscleGroup.equals("triceps", ignoreCase = true) }
+            .map { it.id }.toSet()
+    }
+}
+
+/** Maps persisted built-in exercises that still use legacy `arms` to biceps/triceps by stable id. */
+internal fun WeightExercise.withMigratedArmsMuscleGroup(): WeightExercise {
+    if (!muscleGroup.trim().equals("arms", ignoreCase = true)) return this
+    return when {
+        id in CatalogBicepsTricepsIds.triceps -> copy(muscleGroup = "triceps")
+        id in CatalogBicepsTricepsIds.biceps -> copy(muscleGroup = "biceps")
+        else -> this
+    }
+}

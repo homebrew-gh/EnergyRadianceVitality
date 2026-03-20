@@ -38,7 +38,9 @@ object WeightSync {
         signer: EventSigner,
         exercises: List<WeightExercise>
     ): Boolean {
-        val payload = WeightExercisesPayload(exercises = exercises)
+        val payload = WeightExercisesPayload(
+            exercises = exercises.map { it.copy(sessionSummaries = emptyList()) }
+        )
         val content = json.encodeToString(WeightExercisesPayload.serializer(), payload)
         return publishEvent(relayPool, signer, WEIGHT_EXERCISES_D_TAG, content)
     }

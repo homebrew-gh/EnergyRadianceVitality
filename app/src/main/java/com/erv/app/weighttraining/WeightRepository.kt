@@ -89,7 +89,7 @@ class WeightRepository(context: Context) {
     private suspend fun updateState(transform: (WeightLibraryState) -> WeightLibraryState) {
         appContext.weightTrainingDataStore.edit { prefs ->
             val current = decodeState(prefs[Keys.STATE])
-            val updated = transform(current)
+            val updated = transform(current).withRebuiltExerciseSessionSummaries()
             prefs[Keys.STATE] = json.encodeToString(WeightLibraryState.serializer(), updated)
         }
     }
@@ -106,10 +106,13 @@ class WeightRepository(context: Context) {
                 WeightLibraryState()
             }
         }
-        return when {
+        val merged = when {
             base.exercises.isEmpty() -> base.copy(exercises = defaultCatalogExercises())
             else -> base.mergeMissingCatalogExercises()
         }
+        return merged
+            .copy(exercises = merged.exercises.map { it.withMigratedArmsMuscleGroup() })
+            .withRebuiltExerciseSessionSummaries()
     }
 }
 

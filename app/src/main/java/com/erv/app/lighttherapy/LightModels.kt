@@ -1,6 +1,7 @@
 package com.erv.app.lighttherapy
 
 import kotlinx.serialization.Serializable
+import java.nio.charset.StandardCharsets
 import java.time.LocalDate
 import java.util.UUID
 
@@ -61,8 +62,30 @@ data class LightSession(
     val deviceName: String? = null,
     val routineId: String? = null,
     val routineName: String? = null,
-    val loggedAtEpochSeconds: Long = nowEpochSeconds()
+    val loggedAtEpochSeconds: Long = nowEpochSeconds(),
+    /** Stable id for delete/sync; empty in legacy JSON is filled by [LightLibraryState.withStableSessionIds]. */
+    val id: String = ""
 )
+
+/** Deterministic id for sessions stored before [LightSession.id] existed. */
+internal fun stableLegacyLightSessionId(session: LightSession): String {
+    val key = listOf(
+        session.loggedAtEpochSeconds.toString(),
+        session.minutes.toString(),
+        session.routineId.orEmpty(),
+        session.deviceId.orEmpty(),
+        session.routineName.orEmpty(),
+        session.deviceName.orEmpty()
+    ).joinToString("\u0000")
+    return UUID.nameUUIDFromBytes(key.toByteArray(StandardCharsets.UTF_8)).toString()
+}
+
+fun LightLibraryState.withStableSessionIds(): LightLibraryState =
+    copy(logs = logs.map { log ->
+        log.copy(sessions = log.sessions.map { s ->
+            if (s.id.isNotEmpty()) s else s.copy(id = stableLegacyLightSessionId(s))
+        })
+    })
 
 @Serializable
 data class LightDayLog(

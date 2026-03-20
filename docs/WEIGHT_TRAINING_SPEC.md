@@ -8,7 +8,7 @@ Use this section so work is **not repeated** across sessions. Update it when you
 
 | Stage | Status | What landed (high level) |
 |-------|--------|---------------------------|
-| **A** | Done | `WeightModels.kt`, `WeightRepository.kt` (DataStore), **`defaultCatalogExercises()`** (~115+ lifts: barbell, dumbbell, machine/cable, kettlebell + four compounds), merge new catalog IDs on load for existing users; `WeightModelsSerializationTest` |
+| **A** | Done | `WeightModels.kt`, `WeightRepository.kt` (DataStore), **`defaultCatalogExercises()`** (~119+ lifts: barbell, dumbbell, bodyweight e.g. pull-up/chin-up/dip, machine/cable, kettlebell + four compounds), merge new catalog IDs on load for existing users; `WeightModelsSerializationTest` |
 | **B** | Done | `WeightSync.kt` (kind **30078**, d-tags `erv/weight/exercises`, `erv/weight/routines`, `erv/weight/<date>`), `MainAppShell` parallel fetch + `replaceAll` |
 | **C** | Done | Activity-scoped `DashboardViewModel` in `MainActivity` → `ErvNavHost` → `DashboardScreen`; route `category/weight_training` + `WeightTrainingCategoryScreen` (placeholder: shows **dashboard date** + library counts); **Weight Training** removed from generic Coming Soon |
 | **D** | Done | `WeightTrainingCategoryScreen`: **Exercises** / **Routines** tabs, theme-aware red header (matches cardio therapy reds), muscle-group **sticky** sections, add/edit/delete exercises, build/edit/delete routines (ordered picks, reorder), **FAB** per tab; CRUD publishes `erv/weight/exercises` + `erv/weight/routines` via `WeightSync` |
@@ -16,7 +16,7 @@ Use this section so work is **not repeated** across sessions. Update it when you
 | **F** | Done | Post-finish **`WeightWorkoutSummaryFullScreen`**: log **date** (`YYYY-MM-DD`, live = today), elapsed, sets/volume, exercise lines; **Share** → Nostr **kind 1** (`t`: erv, workout, fitness) with date line in body; if `session.routineId` matches a routine, **Update routine** (confirm) → `exerciseIds` from session order with consecutive dedupe + `pushMasters` |
 | **G** | Done | **Weight training log** (`WeightTrainingLogScreen`, route `category/weight_training/log`): opened from **calendar icon** in app bar (like cardio); **DateNavigator** on the log screen (independent of dashboard date); **Add workout** (full-screen manual editor, `MANUAL` source) + **edit** + **delete** + **Share** (kind 1, log date in note); `buildSessionFromLogEditor`; shared **`WeightExerciseInlineSetsCard`** / pick dialog with live screen |
 | **H** | Done | **`DashboardScreen`**: **Weight Training** routine tile (with Cardio on second row); bottom sheet **New workout** (`tryStartBlank` + nav) or pick **weight routine** (`tryStartFromRoutine` + nav); **Activity** card lists **Weight training** lines for **`selectedDate`** via `weightActivityRowsFor` + `dashboardSummaryLine` (respects kg/lb pref) |
-| **I** | Done | **Exercise history**: `WeightLibraryState.historyForExercise` + **`WeightExerciseDetailScreen`** (route `category/weight_training/exercise/{exerciseId}`). **Exercises** tab **History** icon per lift → chronological list from all `logs` (newest day first); cards show date, Live/Manual, time, routine name, set lines (uses `formatSetSummaryLine` / display unit from Settings). |
+| **I** | Done | **Exercise history**: `WeightLibraryState.historyForExercise` + **`WeightExerciseDetailScreen`** (route `category/weight_training/exercise/{exerciseId}`). **Exercises** tab: tap a lift → detail with summary + chronological history from all `logs` (newest day first); cards show date, Live/Manual, time, routine name, set lines (uses `formatSetSummaryLine` / display unit from Settings). **`WeightExercise.sessionSummaries`**: per-workout rollups (date, `workoutId`, `volumeKg`, `bestEstOneRmKg`, set count) rebuilt from logs on every save/load; **not** sent on `erv/weight/exercises` (master list stays lean). **Edit / Delete exercise** live on the detail screen app bar, not the main list. |
 | **J** | Done | **Docs**: [PLAN_OF_ACTION.md](PLAN_OF_ACTION.md) §2.3 identifier note for weight daily logs; [PROTOCOL_GRAPH.md](PROTOCOL_GRAPH.md) §15 Nostr d-tag reference for shipped silos. |
 | **K** | Not started | FGS + notification + bubble ([spec §Stage K](WEIGHT_TRAINING_SPEC.md)) |
 
@@ -34,7 +34,7 @@ Use this section so work is **not repeated** across sessions. Update it when you
 
 **Resume next:** Stage **K** (foreground service, ongoing notification, optional bubble).
 
-**How to verify stage I:** Weight Training → **Exercises** → **History** on a lift with logged sessions → detail shows past dates and set lines; unit: `historyForExercise_sortsNewestFirst_and_filters`.
+**How to verify stage I:** Weight Training → **Exercises** → tap a lift with logged sessions → detail shows summary + past dates and set lines; unit: `historyForExercise_sortsNewestFirst_and_filters`.
 
 **How to verify stage J:** PLAN §2.3 weight identifier sentence matches **one event per day** `erv/weight/<date>`; PROTOCOL_GRAPH §15 lists weight d-tags and points here.
 
@@ -83,7 +83,7 @@ ERV currently does **last event wins per `d` tag** after fetch (`replaceAll`), l
 | F | Summary + kind-1 share (+ date line) + **Update routine** | End-to-end live |
 | G | Log tab: by `selectedDate`, manual add, edit/delete, share with date | Backfill |
 | H | Dashboard Activity + weight routine tile | Routines row + Activity lines for selected date |
-| I | Exercise detail / progress from logs | **Done:** `historyForExercise`, detail route, History icon on Exercises tab |
+| I | Exercise detail / progress from logs | **Done:** `historyForExercise`, detail route, tap exercise row on Exercises tab |
 | J | `PLAN_OF_ACTION.md` + `PROTOCOL_GRAPH.md` | **Done:** §2.3 weight log identifier clarity; PROTOCOL_GRAPH §15 d-tag reference |
 | K | FGS + notification + Bubble ([PLAN §13](PLAN_OF_ACTION.md)); Settings switch (default on); user disclosure | After E–F |
 

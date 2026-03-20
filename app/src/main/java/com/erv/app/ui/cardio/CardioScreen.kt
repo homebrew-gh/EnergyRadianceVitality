@@ -43,6 +43,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -74,6 +75,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -292,6 +294,17 @@ fun CardioCategoryScreen(
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
+        floatingActionButton = {
+            if (CardioTab.entries[activeTab] == CardioTab.Activities) {
+                FloatingActionButton(
+                    onClick = { creatingCustom = true; customEditor = null },
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = "Add custom activity")
+                }
+            }
+        },
         topBar = {
             TopAppBar(
                 title = { Text("Cardio") },
@@ -336,7 +349,6 @@ fun CardioCategoryScreen(
                 CardioTab.Activities -> ActivitiesTab(
                     state = state,
                     distanceUnit = distanceUnit,
-                    onAddCustom = { creatingCustom = true; customEditor = null },
                     onEditCustom = { customEditor = it; creatingCustom = false },
                     onDeleteCustom = { id ->
                         scope.launch {
@@ -473,13 +485,18 @@ private fun WorkoutBuilderBottomSheet(
     state: CardioLibraryState,
     weightKg: Double?,
     distanceUnit: CardioDistanceUnit,
+    /** When non-null, "Log session" is stored on this day (e.g. log screen date). Otherwise uses sheet anchor day. */
+    targetLogDate: LocalDate? = null,
+    /** Hides start timer and save routine — for backdating from the log screen only. */
+    logOnlyMode: Boolean = false,
     onDismiss: () -> Unit,
     onLog: (LocalDate, CardioSession) -> Unit,
     onSaveRoutine: (CardioRoutine) -> Unit,
     onStartTimer: (CardioTimerSessionDraft) -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val today = remember { LocalDate.now() }
+    val sheetAnchorDate = remember { LocalDate.now() }
+    val dateForLog = targetLogDate ?: sheetAnchorDate
     val template = (mode as? WorkoutBuilderMode.NewSession)?.template
     val fromActivity = (mode as? WorkoutBuilderMode.FromActivitySnapshot)?.snapshot
     val modeKey = when (mode) {
@@ -565,8 +582,12 @@ private fun WorkoutBuilderBottomSheet(
                     is WorkoutBuilderMode.FromActivitySnapshot ->
                         "Log completed — ${mode.snapshot.displayLabel}"
                     is WorkoutBuilderMode.NewSession ->
-                        if (mode.template == null) "New workout"
-                        else "Workout from ${mode.template.name}"
+                        when {
+                            logOnlyMode && mode.template == null ->
+                                "Log workout — ${dateForLog.format(DateTimeFormatter.ISO_LOCAL_DATE)}"
+                            mode.template == null -> "New workout"
+                            else -> "Workout from ${mode.template.name}"
+                        }
                 },
                 style = MaterialTheme.typography.titleLarge
             )
@@ -686,7 +707,7 @@ private fun WorkoutBuilderBottomSheet(
                         state.resolveSnapshot(selectedBuiltin, null)
                     }
                 }
-                if (snapForPace?.supportsOutdoorPaceEstimate() == true) {
+                if (!logOnlyMode && snapForPace?.supportsOutdoorPaceEstimate() == true) {
                     Text(
                         "Optional avg speed — live estimated distance on the timer (no GPS).",
                         style = MaterialTheme.typography.bodySmall,
@@ -721,33 +742,35 @@ private fun WorkoutBuilderBottomSheet(
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.fillMaxWidth()
             )
-            Text("Live timer", style = MaterialTheme.typography.labelLarge)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(
-                    selected = !useCountDownTimer,
-                    onClick = { useCountDownTimer = false },
-                    label = { Text("Count up") }
-                )
-                FilterChip(
-                    selected = useCountDownTimer,
-                    onClick = { useCountDownTimer = true },
-                    label = { Text("Count down") }
-                )
-            }
-            if (useCountDownTimer) {
-                Text(
-                    "Countdown length uses duration above.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
+            if (!logOnlyMode) {
+                Text("Live timer", style = MaterialTheme.typography.labelLarge)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = !useCountDownTimer,
+                        onClick = { useCountDownTimer = false },
+                        label = { Text("Count up") }
+                    )
+                    FilterChip(
+                        selected = useCountDownTimer,
+                        onClick = { useCountDownTimer = true },
+                        label = { Text("Count down") }
+                    )
+                }
+                if (useCountDownTimer) {
+                    Text(
+                        "Countdown length uses duration above.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
 
-            OutlinedTextField(
-                value = routineNameStr,
-                onValueChange = { routineNameStr = it },
-                label = { Text("Routine name (save only)") },
-                modifier = Modifier.fillMaxWidth()
-            )
+                OutlinedTextField(
+                    value = routineNameStr,
+                    onValueChange = { routineNameStr = it },
+                    label = { Text("Routine name (save only)") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
 
             val validationError = remember(
                 useCustom, selectedCustomId, durationStr, modality, speedStr, treadmillApplicable,
@@ -822,66 +845,77 @@ private fun WorkoutBuilderBottomSheet(
                 return CardioMetEstimator.applyEstimatedKcal(base, state, weightKg)
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            if (logOnlyMode) {
                 Button(
                     onClick = {
                         val s = buildSession(CardioSessionSource.MANUAL) ?: return@Button
-                        onLog(today, s)
+                        onLog(dateForLog, s)
                     },
-                    enabled = validationError == null && buildSnapshot() != null
+                    enabled = validationError == null && buildSnapshot() != null,
+                    modifier = Modifier.fillMaxWidth()
                 ) { Text("Log session") }
-                OutlinedButton(
+            } else {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    Button(
+                        onClick = {
+                            val s = buildSession(CardioSessionSource.MANUAL) ?: return@Button
+                            onLog(dateForLog, s)
+                        },
+                        enabled = validationError == null && buildSnapshot() != null
+                    ) { Text("Log session") }
+                    OutlinedButton(
+                        onClick = {
+                            val snap = buildSnapshot() ?: return@OutlinedButton
+                            val tm = buildTreadmill()
+                            if (modality == CardioModality.INDOOR_TREADMILL && treadmillApplicable && tm == null) return@OutlinedButton
+                            val durMin = durationStr.toIntOrNull() ?: return@OutlinedButton
+                            val pace = if (modality == CardioModality.OUTDOOR) {
+                                outdoorPaceStr.toDoubleOrNull()?.takeIf { it > 0 }
+                            } else null
+                            val paceUnit = pace?.let { outdoorPaceUnit }
+                            onStartTimer(
+                                CardioTimerSessionDraft.fromQuickSnapshot(
+                                    activity = snap,
+                                    modality = modality,
+                                    treadmill = tm,
+                                    title = snap.displayLabel,
+                                    timerStyle = if (useCountDownTimer) {
+                                        CardioTimerStyle.CountDown(durMin * 60)
+                                    } else {
+                                        CardioTimerStyle.CountUp
+                                    },
+                                    outdoorPaceSpeed = pace,
+                                    outdoorPaceSpeedUnit = paceUnit
+                                )
+                            )
+                        },
+                        enabled = validationError == null && buildSnapshot() != null
+                    ) {
+                        Icon(Icons.Default.PlayArrow, contentDescription = null)
+                        Spacer(Modifier.width(4.dp))
+                        Text("Start timer")
+                    }
+                }
+                Button(
                     onClick = {
-                        val snap = buildSnapshot() ?: return@OutlinedButton
+                        val snap = buildSnapshot() ?: return@Button
+                        val name = routineNameStr.trim().ifBlank { snap.displayLabel }
                         val tm = buildTreadmill()
-                        if (modality == CardioModality.INDOOR_TREADMILL && treadmillApplicable && tm == null) return@OutlinedButton
-                        val durMin = durationStr.toIntOrNull() ?: return@OutlinedButton
-                        val pace = if (modality == CardioModality.OUTDOOR) {
-                            outdoorPaceStr.toDoubleOrNull()?.takeIf { it > 0 }
-                        } else null
-                        val paceUnit = pace?.let { outdoorPaceUnit }
-                        onStartTimer(
-                            CardioTimerSessionDraft.fromQuickSnapshot(
+                        val duration = durationStr.toIntOrNull() ?: return@Button
+                        onSaveRoutine(
+                            CardioRoutine(
+                                name = name,
+                                steps = emptyList(),
                                 activity = snap,
                                 modality = modality,
                                 treadmill = tm,
-                                title = snap.displayLabel,
-                                timerStyle = if (useCountDownTimer) {
-                                    CardioTimerStyle.CountDown(durMin * 60)
-                                } else {
-                                    CardioTimerStyle.CountUp
-                                },
-                                outdoorPaceSpeed = pace,
-                                outdoorPaceSpeedUnit = paceUnit
+                                targetDurationMinutes = duration
                             )
                         )
                     },
                     enabled = validationError == null && buildSnapshot() != null
-                ) {
-                    Icon(Icons.Default.PlayArrow, contentDescription = null)
-                    Spacer(Modifier.width(4.dp))
-                    Text("Start timer")
-                }
+                ) { Text("Save routine") }
             }
-            Button(
-                onClick = {
-                    val snap = buildSnapshot() ?: return@Button
-                    val name = routineNameStr.trim().ifBlank { snap.displayLabel }
-                    val tm = buildTreadmill()
-                    val duration = durationStr.toIntOrNull() ?: return@Button
-                    onSaveRoutine(
-                        CardioRoutine(
-                            name = name,
-                            steps = emptyList(),
-                            activity = snap,
-                            modality = modality,
-                            treadmill = tm,
-                            targetDurationMinutes = duration
-                        )
-                    )
-                },
-                enabled = validationError == null && buildSnapshot() != null
-            ) { Text("Save routine") }
 
             if (weightKg == null) {
                 Text(
@@ -1367,7 +1401,6 @@ private fun CardioTimerStartOptionsDialog(
 private fun ActivitiesTab(
     state: CardioLibraryState,
     distanceUnit: CardioDistanceUnit,
-    onAddCustom: () -> Unit,
     onEditCustom: (CardioCustomActivityType) -> Unit,
     onDeleteCustom: (String) -> Unit,
     onStartWorkout: (CardioTimerSessionDraft) -> Unit,
@@ -1465,37 +1498,10 @@ private fun ActivitiesTab(
         ) {
             item {
                 Text(
-                    "Pick an activity. Combine several into one saved routine on the Routines tab.",
+                    "Pick an activity. Tap + to add a custom type (name and optional MET). Combine several into one saved routine on the Routines tab.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Spacer(Modifier.height(4.dp))
-                ElevatedCard(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable(onClick = onAddCustom),
-                    colors = CardDefaults.elevatedCardColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer
-                    )
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
-                            Text("Create custom activity", style = MaterialTheme.typography.titleSmall)
-                            Text(
-                                "Name and optional MET for anything not in the list",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Icon(Icons.Default.Add, contentDescription = null)
-                    }
-                }
             }
             item {
                 Text("Built-in", style = MaterialTheme.typography.labelLarge)
@@ -1525,7 +1531,7 @@ private fun ActivitiesTab(
             if (customs.isEmpty()) {
                 item {
                     Text(
-                        "No custom activities yet — use the button above to add one.",
+                        "No custom activities yet — tap + in the lower corner to add one.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -1570,14 +1576,24 @@ fun CardioLogScreen(
     userPreferences: UserPreferences,
     relayPool: RelayPool?,
     signer: EventSigner?,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    /** When set (e.g. from dashboard backfill), log screen starts on this day. */
+    initialSelectedDate: LocalDate? = null,
+    /** When true, calendar opens immediately (e.g. backfill flow from dashboard). */
+    openCalendarInitially: Boolean = false
 ) {
-    var selectedDate by remember { mutableStateOf(LocalDate.now()) }
-    var showCal by remember { mutableStateOf(false) }
+    var selectedDate by remember(initialSelectedDate) {
+        mutableStateOf(initialSelectedDate ?: LocalDate.now())
+    }
+    var showCal by remember(openCalendarInitially) {
+        mutableStateOf(openCalendarInitially)
+    }
+    var showManualLog by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<CardioSession?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val distanceUnit by userPreferences.cardioDistanceUnit.collectAsState(initial = CardioDistanceUnit.MILES)
+    val weightKg by userPreferences.fallbackBodyWeightKg.collectAsState(initial = null)
     val entries = remember(state, selectedDate) { state.chronologicalCardioLogFor(selectedDate) }
     val darkTheme = isSystemInDarkTheme()
     val therapyRedMid = if (darkTheme) ErvDarkTherapyRedMid else ErvLightTherapyRedMid
@@ -1623,7 +1639,7 @@ fun CardioLogScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
-                title = { Text("Cardio log") },
+                title = { Text("Cardio Log") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -1634,6 +1650,13 @@ fun CardioLogScreen(
                     titleContentColor = Color.White,
                     navigationIconContentColor = Color.White
                 )
+            )
+        },
+        floatingActionButton = {
+            ExtendedFloatingActionButton(
+                onClick = { showManualLog = true },
+                icon = { Icon(Icons.Default.Add, contentDescription = null) },
+                text = { Text("Add workout") }
             )
         }
     ) { padding ->
@@ -1651,7 +1674,19 @@ fun CardioLogScreen(
             HorizontalDivider()
             if (entries.isEmpty()) {
                 Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
-                    Text("No cardio logged for this date.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            "No cardio logged for this date.",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "Tap Add workout to log a session for this day.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             } else {
                 LazyColumn(
@@ -1699,6 +1734,32 @@ fun CardioLogScreen(
             selectedDate = selectedDate,
             onDateSelected = { selectedDate = it; showCal = false },
             onDismiss = { showCal = false }
+        )
+    }
+
+    if (showManualLog) {
+        WorkoutBuilderBottomSheet(
+            mode = WorkoutBuilderMode.NewSession(null),
+            state = state,
+            weightKg = weightKg,
+            distanceUnit = distanceUnit,
+            targetLogDate = selectedDate,
+            logOnlyMode = true,
+            onDismiss = { showManualLog = false },
+            onLog = { date, session ->
+                scope.launch {
+                    repository.addSession(date, session)
+                    if (relayPool != null && signer != null) {
+                        repository.currentState().logFor(date)?.let { log ->
+                            CardioSync.publishDailyLog(relayPool, signer, log)
+                        }
+                    }
+                    showManualLog = false
+                    snackbarHostState.showSnackbar("Session logged")
+                }
+            },
+            onSaveRoutine = { },
+            onStartTimer = { }
         )
     }
 }
@@ -2175,6 +2236,8 @@ fun CardioMultiLegTimerFullScreen(
     }
 }
 
+private const val CardioMetCompendiumUrl = "https://pacompendium.hhs.gov/"
+
 @Composable
 private fun CustomActivityDialog(
     existing: CardioCustomActivityType?,
@@ -2184,6 +2247,7 @@ private fun CustomActivityDialog(
 ) {
     var name by remember(existing?.id) { mutableStateOf(existing?.name ?: "") }
     var metStr by remember(existing?.id) { mutableStateOf(existing?.optionalMet?.toString() ?: "") }
+    val uriHandler = LocalUriHandler.current
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (creating) "New activity" else "Edit activity") },
@@ -2201,6 +2265,14 @@ private fun CustomActivityDialog(
                     label = { Text("MET (optional)") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     modifier = Modifier.fillMaxWidth()
+                )
+                Text(
+                    text = "Look up MET values (HHS Compendium)",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .padding(top = 2.dp)
+                        .clickable { uriHandler.openUri(CardioMetCompendiumUrl) }
                 )
             }
         },

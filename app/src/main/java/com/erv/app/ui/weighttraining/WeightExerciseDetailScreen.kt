@@ -11,6 +11,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -18,30 +21,44 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.erv.app.data.BodyWeightUnit
+import com.erv.app.nostr.EventSigner
+import com.erv.app.nostr.RelayPool
 import com.erv.app.ui.theme.ErvDarkTherapyRedMid
 import com.erv.app.ui.theme.ErvLightTherapyRedMid
 import com.erv.app.weighttraining.WeightExerciseHistoryRow
 import com.erv.app.weighttraining.WeightLibraryState
+import com.erv.app.weighttraining.WeightRepository
+import com.erv.app.weighttraining.WeightSync
 import com.erv.app.weighttraining.WeightWorkoutSession
 import com.erv.app.weighttraining.WeightWorkoutSource
 import com.erv.app.weighttraining.displayLabel
 import com.erv.app.weighttraining.formatMuscleGroupHeader
+import com.erv.app.weighttraining.formatWeightLoadNumber
 import com.erv.app.weighttraining.historyForExercise
+import com.erv.app.weighttraining.kgToPounds
 import com.erv.app.weighttraining.totalVolumeLoadTimesReps
 import com.erv.app.weighttraining.weightLoadUnitSuffix
 import java.time.Instant
 import java.time.LocalTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -49,6 +66,9 @@ fun WeightExerciseDetailScreen(
     exerciseId: String,
     library: WeightLibraryState,
     loadUnit: BodyWeightUnit,
+    repository: WeightRepository,
+    relayPool: RelayPool?,
+    signer: EventSigner?,
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -57,9 +77,21 @@ fun WeightExerciseDetailScreen(
     val darkTheme = isSystemInDarkTheme()
     val headerMid = if (darkTheme) ErvDarkTherapyRedMid else ErvLightTherapyRedMid
     val loadSuffix = weightLoadUnitSuffix(loadUnit)
+    val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
+    var showEditor by remember(exerciseId) { mutableStateOf(false) }
+    var showDeleteConfirm by remember(exerciseId) { mutableStateOf(false) }
+
+    suspend fun pushMasters() {
+        if (relayPool == null || signer == null) return
+        val s = repository.currentState()
+        WeightSync.publishExercises(relayPool, signer, s.exercises)
+        WeightSync.publishRoutines(relayPool, signer, s.routines)
+    }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text(exercise?.name ?: "Exercise") },
@@ -68,10 +100,21 @@ fun WeightExerciseDetailScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
+                actions = {
+                    if (exercise != null) {
+                        IconButton(onClick = { showEditor = true }) {
+                            Icon(Icons.Default.Edit, contentDescription = "Edit exercise")
+                        }
+                        IconButton(onClick = { showDeleteConfirm = true }) {
+                            Icon(Icons.Default.Delete, contentDescription = "Delete exercise")
+                        }
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = headerMid,
                     titleContentColor = Color.White,
-                    navigationIconContentColor = Color.White
+                    navigationIconContentColor = Color.White,
+                    actionIconContentColor = Color.White
                 )
             )
         }
@@ -101,6 +144,60 @@ fun WeightExerciseDetailScreen(
                 }
             }
             item {
+                val sums = exercise?.sessionSummaries.orEmpty()
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                ) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("Summary", style = MaterialTheme.typography.titleSmall)
+                        if (sums.isEmpty()) {
+                            Text(
+                                "No rollups yet — they fill in as you log workouts (used for trends and charts).",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        } else {
+                            val totalVolKg = sums.sumOf { it.volumeKg }
+                            val bestRm = sums.mapNotNull { it.bestEstOneRmKg }.maxOrNull()
+                            Text(
+                                "${sums.size} logged session(s) in history",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                            if (totalVolKg > 0.0) {
+                                Text(
+                                    buildString {
+                                        append("Total volume (reps × weight): ")
+                                        append("%.0f".format(totalVolKg))
+                                        append(" kg·reps")
+                                        if (loadUnit == BodyWeightUnit.LB) {
+                                            append(" (~")
+                                            append("%.0f".format(kgToPounds(totalVolKg)))
+                                            append(" lb·reps)")
+                                        }
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            if (bestRm != null) {
+                                Text(
+                                    "Best est. 1RM (Epley/Brzycki): " +
+                                        formatWeightLoadNumber(bestRm, loadUnit) + " $loadSuffix",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Text(
+                                "Last: ${sums.last().date}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+            item {
                 Text(
                     "History from your synced logs (newest first).",
                     style = MaterialTheme.typography.labelLarge,
@@ -122,6 +219,47 @@ fun WeightExerciseDetailScreen(
                 }
             }
         }
+    }
+
+    if (showEditor && exercise != null) {
+        WeightExerciseEditorDialog(
+            initial = exercise,
+            title = "Edit exercise",
+            onDismiss = { showEditor = false },
+            onSave = { draft ->
+                scope.launch {
+                    repository.upsertExercise(draft)
+                    pushMasters()
+                    snackbarHostState.showSnackbar("Exercise updated")
+                }
+                showEditor = false
+            }
+        )
+    }
+
+    if (showDeleteConfirm && exercise != null) {
+        val ex = exercise
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("Delete exercise?") },
+            text = { Text("Remove “${ex.name}” from your library? Routines that include it may need editing.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        scope.launch {
+                            repository.deleteExercise(ex.id)
+                            pushMasters()
+                            snackbarHostState.showSnackbar("Exercise removed")
+                            onBack()
+                        }
+                        showDeleteConfirm = false
+                    }
+                ) { Text("Delete") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel") }
+            }
+        )
     }
 }
 

@@ -11,6 +11,7 @@ drawable ic_stat_routine
 drawable ic_sun
 font varela_round_regular
 string app_name
+string dashboard_categories_menu
 string toast_error_generic
 string toast_event_published
 string toast_publish_failed

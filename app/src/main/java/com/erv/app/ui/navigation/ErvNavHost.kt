@@ -57,6 +57,8 @@ object Routes {
     const val supplementLog = "category/supplements/log"
     const val lightTherapyLog = "category/light_therapy/log"
     const val cardioLog = "category/cardio/log"
+    const val cardioLogOpenCalendarRoute = "category/cardio/log/open/{logDate}"
+    fun cardioLogOpenCalendar(logDateIso: String) = "category/cardio/log/open/$logDateIso"
     const val cardioCategory = "category/cardio"
     const val cardioCategoryNewWorkout = "category/cardio?openNewWorkout=true"
     const val weightTrainingCategory = "category/weight_training"
@@ -123,6 +125,11 @@ fun ErvNavHost(
                 },
                 onOpenCardioNewWorkout = {
                     navController.navigate(Routes.cardioCategoryNewWorkout) {
+                        launchSingleTop = true
+                    }
+                },
+                onOpenCardioLogBackfill = { dashboardDate ->
+                    navController.navigate(Routes.cardioLogOpenCalendar(dashboardDate.toString())) {
                         launchSingleTop = true
                     }
                 },
@@ -196,7 +203,10 @@ fun ErvNavHost(
         composable(Routes.lightTherapyLog) {
             val state = lightTherapyRepository.state.collectAsState(initial = LightLibraryState()).value
             LightLogScreen(
+                repository = lightTherapyRepository,
                 state = state,
+                relayPool = relayPool,
+                signer = signer,
                 onBack = { navController.popBackStack() }
             )
         }
@@ -243,6 +253,25 @@ fun ErvNavHost(
             )
         }
 
+        composable(
+            route = Routes.cardioLogOpenCalendarRoute,
+            arguments = listOf(navArgument("logDate") { type = NavType.StringType })
+        ) { backStackEntry ->
+            val logDateStr = backStackEntry.arguments?.getString("logDate").orEmpty()
+            val initialDate = runCatching { LocalDate.parse(logDateStr) }.getOrElse { LocalDate.now() }
+            val cardioState by cardioRepository.state.collectAsState(initial = CardioLibraryState())
+            CardioLogScreen(
+                repository = cardioRepository,
+                state = cardioState,
+                userPreferences = userPreferences,
+                relayPool = relayPool,
+                signer = signer,
+                onBack = { navController.popBackStack() },
+                initialSelectedDate = initialDate,
+                openCalendarInitially = true
+            )
+        }
+
         composable(Routes.weightTrainingCategory) {
             val selectedDate by dashboardViewModel.selectedDate.collectAsState()
             WeightTrainingCategoryScreen(
@@ -256,7 +285,7 @@ fun ErvNavHost(
                 onOpenLog = {
                     navController.navigate(Routes.weightTrainingLog) { launchSingleTop = true }
                 },
-                onOpenExerciseHistory = { exerciseId ->
+                onOpenExerciseDetail = { exerciseId ->
                     navController.navigate(Routes.weightExerciseDetail(exerciseId))
                 }
             )
@@ -300,6 +329,9 @@ fun ErvNavHost(
                 exerciseId = exerciseId,
                 library = state,
                 loadUnit = loadUnit,
+                repository = weightRepository,
+                relayPool = relayPool,
+                signer = signer,
                 onBack = { navController.popBackStack() }
             )
         }

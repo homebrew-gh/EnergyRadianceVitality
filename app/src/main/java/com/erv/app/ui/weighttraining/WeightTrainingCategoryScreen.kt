@@ -2,6 +2,7 @@ package com.erv.app.ui.weighttraining
 
 // Equipment uses FilterChips only — no MenuAnchorType / ExposedDropdownMenu (avoids Material3 API drift).
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -25,7 +26,6 @@ import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
@@ -110,7 +110,7 @@ fun WeightTrainingCategoryScreen(
     signer: EventSigner?,
     onBack: () -> Unit,
     onOpenLog: () -> Unit,
-    onOpenExerciseHistory: (String) -> Unit,
+    onOpenExerciseDetail: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val loadUnit by userPreferences.weightTrainingLoadUnit.collectAsState(initial = BodyWeightUnit.KG)
@@ -122,9 +122,7 @@ fun WeightTrainingCategoryScreen(
     var activeTab by rememberSaveable { mutableStateOf(WeightTrainingTab.Exercises.name) }
     val tabEnum = WeightTrainingTab.entries.firstOrNull { it.name == activeTab } ?: WeightTrainingTab.Exercises
 
-    var exerciseEditorTarget by remember { mutableStateOf<WeightExercise?>(null) }
     var showExerciseCreator by remember { mutableStateOf(false) }
-    var exercisePendingDelete by remember { mutableStateOf<WeightExercise?>(null) }
 
     var routineBeingEdited by remember { mutableStateOf<WeightRoutine?>(null) }
     var routinePendingDelete by remember { mutableStateOf<WeightRoutine?>(null) }
@@ -186,7 +184,7 @@ fun WeightTrainingCategoryScreen(
                         Column {
                             Text("Weight Training")
                             Text(
-                                text = "Dashboard: $dateLabel",
+                                text = dateLabel,
                                 style = MaterialTheme.typography.labelSmall,
                                 color = Color.White.copy(alpha = 0.85f)
                             )
@@ -234,9 +232,7 @@ fun WeightTrainingCategoryScreen(
                 when (tabEnum) {
                     WeightTrainingTab.Exercises -> ExercisesTabBody(
                         state = state,
-                        onEdit = { exerciseEditorTarget = it },
-                        onDeleteRequest = { exercisePendingDelete = it },
-                        onOpenHistory = onOpenExerciseHistory
+                        onOpenExerciseDetail = onOpenExerciseDetail
                     )
 
                     WeightTrainingTab.Routines -> RoutinesTabBody(
@@ -278,10 +274,7 @@ fun WeightTrainingCategoryScreen(
                 when (tabEnum) {
                     WeightTrainingTab.Exercises -> {
                         SmallFloatingActionButton(
-                            onClick = {
-                                showExerciseCreator = true
-                                exerciseEditorTarget = null
-                            }
+                            onClick = { showExerciseCreator = true }
                         ) {
                             Icon(Icons.Default.Add, contentDescription = "Add exercise")
                         }
@@ -329,29 +322,6 @@ fun WeightTrainingCategoryScreen(
         }
     }
 
-    exercisePendingDelete?.let { ex ->
-        AlertDialog(
-            onDismissRequest = { exercisePendingDelete = null },
-            title = { Text("Delete exercise?") },
-            text = { Text("Remove “${ex.name}” from your library? Routines that include it may need editing.") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        scope.launch {
-                            repository.deleteExercise(ex.id)
-                            pushMasters()
-                            snackbarHostState.showSnackbar("Exercise removed")
-                        }
-                        exercisePendingDelete = null
-                    }
-                ) { Text("Delete") }
-            },
-            dismissButton = {
-                TextButton(onClick = { exercisePendingDelete = null }) { Text("Cancel") }
-            }
-        )
-    }
-
     routinePendingDelete?.let { r ->
         AlertDialog(
             onDismissRequest = { routinePendingDelete = null },
@@ -375,23 +345,19 @@ fun WeightTrainingCategoryScreen(
         )
     }
 
-    if (showExerciseCreator || exerciseEditorTarget != null) {
-        key(exerciseEditorTarget?.id, showExerciseCreator) {
-            ExerciseEditorDialog(
-                initial = exerciseEditorTarget,
-                title = if (exerciseEditorTarget == null) "Add exercise" else "Edit exercise",
-                onDismiss = {
-                    showExerciseCreator = false
-                    exerciseEditorTarget = null
-                },
+    if (showExerciseCreator) {
+        key(showExerciseCreator) {
+            WeightExerciseEditorDialog(
+                initial = null,
+                title = "Add exercise",
+                onDismiss = { showExerciseCreator = false },
                 onSave = { draft ->
                     scope.launch {
                         repository.upsertExercise(draft)
                         pushMasters()
-                        snackbarHostState.showSnackbar(if (exerciseEditorTarget == null) "Exercise added" else "Exercise updated")
+                        snackbarHostState.showSnackbar("Exercise added")
                     }
                     showExerciseCreator = false
-                    exerciseEditorTarget = null
                 }
             )
         }
@@ -425,9 +391,7 @@ fun WeightTrainingCategoryScreen(
 @Composable
 private fun ExercisesTabBody(
     state: WeightLibraryState,
-    onEdit: (WeightExercise) -> Unit,
-    onDeleteRequest: (WeightExercise) -> Unit,
-    onOpenHistory: (String) -> Unit
+    onOpenExerciseDetail: (String) -> Unit
 ) {
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var loggedBeforeOnly by rememberSaveable { mutableStateOf(false) }
@@ -534,25 +498,13 @@ private fun ExercisesTabBody(
                         items(list, key = { it.id }) { exercise ->
                             val inRoutines = state.routines.count { r -> exercise.id in r.exerciseIds }
                             ListItem(
+                                modifier = Modifier.clickable { onOpenExerciseDetail(exercise.id) },
                                 headlineContent = { Text(exercise.name) },
                                 supportingContent = {
                                     Text(
                                         "${exercise.equipment.displayLabel()} · ${exercise.pushOrPull.displayLabel()}" +
                                             if (inRoutines > 0) " · Used in $inRoutines routine(s)" else ""
                                     )
-                                },
-                                trailingContent = {
-                                    Row {
-                                        IconButton(onClick = { onOpenHistory(exercise.id) }) {
-                                            Icon(Icons.Default.History, contentDescription = "History")
-                                        }
-                                        IconButton(onClick = { onEdit(exercise) }) {
-                                            Icon(Icons.Default.Edit, contentDescription = "Edit")
-                                        }
-                                        IconButton(onClick = { onDeleteRequest(exercise) }) {
-                                            Icon(Icons.Default.Delete, contentDescription = "Delete")
-                                        }
-                                    }
                                 }
                             )
                             HorizontalDivider()
@@ -638,92 +590,6 @@ private fun RoutinesTabBody(
             HorizontalDivider()
         }
     }
-}
-
-@Composable
-private fun ExerciseEditorDialog(
-    initial: WeightExercise?,
-    title: String,
-    onDismiss: () -> Unit,
-    onSave: (WeightExercise) -> Unit
-) {
-    var name by remember(initial?.id) { mutableStateOf(initial?.name.orEmpty()) }
-    var muscleGroup by remember(initial?.id) { mutableStateOf(initial?.muscleGroup.orEmpty()) }
-    var pushOrPull by remember(initial?.id) { mutableStateOf(initial?.pushOrPull ?: WeightPushPull.PUSH) }
-    var equipment by remember(initial?.id) { mutableStateOf(initial?.equipment ?: WeightEquipment.BARBELL) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(title) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text("Name") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
-                    value = muscleGroup,
-                    onValueChange = { muscleGroup = it },
-                    label = { Text("Muscle group") },
-                    supportingText = { Text("e.g. chest, back, legs, or a custom label") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(
-                        selected = pushOrPull == WeightPushPull.PUSH,
-                        onClick = { pushOrPull = WeightPushPull.PUSH },
-                        label = { Text("Push") }
-                    )
-                    FilterChip(
-                        selected = pushOrPull == WeightPushPull.PULL,
-                        onClick = { pushOrPull = WeightPushPull.PULL },
-                        label = { Text("Pull") }
-                    )
-                }
-                Text("Equipment", style = MaterialTheme.typography.labelLarge)
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    WeightEquipment.entries.chunked(3).forEach { rowOpts ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            rowOpts.forEach { opt ->
-                                FilterChip(
-                                    selected = equipment == opt,
-                                    onClick = { equipment = opt },
-                                    label = { Text(opt.displayLabel()) }
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    if (name.isBlank() || muscleGroup.isBlank()) return@Button
-                    onSave(
-                        WeightExercise(
-                            id = initial?.id ?: UUID.randomUUID().toString(),
-                            name = name.trim(),
-                            muscleGroup = muscleGroup.trim().lowercase(),
-                            pushOrPull = pushOrPull,
-                            equipment = equipment
-                        )
-                    )
-                },
-                enabled = name.isNotBlank() && muscleGroup.isNotBlank()
-            ) { Text("Save") }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
-        }
-    )
 }
 
 @Composable

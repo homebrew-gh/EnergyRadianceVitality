@@ -3722,6 +3722,7 @@ string character_counter_pattern
 string clear_text_end_icon_content_description
 string close_drawer
 string close_sheet
+string dashboard_categories_menu
 string default_error_message
 string default_popup_window_title
 string dropdown_menu

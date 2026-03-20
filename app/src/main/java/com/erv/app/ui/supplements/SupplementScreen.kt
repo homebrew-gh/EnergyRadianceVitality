@@ -3,6 +3,7 @@ package com.erv.app.ui.supplements
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -58,6 +59,8 @@ import com.erv.app.supplements.SupplementSync
 import com.erv.app.supplements.chronologicalSupplementLogFor
 import com.erv.app.ui.dashboard.CalendarPopup
 import com.erv.app.ui.dashboard.DateNavigator
+import com.erv.app.ui.theme.ErvDarkTherapyRedMid
+import com.erv.app.ui.theme.ErvLightTherapyRedMid
 import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDate
@@ -197,13 +200,6 @@ fun SupplementCategoryScreen(
                     onAddSupplement = {
                         creatingSupplement = true
                         supplementEditor = null
-                    },
-                    onEditSupplement = { supplementEditor = it },
-                    onDeleteSupplement = { supplementId ->
-                        scope.launch {
-                            repository.deleteSupplement(supplementId)
-                            syncMaster()
-                        }
                     },
                     onOpenDetail = onOpenSupplementDetail,
                     onTakeNow = { supplement ->
@@ -450,8 +446,6 @@ private fun RoutinesTab(
 private fun SupplementsTabContent(
     state: SupplementLibraryState,
     onAddSupplement: () -> Unit,
-    onEditSupplement: (SupplementEntry) -> Unit,
-    onDeleteSupplement: (String) -> Unit,
     onOpenDetail: (String) -> Unit,
     onTakeNow: (SupplementEntry) -> Unit,
     supplementEditor: SupplementEntry?,
@@ -511,20 +505,8 @@ private fun SupplementsTabContent(
                                 )
                             }
                             Spacer(Modifier.height(12.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                FilledTonalButton(onClick = { onTakeNow(supplement) }) {
-                                    Text("Take now")
-                                }
-                                OutlinedButton(onClick = { onEditSupplement(supplement) }) {
-                                    Icon(Icons.Default.Edit, contentDescription = null)
-                                    Spacer(Modifier.width(8.dp))
-                                    Text("Edit")
-                                }
-                                OutlinedButton(onClick = { onDeleteSupplement(supplement.id) }) {
-                                    Icon(Icons.Default.Delete, contentDescription = null)
-                                    Spacer(Modifier.width(8.dp))
-                                    Text("Delete")
-                                }
+                            FilledTonalButton(onClick = { onTakeNow(supplement) }) {
+                                Text("Take now")
                             }
                         }
                     }
@@ -571,6 +553,9 @@ fun SupplementLogScreen(
     var showCalendar by remember { mutableStateOf(false) }
     val entries = remember(state, selectedDate) { state.chronologicalSupplementLogFor(selectedDate) }
     val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
+    val darkTheme = isSystemInDarkTheme()
+    val headerMid = if (darkTheme) ErvDarkTherapyRedMid else ErvLightTherapyRedMid
 
     suspend fun syncDailyLog() {
         if (relayPool != null && signer != null) {
@@ -582,14 +567,21 @@ fun SupplementLogScreen(
     }
 
     Scaffold(
+        modifier = Modifier.fillMaxSize(),
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
-                title = { Text("Log") },
+                title = { Text("Supplement Log") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
-                }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = headerMid,
+                    titleContentColor = Color.White,
+                    navigationIconContentColor = Color.White
+                )
             )
         }
     ) { padding ->
@@ -618,11 +610,19 @@ fun SupplementLogScreen(
                         .padding(24.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        text = "No supplements logged for this date.",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = "No supplements logged for this date.",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            text = "Use Take now on the Supplements tab or your routines.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             } else {
                 LazyColumn(
@@ -632,7 +632,7 @@ fun SupplementLogScreen(
                 ) {
                     item {
                         Text(
-                            text = "Newest first. Tap delete on an entry to remove it; Activity summary updates automatically.",
+                            text = "Tap delete on an entry to remove it from this day.",
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -657,6 +657,7 @@ fun SupplementLogScreen(
                                         )
                                     }
                                     syncDailyLog()
+                                    snackbarHostState.showSnackbar("Entry removed")
                                 }
                             }
                         )
@@ -684,50 +685,40 @@ private fun SupplementLogEntryCard(
     onDelete: () -> Unit
 ) {
     ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Top
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = entry.supplementName,
-                        style = MaterialTheme.typography.titleMedium
-                    )
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        text = entry.dosageTaken,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = formatLogTime(entry.takenAtEpochSeconds),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    IconButton(
-                        onClick = onDelete,
-                        modifier = Modifier.size(40.dp)
-                    ) {
-                        Icon(
-                            Icons.Default.Delete,
-                            contentDescription = "Remove this entry"
-                        )
-                    }
-                }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.Top
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = entry.supplementName,
+                    style = MaterialTheme.typography.titleMedium
+                )
+                Text(
+                    text = entry.dosageTaken,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = entry.sourceLabel,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = formatLogTime(entry.takenAtEpochSeconds),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
-
-            Spacer(Modifier.height(8.dp))
-
-            Text(
-                text = entry.sourceLabel,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            IconButton(onClick = onDelete) {
+                Icon(
+                    Icons.Default.Delete,
+                    contentDescription = "Remove this entry"
+                )
+            }
         }
     }
 }
@@ -1181,6 +1172,8 @@ fun SupplementDetailScreen(
     var turnOffSearch by rememberSaveable(supplementId) { mutableStateOf(false) }
     /** One-time: if supplement already has NIH info when first seen, default turnOffSearch on without clobbering user later. */
     var seededTurnOffFromInfo by rememberSaveable(supplementId) { mutableStateOf(false) }
+    var showEditor by remember(supplementId) { mutableStateOf(false) }
+    var pendingDelete by remember { mutableStateOf(false) }
 
     suspend fun syncMaster() {
         if (relayPool != null && signer != null) {
@@ -1257,7 +1250,12 @@ fun SupplementDetailScreen(
                         IconButton(onClick = onBack) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                         }
-                    }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = SupplementRedMid,
+                        titleContentColor = Color.White,
+                        navigationIconContentColor = Color.White
+                    )
                 )
             }
         ) { padding ->
@@ -1273,6 +1271,35 @@ fun SupplementDetailScreen(
         return
     }
 
+    if (pendingDelete) {
+        AlertDialog(
+            onDismissRequest = { pendingDelete = false },
+            title = { Text("Delete supplement?") },
+            text = {
+                Text(
+                    "This removes \"${supplement.name}\" from your library. Steps that reference it are removed from routines.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pendingDelete = false
+                        val id = supplement.id
+                        scope.launch {
+                            repository.deleteSupplement(id)
+                            syncMaster()
+                            onBack()
+                        }
+                    }
+                ) { Text("Delete") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDelete = false }) { Text("Cancel") }
+            }
+        )
+    }
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
@@ -1282,7 +1309,21 @@ fun SupplementDetailScreen(
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
-                }
+                },
+                actions = {
+                    IconButton(onClick = { showEditor = true }) {
+                        Icon(Icons.Default.Edit, contentDescription = "Edit supplement")
+                    }
+                    IconButton(onClick = { pendingDelete = true }) {
+                        Icon(Icons.Default.Delete, contentDescription = "Delete supplement")
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = SupplementRedMid,
+                    titleContentColor = Color.White,
+                    actionIconContentColor = Color.White,
+                    navigationIconContentColor = Color.White
+                )
             )
         }
     ) { padding ->
@@ -1469,6 +1510,25 @@ fun SupplementDetailScreen(
                 }
             }
         }
+    }
+
+    if (showEditor) {
+        SupplementEditorDialog(
+            supplement = supplement,
+            creating = false,
+            onDismiss = { showEditor = false },
+            onDismissReset = { },
+            onSave = { id, name, brand, plan, notes ->
+                if (id != null) {
+                    scope.launch {
+                        repository.renameSupplement(id, name, brand, plan, notes)
+                        syncMaster()
+                        snackbarHostState.showSnackbar("Supplement updated")
+                    }
+                }
+                showEditor = false
+            }
+        )
     }
 }
 

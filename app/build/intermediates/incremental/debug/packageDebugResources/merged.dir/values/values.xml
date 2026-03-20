@@ -6,6 +6,7 @@
     <color name="erv_primary">#C45C26</color>
     <color name="erv_surface">#FFF8F0</color>
     <string name="app_name">ERV</string>
+    <string name="dashboard_categories_menu">Categories</string>
     <string name="toast_error_generic">An error occurred</string>
     <string name="toast_event_published">Saved and synced</string>
     <string name="toast_publish_failed">Something went wrong. Please try again.</string>
