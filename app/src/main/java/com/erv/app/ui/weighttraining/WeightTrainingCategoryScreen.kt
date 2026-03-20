@@ -7,8 +7,10 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -32,20 +34,21 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
@@ -476,38 +479,39 @@ private fun ExercisesTabBody(
                 }
             }
             else -> {
-                LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
+                LazyColumn(
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
                     grouped.forEach { (muscleKey, list) ->
-                        items(
-                            items = listOf(muscleKey),
-                            key = { k -> "mg_$k" }
-                        ) { key ->
-                            Surface(
-                                color = MaterialTheme.colorScheme.surfaceVariant,
-                                tonalElevation = 2.dp
-                            ) {
-                                Text(
-                                    formatMuscleGroupHeader(key),
-                                    style = MaterialTheme.typography.titleSmall,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 16.dp, vertical = 8.dp)
-                                )
-                            }
+                        item(key = "mg_$muscleKey") {
+                            Text(
+                                formatMuscleGroupHeader(muscleKey),
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(top = 4.dp, bottom = 4.dp)
+                            )
                         }
                         items(list, key = { it.id }) { exercise ->
                             val inRoutines = state.routines.count { r -> exercise.id in r.exerciseIds }
-                            ListItem(
-                                modifier = Modifier.clickable { onOpenExerciseDetail(exercise.id) },
-                                headlineContent = { Text(exercise.name) },
-                                supportingContent = {
+                            ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { onOpenExerciseDetail(exercise.id) }
+                                        .padding(16.dp)
+                                ) {
+                                    Text(exercise.name, style = MaterialTheme.typography.titleMedium)
+                                    Spacer(Modifier.height(6.dp))
                                     Text(
                                         "${exercise.equipment.displayLabel()} · ${exercise.pushOrPull.displayLabel()}" +
-                                            if (inRoutines > 0) " · Used in $inRoutines routine(s)" else ""
+                                            if (inRoutines > 0) " · Used in $inRoutines routine(s)" else "",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
-                            )
-                            HorizontalDivider()
+                            }
                         }
                     }
                 }
@@ -561,33 +565,48 @@ private fun RoutinesTabBody(
         }
         return
     }
-    LazyColumn(Modifier.fillMaxSize()) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
         items(state.routines.sortedBy { it.name.lowercase() }, key = { it.id }) { routine ->
             val preview = routine.exerciseIds.mapNotNull { id -> state.exerciseById(id)?.name }
                 .take(4)
                 .joinToString(" → ")
-            ListItem(
-                headlineContent = { Text(routine.name) },
-                supportingContent = {
+            ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp)) {
+                    Text(routine.name, style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(8.dp))
                     Text(
-                        if (preview.isNotEmpty()) "$preview${if (routine.exerciseIds.size > 4) "…" else ""}" else "No exercises — tap edit to add"
+                        if (preview.isNotEmpty()) {
+                            "$preview${if (routine.exerciseIds.size > 4) "…" else ""}"
+                        } else {
+                            "No exercises — tap Edit to add"
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                },
-                trailingContent = {
-                    Row {
-                        IconButton(onClick = { onStartRoutine(routine) }) {
-                            Icon(Icons.Default.PlayArrow, contentDescription = "Start workout from routine")
+                    Spacer(Modifier.height(12.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilledTonalButton(onClick = { onStartRoutine(routine) }) {
+                            Icon(Icons.Default.PlayArrow, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Start")
                         }
-                        IconButton(onClick = { onEdit(routine) }) {
-                            Icon(Icons.Default.Edit, contentDescription = "Edit")
+                        OutlinedButton(onClick = { onEdit(routine) }) {
+                            Icon(Icons.Default.Edit, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Edit")
                         }
-                        IconButton(onClick = { onDeleteRequest(routine) }) {
-                            Icon(Icons.Default.Delete, contentDescription = "Delete")
+                        OutlinedButton(onClick = { onDeleteRequest(routine) }) {
+                            Icon(Icons.Default.Delete, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Delete")
                         }
                     }
                 }
-            )
-            HorizontalDivider()
+            }
         }
     }
 }

@@ -3,14 +3,10 @@ package com.erv.app.ui.navigation
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import com.erv.app.R
 
 data class Category(
     val id: String,
@@ -41,12 +37,6 @@ fun CategorySheet(
             .padding(horizontal = 16.dp)
             .padding(bottom = 16.dp)
     ) {
-        Text(
-            text = stringResource(R.string.dashboard_categories_menu),
-            style = MaterialTheme.typography.titleMedium,
-            modifier = Modifier.padding(bottom = 12.dp)
-        )
-
         // 2 rows x 4 columns
         for (row in 0..1) {
             Row(
