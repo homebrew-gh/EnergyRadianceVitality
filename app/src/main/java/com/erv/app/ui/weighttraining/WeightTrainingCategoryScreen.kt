@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.item
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -339,13 +338,16 @@ private fun ExercisesTabBody(
     }
     LazyColumn(Modifier.fillMaxSize()) {
         grouped.forEach { (muscleKey, list) ->
-            item(key = "mg_$muscleKey") {
+            items(
+                items = listOf(muscleKey),
+                key = { k -> "mg_$k" }
+            ) { key ->
                 Surface(
                     color = MaterialTheme.colorScheme.surfaceVariant,
                     tonalElevation = 2.dp
                 ) {
                     Text(
-                        formatMuscleGroupHeader(muscleKey),
+                        formatMuscleGroupHeader(key),
                         style = MaterialTheme.typography.titleSmall,
                         modifier = Modifier
                             .fillMaxWidth()
