@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -19,11 +20,13 @@ import androidx.compose.material.icons.filled.Spa
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.AcUnit
+import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -64,6 +67,10 @@ import com.erv.app.cardio.effectiveSteps
 import com.erv.app.cardio.stepsSummaryLabel
 import com.erv.app.cardio.summaryLine
 import com.erv.app.data.BodyWeightUnit
+import com.erv.app.goals.GoalProgressRow
+import com.erv.app.goals.anySelectedGoalMet
+import com.erv.app.goals.computeWeeklyGoalProgress
+import com.erv.app.goals.summaryLine
 import com.erv.app.data.UserPreferences
 import com.erv.app.lighttherapy.LightTherapyRepository
 import com.erv.app.ui.cardio.CardioElapsedTimerFullScreen
@@ -109,8 +116,11 @@ private data class LightTimerSession(
 @Composable
 fun DashboardScreen(
     onNavigateToSettings: () -> Unit,
+    onNavigateToEditGoals: () -> Unit,
     onNavigateToCategory: (Category) -> Unit,
     onOpenCardioNewWorkout: () -> Unit,
+    /** Weight training manual log: opens log screen with calendar (dashboard date pre-selected). */
+    onOpenWeightLogBackfill: (LocalDate) -> Unit,
     supplementRepository: SupplementRepository,
     lightTherapyRepository: LightTherapyRepository,
     cardioRepository: CardioRepository,
@@ -133,6 +143,26 @@ fun DashboardScreen(
     val weightKg by userPreferences.fallbackBodyWeightKg.collectAsState(initial = null)
     val cardioDistanceUnit by userPreferences.cardioDistanceUnit.collectAsState(initial = CardioDistanceUnit.MILES)
     val weightTrainingLoadUnit by userPreferences.weightTrainingLoadUnit.collectAsState(initial = BodyWeightUnit.KG)
+    val selectedGoalIds by userPreferences.selectedGoalIds.collectAsState(initial = emptySet())
+    val goalsAsOfDate = LocalDate.now()
+    val weeklyGoalRows = remember(
+        goalsAsOfDate,
+        selectedGoalIds,
+        supplementState,
+        lightState,
+        cardioState,
+        weightState,
+    ) {
+        computeWeeklyGoalProgress(
+            asOfDate = goalsAsOfDate,
+            selectedGoalIds = selectedGoalIds,
+            supplementState = supplementState,
+            lightState = lightState,
+            cardioState = cardioState,
+            weightState = weightState,
+        )
+    }
+    val anyGoalMetThisWeek = remember(weeklyGoalRows) { anySelectedGoalMet(weeklyGoalRows) }
     val reminderRepository = remember(context) { RoutineReminderRepository(context) }
     val supplementRows = remember(supplementState, selectedDate) {
         supplementState.groupedSupplementActivityFor(selectedDate)
@@ -157,6 +187,7 @@ fun DashboardScreen(
     var cardioRoutinePreview by remember { mutableStateOf<CardioRoutine?>(null) }
     var cardioActiveTimer by remember { mutableStateOf<CardioActiveTimerSession?>(null) }
     var cardioWorkoutSummary by remember { mutableStateOf<CardioTimerCompletionResult?>(null) }
+    var showGoalsSheet by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val darkTheme = isSystemInDarkTheme()
     val therapyRedDark = if (darkTheme) ErvDarkTherapyRedDark else ErvLightTherapyRedDark
@@ -231,6 +262,28 @@ fun DashboardScreen(
                     }
                 },
                 actions = {
+                    Box(modifier = Modifier.size(48.dp)) {
+                        IconButton(
+                            onClick = { showGoalsSheet = true },
+                            modifier = Modifier.fillMaxSize(),
+                        ) {
+                            Icon(
+                                Icons.Filled.EmojiEvents,
+                                contentDescription = "Goals",
+                                tint = Color.White,
+                            )
+                        }
+                        if (anyGoalMetThisWeek) {
+                            Text(
+                                text = "★",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = Color(0xFFFFEA00),
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(end = 4.dp, top = 2.dp),
+                            )
+                        }
+                    }
                     IconButton(onClick = onNavigateToSettings) {
                         Icon(
                             Icons.Default.Settings,
@@ -268,11 +321,16 @@ fun DashboardScreen(
 
             Spacer(Modifier.height(20.dp))
 
-            GoalsSection()
-
-            Spacer(Modifier.height(16.dp))
+            if (selectedGoalIds.isNotEmpty()) {
+                DashboardGoalsSection(
+                    rows = weeklyGoalRows,
+                    onOpenDetails = { showGoalsSheet = true },
+                )
+                Spacer(Modifier.height(16.dp))
+            }
 
             RoutinesSection(
+                dashboardSelectedDate = selectedDate,
                 supplementRoutines = supplementState.routines,
                 lightRoutines = lightState.routines,
                 cardioRoutines = cardioState.routines,
@@ -298,7 +356,8 @@ fun DashboardScreen(
                     } else {
                         onNavigateToCategory(weightTrainingCategory)
                     }
-                }
+                },
+                onOpenWeightLogBackfill = onOpenWeightLogBackfill
             )
 
             Spacer(Modifier.height(16.dp))
@@ -322,6 +381,18 @@ fun DashboardScreen(
                         showCalendar = false
                     },
                     onDismiss = { showCalendar = false }
+                )
+            }
+
+            if (showGoalsSheet) {
+                GoalsOverviewSheet(
+                    selectedGoalIds = selectedGoalIds,
+                    progressRows = weeklyGoalRows,
+                    onDismiss = { showGoalsSheet = false },
+                    onEditGoals = {
+                        showGoalsSheet = false
+                        onNavigateToEditGoals()
+                    },
                 )
             }
 
@@ -585,39 +656,176 @@ fun DashboardScreen(
 }
 
 @Composable
-private fun GoalsSection() {
+private fun DashboardGoalsSection(
+    rows: List<GoalProgressRow>,
+    onOpenDetails: () -> Unit,
+) {
     Text(
         text = "Goals",
         style = MaterialTheme.typography.titleLarge,
-        modifier = Modifier.padding(bottom = 8.dp)
+        modifier = Modifier.padding(bottom = 8.dp),
     )
     ElevatedCard(
         modifier = Modifier.fillMaxWidth(),
-        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 4.dp)
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 4.dp),
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "This week",
+                        style = MaterialTheme.typography.titleSmall,
+                    )
+                    Text(
+                        text = "Mon–Sun · default targets",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                TextButton(onClick = onOpenDetails) {
+                    Text("Details")
+                }
+            }
+            rows.forEach { row ->
+                Spacer(Modifier.height(12.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = row.title,
+                        style = MaterialTheme.typography.labelLarge,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        text = row.summaryLine(),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (row.met) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Text(
+                    text = row.detail,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(6.dp))
+                LinearProgressIndicator(
+                    progress = { row.progress },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(6.dp)
+                        .clip(RoundedCornerShape(3.dp)),
+                    color = if (row.met) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.secondary,
+                    trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun GoalsOverviewSheet(
+    selectedGoalIds: Set<String>,
+    progressRows: List<GoalProgressRow>,
+    onDismiss: () -> Unit,
+    onEditGoals: () -> Unit,
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 24.dp),
         ) {
             Text(
-                text = "Set goals to track progress",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                text = "Goals",
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.padding(bottom = 12.dp),
             )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                text = "Goals will appear here once you configure them.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.outline
-            )
+            if (selectedGoalIds.isEmpty()) {
+                Text(
+                    text = "You have not chosen any goals yet. Use Edit goals to pick areas to focus on.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                Text(
+                    text = "This week (Mon–Sun). A ★ on the trophy appears when at least one goal reaches its default target.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 8.dp),
+                )
+                progressRows.forEach { row ->
+                    Text(
+                        text = row.title,
+                        style = MaterialTheme.typography.titleSmall,
+                        modifier = Modifier.padding(top = 10.dp),
+                    )
+                    Text(
+                        text = row.detail,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = row.summaryLine(),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = if (row.met) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurface,
+                        )
+                        if (row.met) {
+                            Text(
+                                text = "★",
+                                color = Color(0xFFFFA000),
+                                style = MaterialTheme.typography.titleMedium,
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    LinearProgressIndicator(
+                        progress = { row.progress },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(6.dp)
+                            .clip(RoundedCornerShape(3.dp)),
+                        color = if (row.met) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.secondary,
+                        trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                    )
+                }
+            }
+            Spacer(Modifier.height(20.dp))
+            Button(
+                onClick = onEditGoals,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Edit goals")
+            }
         }
     }
 }
 
 @Composable
 private fun RoutinesSection(
+    dashboardSelectedDate: LocalDate,
     supplementRoutines: List<SupplementRoutine>,
     lightRoutines: List<LightRoutine>,
     cardioRoutines: List<CardioRoutine>,
@@ -627,6 +835,7 @@ private fun RoutinesSection(
     onCardioRoutineSelected: (CardioRoutine) -> Unit,
     onOpenCardioNewWorkout: () -> Unit,
     onOpenWeightNewWorkout: () -> Unit,
+    onOpenWeightLogBackfill: (LocalDate) -> Unit,
     onWeightRoutineSelected: (WeightRoutine) -> Unit
 ) {
     var showSupplementPicker by remember { mutableStateOf(false) }
@@ -757,6 +966,10 @@ private fun RoutinesSection(
                 onOpenWeightNewWorkout()
                 showWeightPicker = false
             },
+            onLogPreviousWorkout = {
+                onOpenWeightLogBackfill(dashboardSelectedDate)
+                showWeightPicker = false
+            },
             onSelectRoutine = { routine ->
                 onWeightRoutineSelected(routine)
                 showWeightPicker = false
@@ -771,6 +984,7 @@ private fun WeightRoutinePickerSheet(
     routines: List<WeightRoutine>,
     onDismiss: () -> Unit,
     onNewWorkout: () -> Unit,
+    onLogPreviousWorkout: () -> Unit,
     onSelectRoutine: (WeightRoutine) -> Unit
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
@@ -796,6 +1010,23 @@ private fun WeightRoutinePickerSheet(
                     Text("New workout", style = MaterialTheme.typography.titleSmall)
                     Text(
                         "Open the live workout screen to log sets, or pick a saved routine below",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            Surface(
+                onClick = onLogPreviousWorkout,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 10.dp),
+                shape = MaterialTheme.shapes.medium,
+                color = MaterialTheme.colorScheme.secondaryContainer
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("Log previous workout", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "Open the weight log with the calendar — pick a day, then add or edit a manual entry",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

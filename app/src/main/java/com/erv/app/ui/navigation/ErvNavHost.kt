@@ -26,6 +26,7 @@ import com.erv.app.lighttherapy.LightTherapyRepository
 import com.erv.app.supplements.SupplementLibraryState
 import com.erv.app.ui.dashboard.DashboardScreen
 import com.erv.app.ui.dashboard.DashboardViewModel
+import com.erv.app.ui.goals.GoalsEditScreen
 import com.erv.app.ui.lighttherapy.LightLogScreen
 import com.erv.app.ui.lighttherapy.LightTherapyCategoryScreen
 import com.erv.app.ui.settings.SettingsScreen
@@ -35,11 +36,16 @@ import com.erv.app.supplements.SupplementRepository
 import com.erv.app.ui.cardio.CardioCategoryScreen
 import com.erv.app.ui.cardio.CardioLogScreen
 import com.erv.app.ui.weighttraining.WeightLiveWorkoutViewModel
+import com.erv.app.ui.weighttraining.WeightExerciseDetailScreen
 import com.erv.app.ui.weighttraining.WeightTrainingCategoryScreen
+import com.erv.app.ui.weighttraining.WeightTrainingLogScreen
+import com.erv.app.data.BodyWeightUnit
+import com.erv.app.weighttraining.WeightLibraryState
 import com.erv.app.weighttraining.WeightRepository
 import com.erv.app.ui.supplements.SupplementCategoryScreen
 import com.erv.app.ui.supplements.SupplementDetailScreen
 import com.erv.app.ui.supplements.SupplementLogScreen
+import java.time.LocalDate
 import kotlinx.coroutines.flow.StateFlow
 
 object Routes {
@@ -54,6 +60,11 @@ object Routes {
     const val cardioCategory = "category/cardio"
     const val cardioCategoryNewWorkout = "category/cardio?openNewWorkout=true"
     const val weightTrainingCategory = "category/weight_training"
+    const val weightTrainingLog = "category/weight_training/log"
+    const val weightTrainingLogOpenCalendarRoute = "category/weight_training/log/open/{logDate}"
+    fun weightTrainingLogOpenCalendar(logDateIso: String) = "category/weight_training/log/open/$logDateIso"
+    const val weightExerciseDetailRoute = "category/weight_training/exercise/{exerciseId}"
+    fun weightExerciseDetail(exerciseId: String) = "category/weight_training/exercise/$exerciseId"
 }
 
 @Composable
@@ -94,6 +105,9 @@ fun ErvNavHost(
                 onNavigateToSettings = {
                     navController.navigate(Routes.SETTINGS)
                 },
+                onNavigateToEditGoals = {
+                    navController.navigate(Routes.GOALS)
+                },
                 supplementRepository = supplementRepository,
                 lightTherapyRepository = lightTherapyRepository,
                 cardioRepository = cardioRepository,
@@ -109,6 +123,11 @@ fun ErvNavHost(
                 },
                 onOpenCardioNewWorkout = {
                     navController.navigate(Routes.cardioCategoryNewWorkout) {
+                        launchSingleTop = true
+                    }
+                },
+                onOpenWeightLogBackfill = { dashboardDate ->
+                    navController.navigate(Routes.weightTrainingLogOpenCalendar(dashboardDate.toString())) {
                         launchSingleTop = true
                     }
                 },
@@ -128,9 +147,9 @@ fun ErvNavHost(
         }
 
         composable(Routes.GOALS) {
-            ComingSoonScreen(
-                title = "Goals",
-                onBack = { navController.popBackStack() }
+            GoalsEditScreen(
+                userPreferences = userPreferences,
+                onBack = { navController.popBackStack() },
             )
         }
 
@@ -233,6 +252,54 @@ fun ErvNavHost(
                 userPreferences = userPreferences,
                 relayPool = relayPool,
                 signer = signer,
+                onBack = { navController.popBackStack() },
+                onOpenLog = {
+                    navController.navigate(Routes.weightTrainingLog) { launchSingleTop = true }
+                },
+                onOpenExerciseHistory = { exerciseId ->
+                    navController.navigate(Routes.weightExerciseDetail(exerciseId))
+                }
+            )
+        }
+
+        composable(Routes.weightTrainingLog) {
+            WeightTrainingLogScreen(
+                repository = weightRepository,
+                userPreferences = userPreferences,
+                relayPool = relayPool,
+                signer = signer,
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(
+            route = Routes.weightTrainingLogOpenCalendarRoute,
+            arguments = listOf(navArgument("logDate") { type = NavType.StringType })
+        ) { backStackEntry ->
+            val logDateStr = backStackEntry.arguments?.getString("logDate").orEmpty()
+            val initialDate = runCatching { LocalDate.parse(logDateStr) }.getOrElse { LocalDate.now() }
+            WeightTrainingLogScreen(
+                repository = weightRepository,
+                userPreferences = userPreferences,
+                relayPool = relayPool,
+                signer = signer,
+                onBack = { navController.popBackStack() },
+                initialSelectedDate = initialDate,
+                openCalendarInitially = true
+            )
+        }
+
+        composable(
+            route = Routes.weightExerciseDetailRoute,
+            arguments = listOf(navArgument("exerciseId") { type = NavType.StringType })
+        ) { backStackEntry ->
+            val exerciseId = backStackEntry.arguments?.getString("exerciseId").orEmpty()
+            val state by weightRepository.state.collectAsState(initial = WeightLibraryState())
+            val loadUnit by userPreferences.weightTrainingLoadUnit.collectAsState(initial = BodyWeightUnit.KG)
+            WeightExerciseDetailScreen(
+                exerciseId = exerciseId,
+                library = state,
+                loadUnit = loadUnit,
                 onBack = { navController.popBackStack() }
             )
         }
