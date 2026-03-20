@@ -25,6 +25,7 @@ import com.erv.app.lighttherapy.LightLibraryState
 import com.erv.app.lighttherapy.LightTherapyRepository
 import com.erv.app.supplements.SupplementLibraryState
 import com.erv.app.ui.dashboard.DashboardScreen
+import com.erv.app.ui.dashboard.DashboardViewModel
 import com.erv.app.ui.lighttherapy.LightLogScreen
 import com.erv.app.ui.lighttherapy.LightTherapyCategoryScreen
 import com.erv.app.ui.settings.SettingsScreen
@@ -33,6 +34,8 @@ import com.erv.app.cardio.CardioRepository
 import com.erv.app.supplements.SupplementRepository
 import com.erv.app.ui.cardio.CardioCategoryScreen
 import com.erv.app.ui.cardio.CardioLogScreen
+import com.erv.app.ui.weighttraining.WeightTrainingCategoryScreen
+import com.erv.app.weighttraining.WeightRepository
 import com.erv.app.ui.supplements.SupplementCategoryScreen
 import com.erv.app.ui.supplements.SupplementDetailScreen
 import com.erv.app.ui.supplements.SupplementLogScreen
@@ -49,6 +52,7 @@ object Routes {
     const val cardioLog = "category/cardio/log"
     const val cardioCategory = "category/cardio"
     const val cardioCategoryNewWorkout = "category/cardio?openNewWorkout=true"
+    const val weightTrainingCategory = "category/weight_training"
 }
 
 @Composable
@@ -57,9 +61,11 @@ fun ErvNavHost(
     keyManager: KeyManager,
     amberHost: AmberLauncherHost,
     userPreferences: UserPreferences,
+    dashboardViewModel: DashboardViewModel,
     supplementRepository: SupplementRepository,
     lightTherapyRepository: LightTherapyRepository,
     cardioRepository: CardioRepository,
+    weightRepository: WeightRepository,
     relayPool: RelayPool?,
     signer: EventSigner?,
     pendingReminderRoutineId: StateFlow<String?>,
@@ -101,7 +107,8 @@ fun ErvNavHost(
                     navController.navigate(Routes.cardioCategoryNewWorkout) {
                         launchSingleTop = true
                     }
-                }
+                },
+                viewModel = dashboardViewModel
             )
         }
 
@@ -213,6 +220,15 @@ fun ErvNavHost(
             )
         }
 
+        composable(Routes.weightTrainingCategory) {
+            val selectedDate by dashboardViewModel.selectedDate.collectAsState()
+            WeightTrainingCategoryScreen(
+                selectedDate = selectedDate,
+                repository = weightRepository,
+                onBack = { navController.popBackStack() }
+            )
+        }
+
         composable(
             route = Routes.supplementDetail("{supplementId}"),
             arguments = listOf(navArgument("supplementId") { type = NavType.StringType })
@@ -228,7 +244,7 @@ fun ErvNavHost(
         }
 
         categories.forEach { cat ->
-            if (cat.id == "supplements" || cat.id == "light_therapy" || cat.id == "cardio") return@forEach
+            if (cat.id == "supplements" || cat.id == "light_therapy" || cat.id == "cardio" || cat.id == "weight_training") return@forEach
             composable(cat.route) {
                 ComingSoonScreen(
                     title = cat.label,
