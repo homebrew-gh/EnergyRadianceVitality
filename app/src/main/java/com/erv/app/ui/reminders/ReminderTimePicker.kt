@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.scrollToItem
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
@@ -33,6 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import kotlin.math.abs
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -100,7 +102,6 @@ fun TimeWheelPickerDialog(
 
 private const val CENTER_OFFSET = 2
 
-/** Lazy row index (including spacers) whose center is nearest the viewport center. */
 private fun nearestLazyIndexToViewportCenter(listState: LazyListState): Int? {
     val layout = listState.layoutInfo
     val visible = layout.visibleItemsInfo
@@ -111,7 +112,6 @@ private fun nearestLazyIndexToViewportCenter(listState: LazyListState): Int? {
     }?.index
 }
 
-/** True when value row [valueIndex] (0..valuesLast) is aligned under the viewport center line. */
 private fun isValueRowSnapped(
     listState: LazyListState,
     valueIndex: Int,
@@ -122,8 +122,7 @@ private fun isValueRowSnapped(
     val item = layout.visibleItemsInfo.find { it.index == lazyIndex } ?: return false
     val viewportCenter = (layout.viewportStartOffset + layout.viewportEndOffset) / 2
     val rowCenter = item.offset + item.size / 2
-    val dist = abs(rowCenter - viewportCenter)
-    return dist <= tolerancePx
+    return abs(rowCenter - viewportCenter) <= tolerancePx
 }
 
 @Composable
@@ -144,7 +143,6 @@ private fun WheelPickerColumn(
     val clampedSelectedIndex = selectedIndex.coerceIn(0, values.lastIndex.coerceAtLeast(0))
     val totalItems = values.size + CENTER_OFFSET * 2
 
-    // Initial scroll only — do NOT re-scroll when parent updates from our own onSelectedIndexChange (that caused the wheel to jump).
     val listState = rememberLazyListState(
         initialFirstVisibleItemIndex = clampedSelectedIndex + CENTER_OFFSET,
         initialFirstVisibleItemScrollOffset = centerScrollOffsetPx
@@ -158,30 +156,29 @@ private fun WheelPickerColumn(
         }
     }
 
-    // Observe scroll position as well as isScrollInProgress so we re-run after programmatic scrollToItem
-    // (scrollToItem may not flip isScrollInProgress, and we need a final pass when layout settles).
+    /**
+     * Only react when [isScrollInProgress] *changes* to false — not on every scroll offset tick.
+     * Watching firstVisibleItemIndex/offset caused scrollToItem ↔ layout feedback loops (wild jumping).
+     */
     LaunchedEffect(listState, values.size) {
-        snapshotFlow {
-            Triple(
-                listState.isScrollInProgress,
-                listState.firstVisibleItemIndex,
-                listState.firstVisibleItemScrollOffset
-            )
-        }.collect { (scrolling, _, _) ->
-            if (scrolling || values.isEmpty()) return@collect
-            if (listState.layoutInfo.visibleItemsInfo.isEmpty()) return@collect
+        snapshotFlow { listState.isScrollInProgress }
+            .collect { scrolling ->
+                if (scrolling || values.isEmpty()) return@collect
+                delay(80)
+                if (listState.isScrollInProgress) return@collect
+                if (listState.layoutInfo.visibleItemsInfo.isEmpty()) return@collect
 
-            val lazyNearest = nearestLazyIndexToViewportCenter(listState) ?: return@collect
-            val valueIndex = (lazyNearest - CENTER_OFFSET).coerceIn(0, values.lastIndex)
+                val lazyNearest = nearestLazyIndexToViewportCenter(listState) ?: return@collect
+                val valueIndex = (lazyNearest - CENTER_OFFSET).coerceIn(0, values.lastIndex)
 
-            if (!isValueRowSnapped(listState, valueIndex, tolerancePx = 4)) {
-                listState.scrollToItem(
-                    index = valueIndex + CENTER_OFFSET,
-                    scrollOffset = centerScrollOffsetPx
-                )
+                if (!isValueRowSnapped(listState, valueIndex, tolerancePx = 10)) {
+                    listState.scrollToItem(
+                        index = valueIndex + CENTER_OFFSET,
+                        scrollOffset = centerScrollOffsetPx
+                    )
+                }
+                onSelectedIndexChange(valueIndex)
             }
-            onSelectedIndexChange(valueIndex)
-        }
     }
 
     Column(

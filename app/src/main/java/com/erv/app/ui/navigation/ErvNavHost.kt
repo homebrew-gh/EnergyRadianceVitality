@@ -7,6 +7,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -201,9 +202,12 @@ fun ErvNavHost(
         }
 
         composable(Routes.cardioLog) {
-            val state = cardioRepository.state.collectAsState(initial = CardioLibraryState()).value
+            val cardioState by cardioRepository.state.collectAsState(initial = CardioLibraryState())
             CardioLogScreen(
-                state = state,
+                repository = cardioRepository,
+                state = cardioState,
+                relayPool = relayPool,
+                signer = signer,
                 onBack = { navController.popBackStack() }
             )
         }

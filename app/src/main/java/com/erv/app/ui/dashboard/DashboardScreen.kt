@@ -47,6 +47,7 @@ import com.erv.app.lighttherapy.LightSync
 import com.erv.app.cardio.CardioLibraryState
 import com.erv.app.cardio.CardioActivityRow
 import com.erv.app.cardio.CardioActiveTimerSession
+import com.erv.app.cardio.CardioTimerCompletionResult
 import com.erv.app.cardio.CardioMetEstimator
 import com.erv.app.cardio.CardioMultiLegTimerState
 import com.erv.app.cardio.CardioSessionSource
@@ -62,6 +63,7 @@ import com.erv.app.data.UserPreferences
 import com.erv.app.lighttherapy.LightTherapyRepository
 import com.erv.app.ui.cardio.CardioElapsedTimerFullScreen
 import com.erv.app.ui.cardio.CardioMultiLegTimerFullScreen
+import com.erv.app.ui.cardio.CardioWorkoutSummaryFullScreen
 import com.erv.app.ui.lighttherapy.LightTherapyTimerFullScreen
 import com.erv.app.lighttherapy.LightTimeOfDay
 import com.erv.app.lighttherapy.lightActivityFor
@@ -135,6 +137,7 @@ fun DashboardScreen(
     var lightTimerSession by remember { mutableStateOf<LightTimerSession?>(null) }
     var cardioRoutinePreview by remember { mutableStateOf<CardioRoutine?>(null) }
     var cardioActiveTimer by remember { mutableStateOf<CardioActiveTimerSession?>(null) }
+    var cardioWorkoutSummary by remember { mutableStateOf<CardioTimerCompletionResult?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
     val darkTheme = isSystemInDarkTheme()
     val therapyRedDark = if (darkTheme) ErvDarkTherapyRedDark else ErvLightTherapyRedDark
@@ -451,32 +454,43 @@ fun DashboardScreen(
                 )
             }
 
-            when (val ct = cardioActiveTimer) {
+            val cSummary = cardioWorkoutSummary
+            if (cSummary != null) {
+                CardioWorkoutSummaryFullScreen(
+                    session = cSummary.session,
+                    elapsedSeconds = cSummary.elapsedSeconds,
+                    dark = therapyRedDark,
+                    mid = therapyRedMid,
+                    glow = therapyRedGlow,
+                    onDone = { cardioWorkoutSummary = null }
+                )
+            } else when (val ct = cardioActiveTimer) {
                 is CardioActiveTimerSession.Single -> {
                     val draft = ct.draft
                     CardioElapsedTimerFullScreen(
                         titleLabel = draft.title,
-                        subtitle = null,
+                        subtitle = draft.modality.label(),
                         dark = therapyRedDark,
                         mid = therapyRedMid,
                         glow = therapyRedGlow,
                         onStop = { elapsedSeconds ->
+                            val durationMinutes = max(1, (elapsedSeconds + 59) / 60)
+                            val end = nowEpochSeconds()
+                            val raw = draft.toSession(durationMinutes, end)
+                            val session = CardioMetEstimator.applyEstimatedKcal(
+                                raw,
+                                cardioRepository.currentState(),
+                                weightKg
+                            )
+                            cardioActiveTimer = null
+                            cardioWorkoutSummary = CardioTimerCompletionResult(session, elapsedSeconds)
                             scope.launch {
-                                val durationMinutes = max(1, (elapsedSeconds + 59) / 60)
-                                val raw = draft.toSession(durationMinutes, nowEpochSeconds())
-                                val session = CardioMetEstimator.applyEstimatedKcal(
-                                    raw,
-                                    cardioRepository.currentState(),
-                                    weightKg
-                                )
                                 cardioRepository.addSession(selectedDate, session)
                                 cardioRepository.currentState().logFor(selectedDate)?.let { log ->
                                     if (relayPool != null && signer != null) {
                                         CardioSync.publishDailyLog(relayPool, signer, log)
                                     }
                                 }
-                                snackbarHostState.showSnackbar("Logged ${draft.title} • ${durationMinutes} min")
-                                cardioActiveTimer = null
                             }
                         },
                         onCancel = { cardioActiveTimer = null }
@@ -491,27 +505,29 @@ fun DashboardScreen(
                         mid = therapyRedMid,
                         glow = therapyRedGlow,
                         onFinishLeg = { elapsedSeconds ->
-                            scope.launch {
-                                val durationMinutes = max(1, (elapsedSeconds + 59) / 60)
-                                val end = nowEpochSeconds()
-                                val (next, session) = CardioMetEstimator.advanceMultiLegTimer(
-                                    ct.state,
-                                    durationMinutes,
-                                    end,
-                                    cardioRepository.currentState(),
-                                    weightKg
-                                )
-                                if (session != null) {
+                            val durationMinutes = max(1, (elapsedSeconds + 59) / 60)
+                            val end = nowEpochSeconds()
+                            val (next, session) = CardioMetEstimator.advanceMultiLegTimer(
+                                ct.state,
+                                durationMinutes,
+                                end,
+                                cardioRepository.currentState(),
+                                weightKg
+                            )
+                            if (session != null) {
+                                cardioActiveTimer = null
+                                cardioWorkoutSummary = CardioTimerCompletionResult(session, null)
+                                scope.launch {
                                     cardioRepository.addSession(selectedDate, session)
                                     cardioRepository.currentState().logFor(selectedDate)?.let { log ->
                                         if (relayPool != null && signer != null) {
                                             CardioSync.publishDailyLog(relayPool, signer, log)
                                         }
                                     }
-                                    snackbarHostState.showSnackbar(session.summaryLine())
-                                    cardioActiveTimer = null
-                                } else if (next != null) {
-                                    cardioActiveTimer = CardioActiveTimerSession.Multi(next)
+                                }
+                            } else if (next != null) {
+                                cardioActiveTimer = CardioActiveTimerSession.Multi(next)
+                                scope.launch {
                                     snackbarHostState.showSnackbar("Leg saved — start next when ready")
                                 }
                             }

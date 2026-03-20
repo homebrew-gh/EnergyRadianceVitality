@@ -75,6 +75,15 @@ class CardioRepository(context: Context) {
         }
     }
 
+    suspend fun deleteSession(date: LocalDate, sessionId: String) {
+        updateState { current ->
+            val log = current.logFor(date) ?: return@updateState current
+            val newSessions = log.sessions.filterNot { it.id == sessionId }
+            if (newSessions.size == log.sessions.size) return@updateState current
+            current.copy(logs = current.logs.upsertLog(log.copy(sessions = newSessions)))
+        }
+    }
+
     private suspend fun updateState(transform: (CardioLibraryState) -> CardioLibraryState) {
         appContext.cardioDataStore.edit { prefs ->
             val current = decodeState(prefs[Keys.STATE])

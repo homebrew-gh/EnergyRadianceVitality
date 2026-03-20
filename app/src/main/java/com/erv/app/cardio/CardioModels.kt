@@ -357,6 +357,12 @@ sealed class CardioActiveTimerSession {
     data class Multi(val state: CardioMultiLegTimerState) : CardioActiveTimerSession()
 }
 
+/** Shown after Stop & log; [elapsedSeconds] is exact timer time when from a single-leg timer, else null. */
+data class CardioTimerCompletionResult(
+    val session: CardioSession,
+    val elapsedSeconds: Int?
+)
+
 fun CardioLibraryState.resolveSnapshot(
     builtin: CardioBuiltinActivity?,
     customId: String?
