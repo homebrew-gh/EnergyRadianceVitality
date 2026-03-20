@@ -3,6 +3,8 @@ package com.erv.app.ui.dashboard
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -35,6 +37,7 @@ import com.erv.app.nostr.RelayPool
 import com.erv.app.ui.navigation.Category
 import com.erv.app.ui.navigation.CategorySheet
 import com.erv.app.ui.navigation.categories
+import com.erv.app.ui.weighttraining.WeightLiveWorkoutViewModel
 import com.erv.app.supplements.SupplementLibraryState
 import com.erv.app.supplements.SupplementActivityRow
 import com.erv.app.supplements.SupplementRepository
@@ -60,6 +63,7 @@ import com.erv.app.cardio.cardioActivityRowsFor
 import com.erv.app.cardio.effectiveSteps
 import com.erv.app.cardio.stepsSummaryLabel
 import com.erv.app.cardio.summaryLine
+import com.erv.app.data.BodyWeightUnit
 import com.erv.app.data.UserPreferences
 import com.erv.app.lighttherapy.LightTherapyRepository
 import com.erv.app.ui.cardio.CardioElapsedTimerFullScreen
@@ -85,6 +89,11 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.erv.app.cardio.label
 import com.erv.app.cardio.nowEpochSeconds
+import com.erv.app.weighttraining.WeightActivityRow
+import com.erv.app.weighttraining.WeightLibraryState
+import com.erv.app.weighttraining.WeightRepository
+import com.erv.app.weighttraining.WeightRoutine
+import com.erv.app.weighttraining.weightActivityRowsFor
 import java.time.LocalDate
 import kotlin.math.max
 
@@ -105,6 +114,8 @@ fun DashboardScreen(
     supplementRepository: SupplementRepository,
     lightTherapyRepository: LightTherapyRepository,
     cardioRepository: CardioRepository,
+    weightRepository: WeightRepository,
+    weightLiveWorkoutViewModel: WeightLiveWorkoutViewModel,
     userPreferences: UserPreferences,
     relayPool: RelayPool?,
     signer: EventSigner?,
@@ -118,8 +129,10 @@ fun DashboardScreen(
     val supplementState by supplementRepository.state.collectAsState(initial = SupplementLibraryState())
     val lightState by lightTherapyRepository.state.collectAsState(initial = LightLibraryState())
     val cardioState by cardioRepository.state.collectAsState(initial = CardioLibraryState())
+    val weightState by weightRepository.state.collectAsState(initial = WeightLibraryState())
     val weightKg by userPreferences.fallbackBodyWeightKg.collectAsState(initial = null)
     val cardioDistanceUnit by userPreferences.cardioDistanceUnit.collectAsState(initial = CardioDistanceUnit.MILES)
+    val weightTrainingLoadUnit by userPreferences.weightTrainingLoadUnit.collectAsState(initial = BodyWeightUnit.KG)
     val reminderRepository = remember(context) { RoutineReminderRepository(context) }
     val supplementRows = remember(supplementState, selectedDate) {
         supplementState.groupedSupplementActivityFor(selectedDate)
@@ -130,6 +143,10 @@ fun DashboardScreen(
     val cardioRows = remember(cardioState, selectedDate, cardioDistanceUnit) {
         cardioState.cardioActivityRowsFor(selectedDate, cardioDistanceUnit)
     }
+    val weightRows = remember(weightState, selectedDate, weightTrainingLoadUnit) {
+        weightState.weightActivityRowsFor(selectedDate, weightTrainingLoadUnit)
+    }
+    val weightTrainingCategory = remember { categories.first { it.id == "weight_training" } }
     val today = remember { LocalDate.now() }
     val scope = rememberCoroutineScope()
     var showCalendar by remember { mutableStateOf(false) }
@@ -259,11 +276,29 @@ fun DashboardScreen(
                 supplementRoutines = supplementState.routines,
                 lightRoutines = lightState.routines,
                 cardioRoutines = cardioState.routines,
+                weightRoutines = weightState.routines,
                 onSupplementRoutineSelected = { routinePreview = it },
                 onLightRoutineSelected = { lightRoutinePreview = it },
                 onCardioRoutineSelected = { cardioRoutinePreview = it },
                 onOpenCardioNewWorkout = onOpenCardioNewWorkout,
-                onNavigateToCategory = onNavigateToCategory
+                onOpenWeightNewWorkout = {
+                    if (!weightLiveWorkoutViewModel.tryStartBlank()) {
+                        scope.launch {
+                            snackbarHostState.showSnackbar("Finish or cancel your live workout first.")
+                        }
+                    } else {
+                        onNavigateToCategory(weightTrainingCategory)
+                    }
+                },
+                onWeightRoutineSelected = { routine ->
+                    if (!weightLiveWorkoutViewModel.tryStartFromRoutine(routine, weightState)) {
+                        scope.launch {
+                            snackbarHostState.showSnackbar("Finish or cancel your live workout first.")
+                        }
+                    } else {
+                        onNavigateToCategory(weightTrainingCategory)
+                    }
+                }
             )
 
             Spacer(Modifier.height(16.dp))
@@ -272,7 +307,8 @@ fun DashboardScreen(
                 selectedDate = selectedDate,
                 supplementRows = supplementRows,
                 lightRows = lightRows,
-                cardioRows = cardioRows
+                cardioRows = cardioRows,
+                weightRows = weightRows
             )
 
             Spacer(Modifier.height(16.dp))
@@ -585,15 +621,18 @@ private fun RoutinesSection(
     supplementRoutines: List<SupplementRoutine>,
     lightRoutines: List<LightRoutine>,
     cardioRoutines: List<CardioRoutine>,
+    weightRoutines: List<WeightRoutine>,
     onSupplementRoutineSelected: (SupplementRoutine) -> Unit,
     onLightRoutineSelected: (LightRoutine) -> Unit,
     onCardioRoutineSelected: (CardioRoutine) -> Unit,
     onOpenCardioNewWorkout: () -> Unit,
-    onNavigateToCategory: (Category) -> Unit
+    onOpenWeightNewWorkout: () -> Unit,
+    onWeightRoutineSelected: (WeightRoutine) -> Unit
 ) {
     var showSupplementPicker by remember { mutableStateOf(false) }
     var showLightPicker by remember { mutableStateOf(false) }
     var showCardioPicker by remember { mutableStateOf(false) }
+    var showWeightPicker by remember { mutableStateOf(false) }
 
     Text(
         text = "Routines",
@@ -607,55 +646,69 @@ private fun RoutinesSection(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             if (supplementRoutines.isEmpty() && lightRoutines.isEmpty()) {
                 Text(
-                    text = "Create supplement or light routines, or tap Cardio to log a workout.",
+                    text = "Create supplement or light routines, or use Cardio / Weight Training to log a workout.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Spacer(Modifier.height(8.dp))
+            }
+            if (supplementRoutines.isNotEmpty() || lightRoutines.isNotEmpty()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    if (supplementRoutines.isNotEmpty()) {
+                        RoutineTile(
+                            icon = Icons.Default.Medication,
+                            label = "Supplements",
+                            subtitle = if (supplementRoutines.size == 1) "1 routine" else "${supplementRoutines.size} routines",
+                            onClick = {
+                                if (supplementRoutines.size == 1) {
+                                    onSupplementRoutineSelected(supplementRoutines.first())
+                                } else {
+                                    showSupplementPicker = true
+                                }
+                            },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    if (lightRoutines.isNotEmpty()) {
+                        RoutineTile(
+                            icon = Icons.Default.WbSunny,
+                            label = "Light Therapy",
+                            subtitle = if (lightRoutines.size == 1) "1 routine" else "${lightRoutines.size} routines",
+                            onClick = {
+                                if (lightRoutines.size == 1) {
+                                    onLightRoutineSelected(lightRoutines.first())
+                                } else {
+                                    showLightPicker = true
+                                }
+                            },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
             }
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                if (supplementRoutines.isNotEmpty()) {
-                    RoutineTile(
-                        icon = Icons.Default.Medication,
-                        label = "Supplements",
-                        subtitle = if (supplementRoutines.size == 1) "1 routine" else "${supplementRoutines.size} routines",
-                        onClick = {
-                            if (supplementRoutines.size == 1) {
-                                onSupplementRoutineSelected(supplementRoutines.first())
-                            } else {
-                                showSupplementPicker = true
-                            }
-                        },
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-                if (lightRoutines.isNotEmpty()) {
-                    RoutineTile(
-                        icon = Icons.Default.WbSunny,
-                        label = "Light Therapy",
-                        subtitle = if (lightRoutines.size == 1) "1 routine" else "${lightRoutines.size} routines",
-                        onClick = {
-                            if (lightRoutines.size == 1) {
-                                onLightRoutineSelected(lightRoutines.first())
-                            } else {
-                                showLightPicker = true
-                            }
-                        },
-                        modifier = Modifier.weight(1f)
-                    )
-                }
                 RoutineTile(
                     icon = Icons.Default.DirectionsRun,
                     label = "Cardio",
                     subtitle = if (cardioRoutines.isEmpty()) "New workout" else "${cardioRoutines.size} routines",
                     onClick = { showCardioPicker = true },
+                    modifier = Modifier.weight(1f)
+                )
+                RoutineTile(
+                    icon = Icons.Default.FitnessCenter,
+                    label = "Weight Training",
+                    subtitle = if (weightRoutines.isEmpty()) "New workout" else "${weightRoutines.size} routines",
+                    onClick = { showWeightPicker = true },
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -696,6 +749,99 @@ private fun RoutinesSection(
             }
         )
     }
+    if (showWeightPicker) {
+        WeightRoutinePickerSheet(
+            routines = weightRoutines,
+            onDismiss = { showWeightPicker = false },
+            onNewWorkout = {
+                onOpenWeightNewWorkout()
+                showWeightPicker = false
+            },
+            onSelectRoutine = { routine ->
+                onWeightRoutineSelected(routine)
+                showWeightPicker = false
+            }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun WeightRoutinePickerSheet(
+    routines: List<WeightRoutine>,
+    onDismiss: () -> Unit,
+    onNewWorkout: () -> Unit,
+    onSelectRoutine: (WeightRoutine) -> Unit
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 24.dp)
+        ) {
+            Text(
+                "Weight Training",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(bottom = 12.dp)
+            )
+            // Always first: quick path to live workout (same pattern as Cardio sheet).
+            Surface(
+                onClick = onNewWorkout,
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.medium,
+                color = MaterialTheme.colorScheme.primaryContainer
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("New workout", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "Open the live workout screen to log sets, or pick a saved routine below",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            if (routines.isNotEmpty()) {
+                HorizontalDivider(
+                    modifier = Modifier.padding(top = 16.dp, bottom = 8.dp),
+                    color = MaterialTheme.colorScheme.outlineVariant
+                )
+                Text(
+                    "Routines",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 400.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    items(routines, key = { it.id }) { routine ->
+                        Surface(
+                            onClick = { onSelectRoutine(routine) },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = MaterialTheme.shapes.medium
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Text(
+                                    routine.name.ifBlank { "Routine" },
+                                    style = MaterialTheme.typography.bodyLarge
+                                )
+                                val n = routine.exerciseIds.size
+                                Text(
+                                    if (n == 1) "1 exercise" else "$n exercises",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -720,9 +866,7 @@ private fun CardioRoutinePickerSheet(
             )
             Surface(
                 onClick = onNewWorkout,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 8.dp),
+                modifier = Modifier.fillMaxWidth(),
                 shape = MaterialTheme.shapes.medium,
                 color = MaterialTheme.colorScheme.primaryContainer
             ) {
@@ -735,32 +879,49 @@ private fun CardioRoutinePickerSheet(
                     )
                 }
             }
-            routines.forEach { routine ->
-                Surface(
-                    onClick = { onSelectRoutine(routine) },
+            if (routines.isNotEmpty()) {
+                HorizontalDivider(
+                    modifier = Modifier.padding(top = 16.dp, bottom = 8.dp),
+                    color = MaterialTheme.colorScheme.outlineVariant
+                )
+                Text(
+                    "Routines",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+                LazyColumn(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 4.dp),
-                    shape = MaterialTheme.shapes.medium
+                        .heightIn(max = 400.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text(routine.name, style = MaterialTheme.typography.bodyLarge)
-                        val legs = routine.effectiveSteps()
-                        val sub = buildString {
-                            append(routine.stepsSummaryLabel())
-                            append(" • ")
-                            append(legs.firstOrNull()?.modality?.label() ?: routine.modality.label())
-                            val tgt = if (legs.size > 1) {
-                                legs.mapNotNull { it.targetDurationMinutes }.takeIf { it.size == legs.size }?.sum()
-                            } else null
-                            val minHint = tgt ?: routine.targetDurationMinutes
-                            minHint?.let { append(" • $it min") }
+                    items(routines, key = { it.id }) { routine ->
+                        Surface(
+                            onClick = { onSelectRoutine(routine) },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = MaterialTheme.shapes.medium
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Text(routine.name, style = MaterialTheme.typography.bodyLarge)
+                                val legs = routine.effectiveSteps()
+                                val sub = buildString {
+                                    append(routine.stepsSummaryLabel())
+                                    append(" • ")
+                                    append(legs.firstOrNull()?.modality?.label() ?: routine.modality.label())
+                                    val tgt = if (legs.size > 1) {
+                                        legs.mapNotNull { it.targetDurationMinutes }.takeIf { it.size == legs.size }?.sum()
+                                    } else null
+                                    val minHint = tgt ?: routine.targetDurationMinutes
+                                    minHint?.let { append(" • $it min") }
+                                }
+                                Text(
+                                    sub,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
-                        Text(
-                            sub,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
                     }
                 }
             }
@@ -907,7 +1068,8 @@ private fun ActivitySection(
     selectedDate: LocalDate,
     supplementRows: List<SupplementActivityRow>,
     lightRows: List<LightActivityRow>,
-    cardioRows: List<CardioActivityRow>
+    cardioRows: List<CardioActivityRow>,
+    weightRows: List<WeightActivityRow>
 ) {
     Text(
         text = "Activity",
@@ -926,8 +1088,9 @@ private fun ActivitySection(
             val hasSupplements = supplementRows.isNotEmpty()
             val hasLight = lightRows.isNotEmpty()
             val hasCardio = cardioRows.isNotEmpty()
+            val hasWeight = weightRows.isNotEmpty()
 
-            if (!hasSupplements && !hasLight && !hasCardio) {
+            if (!hasSupplements && !hasLight && !hasCardio && !hasWeight) {
                 Text(
                     text = "No activity logged yet.",
                     style = MaterialTheme.typography.bodySmall,
@@ -961,6 +1124,18 @@ private fun ActivitySection(
                     if (hasSupplements || hasLight) Spacer(Modifier.height(12.dp))
                     ActivityCategorySection(title = "Cardio") {
                         cardioRows.forEach { row ->
+                            Text(
+                                text = row.summaryLine,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+                if (hasWeight) {
+                    if (hasSupplements || hasLight || hasCardio) Spacer(Modifier.height(12.dp))
+                    ActivityCategorySection(title = "Weight training") {
+                        weightRows.forEach { row ->
                             Text(
                                 text = row.summaryLine,
                                 style = MaterialTheme.typography.bodyMedium,

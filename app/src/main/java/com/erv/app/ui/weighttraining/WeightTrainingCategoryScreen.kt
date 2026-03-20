@@ -4,6 +4,7 @@ package com.erv.app.ui.weighttraining
 
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -24,12 +25,14 @@ import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -62,11 +65,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import com.erv.app.data.BodyWeightUnit
+import com.erv.app.data.UserPreferences
 import com.erv.app.nostr.EventSigner
 import com.erv.app.nostr.RelayPool
 import com.erv.app.ui.theme.ErvDarkTherapyRedDark
+import com.erv.app.ui.theme.ErvDarkTherapyRedGlow
 import com.erv.app.ui.theme.ErvDarkTherapyRedMid
 import com.erv.app.ui.theme.ErvLightTherapyRedDark
+import com.erv.app.ui.theme.ErvLightTherapyRedGlow
 import com.erv.app.ui.theme.ErvLightTherapyRedMid
 import com.erv.app.weighttraining.WeightEquipment
 import com.erv.app.weighttraining.WeightExercise
@@ -74,8 +81,10 @@ import com.erv.app.weighttraining.WeightLibraryState
 import com.erv.app.weighttraining.WeightPushPull
 import com.erv.app.weighttraining.WeightRepository
 import com.erv.app.weighttraining.WeightRoutine
+import com.erv.app.weighttraining.WeightWorkoutSession
 import com.erv.app.weighttraining.WeightSync
 import com.erv.app.weighttraining.displayLabel
+import com.erv.app.weighttraining.toFinishedLiveSession
 import com.erv.app.weighttraining.exercisesGroupedByMuscle
 import com.erv.app.weighttraining.formatMuscleGroupHeader
 import java.time.LocalDate
@@ -83,18 +92,28 @@ import java.time.format.DateTimeFormatter
 import java.util.UUID
 import kotlinx.coroutines.launch
 
-private enum class WeightTrainingTab { Exercises, Routines }
+private enum class WeightTrainingTab { Exercises, Routines, Log }
+
+private sealed class WeightLogEditorState {
+    data object Hidden : WeightLogEditorState()
+    data object NewWorkout : WeightLogEditorState()
+    data class Editing(val session: WeightWorkoutSession) : WeightLogEditorState()
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WeightTrainingCategoryScreen(
     selectedDate: LocalDate,
     repository: WeightRepository,
+    liveWorkoutViewModel: WeightLiveWorkoutViewModel,
+    userPreferences: UserPreferences,
     relayPool: RelayPool?,
     signer: EventSigner?,
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val loadUnit by userPreferences.weightTrainingLoadUnit.collectAsState(initial = BodyWeightUnit.KG)
+    val liveDraft by liveWorkoutViewModel.activeDraft.collectAsState()
     val state by repository.state.collectAsState(initial = WeightLibraryState())
     val dateLabel = selectedDate.format(DateTimeFormatter.ISO_LOCAL_DATE)
     val scope = rememberCoroutineScope()
@@ -109,15 +128,25 @@ fun WeightTrainingCategoryScreen(
     var routineBeingEdited by remember { mutableStateOf<WeightRoutine?>(null) }
     var routinePendingDelete by remember { mutableStateOf<WeightRoutine?>(null) }
 
+    var manualLogEditor by remember { mutableStateOf<WeightLogEditorState>(WeightLogEditorState.Hidden) }
+    var workoutPendingDelete by remember { mutableStateOf<WeightWorkoutSession?>(null) }
+
     val darkTheme = isSystemInDarkTheme()
     val headerDark = if (darkTheme) ErvDarkTherapyRedDark else ErvLightTherapyRedDark
     val headerMid = if (darkTheme) ErvDarkTherapyRedMid else ErvLightTherapyRedMid
+    val headerGlow = if (darkTheme) ErvDarkTherapyRedGlow else ErvLightTherapyRedGlow
 
     suspend fun pushMasters() {
         if (relayPool == null || signer == null) return
         val s = repository.currentState()
         WeightSync.publishExercises(relayPool, signer, s.exercises)
         WeightSync.publishRoutines(relayPool, signer, s.routines)
+    }
+
+    suspend fun pushDayLog(date: LocalDate) {
+        if (relayPool == null || signer == null) return
+        val log = repository.currentState().logFor(date) ?: return
+        WeightSync.publishDayLog(relayPool, signer, log)
     }
 
     LaunchedEffect(relayPool, signer?.publicKey) {
@@ -128,96 +157,276 @@ fun WeightTrainingCategoryScreen(
         }
     }
 
-    Scaffold(
-        modifier = modifier,
-        snackbarHost = { SnackbarHost(snackbarHostState) },
-        topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text("Weight Training")
-                        Text(
-                            text = "Dashboard: $dateLabel",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = Color.White.copy(alpha = 0.85f)
+    var completedSessionForSummary by remember { mutableStateOf<WeightWorkoutSession?>(null) }
+
+    val summarySession = completedSessionForSummary
+    if (summarySession != null) {
+        WeightWorkoutSummaryFullScreen(
+            session = summarySession,
+            logDate = LocalDate.now(),
+            library = state,
+            loadUnit = loadUnit,
+            dark = headerDark,
+            mid = headerMid,
+            glow = headerGlow,
+            relayPool = relayPool,
+            signer = signer,
+            repository = repository,
+            onAfterRoutineSync = { scope.launch { pushMasters() } },
+            onDone = { completedSessionForSummary = null }
+        )
+        return
+    }
+
+    when (val logEditor = manualLogEditor) {
+        WeightLogEditorState.Hidden -> Unit
+        WeightLogEditorState.NewWorkout -> {
+            WeightManualWorkoutEditorScreen(
+                existingSession = null,
+                library = state,
+                loadUnit = loadUnit,
+                onLoadUnitChange = { u -> scope.launch { userPreferences.setWeightTrainingLoadUnit(u) } },
+                onDismiss = { manualLogEditor = WeightLogEditorState.Hidden },
+                onSave = { session ->
+                    scope.launch {
+                        repository.addWorkout(selectedDate, session)
+                        pushDayLog(selectedDate)
+                        manualLogEditor = WeightLogEditorState.Hidden
+                        snackbarHostState.showSnackbar("Workout saved")
+                    }
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+            return
+        }
+        is WeightLogEditorState.Editing -> {
+            WeightManualWorkoutEditorScreen(
+                existingSession = logEditor.session,
+                library = state,
+                loadUnit = loadUnit,
+                onLoadUnitChange = { u -> scope.launch { userPreferences.setWeightTrainingLoadUnit(u) } },
+                onDismiss = { manualLogEditor = WeightLogEditorState.Hidden },
+                onSave = { session ->
+                    scope.launch {
+                        repository.updateWorkout(selectedDate, session)
+                        pushDayLog(selectedDate)
+                        manualLogEditor = WeightLogEditorState.Hidden
+                        snackbarHostState.showSnackbar("Workout updated")
+                    }
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+            return
+        }
+    }
+
+    Box(modifier = modifier.fillMaxSize()) {
+        Scaffold(
+            modifier = Modifier.fillMaxSize(),
+            snackbarHost = { SnackbarHost(snackbarHostState) },
+            topBar = {
+                TopAppBar(
+                    title = {
+                        Column {
+                            Text("Weight Training")
+                            Text(
+                                text = "Dashboard: $dateLabel",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color.White.copy(alpha = 0.85f)
+                            )
+                        }
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = headerMid,
+                        titleContentColor = Color.White,
+                        navigationIconContentColor = Color.White,
+                        actionIconContentColor = Color.White
+                    )
+                )
+            },
+            floatingActionButton = {
+                if (liveDraft == null) {
+                    when (tabEnum) {
+                        WeightTrainingTab.Exercises -> {
+                            Column(
+                                horizontalAlignment = Alignment.End,
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                SmallFloatingActionButton(
+                                    onClick = {
+                                        showExerciseCreator = true
+                                        exerciseEditorTarget = null
+                                    }
+                                ) {
+                                    Icon(Icons.Default.Add, contentDescription = "Add exercise")
+                                }
+                                ExtendedFloatingActionButton(
+                                    onClick = {
+                                        if (!liveWorkoutViewModel.tryStartBlank()) {
+                                            scope.launch {
+                                                snackbarHostState.showSnackbar("Finish or cancel your live workout first.")
+                                            }
+                                        }
+                                    },
+                                    icon = { Icon(Icons.Default.PlayArrow, contentDescription = null) },
+                                    text = { Text("Start workout") }
+                                )
+                            }
+                        }
+                        WeightTrainingTab.Routines -> {
+                            ExtendedFloatingActionButton(
+                                onClick = {
+                                    routineBeingEdited = WeightRoutine(
+                                        id = UUID.randomUUID().toString(),
+                                        name = "",
+                                        exerciseIds = emptyList()
+                                    )
+                                },
+                                icon = { Icon(Icons.Default.Add, contentDescription = null) },
+                                text = { Text("Add routine") }
+                            )
+                        }
+                        WeightTrainingTab.Log -> {
+                            ExtendedFloatingActionButton(
+                                onClick = { manualLogEditor = WeightLogEditorState.NewWorkout },
+                                icon = { Icon(Icons.Default.Add, contentDescription = null) },
+                                text = { Text("Add workout") }
+                            )
+                        }
+                    }
+                }
+            }
+        ) { padding ->
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+            ) {
+                TabRow(
+                    selectedTabIndex = tabEnum.ordinal,
+                    containerColor = headerDark,
+                    contentColor = Color.White
+                ) {
+                    WeightTrainingTab.entries.forEach { tab ->
+                        Tab(
+                            selected = tabEnum == tab,
+                            onClick = { activeTab = tab.name },
+                            text = { Text(tab.name) }
                         )
                     }
+                }
+
+                when (tabEnum) {
+                    WeightTrainingTab.Exercises -> ExercisesTabBody(
+                        grouped = state.exercisesGroupedByMuscle(),
+                        state = state,
+                        onEdit = { exerciseEditorTarget = it },
+                        onDeleteRequest = { exercisePendingDelete = it }
+                    )
+
+                    WeightTrainingTab.Routines -> RoutinesTabBody(
+                        state = state,
+                        onEdit = { routineBeingEdited = it },
+                        onDeleteRequest = { routinePendingDelete = it },
+                        onStartRoutine = { routine ->
+                            if (!liveWorkoutViewModel.tryStartFromRoutine(routine, state)) {
+                                scope.launch {
+                                    snackbarHostState.showSnackbar("Finish or cancel your live workout first.")
+                                }
+                            }
+                        }
+                    )
+
+                    WeightTrainingTab.Log -> {
+                        val dayWorkouts = state.logFor(selectedDate)?.workouts.orEmpty()
+                        WeightLogTabContent(
+                            selectedDate = selectedDate,
+                            workouts = dayWorkouts,
+                            library = state,
+                            loadUnit = loadUnit,
+                            onEdit = { manualLogEditor = WeightLogEditorState.Editing(it) },
+                            onDelete = { workoutPendingDelete = it },
+                            onShare = { session ->
+                                scope.launch {
+                                    if (relayPool != null && signer != null) {
+                                        val ok = publishWeightWorkoutNote(
+                                            relayPool,
+                                            signer,
+                                            session,
+                                            state,
+                                            selectedDate,
+                                            loadUnit
+                                        )
+                                        snackbarHostState.showSnackbar(
+                                            if (ok) "Shared to your relays!" else "Failed to share — check relay connection"
+                                        )
+                                    } else {
+                                        snackbarHostState.showSnackbar("Connect relays and sign in to share.")
+                                    }
+                                }
+                            },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                }
+            }
+        }
+
+        liveDraft?.let { d ->
+            WeightLiveWorkoutScreen(
+                modifier = Modifier.fillMaxSize(),
+                draft = d,
+                library = state,
+                loadUnit = loadUnit,
+                onLoadUnitChange = { u ->
+                    scope.launch { userPreferences.setWeightTrainingLoadUnit(u) }
                 },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                onCancel = { liveWorkoutViewModel.clearDraft() },
+                onFinish = {
+                    scope.launch {
+                        val current = liveWorkoutViewModel.activeDraft.value ?: return@launch
+                        val session = current.toFinishedLiveSession() ?: return@launch
+                        repository.addWorkout(LocalDate.now(), session)
+                        liveWorkoutViewModel.clearDraft()
+                        pushDayLog(LocalDate.now())
+                        completedSessionForSummary = session
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = headerMid,
-                    titleContentColor = Color.White,
-                    navigationIconContentColor = Color.White,
-                    actionIconContentColor = Color.White
-                )
+                onAddExercise = { id -> liveWorkoutViewModel.addExercise(id) },
+                onRemoveExerciseAt = { idx -> liveWorkoutViewModel.removeExerciseAt(idx) },
+                onMoveExerciseUp = { idx -> liveWorkoutViewModel.moveExerciseUp(idx) },
+                onMoveExerciseDown = { idx -> liveWorkoutViewModel.moveExerciseDown(idx) },
+                onSaveSets = { exerciseId, sets -> liveWorkoutViewModel.setSetsForExercise(exerciseId, sets) }
             )
-        },
-        floatingActionButton = {
-            when (tabEnum) {
-                WeightTrainingTab.Exercises -> {
-                    ExtendedFloatingActionButton(
-                        onClick = {
-                            showExerciseCreator = true
-                            exerciseEditorTarget = null
-                        },
-                        icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                        text = { Text("Add exercise") }
-                    )
-                }
-                WeightTrainingTab.Routines -> {
-                    ExtendedFloatingActionButton(
-                        onClick = {
-                            routineBeingEdited = WeightRoutine(
-                                id = UUID.randomUUID().toString(),
-                                name = "",
-                                exerciseIds = emptyList()
-                            )
-                        },
-                        icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                        text = { Text("Add routine") }
-                    )
-                }
-            }
         }
-    ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-        ) {
-            TabRow(
-                selectedTabIndex = tabEnum.ordinal,
-                containerColor = headerDark,
-                contentColor = Color.White
-            ) {
-                WeightTrainingTab.entries.forEach { tab ->
-                    Tab(
-                        selected = tabEnum == tab,
-                        onClick = { activeTab = tab.name },
-                        text = { Text(tab.name) }
-                    )
-                }
-            }
+    }
 
-            when (tabEnum) {
-                WeightTrainingTab.Exercises -> ExercisesTabBody(
-                    grouped = state.exercisesGroupedByMuscle(),
-                    state = state,
-                    onEdit = { exerciseEditorTarget = it },
-                    onDeleteRequest = { exercisePendingDelete = it }
-                )
-
-                WeightTrainingTab.Routines -> RoutinesTabBody(
-                    state = state,
-                    onEdit = { routineBeingEdited = it },
-                    onDeleteRequest = { routinePendingDelete = it }
-                )
+    workoutPendingDelete?.let { w ->
+        AlertDialog(
+            onDismissRequest = { workoutPendingDelete = null },
+            title = { Text("Delete workout?") },
+            text = { Text("Remove this session from ${selectedDate.format(DateTimeFormatter.ISO_LOCAL_DATE)}?") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        scope.launch {
+                            repository.deleteWorkout(selectedDate, w.id)
+                            pushDayLog(selectedDate)
+                            snackbarHostState.showSnackbar("Workout removed")
+                        }
+                        workoutPendingDelete = null
+                    }
+                ) { Text("Delete") }
+            },
+            dismissButton = {
+                TextButton(onClick = { workoutPendingDelete = null }) { Text("Cancel") }
             }
-        }
+        )
     }
 
     exercisePendingDelete?.let { ex ->
@@ -386,7 +595,8 @@ private fun ExercisesTabBody(
 private fun RoutinesTabBody(
     state: WeightLibraryState,
     onEdit: (WeightRoutine) -> Unit,
-    onDeleteRequest: (WeightRoutine) -> Unit
+    onDeleteRequest: (WeightRoutine) -> Unit,
+    onStartRoutine: (WeightRoutine) -> Unit
 ) {
     if (state.routines.isEmpty()) {
         Column(
@@ -418,6 +628,9 @@ private fun RoutinesTabBody(
                 },
                 trailingContent = {
                     Row {
+                        IconButton(onClick = { onStartRoutine(routine) }) {
+                            Icon(Icons.Default.PlayArrow, contentDescription = "Start workout from routine")
+                        }
                         IconButton(onClick = { onEdit(routine) }) {
                             Icon(Icons.Default.Edit, contentDescription = "Edit")
                         }

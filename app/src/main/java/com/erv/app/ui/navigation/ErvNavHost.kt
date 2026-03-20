@@ -34,6 +34,7 @@ import com.erv.app.cardio.CardioRepository
 import com.erv.app.supplements.SupplementRepository
 import com.erv.app.ui.cardio.CardioCategoryScreen
 import com.erv.app.ui.cardio.CardioLogScreen
+import com.erv.app.ui.weighttraining.WeightLiveWorkoutViewModel
 import com.erv.app.ui.weighttraining.WeightTrainingCategoryScreen
 import com.erv.app.weighttraining.WeightRepository
 import com.erv.app.ui.supplements.SupplementCategoryScreen
@@ -66,6 +67,7 @@ fun ErvNavHost(
     lightTherapyRepository: LightTherapyRepository,
     cardioRepository: CardioRepository,
     weightRepository: WeightRepository,
+    weightLiveWorkoutViewModel: WeightLiveWorkoutViewModel,
     relayPool: RelayPool?,
     signer: EventSigner?,
     pendingReminderRoutineId: StateFlow<String?>,
@@ -95,6 +97,8 @@ fun ErvNavHost(
                 supplementRepository = supplementRepository,
                 lightTherapyRepository = lightTherapyRepository,
                 cardioRepository = cardioRepository,
+                weightRepository = weightRepository,
+                weightLiveWorkoutViewModel = weightLiveWorkoutViewModel,
                 userPreferences = userPreferences,
                 relayPool = relayPool,
                 signer = signer,
@@ -225,6 +229,8 @@ fun ErvNavHost(
             WeightTrainingCategoryScreen(
                 selectedDate = selectedDate,
                 repository = weightRepository,
+                liveWorkoutViewModel = weightLiveWorkoutViewModel,
+                userPreferences = userPreferences,
                 relayPool = relayPool,
                 signer = signer,
                 onBack = { navController.popBackStack() }

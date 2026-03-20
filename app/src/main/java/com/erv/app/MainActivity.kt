@@ -44,6 +44,7 @@ import com.erv.app.reminders.RoutineReminderRepository
 import com.erv.app.reminders.RoutineReminderScheduler
 import com.erv.app.ui.navigation.ErvNavHost
 import com.erv.app.ui.dashboard.DashboardViewModel
+import com.erv.app.ui.weighttraining.WeightLiveWorkoutViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.erv.app.ui.onboarding.RelaySetupScreen
 import com.erv.app.ui.theme.ErvTheme
@@ -330,6 +331,8 @@ private fun MainAppShell(
     }
 
     Box(Modifier.fillMaxSize()) {
+        val weightLiveWorkoutViewModel =
+            viewModel<WeightLiveWorkoutViewModel>(viewModelStoreOwner = activityForLifecycle)
         ErvNavHost(
         navController = navController,
         keyManager = keyManager,
@@ -340,6 +343,7 @@ private fun MainAppShell(
         lightTherapyRepository = lightTherapyRepository,
         cardioRepository = cardioRepository,
         weightRepository = weightRepository,
+        weightLiveWorkoutViewModel = weightLiveWorkoutViewModel,
         relayPool = relayPool,
         signer = signer,
         pendingReminderRoutineId = pendingReminderRoutineId,

@@ -12,13 +12,25 @@ Use this section so work is **not repeated** across sessions. Update it when you
 | **B** | Done | `WeightSync.kt` (kind **30078**, d-tags `erv/weight/exercises`, `erv/weight/routines`, `erv/weight/<date>`), `MainAppShell` parallel fetch + `replaceAll` |
 | **C** | Done | Activity-scoped `DashboardViewModel` in `MainActivity` → `ErvNavHost` → `DashboardScreen`; route `category/weight_training` + `WeightTrainingCategoryScreen` (placeholder: shows **dashboard date** + library counts); **Weight Training** removed from generic Coming Soon |
 | **D** | Done | `WeightTrainingCategoryScreen`: **Exercises** / **Routines** tabs, theme-aware red header (matches cardio therapy reds), muscle-group **sticky** sections, add/edit/delete exercises, build/edit/delete routines (ordered picks, reorder), **FAB** per tab; CRUD publishes `erv/weight/exercises` + `erv/weight/routines` via `WeightSync` |
-| **E–K** | Not started | … |
+| **E** | Done | Activity-scoped `WeightLiveWorkoutViewModel`; full-screen **Live workout** (elapsed timer, add/reorder/remove exercises, per-exercise set editor); **Start workout** (blank) + **Play** on routines; **Finish** → `addWorkout` for **`LocalDate.now()`** only if ≥1 logged set; **Cancel** with confirm when draft non-empty; `WeightSync.publishDayLog`; blocks second start with snackbar |
+| **F** | Done | Post-finish **`WeightWorkoutSummaryFullScreen`**: log **date** (`YYYY-MM-DD`, live = today), elapsed, sets/volume, exercise lines; **Share** → Nostr **kind 1** (`t`: erv, workout, fitness) with date line in body; if `session.routineId` matches a routine, **Update routine** (confirm) → `exerciseIds` from session order with consecutive dedupe + `pushMasters` |
+| **G** | Done | **Log** tab on `WeightTrainingCategoryScreen`: list workouts for **`selectedDate`** (dashboard date); **Add workout** (full-screen manual editor, `MANUAL` source) + **edit** (keeps `LIVE` timestamps/source when editing live sessions) + **delete** + **Share** (kind 1, **`selectedDate`** in note); `buildSessionFromLogEditor`; shared **`WeightExerciseInlineSetsCard`** / pick dialog with live screen |
+| **H** | Done | **`DashboardScreen`**: **Weight Training** routine tile (with Cardio on second row); bottom sheet **New workout** (`tryStartBlank` + nav) or pick **weight routine** (`tryStartFromRoutine` + nav); **Activity** card lists **Weight training** lines for **`selectedDate`** via `weightActivityRowsFor` + `dashboardSummaryLine` (respects kg/lb pref) |
+| **I–K** | Not started | … |
 
 **How to verify stage A–C:** Run `./gradlew :app:testDebugUnitTest :app:assembleDebug`. Dashboard date on weight screen; **4** default exercises.
 
 **How to verify stage D:** Open Weight Training → **Exercises**: add a custom lift, edit a compound, confirm grouped list + sticky header. **Routines**: create a routine with two exercises, reorder with ↑↓, save; pull-to-refresh data on second device optional (relay). Delete flows ask for confirmation.
 
-**Resume next:** Stage **E** (live workout: timer, list UI, start blank / from routine, `addWorkout` when non-empty).
+**How to verify stage E:** Start blank workout → add exercise → log sets (reps required) → Finish → today’s log contains session (check relay or re-open app). Start from routine → list prefilled. Try second start → snackbar. Cancel with exercises → confirm discard.
+
+**How to verify stage F:** Finish a live workout → full-screen **Workout logged** summary (date, timer, sets list). **Share workout** publishes kind 1 (relay connected). Start from a routine, reorder or change exercises, finish → **Update “…” to match** → confirm → Routines tab shows new order; masters sync if relays on.
+
+**How to verify stage G:** Open Weight → **Log** tab; list matches **dashboard date** (not necessarily today). **Add workout** → full-screen editor → save → appears in list; **Edit** changes entries; **Delete** confirms; **Share** uses that date in the note body. With a live workout open, **Add workout** FAB is hidden.
+
+**How to verify stage H:** Dashboard **Routines** shows **Weight Training** next to Cardio; sheet offers **New workout** and saved routines. Completing either navigates to Weight Training with live session started when allowed. **Activity** shows weight sessions for the **selected dashboard date** (switch date to confirm). With a live workout already running, choosing new/routine shows snackbar and does not start a second session.
+
+**Resume next:** Stage **I** (exercise detail / progress from logs).
 
 ## Locked product rules
 
@@ -64,7 +76,7 @@ ERV currently does **last event wins per `d` tag** after fetch (`replaceAll`), l
 | E | Live workout: timer, list UI, blank + routine start, `addWorkout` only if non-empty | Finish saves to today |
 | F | Summary + kind-1 share (+ date line) + **Update routine** | End-to-end live |
 | G | Log tab: by `selectedDate`, manual add, edit/delete, share with date | Backfill |
-| H | Dashboard Activity + weight routine tile | Tiles match plan |
+| H | Dashboard Activity + weight routine tile | Routines row + Activity lines for selected date |
 | I | Exercise detail / progress from logs | List history per lift |
 | J | `PLAN_OF_ACTION.md` + `PROTOCOL_GRAPH.md` | Docs match shipped JSON (see **Documentation timing** below) |
 | K | FGS + notification + Bubble ([PLAN §13](PLAN_OF_ACTION.md)); Settings switch (default on); user disclosure | After E–F |

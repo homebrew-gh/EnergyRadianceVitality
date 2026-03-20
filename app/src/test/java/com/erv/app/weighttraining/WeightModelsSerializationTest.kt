@@ -2,6 +2,8 @@ package com.erv.app.weighttraining
 
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Test
 import java.util.UUID
 
@@ -68,5 +70,62 @@ class WeightModelsSerializationTest {
         )
         val groups = state.exercisesGroupedByMuscle().map { it.first }
         assertEquals(listOf("chest", "arms", "zebra"), groups)
+    }
+
+    @Test
+    fun toFinishedLiveSession_requiresLoggedSets() {
+        val empty = WeightWorkoutDraft(1000L, listOf("erv-weight-exercise-bench-v1"), emptyMap())
+        assertNull(empty.toFinishedLiveSession())
+        val withSets = WeightWorkoutDraft(
+            startedAtEpochSeconds = 1000L,
+            exerciseOrder = listOf("erv-weight-exercise-bench-v1"),
+            setsByExerciseId = mapOf("erv-weight-exercise-bench-v1" to listOf(WeightSet(reps = 5, weightKg = 60.0))),
+            routineId = "r1",
+            routineName = "Push"
+        )
+        val session = withSets.toFinishedLiveSession()
+        assertNotNull(session)
+        assertEquals(WeightWorkoutSource.LIVE, session!!.source)
+        assertEquals("r1", session.routineId)
+        assertEquals(1, session.entries.size)
+    }
+
+    @Test
+    fun buildSessionFromLogEditor_newManual_and_preserveLiveOnEdit() {
+        assertNull(
+            buildSessionFromLogEditor(
+                existing = null,
+                exerciseOrder = listOf("e1"),
+                setsByExerciseId = mapOf("e1" to listOf(WeightSet(reps = 0, weightKg = null)))
+            )
+        )
+        val manual = buildSessionFromLogEditor(
+            existing = null,
+            exerciseOrder = listOf("e1"),
+            setsByExerciseId = mapOf("e1" to listOf(WeightSet(reps = 8, weightKg = 40.0)))
+        )
+        assertNotNull(manual)
+        assertEquals(WeightWorkoutSource.MANUAL, manual!!.source)
+        assertEquals(1, manual.entries.size)
+
+        val live = WeightWorkoutSession(
+            id = "keep-id",
+            source = WeightWorkoutSource.LIVE,
+            startedAtEpochSeconds = 100L,
+            finishedAtEpochSeconds = 200L,
+            entries = listOf(
+                WeightWorkoutEntry("e1", listOf(WeightSet(reps = 5, weightKg = 50.0)))
+            )
+        )
+        val edited = buildSessionFromLogEditor(
+            existing = live,
+            exerciseOrder = listOf("e1"),
+            setsByExerciseId = mapOf("e1" to listOf(WeightSet(reps = 6, weightKg = 52.0)))
+        )
+        assertNotNull(edited)
+        assertEquals("keep-id", edited!!.id)
+        assertEquals(WeightWorkoutSource.LIVE, edited.source)
+        assertEquals(100L, edited.startedAtEpochSeconds)
+        assertEquals(6, edited.entries.first().sets.first().reps)
     }
 }

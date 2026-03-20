@@ -57,6 +57,7 @@ fun SettingsScreen(
     val bodyWeightValue by userPreferences.bodyWeightValue.collectAsState(initial = "")
     val bodyWeightUnit by userPreferences.bodyWeightUnit.collectAsState(initial = BodyWeightUnit.LB)
     val cardioDistanceUnit by userPreferences.cardioDistanceUnit.collectAsState(initial = CardioDistanceUnit.MILES)
+    val weightTrainingLoadUnit by userPreferences.weightTrainingLoadUnit.collectAsState(initial = BodyWeightUnit.KG)
 
     val signer = remember(keyManager, amberHost) {
         keyManager.createLocalSigner()
@@ -132,6 +133,13 @@ fun SettingsScreen(
             CardioDistanceSection(
                 unit = cardioDistanceUnit,
                 onUnitChange = { u -> scope.launch { userPreferences.setCardioDistanceUnit(u) } }
+            )
+
+            Spacer(Modifier.height(12.dp))
+
+            WeightTrainingLoadSection(
+                unit = weightTrainingLoadUnit,
+                onUnitChange = { u -> scope.launch { userPreferences.setWeightTrainingLoadUnit(u) } }
             )
 
             Spacer(Modifier.height(12.dp))
@@ -300,6 +308,42 @@ private fun BodyWeightSection(
                 onClick = { onSave(draft, draftUnit) },
                 modifier = Modifier.fillMaxWidth()
             ) { Text("Save weight") }
+        }
+    }
+}
+
+@Composable
+private fun WeightTrainingLoadSection(
+    unit: BodyWeightUnit,
+    onUnitChange: (BodyWeightUnit) -> Unit
+) {
+    Text(
+        "Weight training loads",
+        style = MaterialTheme.typography.titleMedium,
+        modifier = Modifier.padding(bottom = 8.dp)
+    )
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                "Units when logging sets during a live workout. Workouts are still saved in kg for sync.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                SegmentedButton(
+                    selected = unit == BodyWeightUnit.KG,
+                    onClick = { onUnitChange(BodyWeightUnit.KG) },
+                    shape = SegmentedButtonDefaults.itemShape(0, 2)
+                ) { Text("Kilograms") }
+                SegmentedButton(
+                    selected = unit == BodyWeightUnit.LB,
+                    onClick = { onUnitChange(BodyWeightUnit.LB) },
+                    shape = SegmentedButtonDefaults.itemShape(1, 2)
+                ) { Text("Pounds") }
+            }
         }
     }
 }

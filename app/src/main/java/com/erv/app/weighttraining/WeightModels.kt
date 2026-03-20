@@ -119,6 +119,61 @@ fun WeightPushPull.displayLabel(): String = when (this) {
 fun formatMuscleGroupHeader(key: String): String =
     key.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.ROOT) else it.toString() }
 
+fun weightNowEpochSeconds(): Long = System.currentTimeMillis() / 1000
+
+/** In-memory live workout draft (not serialized to Nostr). */
+data class WeightWorkoutDraft(
+    val startedAtEpochSeconds: Long,
+    val exerciseOrder: List<String>,
+    val setsByExerciseId: Map<String, List<WeightSet>> = emptyMap(),
+    val routineId: String? = null,
+    val routineName: String? = null
+)
+
+/** Build a finished LIVE session or `null` if nothing was logged. */
+fun WeightWorkoutDraft.toFinishedLiveSession(): WeightWorkoutSession? {
+    val entries = exerciseOrder.mapNotNull { id ->
+        val s = setsByExerciseId[id].orEmpty().filter { it.reps > 0 }
+        if (s.isEmpty()) null else WeightWorkoutEntry(exerciseId = id, sets = s)
+    }
+    if (entries.isEmpty()) return null
+    return WeightWorkoutSession(
+        source = WeightWorkoutSource.LIVE,
+        startedAtEpochSeconds = startedAtEpochSeconds,
+        finishedAtEpochSeconds = weightNowEpochSeconds(),
+        routineId = routineId,
+        routineName = routineName,
+        entries = entries
+    )
+}
+
+/**
+ * Build or update a session from the log editor. New workouts are MANUAL; existing sessions keep
+ * [WeightWorkoutSession.source] and timestamps. Returns `null` if nothing valid was logged.
+ */
+fun buildSessionFromLogEditor(
+    existing: WeightWorkoutSession?,
+    exerciseOrder: List<String>,
+    setsByExerciseId: Map<String, List<WeightSet>>
+): WeightWorkoutSession? {
+    val entries = exerciseOrder.mapNotNull { id ->
+        val s = setsByExerciseId[id].orEmpty().filter { it.reps > 0 }
+        if (s.isEmpty()) null else WeightWorkoutEntry(exerciseId = id, sets = s)
+    }
+    if (entries.isEmpty()) return null
+    return if (existing == null) {
+        WeightWorkoutSession(
+            id = UUID.randomUUID().toString(),
+            source = WeightWorkoutSource.MANUAL,
+            startedAtEpochSeconds = null,
+            finishedAtEpochSeconds = null,
+            entries = entries
+        )
+    } else {
+        existing.copy(entries = entries)
+    }
+}
+
 /** Stable IDs so synced devices agree on built-in compounds. */
 fun defaultCompoundExercises(): List<WeightExercise> = listOf(
     WeightExercise(

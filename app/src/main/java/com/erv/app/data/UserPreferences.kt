@@ -25,6 +25,7 @@ class UserPreferences(private val context: Context) {
         val BODY_WEIGHT_VALUE = stringPreferencesKey("body_weight_value")
         val BODY_WEIGHT_UNIT = stringPreferencesKey("body_weight_unit")
         val CARDIO_DISTANCE_UNIT = stringPreferencesKey("cardio_distance_unit")
+        val WEIGHT_TRAINING_LOAD_UNIT = stringPreferencesKey("weight_training_load_unit")
     }
 
     val themeMode: Flow<ThemeMode> = context.dataStore.data.map { prefs ->
@@ -78,6 +79,20 @@ class UserPreferences(private val context: Context) {
                 CardioDistanceUnit.KILOMETERS -> "KM"
                 CardioDistanceUnit.MILES -> "MILES"
             }
+        }
+    }
+
+    /** Bar/load when logging weight-training sets (stored on disk as kg). */
+    val weightTrainingLoadUnit: Flow<BodyWeightUnit> = context.dataStore.data.map { prefs ->
+        when (prefs[Keys.WEIGHT_TRAINING_LOAD_UNIT]) {
+            "LB" -> BodyWeightUnit.LB
+            else -> BodyWeightUnit.KG
+        }
+    }
+
+    suspend fun setWeightTrainingLoadUnit(unit: BodyWeightUnit) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.WEIGHT_TRAINING_LOAD_UNIT] = unit.name
         }
     }
 }
