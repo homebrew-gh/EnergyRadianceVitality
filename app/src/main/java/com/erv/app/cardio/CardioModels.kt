@@ -3,16 +3,31 @@ package com.erv.app.cardio
 import kotlinx.serialization.Serializable
 import java.time.LocalDate
 import java.util.UUID
+import kotlin.math.max
 
 @Serializable
 enum class CardioBuiltinActivity {
-    WALK, RUN, SPRINT, RUCK, HIKE, BIKE, SWIM, ELLIPTICAL, ROWING, OTHER
+    WALK, RUN, SPRINT, RUCK, HIKE, BIKE, SWIM, ELLIPTICAL, ROWING,
+    STATIONARY_BIKE,
+    JUMP_ROPE,
+    OTHER
 }
 
 fun CardioBuiltinActivity.supportsTreadmillModality(): Boolean = when (this) {
     CardioBuiltinActivity.WALK, CardioBuiltinActivity.RUN,
     CardioBuiltinActivity.SPRINT, CardioBuiltinActivity.RUCK -> true
     else -> false
+}
+
+/** Outdoor pace-based distance estimate: walk, run, bike, etc. (not swim / machine-only types). */
+fun CardioActivitySnapshot.supportsOutdoorPaceEstimate(): Boolean {
+    val b = builtin ?: return true
+    return when (b) {
+        CardioBuiltinActivity.SWIM, CardioBuiltinActivity.ELLIPTICAL,
+        CardioBuiltinActivity.ROWING, CardioBuiltinActivity.STATIONARY_BIKE,
+        CardioBuiltinActivity.JUMP_ROPE -> false
+        else -> true
+    }
 }
 
 fun CardioBuiltinActivity.displayName(): String = when (this) {
@@ -25,6 +40,8 @@ fun CardioBuiltinActivity.displayName(): String = when (this) {
     CardioBuiltinActivity.SWIM -> "Swimming"
     CardioBuiltinActivity.ELLIPTICAL -> "Elliptical"
     CardioBuiltinActivity.ROWING -> "Rowing"
+    CardioBuiltinActivity.STATIONARY_BIKE -> "Stationary bike"
+    CardioBuiltinActivity.JUMP_ROPE -> "Jump rope"
     CardioBuiltinActivity.OTHER -> "Other"
 }
 
@@ -37,6 +54,38 @@ fun CardioModality.label(): String = when (this) {
     CardioModality.OUTDOOR -> "Outdoor"
     CardioModality.INDOOR_TREADMILL -> "Treadmill"
 }
+
+/** Display / entry for distance fields and summaries (stored values remain meters). */
+enum class CardioDistanceUnit {
+    MILES,
+    KILOMETERS
+}
+
+fun CardioDistanceUnit.distanceFieldLabelOptional(): String = when (this) {
+    CardioDistanceUnit.MILES -> "Distance (mi, optional)"
+    CardioDistanceUnit.KILOMETERS -> "Distance (km, optional)"
+}
+
+fun formatCardioDistanceFromMeters(meters: Double, unit: CardioDistanceUnit): String =
+    when (unit) {
+        CardioDistanceUnit.MILES -> String.format("%.2f mi", meters / 1609.344)
+        CardioDistanceUnit.KILOMETERS -> String.format("%.2f km", meters / 1000.0)
+    }
+
+fun parseCardioDistanceInputToMeters(value: Double, unit: CardioDistanceUnit): Double =
+    when (unit) {
+        CardioDistanceUnit.MILES -> value * 1609.344
+        CardioDistanceUnit.KILOMETERS -> value * 1000.0
+    }
+
+fun metersToCardioDistanceInputString(meters: Double, unit: CardioDistanceUnit): String =
+    String.format(
+        "%.2f",
+        when (unit) {
+            CardioDistanceUnit.MILES -> meters / 1609.344
+            CardioDistanceUnit.KILOMETERS -> meters / 1000.0
+        }
+    )
 
 @Serializable
 enum class CardioSpeedUnit {
@@ -194,21 +243,26 @@ fun CardioLibraryState.chronologicalCardioLogFor(date: LocalDate): List<CardioSe
     return log.sessions.sortedByDescending { it.loggedAtEpochSeconds }
 }
 
-fun CardioLibraryState.cardioActivityRowsFor(date: LocalDate): List<CardioActivityRow> {
+fun CardioLibraryState.cardioActivityRowsFor(
+    date: LocalDate,
+    distanceUnit: CardioDistanceUnit = CardioDistanceUnit.MILES
+): List<CardioActivityRow> {
     val log = logFor(date) ?: return emptyList()
     return log.sessions.map { session ->
-        CardioActivityRow(summaryLine = session.summaryLine())
+        CardioActivityRow(summaryLine = session.summaryLine(distanceUnit))
     }
 }
 
-fun CardioSession.summaryLine(): String {
+fun CardioSession.summaryLine(
+    distanceUnit: CardioDistanceUnit = CardioDistanceUnit.MILES
+): String {
     if (segments.isNotEmpty()) {
         val ordered = segments.sortedBy { it.orderIndex }
         return buildString {
             append(ordered.joinToString(" → ") { it.activity.displayLabel })
             append(" • ${durationMinutes} min total")
             val dist = distanceMeters
-            if (dist != null && dist > 1) append(" • ${formatDistanceKm(dist)}")
+            if (dist != null && dist > 1) append(" • ${formatCardioDistanceFromMeters(dist, distanceUnit)}")
             estimatedKcal?.let { k -> append(" • ~${k.toInt()} kcal") }
         }
     }
@@ -224,7 +278,7 @@ fun CardioSession.summaryLine(): String {
             }
         }
         distanceMeters?.let { d ->
-            if (d > 1) append(" • ${formatDistanceKm(d)}")
+            if (d > 1) append(" • ${formatCardioDistanceFromMeters(d, distanceUnit)}")
         }
         estimatedKcal?.let { k ->
             append(" • ~${k.toInt()} kcal")
@@ -241,10 +295,12 @@ private fun formatLoadLbKg(kg: Double): String {
     return String.format("%.0f lb (%.1f kg)", lb, kg)
 }
 
-private fun formatDistanceKm(meters: Double): String =
-    String.format("%.2f km", meters / 1000.0)
-
 fun nowEpochSeconds(): Long = System.currentTimeMillis() / 1000
+
+sealed class CardioTimerStyle {
+    data object CountUp : CardioTimerStyle()
+    data class CountDown(val totalSeconds: Int) : CardioTimerStyle()
+}
 
 /** Live session timer state; dashboard and Cardio screen share this. */
 data class CardioTimerSessionDraft(
@@ -254,12 +310,22 @@ data class CardioTimerSessionDraft(
     val treadmill: CardioTreadmillParams?,
     val startEpoch: Long,
     val routineId: String?,
-    val routineName: String?
+    val routineName: String?,
+    val timerStyle: CardioTimerStyle = CardioTimerStyle.CountUp,
+    /** Optional outdoor average speed for a live distance estimate (not GPS). */
+    val outdoorPaceSpeed: Double? = null,
+    val outdoorPaceSpeedUnit: CardioSpeedUnit? = null
 ) {
-    fun toSession(durationMinutes: Int, endEpoch: Long): CardioSession {
+    fun toSession(durationMinutes: Int, endEpoch: Long, elapsedSecondsForDistance: Int? = null): CardioSession {
+        val elapsed = elapsedSecondsForDistance ?: (durationMinutes * 60)
         var dist = treadmill?.distanceMeters
         if (dist == null && treadmill != null) {
-            dist = derivedTreadmillDistanceMeters(treadmill, durationMinutes)
+            dist = derivedTreadmillDistanceMeters(treadmill, max(1, (elapsed + 59) / 60))
+        }
+        if (dist == null && modality == CardioModality.OUTDOOR &&
+            outdoorPaceSpeed != null && outdoorPaceSpeedUnit != null
+        ) {
+            dist = outdoorDistanceMetersAtElapsed(outdoorPaceSpeed, outdoorPaceSpeedUnit, elapsed)
         }
         return CardioSession(
             activity = activity,
@@ -290,7 +356,10 @@ data class CardioTimerSessionDraft(
                 treadmill = leg.treadmill,
                 startEpoch = nowEpochSeconds(),
                 routineId = routine.id,
-                routineName = routine.name
+                routineName = routine.name,
+                timerStyle = CardioTimerStyle.CountUp,
+                outdoorPaceSpeed = null,
+                outdoorPaceSpeedUnit = null
             )
         }
 
@@ -298,7 +367,10 @@ data class CardioTimerSessionDraft(
             activity: CardioActivitySnapshot,
             modality: CardioModality,
             treadmill: CardioTreadmillParams?,
-            title: String
+            title: String,
+            timerStyle: CardioTimerStyle = CardioTimerStyle.CountUp,
+            outdoorPaceSpeed: Double? = null,
+            outdoorPaceSpeedUnit: CardioSpeedUnit? = null
         ) = CardioTimerSessionDraft(
             title = title,
             activity = activity,
@@ -306,7 +378,10 @@ data class CardioTimerSessionDraft(
             treadmill = treadmill,
             startEpoch = nowEpochSeconds(),
             routineId = null,
-            routineName = null
+            routineName = null,
+            timerStyle = timerStyle,
+            outdoorPaceSpeed = outdoorPaceSpeed,
+            outdoorPaceSpeedUnit = outdoorPaceSpeedUnit
         )
 
         fun fromActivitySnapshot(snapshot: CardioActivitySnapshot) = fromQuickSnapshot(
@@ -395,4 +470,36 @@ fun derivedTreadmillDistanceMeters(params: CardioTreadmillParams, durationMinute
         CardioSpeedUnit.MPH -> params.speed * 1.60934
     }
     return kmh * hours * 1000.0
+}
+
+/** Live distance from treadmill speed × elapsed seconds (ignores optional fixed distance field). */
+fun treadmillLiveDistanceMeters(params: CardioTreadmillParams, elapsedSeconds: Int): Double? {
+    if (elapsedSeconds <= 0 || params.speed <= 0) return null
+    val hours = elapsedSeconds / 3600.0
+    val kmh = when (params.speedUnit) {
+        CardioSpeedUnit.KMH -> params.speed
+        CardioSpeedUnit.MPH -> params.speed * 1.60934
+    }
+    return kmh * hours * 1000.0
+}
+
+fun outdoorDistanceMetersAtElapsed(speed: Double, unit: CardioSpeedUnit, elapsedSeconds: Int): Double? {
+    if (elapsedSeconds <= 0 || speed <= 0) return null
+    val hours = elapsedSeconds / 3600.0
+    val kmh = when (unit) {
+        CardioSpeedUnit.KMH -> speed
+        CardioSpeedUnit.MPH -> speed * 1.60934
+    }
+    return kmh * hours * 1000.0
+}
+
+fun CardioTimerSessionDraft.liveDistanceMeters(elapsedSeconds: Int): Double? {
+    if (elapsedSeconds <= 0) return null
+    if (modality == CardioModality.INDOOR_TREADMILL && treadmill != null) {
+        return treadmillLiveDistanceMeters(treadmill, elapsedSeconds)
+    }
+    if (modality == CardioModality.OUTDOOR && outdoorPaceSpeed != null && outdoorPaceSpeedUnit != null) {
+        return outdoorDistanceMetersAtElapsed(outdoorPaceSpeed, outdoorPaceSpeedUnit, elapsedSeconds)
+    }
+    return null
 }

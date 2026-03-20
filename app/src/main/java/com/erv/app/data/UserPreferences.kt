@@ -1,5 +1,6 @@
 package com.erv.app.data
 
+import com.erv.app.cardio.CardioDistanceUnit
 import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
@@ -23,6 +24,7 @@ class UserPreferences(private val context: Context) {
         val THEME = stringPreferencesKey("theme_mode")
         val BODY_WEIGHT_VALUE = stringPreferencesKey("body_weight_value")
         val BODY_WEIGHT_UNIT = stringPreferencesKey("body_weight_unit")
+        val CARDIO_DISTANCE_UNIT = stringPreferencesKey("cardio_distance_unit")
     }
 
     val themeMode: Flow<ThemeMode> = context.dataStore.data.map { prefs ->
@@ -59,6 +61,23 @@ class UserPreferences(private val context: Context) {
         context.dataStore.edit { prefs ->
             prefs[Keys.BODY_WEIGHT_VALUE] = rawValue.trim()
             prefs[Keys.BODY_WEIGHT_UNIT] = unit.name
+        }
+    }
+
+    /** Cardio log / summaries / distance fields; default miles. */
+    val cardioDistanceUnit: Flow<CardioDistanceUnit> = context.dataStore.data.map { prefs ->
+        when (prefs[Keys.CARDIO_DISTANCE_UNIT]) {
+            "KILOMETERS", "KM" -> CardioDistanceUnit.KILOMETERS
+            else -> CardioDistanceUnit.MILES
+        }
+    }
+
+    suspend fun setCardioDistanceUnit(unit: CardioDistanceUnit) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.CARDIO_DISTANCE_UNIT] = when (unit) {
+                CardioDistanceUnit.KILOMETERS -> "KM"
+                CardioDistanceUnit.MILES -> "MILES"
+            }
         }
     }
 }

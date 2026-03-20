@@ -68,6 +68,10 @@ object CardioMetEstimator {
             CardioBuiltinActivity.SWIM -> 6.0
             CardioBuiltinActivity.ELLIPTICAL -> 5.5
             CardioBuiltinActivity.ROWING -> 6.0
+            // Compendium: stationary cycling ~7 (general) to ~11 (161–200 W); middle ground for typical sessions
+            CardioBuiltinActivity.STATIONARY_BIKE -> 8.0
+            // Compendium: rope jumping moderate ~11.8; slightly conservative for mixed pacing
+            CardioBuiltinActivity.JUMP_ROPE -> 11.0
             CardioBuiltinActivity.OTHER -> 5.0
         }
 

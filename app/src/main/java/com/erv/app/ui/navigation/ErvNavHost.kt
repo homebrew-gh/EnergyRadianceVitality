@@ -206,6 +206,7 @@ fun ErvNavHost(
             CardioLogScreen(
                 repository = cardioRepository,
                 state = cardioState,
+                userPreferences = userPreferences,
                 relayPool = relayPool,
                 signer = signer,
                 onBack = { navController.popBackStack() }

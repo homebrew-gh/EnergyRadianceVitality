@@ -27,6 +27,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.erv.app.cardio.CardioDistanceUnit
 import com.erv.app.data.BodyWeightUnit
 import com.erv.app.data.ThemeMode
 import com.erv.app.data.UserPreferences
@@ -55,6 +56,7 @@ fun SettingsScreen(
     val themeMode by userPreferences.themeMode.collectAsState(initial = ThemeMode.SYSTEM)
     val bodyWeightValue by userPreferences.bodyWeightValue.collectAsState(initial = "")
     val bodyWeightUnit by userPreferences.bodyWeightUnit.collectAsState(initial = BodyWeightUnit.LB)
+    val cardioDistanceUnit by userPreferences.cardioDistanceUnit.collectAsState(initial = CardioDistanceUnit.MILES)
 
     val signer = remember(keyManager, amberHost) {
         keyManager.createLocalSigner()
@@ -123,6 +125,13 @@ fun SettingsScreen(
                 onSave = { raw, u ->
                     scope.launch { userPreferences.setFallbackBodyWeight(raw, u) }
                 }
+            )
+
+            Spacer(Modifier.height(12.dp))
+
+            CardioDistanceSection(
+                unit = cardioDistanceUnit,
+                onUnitChange = { u -> scope.launch { userPreferences.setCardioDistanceUnit(u) } }
             )
 
             Spacer(Modifier.height(12.dp))
@@ -291,6 +300,42 @@ private fun BodyWeightSection(
                 onClick = { onSave(draft, draftUnit) },
                 modifier = Modifier.fillMaxWidth()
             ) { Text("Save weight") }
+        }
+    }
+}
+
+@Composable
+private fun CardioDistanceSection(
+    unit: CardioDistanceUnit,
+    onUnitChange: (CardioDistanceUnit) -> Unit
+) {
+    Text(
+        "Cardio distance",
+        style = MaterialTheme.typography.titleMedium,
+        modifier = Modifier.padding(bottom = 8.dp)
+    )
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                "Units for distance in the cardio area: summaries, log, and workout forms. Default is miles.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                SegmentedButton(
+                    selected = unit == CardioDistanceUnit.MILES,
+                    onClick = { onUnitChange(CardioDistanceUnit.MILES) },
+                    shape = SegmentedButtonDefaults.itemShape(0, 2)
+                ) { Text("Miles") }
+                SegmentedButton(
+                    selected = unit == CardioDistanceUnit.KILOMETERS,
+                    onClick = { onUnitChange(CardioDistanceUnit.KILOMETERS) },
+                    shape = SegmentedButtonDefaults.itemShape(1, 2)
+                ) { Text("Kilometers") }
+            }
         }
     }
 }
