@@ -34,6 +34,8 @@ import com.erv.app.data.UserPreferences
 import com.erv.app.nostr.*
 import com.erv.app.cardio.CardioRepository
 import com.erv.app.cardio.CardioSync
+import com.erv.app.weighttraining.WeightRepository
+import com.erv.app.weighttraining.WeightSync
 import com.erv.app.lighttherapy.LightSync
 import com.erv.app.lighttherapy.LightTherapyRepository
 import com.erv.app.supplements.SupplementRepository
@@ -41,6 +43,8 @@ import com.erv.app.supplements.SupplementSync
 import com.erv.app.reminders.RoutineReminderRepository
 import com.erv.app.reminders.RoutineReminderScheduler
 import com.erv.app.ui.navigation.ErvNavHost
+import com.erv.app.ui.dashboard.DashboardViewModel
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.erv.app.ui.onboarding.RelaySetupScreen
 import com.erv.app.ui.theme.ErvTheme
 import androidx.core.content.ContextCompat
@@ -214,10 +218,10 @@ private suspend fun runPostLoginSetup(
     val pool = RelayPool(signer)
     try {
         pool.setRelays(keyManager.relayUrlsForPool())
-        delay(2000)
+        pool.awaitAtLeastOneConnected(timeoutMs = 15_000)
 
         val pubkey = keyManager.publicKeyHex ?: return false
-        val nip65Urls = Nip65.fetchRelayListFromNetwork(pool, pubkey, timeoutMs = 5000)
+        val nip65Urls = Nip65.fetchRelayListFromNetwork(pool, pubkey, timeoutMs = 8000)
         nip65Urls.forEach { keyManager.addSocialRelay(it) }
 
         pool.setRelays(keyManager.relayUrlsForPool())
@@ -252,6 +256,7 @@ private fun MainAppShell(
     val supplementRepository = remember(context) { SupplementRepository(context) }
     val lightTherapyRepository = remember(context) { LightTherapyRepository(context) }
     val cardioRepository = remember(context) { CardioRepository(context) }
+    val weightRepository = remember(context) { WeightRepository(context) }
     val reminderRepository = remember(context) { RoutineReminderRepository(context) }
     val signer = remember(keyManager, amberHost) {
         keyManager.createLocalSigner()
@@ -266,25 +271,22 @@ private fun MainAppShell(
         contract = ActivityResultContracts.RequestPermission()
     ) { }
     val mainScope = rememberCoroutineScope()
-    val activityForLifecycle = context as? ComponentActivity
+    val activityForLifecycle = context as ComponentActivity
+    val dashboardViewModel = viewModel<DashboardViewModel>(viewModelStoreOwner = activityForLifecycle)
     DisposableEffect(activityForLifecycle, reminderRepository) {
-        if (activityForLifecycle == null) {
-            onDispose { }
-        } else {
-            val observer = LifecycleEventObserver { _, event ->
-                if (event == Lifecycle.Event.ON_RESUME) {
-                    mainScope.launch { reminderRepository.restoreAllSchedules() }
-                }
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                mainScope.launch { reminderRepository.restoreAllSchedules() }
             }
-            activityForLifecycle.lifecycle.addObserver(observer)
-            onDispose { activityForLifecycle.lifecycle.removeObserver(observer) }
         }
+        activityForLifecycle.lifecycle.addObserver(observer)
+        onDispose { activityForLifecycle.lifecycle.removeObserver(observer) }
     }
 
     LaunchedEffect(relayPool, relayUrlsVersion) {
         relayPool?.setRelays(keyManager.relayUrlsForPool())
     }
-    LaunchedEffect(relayPool, signer, supplementRepository, lightTherapyRepository, cardioRepository) {
+    LaunchedEffect(relayPool, signer, supplementRepository, lightTherapyRepository, cardioRepository, weightRepository) {
         if (relayPool == null || signer == null) {
             initialSyncDone = true
             return@LaunchedEffect
@@ -304,6 +306,10 @@ private fun MainAppShell(
                 async {
                     CardioSync.fetchFromNetwork(relayPool, signer, pubkey, timeoutMs = 8000)
                         ?.let { cardioRepository.replaceAll(it) }
+                },
+                async {
+                    WeightSync.fetchFromNetwork(relayPool, signer, pubkey, timeoutMs = 8000)
+                        ?.let { weightRepository.replaceAll(it) }
                 }
             )
         }
@@ -329,9 +335,11 @@ private fun MainAppShell(
         keyManager = keyManager,
         amberHost = amberHost,
         userPreferences = userPreferences,
+        dashboardViewModel = dashboardViewModel,
         supplementRepository = supplementRepository,
         lightTherapyRepository = lightTherapyRepository,
         cardioRepository = cardioRepository,
+        weightRepository = weightRepository,
         relayPool = relayPool,
         signer = signer,
         pendingReminderRoutineId = pendingReminderRoutineId,

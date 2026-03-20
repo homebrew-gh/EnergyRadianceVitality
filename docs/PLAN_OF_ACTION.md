@@ -53,7 +53,7 @@ Each category is a silo: its own screens and local models, but the same Nostr ki
 | Category      | d-tag pattern         | Content (encrypted JSON) |
 |---------------|------------------------|---------------------------|
 | Stretching    | `erv/stretching/poses` (optional) + `erv/stretching/routines` (optional) + `erv/stretching/<date>` | Pose library (if synced) + user-defined routines + session log by date; see §2.4 |
-| Weight training | `erv/weight/exercises` + `erv/weight/<date>` or `erv/weight/<uuid>` | Exercise list (4 compounds + custom; muscle group, push/pull, equipment) + workout logs; see §2.4 |
+| Weight training | `erv/weight/exercises` + `erv/weight/routines` + `erv/weight/<date>` | Exercise list + routine templates + daily log with `workouts[]`; see §2.4 and [WEIGHT_TRAINING_SPEC.md](WEIGHT_TRAINING_SPEC.md) |
 | Cardio        | `erv/cardio/routines` (optional master) + `erv/cardio/<date>` or `erv/cardio/<uuid>` | Master: saved routines + custom activity types. Daily log: sessions (duration, activity, modality outdoor/treadmill, treadmill params, optional distance, optional estimatedKcal, optional GPS track, optional HR scaffolding when monitor connected); see §2.4, §12 |
 | Sauna         | `erv/sauna/<date>`     | Sessions with duration + optional temp; entries may reference a contrast routine; see §2.4 |
 | Cold plunge   | `erv/cold/<date>`      | Sessions with duration + optional temp; entries may reference a contrast routine; see §2.4 |
@@ -123,7 +123,8 @@ Implementers can map built-in activity types to Compendium codes (or MET ranges)
 **Workout (weight training)** — Prioritize the **four main compound lifts**: **Bench press**, **Deadlift**, **Squat**, **Military press**. User can add any other exercise; each exercise is assigned a **muscle group** and **push or pull** so workouts can be arranged by **muscle group** or **push/pull days**. Primary equipment: **kettlebell**, **dumbbell**, **free weight (barbell)**; secondary: **machine / targeted** work.
 
 - **Exercise list (master)** — One replaceable event so the list syncs. **d-tag**: `erv/weight/exercises`. **Content**: e.g. `{ "exercises": [ { "id": "uuid", "name": "Bench Press", "muscleGroup": "chest" | "back" | "legs" | "shoulders" | "arms" | "core" | custom, "pushOrPull": "push" | "pull", "equipment": "barbell" | "dumbbell" | "kettlebell" | "machine" | "other" } ] }`. **Built-in / default** list includes the four compounds (Bench press, Deadlift, Squat, Military press) with suggested muscle group and push/pull; user can add custom exercises with the same fields. Filtering and workout templates by muscle group or push/pull use this list.
-- **Workout log** — **d-tag**: `erv/weight/<date>` or `erv/weight/<uuid>` for each session. **Content**: e.g. `{ "exercises": [ { "exerciseId": "uuid", "sets": [ { "reps": 8, "weightKg": 60, "rpe": null } ] } ] }`. References exercises by id; sets include reps, weight (optional), RPE (optional). Analytics (1RM, volume by muscle group) use this plus the exercise list.
+- **Routines (master)** — **d-tag**: `erv/weight/routines`. **Content**: e.g. `{ "routines": [ { "id": "uuid", "name": "Push A", "exerciseIds": [ "uuid", ... ], "notes": null } ] }`. User starts a live session from a routine (full product behavior in app; see [WEIGHT_TRAINING_SPEC.md](WEIGHT_TRAINING_SPEC.md)).
+- **Workout log (daily)** — **d-tag**: `erv/weight/<date>` — one replaceable event per calendar day (multiple sessions that day live inside the payload). **Content**: e.g. `{ "date": "YYYY-MM-DD", "workouts": [ { "id": "uuid", "source": "LIVE" | "MANUAL", "startedAtEpochSeconds?", "finishedAtEpochSeconds?", "durationSeconds?", "routineId?", "routineName?", "entries": [ { "exerciseId": "uuid", "sets": [ { "reps": 8, "weightKg": 60, "rpe": null } ] } ] } ] }`. **Field names in shipped app** match Kotlin `WeightDayLog` / `WeightWorkoutSession` in [WEIGHT_TRAINING_SPEC.md](WEIGHT_TRAINING_SPEC.md). Analytics derive from `entries` + exercise list; per-exercise history is not duplicated on `erv/weight/exercises`.
 - **UI**: Log sessions with exercises (pick from list or quick-add), sets/reps/weight. Organize or filter workouts by **muscle group** or **push/pull** (e.g. “Push day”, “Pull day”, “Legs”). Build after Cardio; refer to Runstr for log structure ideas; keep kind 30078 and `erv/` namespace.
 
 **Workout analytics (open source and formulas)** — For analytics on logged workouts you can use:
@@ -231,6 +232,7 @@ No single open source “workout analytics library” in Kotlin; combine 1RM for
 - **Data**:
   - **Local**: Room DB + DataStore (relay URL, auth state, etc.). Local DB is source of truth; sync pushes to Nostr and pulls from Nostr on app open or refresh.
   - **Remote**: Nostr client (WebSocket), NIP-42 handler, NIP-44 encrypt/decrypt, publish and subscribe for kind 30078 with `d` prefix `erv/`.
+- **Service layer (active sessions)**: Cardio and Workout sessions are **time-bound**: the user starts a session, may leave the app (music, messages, etc.), and returns. Session state (elapsed time, current exercise, set progress, rest timer) **must survive** the app being backgrounded or the Activity being destroyed. Use an Android **Foreground Service** to own the active session lifecycle: the service holds the timer, session state, and exposes it via a bound interface (e.g. `StateFlow`) to both the main Compose UI and, in the future, a **Bubble activity** (§13). The ViewModel observes the service; the service is the source of truth while a session is active. When no session is active, the service stops. This architecture is required for the **Workout Bubble** (§13) and must be in place when Cardio (Phase 7) and Workout (Phase 8) are built — not retrofitted later.
 
 ### 5.2 Data flow (sync)
 
@@ -340,6 +342,7 @@ Settings is a dedicated screen/tab (reached from main navigation; see §7.2 item
 | **Max heart rate or age** | For **HR zone analysis** when a monitor is connected: either **max HR (bpm)** or **age** (used to estimate max HR e.g. 220 − age). Enables five-zone breakdown (50–60%, 60–70%, … 90–100% of max) in session detail. | Cardio (and optionally Workout) when BLE/Pebble HR is used (§2.4, Phase 10). |
 | **Temperature unit** | **°F** or **°C** for Sauna and Cold plunge (and heat/cold routines). Default per locale or user choice. | §2.4 Sauna, Cold plunge, heat/cold routines. |
 | **Music bar** | Show a minimal "now playing" bar to control whatever media is currently playing (music or podcasts from another app). When **on**, the bar appears (e.g. at bottom of screen); when **off**, it is hidden. Requires **notification access** when enabled (see §7.6). | §7.6 Music bar. |
+| **Live workout bubble** | **On** by default (`UserPreferences`). When **on** (Android 11+ / API 30+): during an **active live weight workout**, ERV may show a **bubble** after the user leaves the workout screen or another app (see §13). When **off**: **bubble only is disabled**; a **persistent ongoing notification** still appears while the workout runs—**required** for the **foreground service** that keeps the session timer accurate. ERV cannot hide that notification without ending the workout; the user may use **system app notification settings** to adjust behavior. Settings screen must spell out this distinction clearly (see [WEIGHT_TRAINING_SPEC.md](WEIGHT_TRAINING_SPEC.md) suggested copy). | Weight training live session / Bubble (§13); `ActiveSessionService`. |
 
 **Other preferences** (add as needed): e.g. default timer durations, notification sounds, optional multi-relay list (future). Keep the list in this section so new options are documented and the gaps table (§9.1) does not duplicate resolved items.
 
@@ -413,11 +416,13 @@ Before or during implementation, resolve the **gaps and items** listed in **§9.
    - **Body weight diary** (§2.4) first: `erv/bodyweight`, entries by date; weight in **lb or kg** (default lb), stored as kg in payload; UI to log and view history/trend. Settings: **Body weight unit** (lb default, kg) and **Body weight (fallback)** value. Build **before or alongside** Cardio because calorie estimation (MET × weight_kg × time) depends on body weight. If the user does not use the diary, fall back to a single weight (and unit) in Settings or skip estimate.  
    - **Cardio** (§2.4): `erv/cardio/<date>` or per-session UUID. **Activity types**: built-in list (walk, run, sprint, hike, swim, ruck, bike, rowing, etc.) plus **user-defined custom types** (§2.4); calorie estimate may be skipped or approximate for custom types. **Calorie estimation**: MET-based (Compendium of Physical Activities) and Pandolf for rucking; store `estimatedKcal` per session; **body weight** from diary or Settings fallback. **GPS track**: phone records location during activity; **explicit user control** -- per-activity toggle and app-wide setting; after workout, **overlay track on OSM tile-based map** (OsmDroid or MapLibre; OSM attribution). Same Nostr pattern.  
    - **HR per activity** and **HR zone analysis** are defined in the Cardio data model (optional fields: `hrSamples`, `hrSummary`, `hrZones`) but **deferred to Phase 10** for actual BLE integration. At this phase, Cardio sessions store duration, type, calories, and GPS; HR fields are populated only when a monitor is connected (Phase 10).
+   - **Foreground Service for active sessions (§5.1, §13)**: When a cardio session is started, launch an **`ActiveSessionService`** (Foreground Service) that owns the session timer, GPS recording, and session state. The service exposes state via `StateFlow` (or similar) to the Compose UI. The service posts a persistent notification (required for foreground services) showing elapsed time and current activity; this notification is also the foundation for the future **Workout Bubble** (§13). Build the service in this phase so the timer survives backgrounding; the Bubble UI is layered on in Phase 12.
 
 8. **Workout (weight training)**  
    - `erv/weight/exercises` (exercise list: four compounds + custom, muscle group, push/pull, equipment) and `erv/weight/<date>` or `<uuid>` (session log with sets/reps/weight). Organize by muscle group or push/pull days. Refer to Runstr for log structure; keep kind 30078 and `erv/` namespace.  
    - Workout analytics: 1RM estimation (Epley, Brzycki), volume tracking, charting (Vico or similar). See §2.4 Workout analytics.  
    - Optional: HR per workout session when a monitor is connected (same fields as Cardio; populated after Phase 10).
+   - **Foreground Service for active sessions (§5.1, §13)**: Reuse or extend the **`ActiveSessionService`** from Phase 7 for weight training sessions. The service tracks the active workout (current exercise, set number, rest timer, elapsed time) and posts a persistent notification. Same architecture: service is source of truth; ViewModel observes; Bubble (Phase 12) attaches later. If the cardio and workout session shapes differ enough, the service can use a sealed class (e.g. `ActiveSession.Cardio(...)` / `ActiveSession.Weight(...)`) to hold the appropriate state.
 
 9. **Stretching and remaining silos**  
    - **Stretching**: Pose library (LunaticPrakash + optional rebeccaestes); **user-defined routines** (e.g. pre-workout, pre-run, pre-swim); **guided routine player** -- play button, countdown per stretch, audible at zero, ~5 s transition, then next stretch; static image only (no Lottie; §2.4 groundwork for future). Confirm pose library licenses before shipping.  
@@ -436,6 +441,14 @@ Before or during implementation, resolve the **gaps and items** listed in **§9.
     - Security review (key handling, logging, NIP-44 usage).  
     - Final pass on all categories: edge cases, data validation, payload size limits, UX polish.  
     - **Optional: Music bar** (§7.6) — Minimal “now playing” bar at bottom of screen using **MediaSessionManager** + **MediaController** and a **NotificationListenerService** when the user has enabled the bar in Settings. Show only when an active media session exists; play/pause/skip and tap-to-open source app. Kept minimal so it does not detract from health logging.
+
+12. **Workout Bubble (active session overlay) — §13**  
+    - **Prerequisite**: Phases 7 and 8 must have the **`ActiveSessionService`** (Foreground Service) in place, with session state exposed via `StateFlow` and a persistent notification already showing during active sessions.  
+    - **Bubble notification**: Upgrade the existing foreground service notification to include **`BubbleMetadata`** (Android 11+ / API 30). The notification's icon becomes the floating bubble; tapping expands it into a lightweight embedded Activity. On devices below API 30, the persistent notification with action buttons (pause, end, open app) serves as the fallback — no bubble, but the same functionality via the notification shade.  
+    - **Bubble Activity**: A dedicated, lightweight `Activity` (declared `resizeableActivity="true"`, `allowEmbedded="true"` in the manifest) that renders inside the expanded bubble. Shows: **(a)** session type and elapsed time, **(b)** current exercise / activity name, **(c)** for weight training: current set progress (e.g. "Set 3/4") and a rest timer, **(d)** for cardio: distance (if GPS), current pace or speed, **(e)** action buttons: **log set** (weight), **pause/resume**, **end workout**. The Activity binds to the same `ActiveSessionService` and observes the same `StateFlow` as the main app UI — no data duplication.  
+    - **Collapsed state**: The floating icon shows a small ERV badge; optionally animate or pulse to signal an active session. Dragging to the dismiss target ends the bubble overlay (not the workout — the notification and service continue).  
+    - **UX**: When the user starts a workout in ERV and navigates away, the bubble appears automatically. Tapping the bubble expands the mini workout view. Tapping a "full app" button in the expanded bubble navigates back to the full workout screen inside ERV. Ending the workout from the bubble logs the session and stops the service (same as ending from the main UI).  
+    - **Permissions**: Requires `POST_NOTIFICATIONS` (already requested) and `android.permission.FOREGROUND_SERVICE` / `android.permission.FOREGROUND_SERVICE_SPECIAL_USE` (or appropriate type). The bubble itself requires no extra permission beyond the notification channel being configured for bubbles (`setAllowBubbles(true)` on the channel, `setBubbleMetadata(...)` on the notification). User must have notifications enabled for the channel.
 
 ---
 
@@ -459,6 +472,10 @@ Items previously listed here but now specified in the plan (e.g. **Settings** in
 | **Offline / conflict UX** | “Latest wins” for replaceable events; offline queue in hardening. | Consider: show “Last synced at X” and/or surface when local is ahead of relay; avoid silent overwrites if multi-device is common. |
 | **Body weight payload growth** | `erv/bodyweight` is one replaceable event; daily logging over years = large payload. | Monitor payload size; shard by year (e.g. `erv/bodyweight/2026`) if single event exceeds relay limits. See §2.4 body weight. |
 | **Stretching library: bundled vs synced** | §2.4 says read-only assets or sync as `erv/stretching/poses`; not decided. | Ship as **bundled read-only** asset for simplicity (embed JSON in APK); sync via Nostr only if users can add custom poses. Decide in Phase 9. |
+| **Foreground service type** | Phase 7/8 introduce `ActiveSessionService`; Android 14+ requires declaring `foregroundServiceType` in manifest. | Choose appropriate type(s): `location` (for GPS during cardio), `specialUse` (for workout timer without GPS). May need to declare multiple types or use `specialUse` as umbrella. Confirm Play Store policy (or F-Droid if not on Play) for the chosen type. |
+| **Bubble: minimum API and fallback UX** | Bubbles require API 30 (Android 11). `minSdkVersion` may be lower. | On API < 30, fall back to a **rich persistent notification** with action buttons (pause, end, open app) — same functionality, no floating icon. Test both paths. |
+| **Bubble: single-session constraint** | Only one workout can be active at a time (one foreground service notification = one bubble). | Enforce at service level: starting a new session must end or pause the current one. UI should prevent starting a second concurrent session. |
+| **ActiveSessionService state shape** | Cardio and Weight have different session states (exercise/sets vs activity/distance). | Use a sealed class (e.g. `ActiveSession.Cardio(...)` / `ActiveSession.Weight(...)`) so the service, notification, and bubble Activity can render the right content. Define in Phase 7; extend in Phase 8. |
 
 ---
 
@@ -602,6 +619,95 @@ So **pairing solely to ERV would limit the watch** to what ERV implements (e.g. 
 - **Phase 10c** (if needed): Design and build the custom watch app (and optional bridge) per §12.6. All HR paths are direct BLE or direct device.
 
 This keeps ERV’s core design unchanged while making Pebble Time 2 heart rate a supported input for workout and cardio sessions, with a clear path for companion apps (watch app and optional bridge) if the official stack does not expose HR.
+
+---
+
+## 13. Workout Bubble (active session overlay)
+
+When a **cardio or weight training session is active**, ERV can display a **floating bubble** (Android Bubbles API) that hovers above all other apps on the device. This lets the user leave ERV — to change music, reply to a message, check the time — and still see their workout status and interact with the session without navigating back to the app. Think of it like Facebook Messenger’s chat heads or ESPN’s live score tracker, but for an active workout.
+
+### 13.1 Concept
+
+- **Collapsed (bubble icon)**: A small floating ERV icon on screen. Visible from any app while a session is active. Optionally shows a live timer or pulsing animation.
+- **Expanded (mini workout view)**: Tapping the bubble opens a compact, embedded Activity inside the bubble window. This view shows key session info and action buttons — enough to interact without returning to the full app.
+- **Full app return**: A button in the expanded bubble launches the full ERV workout screen for detailed interaction (e.g. browsing exercises, reviewing history).
+
+### 13.2 What the bubble shows
+
+The expanded bubble Activity renders differently depending on the active session type:
+
+| Session type | Bubble content |
+|-------------|----------------|
+| **Cardio** | Activity name (e.g. “Running”), elapsed time, distance (if GPS active), current pace/speed, estimated calories so far. Buttons: **Pause/Resume**, **End workout**. |
+| **Weight training** | Current exercise name, set progress (e.g. “Set 3/4”), rest timer (if resting between sets), elapsed workout time. Buttons: **Log set** (quick entry: reps + weight), **Next exercise**, **Pause/Resume**, **End workout**. |
+
+The bubble Activity binds to the same **`ActiveSessionService`** (§5.1) and observes the same `StateFlow` as the main Compose UI. No data duplication; the service is the single source of truth.
+
+### 13.3 Architecture (service-first design)
+
+The bubble depends on architecture that is built **before** the bubble itself:
+
+1. **`ActiveSessionService` (Foreground Service)** — Built in **Phase 7** (Cardio) and extended in **Phase 8** (Workout). Owns the session timer, GPS recording (cardio), current exercise/set state (workout), and exposes all state via `StateFlow`. Posts a **persistent notification** (required for foreground services) showing session status.
+2. **Persistent notification (Phase 7/8)** — The foreground service notification shows elapsed time, activity name, and action buttons (pause, end, open app). This is the **fallback UX** on devices that do not support bubbles (API < 30) and is useful in its own right.
+3. **Bubble upgrade (Phase 12)** — The existing notification gains `BubbleMetadata` pointing to the Bubble Activity. Android promotes it to a floating bubble. The notification channel is configured with `setAllowBubbles(true)`.
+4. **Bubble Activity** — A lightweight `Activity` declared with `resizeableActivity="true"` and `allowEmbedded="true"` in the manifest. It binds to `ActiveSessionService`, observes state, and renders a compact Compose UI. It is **not** the main `MainActivity`; it is a separate, minimal entry point.
+
+```
+┌─────────────────────────────────────────────────┐
+│              ActiveSessionService                │
+│  (Foreground Service — source of truth)          │
+│                                                  │
+│  StateFlow<ActiveSession>                        │
+│    ├── ActiveSession.Cardio(elapsed, distance,   │
+│    │       pace, calories, activity, isPaused)   │
+│    └── ActiveSession.Weight(elapsed, exercise,   │
+│            setNum, totalSets, restTimer,         │
+│            isPaused)                             │
+│                                                  │
+│  Notification (always present when active)       │
+│    └── BubbleMetadata → BubbleActivity (API 30+) │
+├──────────────────────┬──────────────────────────┤
+│                      │                          │
+│   Main Compose UI    │    Bubble Activity       │
+│   (binds to service, │    (binds to service,    │
+│    full workout      │     compact view,        │
+│    screen)           │     quick actions)       │
+└──────────────────────┴──────────────────────────┘
+```
+
+### 13.4 Fallback (API < 30)
+
+On devices running Android 10 or below (API < 30), bubbles are not available. The **persistent notification** from the foreground service serves as the fallback:
+
+- Shows elapsed time, activity/exercise name in the notification body.
+- **Action buttons** on the notification: Pause/Resume, End workout, Open app.
+- Tapping the notification body opens the full workout screen in ERV.
+- This provides the same core functionality (status at a glance + quick actions from anywhere) without the floating bubble UX.
+
+### 13.5 Permissions and manifest
+
+- **`FOREGROUND_SERVICE`** — Required for the `ActiveSessionService`. Already needed for the timer to survive backgrounding (Phase 7).
+- **`FOREGROUND_SERVICE_SPECIAL_USE`** (or `FOREGROUND_SERVICE_LOCATION` for GPS cardio sessions) — Android 14+ requires declaring `foregroundServiceType` in the manifest. Use `location` when GPS is active; `specialUse` otherwise.
+- **`POST_NOTIFICATIONS`** — Already requested (Phase 1 scaffold). The bubble is backed by a notification; if the user disables notifications for the channel, the bubble will not appear.
+- **Notification channel** — Create a dedicated channel (e.g. `active_session`) with `setAllowBubbles(true)`. Separate from the existing `routine_reminders` channel.
+- **Bubble Activity in manifest**: `<activity android:name=".ui.bubble.BubbleActivity" android:resizeableActivity="true" android:allowEmbedded="true" ... />`.
+
+### 13.6 UX flow
+
+1. User starts a cardio or weight training session in ERV.
+2. `ActiveSessionService` starts as a foreground service; persistent notification appears.
+3. User navigates away from ERV (e.g. opens Spotify).
+4. On API 30+: the notification is promoted to a **floating bubble** on screen. On API < 30: the notification stays in the shade with action buttons.
+5. User taps the bubble → expanded mini view shows session status and quick actions.
+6. User can **log a set**, **pause**, or **end the workout** directly from the bubble.
+7. User taps “Open full app” → ERV opens to the full workout screen.
+8. When the session ends (from bubble, notification, or main app), the service stops, notification/bubble disappear, and the session is logged and synced.
+
+### 13.7 Phasing
+
+- **Phase 7 (Cardio)**: Build `ActiveSessionService` with cardio state, persistent notification, and action buttons. Timer and GPS survive backgrounding. No bubble yet.
+- **Phase 8 (Workout)**: Extend `ActiveSessionService` with weight training state (sealed class). Same notification pattern.
+- **Phase 12 (Workout Bubble)**: Add `BubbleActivity`, `BubbleMetadata` on the notification, bubble notification channel. Wire up the compact Compose UI inside the bubble. Test on API 30+ devices; verify fallback on older devices.
 
 ---
 
