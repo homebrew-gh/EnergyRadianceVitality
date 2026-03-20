@@ -37,9 +37,16 @@ object Nip65 {
     suspend fun fetchRelayListFromNetwork(
         relayPool: RelayPool,
         pubkeyHex: String,
-        timeoutMs: Long = 6000
+        timeoutMs: Long = 8000
     ): List<String> = coroutineScope {
         val subId = "nip65-fetch-${System.currentTimeMillis()}"
+        val events = mutableListOf<NostrEvent>()
+        val job = launch {
+            relayPool.events.collect { (id, ev) ->
+                if (id == subId && ev.kind == 10002) events.add(ev)
+            }
+        }
+        delay(50)
         relayPool.subscribe(
             subId,
             NostrFilter(
@@ -48,12 +55,6 @@ object Nip65 {
                 limit = 10
             )
         )
-        val events = mutableListOf<NostrEvent>()
-        val job = launch {
-            relayPool.events.collect { (id, ev) ->
-                if (id == subId && ev.kind == 10002) events.add(ev)
-            }
-        }
         delay(timeoutMs)
         job.cancel()
         relayPool.unsubscribe(subId)

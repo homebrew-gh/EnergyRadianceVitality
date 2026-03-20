@@ -1,0 +1,4 @@
+com.erv.app.test.app-androidTest-0 /home/samcornwell/Projects/EnergyRadianceVitality/app/build/generated/res/resValues/androidTest/debug
+com.erv.app.test.app-mergeDebugAndroidTestResources-1 /home/samcornwell/Projects/EnergyRadianceVitality/app/build/intermediates/incremental/debugAndroidTest/mergeDebugAndroidTestResources/merged.dir
+com.erv.app.test.app-mergeDebugAndroidTestResources-2 /home/samcornwell/Projects/EnergyRadianceVitality/app/build/intermediates/incremental/debugAndroidTest/mergeDebugAndroidTestResources/stripped.dir
+com.erv.app.test.app-merged_res-3 /home/samcornwell/Projects/EnergyRadianceVitality/app/build/intermediates/merged_res/debugAndroidTest

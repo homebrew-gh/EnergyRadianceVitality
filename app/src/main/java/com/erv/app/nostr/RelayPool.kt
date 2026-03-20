@@ -74,6 +74,23 @@ class RelayPool(
         clients.values.forEach { it.subscribe(subscriptionId, *filters) }
     }
 
+    /**
+     * Waits until at least one relay has an open socket (or auth completed). Avoids NIP-65 / REQ
+     * running while every [NostrClient] still has `webSocket == null`.
+     */
+    suspend fun awaitAtLeastOneConnected(timeoutMs: Long = 15_000): Boolean {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            if (relayStates.value.values.any {
+                it is ConnectionState.Connected || it is ConnectionState.Authenticated
+            }) return true
+            delay(50)
+        }
+        return relayStates.value.values.any {
+            it is ConnectionState.Connected || it is ConnectionState.Authenticated
+        }
+    }
+
     fun unsubscribe(subscriptionId: String) {
         clients.values.forEach { it.unsubscribe(subscriptionId) }
     }

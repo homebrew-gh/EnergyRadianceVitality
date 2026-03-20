@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="erv_icon_background">#C62828</color>
+    <color name="erv_on_primary">#FFFFFF</color>
+    <color name="erv_on_surface">#2C1810</color>
+    <color name="erv_primary">#C45C26</color>
+    <color name="erv_surface">#FFF8F0</color>
+    <string name="app_name">ERV</string>
+    <string name="toast_error_generic">An error occurred</string>
+    <string name="toast_event_published">Saved and synced</string>
+    <string name="toast_publish_failed">Something went wrong. Please try again.</string>
+    <style name="Theme.ERV" parent="Theme.MaterialComponents.Light.NoActionBar">
+        <item name="colorPrimary">@color/erv_primary</item>
+        <item name="colorOnPrimary">@color/erv_on_primary</item>
+        <item name="colorSurface">@color/erv_surface</item>
+        <item name="colorOnSurface">@color/erv_on_surface</item>
+    </style>
+</resources>

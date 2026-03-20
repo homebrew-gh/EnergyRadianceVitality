@@ -1,0 +1,17 @@
+R_DEF: Internal format may change without notice
+local
+color erv_icon_background
+color erv_on_primary
+color erv_on_surface
+color erv_primary
+color erv_surface
+drawable ic_launcher
+drawable ic_launcher_foreground
+drawable ic_stat_routine
+drawable ic_sun
+font varela_round_regular
+string app_name
+string toast_error_generic
+string toast_event_published
+string toast_publish_failed
+style Theme.ERV

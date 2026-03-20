@@ -1,0 +1,4 @@
+#Fri Mar 20 05:42:59 EDT 2026
+base.0=/home/samcornwell/Projects/EnergyRadianceVitality/app/build/intermediates/dex/debugAndroidTest/mergeProjectDexDebugAndroidTest/0/classes.dex
+path.0=0/classes.dex
+renamed.0=classes.dex

@@ -60,6 +60,10 @@ class NostrClient(
     private var authEventId: String? = null
     private var pendingChallenge: String? = null
 
+    /** Remember REQs so they run after the socket opens (and again after NIP-42 AUTH). */
+    private val subscriptionLock = Any()
+    private val activeSubscriptions = linkedMapOf<String, List<NostrFilter>>()
+
     fun connect(url: String) {
         shouldReconnect = true
         reconnectAttempts = 0
@@ -79,6 +83,7 @@ class NostrClient(
                 if (ws !== webSocket) return
                 reconnectAttempts = 0
                 _connectionState.value = ConnectionState.Connected
+                flushSubscriptions()
             }
 
             override fun onMessage(ws: WebSocket, text: String) {
@@ -113,6 +118,7 @@ class NostrClient(
         webSocket = null
         _connectionState.value = ConnectionState.Disconnected
         failAllPending()
+        synchronized(subscriptionLock) { activeSubscriptions.clear() }
     }
 
     private fun scheduleReconnect(url: String) {
@@ -156,12 +162,32 @@ class NostrClient(
     }
 
     fun subscribe(subscriptionId: String, vararg filters: NostrFilter) {
-        val ws = webSocket ?: return
+        val fl = filters.toList()
+        synchronized(subscriptionLock) {
+            activeSubscriptions[subscriptionId] = fl
+        }
+        webSocket?.let { sendReq(it, subscriptionId, fl) }
+    }
+
+    private fun sendReq(ws: WebSocket, subscriptionId: String, filters: List<NostrFilter>) {
         val filterJson = filters.joinToString(",") { it.toJson() }
         ws.send("""["REQ","$subscriptionId",$filterJson]""")
     }
 
+    private fun flushSubscriptions() {
+        val ws = webSocket ?: return
+        val snapshot: List<Pair<String, List<NostrFilter>>>
+        synchronized(subscriptionLock) {
+            if (activeSubscriptions.isEmpty()) return
+            snapshot = activeSubscriptions.map { it.key to it.value }
+        }
+        for ((id, fl) in snapshot) {
+            sendReq(ws, id, fl)
+        }
+    }
+
     fun unsubscribe(subscriptionId: String) {
+        synchronized(subscriptionLock) { activeSubscriptions.remove(subscriptionId) }
         webSocket?.send("""["CLOSE","$subscriptionId"]""")
     }
 
@@ -245,6 +271,7 @@ class NostrClient(
             authEventId = null
             if (success) {
                 _connectionState.value = ConnectionState.Authenticated
+                flushSubscriptions()
             }
             return
         }

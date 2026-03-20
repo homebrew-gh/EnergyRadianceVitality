@@ -4,6 +4,7 @@ import kotlinx.serialization.Serializable
 import java.time.LocalDate
 import java.util.UUID
 import kotlin.math.max
+import kotlin.math.min
 
 @Serializable
 enum class CardioBuiltinActivity {
@@ -297,9 +298,20 @@ private fun formatLoadLbKg(kg: Double): String {
 
 fun nowEpochSeconds(): Long = System.currentTimeMillis() / 1000
 
+/** Placeholder treadmill params when sprinting indoors without a detail form (pace × time estimates only). */
+fun defaultSprintIndoorTreadmillParams(): CardioTreadmillParams = CardioTreadmillParams(
+    speed = 10.0,
+    speedUnit = CardioSpeedUnit.MPH,
+    inclinePercent = 0.0,
+    distanceMeters = null,
+    loadKg = null
+)
+
 sealed class CardioTimerStyle {
     data object CountUp : CardioTimerStyle()
     data class CountDown(val totalSeconds: Int) : CardioTimerStyle()
+    /** Outdoor sprint-style: stop when estimated distance covered reaches [targetMeters]. Requires pace on draft. */
+    data class CountDownDistance(val targetMeters: Double) : CardioTimerStyle()
 }
 
 /** Live session timer state; dashboard and Cardio screen share this. */
@@ -326,6 +338,9 @@ data class CardioTimerSessionDraft(
             outdoorPaceSpeed != null && outdoorPaceSpeedUnit != null
         ) {
             dist = outdoorDistanceMetersAtElapsed(outdoorPaceSpeed, outdoorPaceSpeedUnit, elapsed)
+        }
+        if (timerStyle is CardioTimerStyle.CountDownDistance && dist != null) {
+            dist = min(dist, timerStyle.targetMeters)
         }
         return CardioSession(
             activity = activity,
