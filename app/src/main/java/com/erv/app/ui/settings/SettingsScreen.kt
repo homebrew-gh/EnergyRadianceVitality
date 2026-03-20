@@ -69,7 +69,7 @@ fun SettingsScreen(
     var snackbarMessage by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(allRelays, relayPool) {
-        relayPool?.setRelays(allRelays)
+        relayPool?.setRelays(keyManager.relayUrlsForPool())
     }
     DisposableEffect(relayPool) {
         onDispose { relayPool?.disconnect() }

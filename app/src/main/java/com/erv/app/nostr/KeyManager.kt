@@ -26,7 +26,6 @@ class KeyManager(context: Context) {
             EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
             EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
         )
-        ensureDefaultRelaysIfNeeded()
     }
 
     // --- Stored values ---
@@ -84,6 +83,16 @@ class KeyManager(context: Context) {
     /** All relays (data + social), deduplicated. */
     fun allRelayUrls(): List<String> = (relayUrls + socialRelayUrls).distinct()
 
+    /**
+     * Relays to open on the [RelayPool]. Uses only what the user has saved when non-empty.
+     * When empty (e.g. Amber before NIP-65), returns [DEFAULT_RELAYS] for connectivity only —
+     * nothing is written to preferences.
+     */
+    fun relayUrlsForPool(): List<String> {
+        val stored = allRelayUrls()
+        return if (stored.isEmpty()) DEFAULT_RELAYS else stored
+    }
+
     fun isDataRelay(url: String): Boolean = url in relayUrls
     fun isSocialRelay(url: String): Boolean = url in socialRelayUrls
 
@@ -128,11 +137,12 @@ class KeyManager(context: Context) {
         nsecHex = Hex.encode(privKey)
         publicKeyHex = pubHex
         loginMethod = LOGIN_NSEC
-        populateDefaultRelays()
     }
 
     /**
-     * Generate a fresh Nostr key pair, store it, and populate default relays.
+     * Generate a fresh Nostr key pair, store it, and persist [DEFAULT_RELAYS] so the user
+     * can publish encrypted data immediately. Imported nsec ([loginWithNsec]) does not do this;
+     * it relies on NIP-65 / settings, then [populateDefaultRelaysIfStillEmpty].
      */
     fun generateKeys(): String {
         val privKey = secureRandomBytes(32)
@@ -148,23 +158,18 @@ class KeyManager(context: Context) {
         return Bech32.nsecEncode(privKey)
     }
 
+    /**
+     * After NIP-65 / settings fetch during post-login: persist [DEFAULT_RELAYS] only if nothing was loaded.
+     */
+    fun populateDefaultRelaysIfStillEmpty() {
+        if (allRelayUrls().isEmpty()) populateDefaultRelays()
+    }
+
     private fun populateDefaultRelays() {
         DEFAULT_RELAYS.forEach { url ->
             addRelay(url)
             addSocialRelay(url)
         }
-    }
-
-    /**
-     * Amber login (and legacy sessions) may have pubkey but no relays; without relays we cannot
-     * fetch NIP-65 or settings. Nsec login always calls [populateDefaultRelays].
-     */
-    private fun ensureDefaultRelaysIfNeeded() {
-        if (publicKeyHex == null) return
-        migrateRelayUrlIfNeeded()
-        val data = prefs.getStringSet(KEY_RELAY_URLS, emptySet()) ?: emptySet()
-        val social = prefs.getStringSet(KEY_SOCIAL_RELAY_URLS, emptySet()) ?: emptySet()
-        if (data.isEmpty() && social.isEmpty()) populateDefaultRelays()
     }
 
     /**
@@ -194,7 +199,6 @@ class KeyManager(context: Context) {
         publicKeyHex = pubkeyHex
         loginMethod = LOGIN_AMBER
         prefs.edit().putString(KEY_AMBER_PACKAGE, packageName).apply()
-        ensureDefaultRelaysIfNeeded()
     }
 
     fun createLocalSigner(): LocalSigner? {

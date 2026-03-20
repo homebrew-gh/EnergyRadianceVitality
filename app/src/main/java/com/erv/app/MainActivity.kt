@@ -148,7 +148,7 @@ private fun ErvApp(
                             appState = AppState.Ready
                         } else {
                             val pool = RelayPool(activeSigner)
-                            pool.setRelays(keyManager.allRelayUrls())
+                            pool.setRelays(keyManager.relayUrlsForPool())
                             onboardingPool = pool
                             onboardingLoading = false
                         }
@@ -175,7 +175,7 @@ private fun ErvApp(
                     onContinue = {
                         scope.launch {
                             onboardingPool?.let { pool ->
-                                pool.setRelays(keyManager.allRelayUrls())
+                                pool.setRelays(keyManager.relayUrlsForPool())
                                 delay(1500)
                                 resolveSigner()?.let { currentSigner ->
                                     SettingsSync.saveToNetwork(pool, currentSigner, keyManager)
@@ -203,8 +203,8 @@ private fun ErvApp(
 }
 
 /**
- * After login: connect to defaults, fetch NIP-65 social relays,
- * then check for existing erv/settings on the network.
+ * After login: connect (bootstrap relays only if none saved), fetch NIP-65 relay list,
+ * then fetch erv/settings from the network. If nothing yields stored relays, applies [KeyManager.DEFAULT_RELAYS].
  * Returns true if settings were found (skip onboarding), false otherwise.
  */
 private suspend fun runPostLoginSetup(
@@ -213,23 +213,22 @@ private suspend fun runPostLoginSetup(
 ): Boolean {
     val pool = RelayPool(signer)
     try {
-        val connectUrls = (keyManager.allRelayUrls() + Nip65.bootstrapRelays).distinct()
-        pool.setRelays(connectUrls)
+        pool.setRelays(keyManager.relayUrlsForPool())
         delay(2000)
 
         val pubkey = keyManager.publicKeyHex ?: return false
         val nip65Urls = Nip65.fetchRelayListFromNetwork(pool, pubkey, timeoutMs = 5000)
         nip65Urls.forEach { keyManager.addSocialRelay(it) }
 
-        pool.setRelays(keyManager.allRelayUrls())
+        pool.setRelays(keyManager.relayUrlsForPool())
         delay(1500)
 
         val config = SettingsSync.fetchFromNetwork(pool, signer, pubkey, timeoutMs = 5000)
         if (config != null) {
             SettingsSync.applyToKeyManager(config, keyManager)
-            return true
         }
-        return false
+        keyManager.populateDefaultRelaysIfStillEmpty()
+        return config != null
     } finally {
         pool.disconnect()
     }
@@ -283,7 +282,7 @@ private fun MainAppShell(
     }
 
     LaunchedEffect(relayPool, relayUrlsVersion) {
-        relayPool?.setRelays(keyManager.allRelayUrls())
+        relayPool?.setRelays(keyManager.relayUrlsForPool())
     }
     LaunchedEffect(relayPool, signer, supplementRepository, lightTherapyRepository, cardioRepository) {
         if (relayPool == null || signer == null) {

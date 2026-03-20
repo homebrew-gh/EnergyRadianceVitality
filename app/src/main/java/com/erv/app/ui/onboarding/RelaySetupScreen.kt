@@ -19,7 +19,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.erv.app.nostr.ConnectionState
 import com.erv.app.nostr.KeyManager
-import com.erv.app.nostr.Nip65
 import com.erv.app.nostr.RelayPool
 import androidx.compose.runtime.snapshotFlow
 
@@ -34,12 +33,10 @@ fun RelaySetupScreen(
 ) {
     var relayRevision by remember { mutableIntStateOf(0) }
     val allRelays = remember(relayRevision) { keyManager.allRelayUrls() }
-    val relayUrlsForPool = remember(allRelays) {
-        if (allRelays.isEmpty()) Nip65.bootstrapRelays else allRelays
-    }
+    val urlsForPool = remember(relayRevision) { keyManager.relayUrlsForPool() }
 
-    LaunchedEffect(relayUrlsForPool, relayPool) {
-        relayPool?.setRelays(relayUrlsForPool)
+    LaunchedEffect(urlsForPool, relayPool) {
+        relayPool?.setRelays(urlsForPool)
     }
     // Relays (including NIP-65 social) are already populated in runPostLoginSetup before this screen loads.
 
