@@ -70,6 +70,7 @@ fun WeightManualWorkoutEditorScreen(
     }
     var showPickExercise by remember { mutableStateOf(false) }
     var showNothingLogged by remember { mutableStateOf(false) }
+    var setsCollapsedIds by remember(sessionKey) { mutableStateOf(emptySet<String>()) }
 
     if (showPickExercise) {
         WeightPickExerciseDialog(
@@ -218,6 +219,14 @@ fun WeightManualWorkoutEditorScreen(
                                 onRemoveExercise = {
                                     exerciseOrder = exerciseOrder.filterIndexed { i, _ -> i != index }
                                     setsByExerciseId = setsByExerciseId - exerciseId
+                                    setsCollapsedIds = setsCollapsedIds - exerciseId
+                                },
+                                setsCollapsed = exerciseId in setsCollapsedIds,
+                                onCollapseSets = {
+                                    setsCollapsedIds = setsCollapsedIds + exerciseId
+                                },
+                                onExpandSets = {
+                                    setsCollapsedIds = setsCollapsedIds - exerciseId
                                 }
                             )
                         }

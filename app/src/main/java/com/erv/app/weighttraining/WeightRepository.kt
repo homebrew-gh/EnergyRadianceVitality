@@ -106,12 +106,17 @@ class WeightRepository(context: Context) {
                 WeightLibraryState()
             }
         }
-        return if (base.exercises.isEmpty()) {
-            base.copy(exercises = defaultCompoundExercises())
-        } else {
-            base
+        return when {
+            base.exercises.isEmpty() -> base.copy(exercises = defaultCatalogExercises())
+            else -> base.mergeMissingCatalogExercises()
         }
     }
+}
+
+private fun WeightLibraryState.mergeMissingCatalogExercises(): WeightLibraryState {
+    val existingIds = exercises.map { it.id }.toSet()
+    val toAdd = defaultCatalogExercises().filter { it.id !in existingIds }
+    return if (toAdd.isEmpty()) this else copy(exercises = exercises + toAdd)
 }
 
 private fun <T : Any> List<T>.upsertById(entry: T, idSelector: (T) -> String): List<T> {

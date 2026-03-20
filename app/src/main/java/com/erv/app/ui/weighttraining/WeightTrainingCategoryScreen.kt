@@ -25,6 +25,8 @@ import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -85,6 +87,7 @@ import com.erv.app.weighttraining.WeightWorkoutSession
 import com.erv.app.weighttraining.WeightSync
 import com.erv.app.weighttraining.displayLabel
 import com.erv.app.weighttraining.toFinishedLiveSession
+import com.erv.app.weighttraining.exerciseIdsUsedInAnyLog
 import com.erv.app.weighttraining.exercisesGroupedByMuscle
 import com.erv.app.weighttraining.formatMuscleGroupHeader
 import java.time.LocalDate
@@ -92,13 +95,9 @@ import java.time.format.DateTimeFormatter
 import java.util.UUID
 import kotlinx.coroutines.launch
 
-private enum class WeightTrainingTab { Exercises, Routines, Log }
+private val WeightTrainingFabBarInset = 96.dp
 
-private sealed class WeightLogEditorState {
-    data object Hidden : WeightLogEditorState()
-    data object NewWorkout : WeightLogEditorState()
-    data class Editing(val session: WeightWorkoutSession) : WeightLogEditorState()
-}
+private enum class WeightTrainingTab { Exercises, Routines }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -110,6 +109,8 @@ fun WeightTrainingCategoryScreen(
     relayPool: RelayPool?,
     signer: EventSigner?,
     onBack: () -> Unit,
+    onOpenLog: () -> Unit,
+    onOpenExerciseHistory: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val loadUnit by userPreferences.weightTrainingLoadUnit.collectAsState(initial = BodyWeightUnit.KG)
@@ -127,9 +128,6 @@ fun WeightTrainingCategoryScreen(
 
     var routineBeingEdited by remember { mutableStateOf<WeightRoutine?>(null) }
     var routinePendingDelete by remember { mutableStateOf<WeightRoutine?>(null) }
-
-    var manualLogEditor by remember { mutableStateOf<WeightLogEditorState>(WeightLogEditorState.Hidden) }
-    var workoutPendingDelete by remember { mutableStateOf<WeightWorkoutSession?>(null) }
 
     val darkTheme = isSystemInDarkTheme()
     val headerDark = if (darkTheme) ErvDarkTherapyRedDark else ErvLightTherapyRedDark
@@ -178,48 +176,6 @@ fun WeightTrainingCategoryScreen(
         return
     }
 
-    when (val logEditor = manualLogEditor) {
-        WeightLogEditorState.Hidden -> Unit
-        WeightLogEditorState.NewWorkout -> {
-            WeightManualWorkoutEditorScreen(
-                existingSession = null,
-                library = state,
-                loadUnit = loadUnit,
-                onLoadUnitChange = { u -> scope.launch { userPreferences.setWeightTrainingLoadUnit(u) } },
-                onDismiss = { manualLogEditor = WeightLogEditorState.Hidden },
-                onSave = { session ->
-                    scope.launch {
-                        repository.addWorkout(selectedDate, session)
-                        pushDayLog(selectedDate)
-                        manualLogEditor = WeightLogEditorState.Hidden
-                        snackbarHostState.showSnackbar("Workout saved")
-                    }
-                },
-                modifier = Modifier.fillMaxSize()
-            )
-            return
-        }
-        is WeightLogEditorState.Editing -> {
-            WeightManualWorkoutEditorScreen(
-                existingSession = logEditor.session,
-                library = state,
-                loadUnit = loadUnit,
-                onLoadUnitChange = { u -> scope.launch { userPreferences.setWeightTrainingLoadUnit(u) } },
-                onDismiss = { manualLogEditor = WeightLogEditorState.Hidden },
-                onSave = { session ->
-                    scope.launch {
-                        repository.updateWorkout(selectedDate, session)
-                        pushDayLog(selectedDate)
-                        manualLogEditor = WeightLogEditorState.Hidden
-                        snackbarHostState.showSnackbar("Workout updated")
-                    }
-                },
-                modifier = Modifier.fillMaxSize()
-            )
-            return
-        }
-    }
-
     Box(modifier = modifier.fillMaxSize()) {
         Scaffold(
             modifier = Modifier.fillMaxSize(),
@@ -241,6 +197,11 @@ fun WeightTrainingCategoryScreen(
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                         }
                     },
+                    actions = {
+                        IconButton(onClick = onOpenLog) {
+                            Icon(Icons.Default.DateRange, contentDescription = "Open log")
+                        }
+                    },
                     colors = TopAppBarDefaults.topAppBarColors(
                         containerColor = headerMid,
                         titleContentColor = Color.White,
@@ -249,63 +210,12 @@ fun WeightTrainingCategoryScreen(
                     )
                 )
             },
-            floatingActionButton = {
-                if (liveDraft == null) {
-                    when (tabEnum) {
-                        WeightTrainingTab.Exercises -> {
-                            Column(
-                                horizontalAlignment = Alignment.End,
-                                verticalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                SmallFloatingActionButton(
-                                    onClick = {
-                                        showExerciseCreator = true
-                                        exerciseEditorTarget = null
-                                    }
-                                ) {
-                                    Icon(Icons.Default.Add, contentDescription = "Add exercise")
-                                }
-                                ExtendedFloatingActionButton(
-                                    onClick = {
-                                        if (!liveWorkoutViewModel.tryStartBlank()) {
-                                            scope.launch {
-                                                snackbarHostState.showSnackbar("Finish or cancel your live workout first.")
-                                            }
-                                        }
-                                    },
-                                    icon = { Icon(Icons.Default.PlayArrow, contentDescription = null) },
-                                    text = { Text("Start workout") }
-                                )
-                            }
-                        }
-                        WeightTrainingTab.Routines -> {
-                            ExtendedFloatingActionButton(
-                                onClick = {
-                                    routineBeingEdited = WeightRoutine(
-                                        id = UUID.randomUUID().toString(),
-                                        name = "",
-                                        exerciseIds = emptyList()
-                                    )
-                                },
-                                icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                                text = { Text("Add routine") }
-                            )
-                        }
-                        WeightTrainingTab.Log -> {
-                            ExtendedFloatingActionButton(
-                                onClick = { manualLogEditor = WeightLogEditorState.NewWorkout },
-                                icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                                text = { Text("Add workout") }
-                            )
-                        }
-                    }
-                }
-            }
         ) { padding ->
             Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding)
+                    .padding(bottom = WeightTrainingFabBarInset)
             ) {
                 TabRow(
                     selectedTabIndex = tabEnum.ordinal,
@@ -323,10 +233,10 @@ fun WeightTrainingCategoryScreen(
 
                 when (tabEnum) {
                     WeightTrainingTab.Exercises -> ExercisesTabBody(
-                        grouped = state.exercisesGroupedByMuscle(),
                         state = state,
                         onEdit = { exerciseEditorTarget = it },
-                        onDeleteRequest = { exercisePendingDelete = it }
+                        onDeleteRequest = { exercisePendingDelete = it },
+                        onOpenHistory = onOpenExerciseHistory
                     )
 
                     WeightTrainingTab.Routines -> RoutinesTabBody(
@@ -341,36 +251,52 @@ fun WeightTrainingCategoryScreen(
                             }
                         }
                     )
+                }
+            }
+        }
 
-                    WeightTrainingTab.Log -> {
-                        val dayWorkouts = state.logFor(selectedDate)?.workouts.orEmpty()
-                        WeightLogTabContent(
-                            selectedDate = selectedDate,
-                            workouts = dayWorkouts,
-                            library = state,
-                            loadUnit = loadUnit,
-                            onEdit = { manualLogEditor = WeightLogEditorState.Editing(it) },
-                            onDelete = { workoutPendingDelete = it },
-                            onShare = { session ->
-                                scope.launch {
-                                    if (relayPool != null && signer != null) {
-                                        val ok = publishWeightWorkoutNote(
-                                            relayPool,
-                                            signer,
-                                            session,
-                                            state,
-                                            selectedDate,
-                                            loadUnit
-                                        )
-                                        snackbarHostState.showSnackbar(
-                                            if (ok) "Shared to your relays!" else "Failed to share — check relay connection"
-                                        )
-                                    } else {
-                                        snackbarHostState.showSnackbar("Connect relays and sign in to share.")
-                                    }
-                                }
+        if (liveDraft == null) {
+            Row(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Bottom
+            ) {
+                ExtendedFloatingActionButton(
+                    onClick = {
+                        if (!liveWorkoutViewModel.tryStartBlank()) {
+                            scope.launch {
+                                snackbarHostState.showSnackbar("Finish or cancel your live workout first.")
+                            }
+                        }
+                    },
+                    icon = { Icon(Icons.Default.PlayArrow, contentDescription = null) },
+                    text = { Text("Start workout") }
+                )
+                when (tabEnum) {
+                    WeightTrainingTab.Exercises -> {
+                        SmallFloatingActionButton(
+                            onClick = {
+                                showExerciseCreator = true
+                                exerciseEditorTarget = null
+                            }
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = "Add exercise")
+                        }
+                    }
+                    WeightTrainingTab.Routines -> {
+                        ExtendedFloatingActionButton(
+                            onClick = {
+                                routineBeingEdited = WeightRoutine(
+                                    id = UUID.randomUUID().toString(),
+                                    name = "",
+                                    exerciseIds = emptyList()
+                                )
                             },
-                            modifier = Modifier.fillMaxSize()
+                            icon = { Icon(Icons.Default.Add, contentDescription = null) },
+                            text = { Text("Add routine") }
                         )
                     }
                 }
@@ -383,9 +309,6 @@ fun WeightTrainingCategoryScreen(
                 draft = d,
                 library = state,
                 loadUnit = loadUnit,
-                onLoadUnitChange = { u ->
-                    scope.launch { userPreferences.setWeightTrainingLoadUnit(u) }
-                },
                 onCancel = { liveWorkoutViewModel.clearDraft() },
                 onFinish = {
                     scope.launch {
@@ -404,29 +327,6 @@ fun WeightTrainingCategoryScreen(
                 onSaveSets = { exerciseId, sets -> liveWorkoutViewModel.setSetsForExercise(exerciseId, sets) }
             )
         }
-    }
-
-    workoutPendingDelete?.let { w ->
-        AlertDialog(
-            onDismissRequest = { workoutPendingDelete = null },
-            title = { Text("Delete workout?") },
-            text = { Text("Remove this session from ${selectedDate.format(DateTimeFormatter.ISO_LOCAL_DATE)}?") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        scope.launch {
-                            repository.deleteWorkout(selectedDate, w.id)
-                            pushDayLog(selectedDate)
-                            snackbarHostState.showSnackbar("Workout removed")
-                        }
-                        workoutPendingDelete = null
-                    }
-                ) { Text("Delete") }
-            },
-            dismissButton = {
-                TextButton(onClick = { workoutPendingDelete = null }) { Text("Cancel") }
-            }
-        )
     }
 
     exercisePendingDelete?.let { ex ->
@@ -524,71 +424,166 @@ fun WeightTrainingCategoryScreen(
 
 @Composable
 private fun ExercisesTabBody(
-    grouped: List<Pair<String, List<WeightExercise>>>,
     state: WeightLibraryState,
     onEdit: (WeightExercise) -> Unit,
-    onDeleteRequest: (WeightExercise) -> Unit
+    onDeleteRequest: (WeightExercise) -> Unit,
+    onOpenHistory: (String) -> Unit
 ) {
-    if (grouped.isEmpty()) {
-        Column(
-            Modifier
-                .fillMaxSize()
-                .padding(24.dp),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+    var loggedBeforeOnly by rememberSaveable { mutableStateOf(false) }
+    val loggedIds = remember(state.logs) { state.exerciseIdsUsedInAnyLog() }
+    val grouped = remember(state.exercises, state.logs, searchQuery, loggedBeforeOnly, loggedIds) {
+        exercisesGroupedFiltered(state, searchQuery, loggedBeforeOnly, loggedIds)
+    }
+
+    Column(Modifier.fillMaxSize()) {
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = { searchQuery = it },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            placeholder = { Text("Search exercises") },
+            singleLine = true,
+            trailingIcon = {
+                if (searchQuery.isNotEmpty()) {
+                    IconButton(onClick = { searchQuery = "" }) {
+                        Icon(Icons.Default.Close, contentDescription = "Clear search")
+                    }
+                }
+            }
+        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Text(
-                "No exercises yet. Add one with the button below.",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+            FilterChip(
+                selected = !loggedBeforeOnly,
+                onClick = { loggedBeforeOnly = false },
+                label = { Text("All exercises") }
+            )
+            FilterChip(
+                selected = loggedBeforeOnly,
+                onClick = { loggedBeforeOnly = true },
+                label = { Text("Logged before") }
             )
         }
-        return
-    }
-    LazyColumn(Modifier.fillMaxSize()) {
-        grouped.forEach { (muscleKey, list) ->
-            items(
-                items = listOf(muscleKey),
-                key = { k -> "mg_$k" }
-            ) { key ->
-                Surface(
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    tonalElevation = 2.dp
+
+        when {
+            state.exercises.isEmpty() -> {
+                Column(
+                    Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .padding(24.dp),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        formatMuscleGroupHeader(key),
-                        style = MaterialTheme.typography.titleSmall,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                        "No exercises yet. Add one with the button below.",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
-            items(list, key = { it.id }) { exercise ->
-                val inRoutines = state.routines.count { r -> exercise.id in r.exerciseIds }
-                ListItem(
-                    headlineContent = { Text(exercise.name) },
-                    supportingContent = {
-                        Text(
-                            "${exercise.equipment.displayLabel()} · ${exercise.pushOrPull.displayLabel()}" +
-                                if (inRoutines > 0) " · Used in $inRoutines routine(s)" else ""
-                        )
-                    },
-                    trailingContent = {
-                        Row {
-                            IconButton(onClick = { onEdit(exercise) }) {
-                                Icon(Icons.Default.Edit, contentDescription = "Edit")
-                            }
-                            IconButton(onClick = { onDeleteRequest(exercise) }) {
-                                Icon(Icons.Default.Delete, contentDescription = "Delete")
+            grouped.isEmpty() -> {
+                Column(
+                    Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .padding(24.dp),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        when {
+                            loggedBeforeOnly && loggedIds.isEmpty() ->
+                                "No logged workouts yet — train and save a session to see exercises here."
+                            loggedBeforeOnly ->
+                                "No logged exercises match your search."
+                            else ->
+                                "No exercises match your search."
+                        },
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            else -> {
+                LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
+                    grouped.forEach { (muscleKey, list) ->
+                        items(
+                            items = listOf(muscleKey),
+                            key = { k -> "mg_$k" }
+                        ) { key ->
+                            Surface(
+                                color = MaterialTheme.colorScheme.surfaceVariant,
+                                tonalElevation = 2.dp
+                            ) {
+                                Text(
+                                    formatMuscleGroupHeader(key),
+                                    style = MaterialTheme.typography.titleSmall,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                                )
                             }
                         }
+                        items(list, key = { it.id }) { exercise ->
+                            val inRoutines = state.routines.count { r -> exercise.id in r.exerciseIds }
+                            ListItem(
+                                headlineContent = { Text(exercise.name) },
+                                supportingContent = {
+                                    Text(
+                                        "${exercise.equipment.displayLabel()} · ${exercise.pushOrPull.displayLabel()}" +
+                                            if (inRoutines > 0) " · Used in $inRoutines routine(s)" else ""
+                                    )
+                                },
+                                trailingContent = {
+                                    Row {
+                                        IconButton(onClick = { onOpenHistory(exercise.id) }) {
+                                            Icon(Icons.Default.History, contentDescription = "History")
+                                        }
+                                        IconButton(onClick = { onEdit(exercise) }) {
+                                            Icon(Icons.Default.Edit, contentDescription = "Edit")
+                                        }
+                                        IconButton(onClick = { onDeleteRequest(exercise) }) {
+                                            Icon(Icons.Default.Delete, contentDescription = "Delete")
+                                        }
+                                    }
+                                }
+                            )
+                            HorizontalDivider()
+                        }
                     }
-                )
-                HorizontalDivider()
+                }
             }
         }
     }
+}
+
+private fun exercisesGroupedFiltered(
+    state: WeightLibraryState,
+    query: String,
+    loggedBeforeOnly: Boolean,
+    loggedIds: Set<String>
+): List<Pair<String, List<WeightExercise>>> {
+    val q = query.trim().lowercase()
+    return state.exercisesGroupedByMuscle()
+        .map { (muscle, exercises) ->
+            muscle to exercises.filter { ex ->
+                val usedOk = !loggedBeforeOnly || ex.id in loggedIds
+                val matchOk = q.isEmpty() ||
+                    ex.name.lowercase().contains(q) ||
+                    ex.muscleGroup.lowercase().contains(q) ||
+                    ex.equipment.displayLabel().lowercase().contains(q) ||
+                    ex.pushOrPull.displayLabel().lowercase().contains(q)
+                usedOk && matchOk
+            }
+        }
+        .filter { (_, list) -> list.isNotEmpty() }
 }
 
 @Composable

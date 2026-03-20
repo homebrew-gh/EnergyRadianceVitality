@@ -42,15 +42,16 @@ fun parseWeightInputToKg(raw: String, unit: BodyWeightUnit): Double? {
 }
 
 fun WeightWorkoutSession.totalVolumeLoadTimesReps(unit: BodyWeightUnit): Double =
-    entries.sumOf { e ->
-        e.sets.sumOf { s ->
-            val kg = s.weightKg ?: 0.0
-            val perRep = when (unit) {
-                BodyWeightUnit.KG -> kg
-                BodyWeightUnit.LB -> kgToPounds(kg)
-            }
-            perRep * s.reps
+    entries.sumOf { e -> e.totalVolumeLoadTimesReps(unit) }
+
+fun WeightWorkoutEntry.totalVolumeLoadTimesReps(unit: BodyWeightUnit): Double =
+    sets.sumOf { s ->
+        val kg = s.weightKg ?: 0.0
+        val perRep = when (unit) {
+            BodyWeightUnit.KG -> kg
+            BodyWeightUnit.LB -> kgToPounds(kg)
         }
+        perRep * s.reps
     }
 
 data class WeightActivityRow(val summaryLine: String)

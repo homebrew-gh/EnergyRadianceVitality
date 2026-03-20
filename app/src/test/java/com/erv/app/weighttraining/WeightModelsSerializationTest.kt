@@ -4,7 +4,9 @@ import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.LocalDate
 import java.util.UUID
 
 class WeightModelsSerializationTest {
@@ -57,6 +59,37 @@ class WeightModelsSerializationTest {
         val parsed = json.decodeFromString(WeightDayLog.serializer(), raw)
         assertEquals("2026-01-01", parsed.date)
         assertEquals(0, parsed.workouts.size)
+    }
+
+    @Test
+    fun exerciseIdsUsedInAnyLog_collectsDistinct() {
+        val state = WeightLibraryState(
+            exercises = defaultCompoundExercises(),
+            logs = listOf(
+                WeightDayLog(
+                    date = "2026-01-01",
+                    workouts = listOf(
+                        WeightWorkoutSession(
+                            source = WeightWorkoutSource.MANUAL,
+                            entries = listOf(
+                                WeightWorkoutEntry("e1", emptyList()),
+                                WeightWorkoutEntry("e2", emptyList())
+                            )
+                        )
+                    )
+                )
+            )
+        )
+        assertEquals(setOf("e1", "e2"), state.exerciseIdsUsedInAnyLog())
+    }
+
+    @Test
+    fun defaultCatalogExercises_uniqueIds_and_includesCompounds() {
+        val catalog = defaultCatalogExercises()
+        assertTrue(catalog.size >= 80)
+        assertEquals(catalog.size, catalog.map { it.id }.toSet().size)
+        assertTrue(catalog.any { it.id == "erv-weight-exercise-bench-v1" })
+        assertTrue(catalog.any { it.id == "erv-weight-exercise-squat-v1" })
     }
 
     @Test
@@ -127,5 +160,39 @@ class WeightModelsSerializationTest {
         assertEquals(WeightWorkoutSource.LIVE, edited.source)
         assertEquals(100L, edited.startedAtEpochSeconds)
         assertEquals(6, edited.entries.first().sets.first().reps)
+    }
+
+    @Test
+    fun historyForExercise_sortsNewestFirst_and_filters() {
+        val bench = "erv-weight-exercise-bench-v1"
+        val squat = "erv-weight-exercise-squat-v1"
+        val w1 = WeightWorkoutSession(
+            id = "w1",
+            source = WeightWorkoutSource.MANUAL,
+            entries = listOf(WeightWorkoutEntry(bench, listOf(WeightSet(5, 100.0))))
+        )
+        val w2 = WeightWorkoutSession(
+            id = "w2",
+            source = WeightWorkoutSource.LIVE,
+            startedAtEpochSeconds = 500L,
+            finishedAtEpochSeconds = 600L,
+            entries = listOf(
+                WeightWorkoutEntry(squat, listOf(WeightSet(3, 60.0))),
+                WeightWorkoutEntry(bench, listOf(WeightSet(3, 105.0)))
+            )
+        )
+        val state = WeightLibraryState(
+            logs = listOf(
+                WeightDayLog("2026-03-18", listOf(w1)),
+                WeightDayLog("2026-03-20", listOf(w2))
+            )
+        )
+        val h = state.historyForExercise(bench)
+        assertEquals(2, h.size)
+        assertEquals(LocalDate.parse("2026-03-20"), h[0].logDate)
+        assertEquals("w2", h[0].workout.id)
+        assertEquals(105.0, h[0].entry.sets.first().weightKg!!, 0.001)
+        assertEquals(LocalDate.parse("2026-03-18"), h[1].logDate)
+        assertEquals(1, state.historyForExercise(squat).size)
     }
 }

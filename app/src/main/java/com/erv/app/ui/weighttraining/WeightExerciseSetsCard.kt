@@ -56,6 +56,20 @@ internal fun weightFieldText(set: WeightSet, unit: BodyWeightUnit): String =
 internal fun rpeFieldText(set: WeightSet): String =
     set.rpe?.let { formatRpeFieldForSets(it) }.orEmpty()
 
+internal fun formatSetSummaryLine(
+    set: WeightSet,
+    setNumber: Int,
+    loadUnit: BodyWeightUnit,
+    loadSuffix: String
+): String {
+    val repsPart = if (set.reps > 0) "${set.reps} reps" else "— reps"
+    val weightPart = set.weightKg?.let { w ->
+        " @ ${formatWeightLoadNumber(w, loadUnit)} $loadSuffix"
+    }.orEmpty()
+    val rpePart = set.rpe?.let { " · RPE ${formatRpeFieldForSets(it)}" }.orEmpty()
+    return "Set $setNumber: $repsPart$weightPart$rpePart"
+}
+
 fun <T> List<T>.replaceAt(index: Int, value: T): List<T> =
     mapIndexed { i, t -> if (i == index) value else t }
 
@@ -71,9 +85,13 @@ fun WeightExerciseInlineSetsCard(
     canMoveDown: Boolean,
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
-    onRemoveExercise: () -> Unit
+    onRemoveExercise: () -> Unit,
+    setsCollapsed: Boolean = false,
+    onCollapseSets: (() -> Unit)? = null,
+    onExpandSets: (() -> Unit)? = null
 ) {
     val loadSuffix = weightLoadUnitSuffix(loadUnit)
+    val canCollapseSets = onCollapseSets != null && onExpandSets != null
     Card(
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceVariant
@@ -113,82 +131,126 @@ fun WeightExerciseInlineSetsCard(
                     }
                 }
             }
-            Text(
-                "Sets",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            sets.forEachIndexed { idx, set ->
+            if (canCollapseSets) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    OutlinedTextField(
-                        value = repsFieldText(set.reps),
-                        onValueChange = { t ->
-                            val r = t.trim().toIntOrNull() ?: 0
-                            onSetsChange(sets.replaceAt(idx, set.copy(reps = r)))
-                        },
-                        label = { Text("Reps") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.weight(1f)
+                    Text(
+                        "Sets",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    OutlinedTextField(
-                        value = weightFieldText(set, loadUnit),
-                        onValueChange = { t ->
-                            onSetsChange(
-                                sets.replaceAt(
-                                    idx,
-                                    set.copy(weightKg = parseWeightInputToKg(t, loadUnit))
-                                )
-                            )
-                        },
-                        label = { Text(loadSuffix) },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                        modifier = Modifier.weight(1f)
-                    )
-                    OutlinedTextField(
-                        value = rpeFieldText(set),
-                        onValueChange = { t ->
-                            onSetsChange(
-                                sets.replaceAt(
-                                    idx,
-                                    set.copy(rpe = t.trim().toDoubleOrNull())
-                                )
-                            )
-                        },
-                        label = { Text("RPE") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                        modifier = Modifier.weight(1f)
-                    )
-                    IconButton(
-                        onClick = {
-                            if (sets.size > 1) {
-                                onSetsChange(sets.filterIndexed { i -> i != idx })
-                            }
-                        },
-                        enabled = sets.size > 1
-                    ) {
-                        Icon(Icons.Default.Close, contentDescription = "Remove set")
+                    if (setsCollapsed) {
+                        TextButton(onClick = { onExpandSets!!() }) {
+                            Text("Edit")
+                        }
                     }
                 }
+            } else {
+                Text(
+                    "Sets",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
-            TextButton(
-                onClick = {
-                    onSetsChange(
-                        sets + WeightSet(reps = 0, weightKg = null, rpe = null)
-                    )
-                },
-                modifier = Modifier.padding(start = 4.dp)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Add, contentDescription = null)
-                    Spacer(Modifier.width(6.dp))
-                    Text("Add set", style = MaterialTheme.typography.labelLarge)
+            if (canCollapseSets && setsCollapsed) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    sets.forEachIndexed { idx, set ->
+                        Text(
+                            formatSetSummaryLine(set, idx + 1, loadUnit, loadSuffix),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                }
+            } else if (!canCollapseSets || !setsCollapsed) {
+                sets.forEachIndexed { idx, set ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            value = repsFieldText(set.reps),
+                            onValueChange = { t ->
+                                val r = t.trim().toIntOrNull() ?: 0
+                                onSetsChange(sets.replaceAt(idx, set.copy(reps = r)))
+                            },
+                            label = { Text("Reps") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.weight(1f)
+                        )
+                        OutlinedTextField(
+                            value = weightFieldText(set, loadUnit),
+                            onValueChange = { t ->
+                                onSetsChange(
+                                    sets.replaceAt(
+                                        idx,
+                                        set.copy(weightKg = parseWeightInputToKg(t, loadUnit))
+                                    )
+                                )
+                            },
+                            label = { Text(loadSuffix) },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                            modifier = Modifier.weight(1f)
+                        )
+                        OutlinedTextField(
+                            value = rpeFieldText(set),
+                            onValueChange = { t ->
+                                onSetsChange(
+                                    sets.replaceAt(
+                                        idx,
+                                        set.copy(rpe = t.trim().toDoubleOrNull())
+                                    )
+                                )
+                            },
+                            label = { Text("RPE") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                            modifier = Modifier.weight(1f)
+                        )
+                        IconButton(
+                            onClick = {
+                                if (sets.size > 1) {
+                                    onSetsChange(sets.filterIndexed { i, _ -> i != idx })
+                                }
+                            },
+                            enabled = sets.size > 1
+                        ) {
+                            Icon(Icons.Default.Close, contentDescription = "Remove set")
+                        }
+                    }
+                }
+                TextButton(
+                    onClick = {
+                        onSetsChange(
+                            sets + WeightSet(reps = 0, weightKg = null, rpe = null)
+                        )
+                    },
+                    modifier = Modifier.padding(start = 4.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Add, contentDescription = null)
+                        Spacer(Modifier.width(6.dp))
+                        Text("Add set", style = MaterialTheme.typography.labelLarge)
+                    }
+                }
+                if (canCollapseSets) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        TextButton(
+                            onClick = { onCollapseSets!!() },
+                            enabled = sets.any { it.reps > 0 }
+                        ) {
+                            Text("Finish")
+                        }
+                    }
                 }
             }
         }
