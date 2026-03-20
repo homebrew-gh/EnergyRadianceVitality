@@ -31,6 +31,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -119,6 +120,8 @@ fun DashboardScreen(
     onNavigateToEditGoals: () -> Unit,
     onNavigateToCategory: (Category) -> Unit,
     onOpenCardioNewWorkout: () -> Unit,
+    /** Cardio manual log: opens cardio log with calendar (dashboard date pre-selected). */
+    onOpenCardioLogBackfill: (LocalDate) -> Unit,
     /** Weight training manual log: opens log screen with calendar (dashboard date pre-selected). */
     onOpenWeightLogBackfill: (LocalDate) -> Unit,
     supplementRepository: SupplementRepository,
@@ -200,6 +203,10 @@ fun DashboardScreen(
         )
     )
 
+    LaunchedEffect(Unit) {
+        scaffoldState.bottomSheetState.partialExpand()
+    }
+
     suspend fun syncMaster() {
         if (relayPool != null && signer != null) {
             SupplementSync.publishMaster(relayPool, signer, supplementRepository.currentState())
@@ -238,11 +245,31 @@ fun DashboardScreen(
     BottomSheetScaffold(
         scaffoldState = scaffoldState,
         snackbarHost = { SnackbarHost(snackbarHostState) },
-        sheetPeekHeight = 48.dp,
+        sheetPeekHeight = 56.dp,
         sheetContent = {
-            CategorySheet(onCategoryClick = onNavigateToCategory)
+            CategorySheet(
+                onCategoryClick = { category ->
+                    scope.launch {
+                        scaffoldState.bottomSheetState.partialExpand()
+                        onNavigateToCategory(category)
+                    }
+                }
+            )
         },
-        sheetDragHandle = { BottomSheetDefaults.DragHandle() },
+        sheetDragHandle = {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = stringResource(R.string.dashboard_categories_menu),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
         topBar = {
             TopAppBar(
                 title = {
@@ -339,6 +366,7 @@ fun DashboardScreen(
                 onLightRoutineSelected = { lightRoutinePreview = it },
                 onCardioRoutineSelected = { cardioRoutinePreview = it },
                 onOpenCardioNewWorkout = onOpenCardioNewWorkout,
+                onOpenCardioLogBackfill = onOpenCardioLogBackfill,
                 onOpenWeightNewWorkout = {
                     if (!weightLiveWorkoutViewModel.tryStartBlank()) {
                         scope.launch {
@@ -834,6 +862,7 @@ private fun RoutinesSection(
     onLightRoutineSelected: (LightRoutine) -> Unit,
     onCardioRoutineSelected: (CardioRoutine) -> Unit,
     onOpenCardioNewWorkout: () -> Unit,
+    onOpenCardioLogBackfill: (LocalDate) -> Unit,
     onOpenWeightNewWorkout: () -> Unit,
     onOpenWeightLogBackfill: (LocalDate) -> Unit,
     onWeightRoutineSelected: (WeightRoutine) -> Unit
@@ -950,6 +979,10 @@ private fun RoutinesSection(
             onDismiss = { showCardioPicker = false },
             onNewWorkout = {
                 onOpenCardioNewWorkout()
+                showCardioPicker = false
+            },
+            onLogPreviousWorkout = {
+                onOpenCardioLogBackfill(dashboardSelectedDate)
                 showCardioPicker = false
             },
             onSelectRoutine = { routine ->
@@ -1081,6 +1114,7 @@ private fun CardioRoutinePickerSheet(
     routines: List<CardioRoutine>,
     onDismiss: () -> Unit,
     onNewWorkout: () -> Unit,
+    onLogPreviousWorkout: () -> Unit,
     onSelectRoutine: (CardioRoutine) -> Unit
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
@@ -1105,6 +1139,23 @@ private fun CardioRoutinePickerSheet(
                     Text("New workout", style = MaterialTheme.typography.titleSmall)
                     Text(
                         "Log a session, save a routine, or start a timer",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            Surface(
+                onClick = onLogPreviousWorkout,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 10.dp),
+                shape = MaterialTheme.shapes.medium,
+                color = MaterialTheme.colorScheme.secondaryContainer
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("Log previous workout", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "Open the cardio log with the calendar — pick a day, then add a session",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
