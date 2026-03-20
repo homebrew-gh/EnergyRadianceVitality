@@ -1,4 +1,4 @@
-#Fri Mar 20 05:42:59 EDT 2026
+#Fri Mar 20 14:05:51 EDT 2026
 base.0=/home/samcornwell/Projects/EnergyRadianceVitality/app/build/intermediates/dex/debug/mergeExtDexDebug/classes.dex
 base.1=/home/samcornwell/Projects/EnergyRadianceVitality/app/build/intermediates/dex/debug/mergeProjectDexDebug/0/classes.dex
 base.10=/home/samcornwell/Projects/EnergyRadianceVitality/app/build/intermediates/dex/debug/mergeProjectDexDebug/7/classes.dex
@@ -6,6 +6,7 @@ base.11=/home/samcornwell/Projects/EnergyRadianceVitality/app/build/intermediate
 base.12=/home/samcornwell/Projects/EnergyRadianceVitality/app/build/intermediates/dex/debug/mergeProjectDexDebug/9/classes.dex
 base.13=/home/samcornwell/Projects/EnergyRadianceVitality/app/build/intermediates/dex/debug/mergeExtDexDebug/classes2.dex
 base.14=/home/samcornwell/Projects/EnergyRadianceVitality/app/build/intermediates/dex/debug/mergeExtDexDebug/classes3.dex
+base.15=/home/samcornwell/Projects/EnergyRadianceVitality/app/build/intermediates/dex/debug/mergeProjectDexDebug/4/classes.dex
 base.2=/home/samcornwell/Projects/EnergyRadianceVitality/app/build/intermediates/dex/debug/mergeProjectDexDebug/1/classes.dex
 base.3=/home/samcornwell/Projects/EnergyRadianceVitality/app/build/intermediates/dex/debug/mergeProjectDexDebug/11/classes.dex
 base.4=/home/samcornwell/Projects/EnergyRadianceVitality/app/build/intermediates/dex/debug/mergeProjectDexDebug/13/classes.dex
@@ -21,6 +22,7 @@ path.11=8/classes.dex
 path.12=9/classes.dex
 path.13=classes2.dex
 path.14=classes3.dex
+path.15=4/classes.dex
 path.2=1/classes.dex
 path.3=11/classes.dex
 path.4=13/classes.dex
@@ -36,6 +38,7 @@ renamed.11=classes12.dex
 renamed.12=classes13.dex
 renamed.13=classes14.dex
 renamed.14=classes15.dex
+renamed.15=classes16.dex
 renamed.2=classes3.dex
 renamed.3=classes4.dex
 renamed.4=classes5.dex
