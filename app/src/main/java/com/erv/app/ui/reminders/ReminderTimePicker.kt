@@ -1,17 +1,15 @@
 package com.erv.app.ui.reminders
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -25,16 +23,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
-import kotlin.math.abs
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
+
+private const val WHEEL_ITEM_HEIGHT_DP = 40
+private const val WHEEL_VISIBLE_ITEMS = 5
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -46,9 +43,13 @@ fun TimeWheelPickerDialog(
     onDismiss: () -> Unit,
     onConfirm: (hour: Int, minute: Int, isPm: Boolean) -> Unit
 ) {
-    var hour by remember(initialHour, initialMinute, initialIsPm) { mutableIntStateOf(initialHour.coerceIn(1, 12)) }
-    var minute by remember(initialHour, initialMinute, initialIsPm) { mutableIntStateOf(initialMinute.coerceIn(0, 59)) }
-    var isPm by remember(initialHour, initialMinute, initialIsPm) { mutableStateOf(initialIsPm) }
+    val hourValues = remember { (1..12).map { it.toString() } }
+    val minuteValues = remember { (0..59).map { it.toString().padStart(2, '0') } }
+    val amPmValues = remember { listOf("AM", "PM") }
+
+    var hour by remember { mutableIntStateOf(initialHour.coerceIn(1, 12)) }
+    var minute by remember { mutableIntStateOf(initialMinute.coerceIn(0, 59)) }
+    var isPm by remember { mutableStateOf(initialIsPm) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -66,23 +67,23 @@ fun TimeWheelPickerDialog(
                 ) {
                     WheelPickerColumn(
                         label = "Hour",
-                        values = (1..12).map { it.toString() },
-                        selectedIndex = hour - 1,
-                        onSelectedIndexChange = { hour = it + 1 },
+                        values = hourValues,
+                        initialIndex = hour - 1,
+                        onSelectionSettled = { hour = it + 1 },
                         modifier = Modifier.weight(1f)
                     )
                     WheelPickerColumn(
                         label = "Minute",
-                        values = (0..59).map { it.toString().padStart(2, '0') },
-                        selectedIndex = minute,
-                        onSelectedIndexChange = { minute = it },
+                        values = minuteValues,
+                        initialIndex = minute,
+                        onSelectionSettled = { minute = it },
                         modifier = Modifier.weight(1f)
                     )
                     WheelPickerColumn(
                         label = "AM/PM",
-                        values = listOf("AM", "PM"),
-                        selectedIndex = if (isPm) 1 else 0,
-                        onSelectedIndexChange = { isPm = it == 1 },
+                        values = amPmValues,
+                        initialIndex = if (isPm) 1 else 0,
+                        onSelectionSettled = { isPm = it == 1 },
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -99,85 +100,41 @@ fun TimeWheelPickerDialog(
     )
 }
 
-private const val CENTER_OFFSET = 2
-
-private fun nearestLazyIndexToViewportCenter(listState: LazyListState): Int? {
-    val layout = listState.layoutInfo
-    val visible = layout.visibleItemsInfo
-    if (visible.isEmpty()) return null
-    val viewportCenter = (layout.viewportStartOffset + layout.viewportEndOffset) / 2
-    return visible.minByOrNull { item ->
-        abs((item.offset + item.size / 2) - viewportCenter)
-    }?.index
-}
-
-private fun isValueRowSnapped(
-    listState: LazyListState,
-    valueIndex: Int,
-    tolerancePx: Int
-): Boolean {
-    val lazyIndex = valueIndex + CENTER_OFFSET
-    val layout = listState.layoutInfo
-    val item = layout.visibleItemsInfo.find { it.index == lazyIndex } ?: return false
-    val viewportCenter = (layout.viewportStartOffset + layout.viewportEndOffset) / 2
-    val rowCenter = item.offset + item.size / 2
-    return abs(rowCenter - viewportCenter) <= tolerancePx
-}
-
+/**
+ * Scroll-wheel column that mirrors the working LightTherapy timer pattern:
+ * contentPadding for centering, derivedStateOf for index, animateScrollToItem to snap.
+ *
+ * [initialIndex] is read once; after that the wheel owns its scroll position.
+ * [onSelectionSettled] fires only when scrolling stops and the list has snapped.
+ */
 @Composable
 private fun WheelPickerColumn(
     label: String,
     values: List<String>,
-    selectedIndex: Int,
-    onSelectedIndexChange: (Int) -> Unit,
+    initialIndex: Int,
+    onSelectionSettled: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val itemHeight = 40.dp
-    val visibleRowCount = 5
-    val centerRowIndex = visibleRowCount / 2
-    val density = LocalDensity.current
-    val centerScrollOffsetPx = remember(density, itemHeight) {
-        with(density) { (itemHeight * centerRowIndex).roundToPx() }
-    }
-    val clampedSelectedIndex = selectedIndex.coerceIn(0, values.lastIndex.coerceAtLeast(0))
-    val totalItems = values.size + CENTER_OFFSET * 2
+    val itemHeight = WHEEL_ITEM_HEIGHT_DP.dp
+    val itemHeightPx = with(LocalDensity.current) { itemHeight.toPx() }
+    val edgePadding = itemHeight * (WHEEL_VISIBLE_ITEMS / 2)
+    val clamped = initialIndex.coerceIn(0, values.lastIndex.coerceAtLeast(0))
 
-    val listState = rememberLazyListState(
-        initialFirstVisibleItemIndex = clampedSelectedIndex + CENTER_OFFSET,
-        initialFirstVisibleItemScrollOffset = centerScrollOffsetPx
-    )
-    val scope = rememberCoroutineScope()
+    val listState = rememberLazyListState(initialFirstVisibleItemIndex = clamped)
 
-    val centerValueIndex by remember(listState, values.size) {
+    val selectedIndex by remember {
         derivedStateOf {
-            val lazyIdx = nearestLazyIndexToViewportCenter(listState) ?: return@derivedStateOf clampedSelectedIndex
-            (lazyIdx - CENTER_OFFSET).coerceIn(0, values.lastIndex.coerceAtLeast(0))
+            val offset = listState.firstVisibleItemScrollOffset.toFloat()
+            val index = listState.firstVisibleItemIndex + (offset / itemHeightPx).roundToInt()
+            index.coerceIn(0, values.lastIndex.coerceAtLeast(0))
         }
     }
 
-    /**
-     * Only react when [isScrollInProgress] *changes* to false — not on every scroll offset tick.
-     * Watching firstVisibleItemIndex/offset caused scrollToItem ↔ layout feedback loops (wild jumping).
-     */
-    LaunchedEffect(listState, values.size) {
-        snapshotFlow { listState.isScrollInProgress }
-            .collect { scrolling ->
-                if (scrolling || values.isEmpty()) return@collect
-                delay(80)
-                if (listState.isScrollInProgress) return@collect
-                if (listState.layoutInfo.visibleItemsInfo.isEmpty()) return@collect
-
-                val lazyNearest = nearestLazyIndexToViewportCenter(listState) ?: return@collect
-                val valueIndex = (lazyNearest - CENTER_OFFSET).coerceIn(0, values.lastIndex)
-
-                if (!isValueRowSnapped(listState, valueIndex, tolerancePx = 10)) {
-                    listState.scrollToItem(
-                        index = valueIndex + CENTER_OFFSET,
-                        scrollOffset = centerScrollOffsetPx
-                    )
-                }
-                onSelectedIndexChange(valueIndex)
-            }
+    LaunchedEffect(listState.isScrollInProgress) {
+        if (!listState.isScrollInProgress && values.isNotEmpty()) {
+            listState.animateScrollToItem(selectedIndex)
+            onSelectionSettled(selectedIndex)
+        }
     }
 
     Column(
@@ -188,41 +145,27 @@ private fun WheelPickerColumn(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(itemHeight * visibleRowCount)
+                .height(itemHeight * WHEEL_VISIBLE_ITEMS)
         ) {
             LazyColumn(
                 state = listState,
                 horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(vertical = edgePadding)
             ) {
                 items(
-                    count = totalItems,
-                    key = { lazyIndex ->
-                        val v = lazyIndex - CENTER_OFFSET
-                        if (v in values.indices) values[v] + "@$v" else "pad$lazyIndex"
-                    }
-                ) { lazyIndex ->
-                    val valueIndex = lazyIndex - CENTER_OFFSET
-                    val isSpacer = valueIndex !in values.indices
-                    val value = if (isSpacer) "" else values[valueIndex]
-                    val isSelected = !isSpacer && valueIndex == centerValueIndex
+                    count = values.size,
+                    key = { it }
+                ) { index ->
+                    val isSelected = index == selectedIndex
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(itemHeight)
-                            .clickable(enabled = !isSpacer) {
-                                onSelectedIndexChange(valueIndex)
-                                scope.launch {
-                                    listState.scrollToItem(
-                                        index = valueIndex + CENTER_OFFSET,
-                                        scrollOffset = centerScrollOffsetPx
-                                    )
-                                }
-                            },
+                            .height(itemHeight),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = value,
+                            text = values[index],
                             style = if (isSelected) {
                                 MaterialTheme.typography.titleMedium
                             } else {

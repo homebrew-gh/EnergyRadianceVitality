@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -81,6 +82,7 @@ import androidx.compose.ui.unit.dp
 import com.erv.app.cardio.CardioActivitySnapshot
 import com.erv.app.cardio.CardioBuiltinActivity
 import com.erv.app.cardio.CardioCustomActivityType
+import com.erv.app.cardio.CardioDistanceUnit
 import com.erv.app.cardio.CardioDayLog
 import com.erv.app.cardio.CardioHrScaffolding
 import com.erv.app.cardio.CardioLibraryState
@@ -99,10 +101,17 @@ import com.erv.app.cardio.CardioTreadmillParams
 import com.erv.app.cardio.CardioWeekday
 import com.erv.app.cardio.CardioTimerCompletionResult
 import com.erv.app.cardio.CardioTimerSessionDraft
+import com.erv.app.cardio.CardioTimerStyle
+import com.erv.app.cardio.liveDistanceMeters
+import com.erv.app.cardio.supportsOutdoorPaceEstimate
 import com.erv.app.cardio.chronologicalCardioLogFor
 import com.erv.app.cardio.effectiveSteps
 import com.erv.app.cardio.stepsSummaryLabel
 import com.erv.app.cardio.derivedTreadmillDistanceMeters
+import com.erv.app.cardio.distanceFieldLabelOptional
+import com.erv.app.cardio.formatCardioDistanceFromMeters
+import com.erv.app.cardio.metersToCardioDistanceInputString
+import com.erv.app.cardio.parseCardioDistanceInputToMeters
 import com.erv.app.cardio.displayName
 import com.erv.app.cardio.label
 import com.erv.app.cardio.nowEpochSeconds
@@ -112,6 +121,7 @@ import com.erv.app.cardio.summaryLine
 import com.erv.app.cardio.supportsTreadmillModality
 import com.erv.app.data.UserPreferences
 import com.erv.app.nostr.EventSigner
+import com.erv.app.nostr.UnsignedEvent
 import com.erv.app.nostr.RelayPool
 import com.erv.app.ui.dashboard.CalendarPopup
 import com.erv.app.ui.dashboard.DateNavigator
@@ -146,6 +156,7 @@ fun CardioCategoryScreen(
 ) {
     val state by repository.state.collectAsState(initial = CardioLibraryState())
     val weightKg by userPreferences.fallbackBodyWeightKg.collectAsState(initial = null)
+    val distanceUnit by userPreferences.cardioDistanceUnit.collectAsState(initial = CardioDistanceUnit.MILES)
     val today = remember { LocalDate.now() }
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -201,9 +212,12 @@ fun CardioCategoryScreen(
         CardioWorkoutSummaryFullScreen(
             session = summary.session,
             elapsedSeconds = summary.elapsedSeconds,
+            distanceUnit = distanceUnit,
             dark = therapyRedDark,
             mid = therapyRedMid,
             glow = therapyRedGlow,
+            relayPool = relayPool,
+            signer = signer,
             onDone = { completedWorkoutSummary = null }
         )
         return
@@ -213,8 +227,8 @@ fun CardioCategoryScreen(
         is CardioActiveTimerSession.Single -> {
             val draft = timer.draft
             CardioElapsedTimerFullScreen(
-                titleLabel = draft.title,
-                subtitle = draft.modality.label(),
+                draft = draft,
+                distanceUnit = distanceUnit,
                 dark = therapyRedDark,
                 mid = therapyRedMid,
                 glow = therapyRedGlow,
@@ -222,7 +236,11 @@ fun CardioCategoryScreen(
                     scope.launch {
                         val durationMinutes = max(1, (elapsedSeconds + 59) / 60)
                         val end = nowEpochSeconds()
-                        val raw = draft.toSession(durationMinutes = durationMinutes, endEpoch = end)
+                        val raw = draft.toSession(
+                            durationMinutes = durationMinutes,
+                            endEpoch = end,
+                            elapsedSecondsForDistance = elapsedSeconds
+                        )
                         val session = CardioMetEstimator.applyEstimatedKcal(raw, repository.currentState(), weightKg)
                         activeTimer = null
                         completedWorkoutSummary = CardioTimerCompletionResult(session, elapsedSeconds)
@@ -316,6 +334,7 @@ fun CardioCategoryScreen(
             when (CardioTab.entries[activeTab]) {
                 CardioTab.Activities -> ActivitiesTab(
                     state = state,
+                    distanceUnit = distanceUnit,
                     onAddCustom = { creatingCustom = true; customEditor = null },
                     onEditCustom = { customEditor = it; creatingCustom = false },
                     onDeleteCustom = { id ->
@@ -325,15 +344,8 @@ fun CardioCategoryScreen(
                             snackbarHostState.showSnackbar("Activity type removed")
                         }
                     },
-                    onStartWorkout = { snap, modality, treadmill ->
-                        activeTimer = CardioActiveTimerSession.Single(
-                            CardioTimerSessionDraft.fromQuickSnapshot(
-                                activity = snap,
-                                modality = modality,
-                                treadmill = treadmill,
-                                title = snap.displayLabel
-                            )
-                        )
+                    onStartWorkout = { d ->
+                        activeTimer = CardioActiveTimerSession.Single(d)
                     },
                     onLogFromSnapshot = { snap ->
                         workoutBuilder = WorkoutBuilderMode.FromActivitySnapshot(snap)
@@ -382,6 +394,7 @@ fun CardioCategoryScreen(
             mode = mode,
             state = state,
             weightKg = weightKg,
+            distanceUnit = distanceUnit,
             onDismiss = { workoutBuilder = null },
             onLog = { date, session ->
                 saveSession(date, session)
@@ -429,6 +442,7 @@ fun CardioCategoryScreen(
             routine = routineEditor,
             creating = creatingRoutine,
             state = state,
+            distanceUnit = distanceUnit,
             onDismiss = {
                 routineEditor = null
                 creatingRoutine = false
@@ -457,6 +471,7 @@ private fun WorkoutBuilderBottomSheet(
     mode: WorkoutBuilderMode,
     state: CardioLibraryState,
     weightKg: Double?,
+    distanceUnit: CardioDistanceUnit,
     onDismiss: () -> Unit,
     onLog: (LocalDate, CardioSession) -> Unit,
     onSaveRoutine: (CardioRoutine) -> Unit,
@@ -521,6 +536,9 @@ private fun WorkoutBuilderBottomSheet(
             (seedStep?.targetDurationMinutes ?: template?.targetDurationMinutes ?: 30).toString()
         )
     }
+    var useCountDownTimer by remember(modeKey) { mutableStateOf(false) }
+    var outdoorPaceStr by remember(modeKey) { mutableStateOf("") }
+    var outdoorPaceUnit by remember(modeKey) { mutableStateOf(CardioSpeedUnit.MPH) }
     var routineNameStr by remember(modeKey) { mutableStateOf(template?.name ?: "") }
 
     val builtinForModality = if (useCustom) null else selectedBuiltin
@@ -637,7 +655,7 @@ private fun WorkoutBuilderBottomSheet(
                 OutlinedTextField(
                     value = treadDistKmStr,
                     onValueChange = { treadDistKmStr = it },
-                    label = { Text("Distance (km, optional)") },
+                    label = { Text(distanceUnit.distanceFieldLabelOptional()) },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -656,10 +674,43 @@ private fun WorkoutBuilderBottomSheet(
                 OutlinedTextField(
                     value = outdoorDistKmStr,
                     onValueChange = { outdoorDistKmStr = it },
-                    label = { Text("Distance (km, optional)") },
+                    label = { Text(distanceUnit.distanceFieldLabelOptional()) },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     modifier = Modifier.fillMaxWidth()
                 )
+                val snapForPace = remember(useCustom, selectedCustomId, selectedBuiltin) {
+                    if (useCustom) {
+                        selectedCustomId?.let { state.resolveSnapshot(null, it) }
+                    } else {
+                        state.resolveSnapshot(selectedBuiltin, null)
+                    }
+                }
+                if (snapForPace?.supportsOutdoorPaceEstimate() == true) {
+                    Text(
+                        "Optional avg speed — live estimated distance on the timer (no GPS).",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(
+                            selected = outdoorPaceUnit == CardioSpeedUnit.MPH,
+                            onClick = { outdoorPaceUnit = CardioSpeedUnit.MPH },
+                            label = { Text("mph") }
+                        )
+                        FilterChip(
+                            selected = outdoorPaceUnit == CardioSpeedUnit.KMH,
+                            onClick = { outdoorPaceUnit = CardioSpeedUnit.KMH },
+                            label = { Text("km/h") }
+                        )
+                    }
+                    OutlinedTextField(
+                        value = outdoorPaceStr,
+                        onValueChange = { outdoorPaceStr = it },
+                        label = { Text("Avg speed (optional)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
             }
 
             OutlinedTextField(
@@ -669,6 +720,26 @@ private fun WorkoutBuilderBottomSheet(
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.fillMaxWidth()
             )
+            Text("Live timer", style = MaterialTheme.typography.labelLarge)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(
+                    selected = !useCountDownTimer,
+                    onClick = { useCountDownTimer = false },
+                    label = { Text("Count up") }
+                )
+                FilterChip(
+                    selected = useCountDownTimer,
+                    onClick = { useCountDownTimer = true },
+                    label = { Text("Count down") }
+                )
+            }
+            if (useCountDownTimer) {
+                Text(
+                    "Countdown length uses duration above.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
 
             OutlinedTextField(
                 value = routineNameStr,
@@ -678,7 +749,8 @@ private fun WorkoutBuilderBottomSheet(
             )
 
             val validationError = remember(
-                useCustom, selectedCustomId, durationStr, modality, speedStr, treadmillApplicable, state.customActivityTypes
+                useCustom, selectedCustomId, durationStr, modality, speedStr, treadmillApplicable,
+                state.customActivityTypes, outdoorPaceStr
             ) {
                 val duration = durationStr.toIntOrNull()
                 if (duration == null || duration <= 0) "Enter a valid duration"
@@ -688,6 +760,10 @@ private fun WorkoutBuilderBottomSheet(
                     val sp = speedStr.toDoubleOrNull()
                     if (sp == null || sp <= 0) "Enter treadmill speed"
                     else null
+                } else if (modality == CardioModality.OUTDOOR && outdoorPaceStr.isNotBlank()) {
+                    if (outdoorPaceStr.toDoubleOrNull()?.let { it > 0 } != true) {
+                        "Enter a valid avg speed or leave it blank"
+                    } else null
                 } else null
             }
 
@@ -708,14 +784,15 @@ private fun WorkoutBuilderBottomSheet(
                 if (modality != CardioModality.INDOOR_TREADMILL || !treadmillApplicable) return null
                 val speed = speedStr.toDoubleOrNull() ?: return null
                 val inc = inclineStr.toDoubleOrNull() ?: 0.0
-                val treadKm = treadDistKmStr.toDoubleOrNull()
+                val treadDist = treadDistKmStr.toDoubleOrNull()
+                    ?.let { parseCardioDistanceInputToMeters(it, distanceUnit) }
                 val loadLb = if (builtinForModality == CardioBuiltinActivity.RUCK) loadStr.toDoubleOrNull() else null
                 val loadKg = loadLb?.times(0.453592)
                 return CardioTreadmillParams(
                     speed = speed,
                     speedUnit = speedUnit,
                     inclinePercent = inc,
-                    distanceMeters = treadKm?.times(1000.0),
+                    distanceMeters = treadDist,
                     loadKg = loadKg
                 )
             }
@@ -726,7 +803,8 @@ private fun WorkoutBuilderBottomSheet(
                 if (duration <= 0) return null
                 val tm = buildTreadmill()
                 if (modality == CardioModality.INDOOR_TREADMILL && treadmillApplicable && tm == null) return null
-                var distM: Double? = outdoorDistKmStr.toDoubleOrNull()?.times(1000.0)
+                var distM: Double? = outdoorDistKmStr.toDoubleOrNull()
+                    ?.let { parseCardioDistanceInputToMeters(it, distanceUnit) }
                 if (distM == null && tm != null) {
                     distM = tm.distanceMeters ?: derivedTreadmillDistanceMeters(tm, duration)
                 }
@@ -756,12 +834,24 @@ private fun WorkoutBuilderBottomSheet(
                         val snap = buildSnapshot() ?: return@OutlinedButton
                         val tm = buildTreadmill()
                         if (modality == CardioModality.INDOOR_TREADMILL && treadmillApplicable && tm == null) return@OutlinedButton
+                        val durMin = durationStr.toIntOrNull() ?: return@OutlinedButton
+                        val pace = if (modality == CardioModality.OUTDOOR) {
+                            outdoorPaceStr.toDoubleOrNull()?.takeIf { it > 0 }
+                        } else null
+                        val paceUnit = pace?.let { outdoorPaceUnit }
                         onStartTimer(
                             CardioTimerSessionDraft.fromQuickSnapshot(
                                 activity = snap,
                                 modality = modality,
                                 treadmill = tm,
-                                title = snap.displayLabel
+                                title = snap.displayLabel,
+                                timerStyle = if (useCountDownTimer) {
+                                    CardioTimerStyle.CountDown(durMin * 60)
+                                } else {
+                                    CardioTimerStyle.CountUp
+                                },
+                                outdoorPaceSpeed = pace,
+                                outdoorPaceSpeedUnit = paceUnit
                             )
                         )
                     },
@@ -894,47 +984,59 @@ private fun RoutinesTab(
 @Composable
 private fun StartCardioModalityForTimerDialog(
     activity: CardioActivitySnapshot,
+    distanceUnit: CardioDistanceUnit,
     onDismiss: () -> Unit,
-    onStart: (CardioModality, CardioTreadmillParams?) -> Unit
+    onModalityChosen: (CardioModality, CardioTreadmillParams?) -> Unit
 ) {
-    var modality by remember(activity.displayLabel) { mutableStateOf(CardioModality.OUTDOOR) }
+    var showTreadmillForm by remember(activity.displayLabel) { mutableStateOf(false) }
     var speedStr by remember(activity.displayLabel) { mutableStateOf("3.0") }
     var speedUnit by remember(activity.displayLabel) { mutableStateOf(CardioSpeedUnit.MPH) }
     var inclineStr by remember(activity.displayLabel) { mutableStateOf("0") }
     var treadDistKmStr by remember(activity.displayLabel) { mutableStateOf("") }
     var loadStr by remember(activity.displayLabel) { mutableStateOf("") }
     val builtin = activity.builtin
-    val indoorValid =
-        speedStr.toDoubleOrNull()?.let { it > 0 } == true
-    val canStart = when (modality) {
-        CardioModality.OUTDOOR -> true
-        CardioModality.INDOOR_TREADMILL -> indoorValid
-    }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Start ${activity.displayLabel}") },
-        text = {
-            Column(
-                modifier = Modifier.verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Text(
-                    "Choose outdoor or treadmill before the timer starts. You can enter speed and incline for indoor sessions.",
-                    style = MaterialTheme.typography.bodyMedium
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(
-                        selected = modality == CardioModality.OUTDOOR,
-                        onClick = { modality = CardioModality.OUTDOOR },
-                        label = { Text("Outdoor") }
+
+    if (!showTreadmillForm) {
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            title = { Text("Start ${activity.displayLabel}") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        "Choose outdoor or treadmill before the timer starts.",
+                        style = MaterialTheme.typography.bodyMedium
                     )
-                    FilterChip(
-                        selected = modality == CardioModality.INDOOR_TREADMILL,
-                        onClick = { modality = CardioModality.INDOOR_TREADMILL },
-                        label = { Text("Treadmill") }
-                    )
+                    Button(
+                        onClick = {
+                            onModalityChosen(CardioModality.OUTDOOR, null)
+                            onDismiss()
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("Outdoor") }
+                    OutlinedButton(
+                        onClick = { showTreadmillForm = true },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("Treadmill") }
                 }
-                if (modality == CardioModality.INDOOR_TREADMILL) {
+            },
+            confirmButton = {
+                TextButton(onClick = onDismiss) { Text("Cancel") }
+            }
+        )
+    } else {
+        val indoorValid = speedStr.toDoubleOrNull()?.let { it > 0 } == true
+        AlertDialog(
+            onDismissRequest = { showTreadmillForm = false },
+            title = { Text("Treadmill — ${activity.displayLabel}") },
+            text = {
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        "Enter speed and incline for your treadmill session.",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         FilterChip(
                             selected = speedUnit == CardioSpeedUnit.MPH,
@@ -964,7 +1066,7 @@ private fun StartCardioModalityForTimerDialog(
                     OutlinedTextField(
                         value = treadDistKmStr,
                         onValueChange = { treadDistKmStr = it },
-                        label = { Text("Distance km (optional)") },
+                        label = { Text(distanceUnit.distanceFieldLabelOptional()) },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -978,50 +1080,161 @@ private fun StartCardioModalityForTimerDialog(
                         )
                     }
                 }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val speed = speedStr.toDoubleOrNull() ?: return@TextButton
+                        val inc = inclineStr.toDoubleOrNull() ?: 0.0
+                        val distM = treadDistKmStr.toDoubleOrNull()
+                            ?.let { parseCardioDistanceInputToMeters(it, distanceUnit) }
+                        val lb = if (builtin == CardioBuiltinActivity.RUCK) loadStr.toDoubleOrNull() else null
+                        onModalityChosen(
+                            CardioModality.INDOOR_TREADMILL,
+                            CardioTreadmillParams(
+                                speed = speed,
+                                speedUnit = speedUnit,
+                                inclinePercent = inc,
+                                distanceMeters = distM,
+                                loadKg = lb?.times(0.453592)
+                            )
+                        )
+                        onDismiss()
+                    },
+                    enabled = indoorValid
+                ) { Text("Continue") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showTreadmillForm = false }) { Text("Back") }
+            }
+        )
+    }
+}
+
+private data class PendingCardioTimerOpts(
+    val snap: CardioActivitySnapshot,
+    val modality: CardioModality,
+    val treadmill: CardioTreadmillParams?
+)
+
+@Composable
+private fun CardioTimerStartOptionsDialog(
+    activity: CardioActivitySnapshot,
+    modality: CardioModality,
+    treadmill: CardioTreadmillParams?,
+    distanceUnit: CardioDistanceUnit,
+    onDismiss: () -> Unit,
+    onConfirm: (
+        style: CardioTimerStyle,
+        outdoorPace: Double?,
+        outdoorPaceUnit: CardioSpeedUnit?
+    ) -> Unit
+) {
+    var countDown by remember(activity.displayLabel) { mutableStateOf(false) }
+    var countDownMinutesStr by remember(activity.displayLabel) { mutableStateOf("30") }
+    var outdoorPaceStr by remember(activity.displayLabel) { mutableStateOf("") }
+    var outdoorPaceUnit by remember(activity.displayLabel) { mutableStateOf(CardioSpeedUnit.MPH) }
+    val showOutdoorPace = modality == CardioModality.OUTDOOR && activity.supportsOutdoorPaceEstimate()
+    val paceOptionalValid = outdoorPaceStr.isBlank() ||
+        outdoorPaceStr.toDoubleOrNull()?.let { it > 0 } == true
+    val countDownValid = !countDown || (countDownMinutesStr.toIntOrNull()?.let { it > 0 } == true)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Timer — ${activity.displayLabel}") },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    "Choose whether the main clock counts up or down. On a treadmill, distance updates from speed × time when you did not enter a fixed distance.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Text("Main clock", style = MaterialTheme.typography.labelLarge)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = !countDown,
+                        onClick = { countDown = false },
+                        label = { Text("Count up") }
+                    )
+                    FilterChip(
+                        selected = countDown,
+                        onClick = { countDown = true },
+                        label = { Text("Count down") }
+                    )
+                }
+                if (countDown) {
+                    OutlinedTextField(
+                        value = countDownMinutesStr,
+                        onValueChange = { countDownMinutesStr = it },
+                        label = { Text("Countdown (minutes)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                if (showOutdoorPace) {
+                    Text(
+                        "Optional average speed estimates distance during the workout (no GPS). Leave blank if you prefer not to.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(
+                            selected = outdoorPaceUnit == CardioSpeedUnit.MPH,
+                            onClick = { outdoorPaceUnit = CardioSpeedUnit.MPH },
+                            label = { Text("mph") }
+                        )
+                        FilterChip(
+                            selected = outdoorPaceUnit == CardioSpeedUnit.KMH,
+                            onClick = { outdoorPaceUnit = CardioSpeedUnit.KMH },
+                            label = { Text("km/h") }
+                        )
+                    }
+                    OutlinedTextField(
+                        value = outdoorPaceStr,
+                        onValueChange = { outdoorPaceStr = it },
+                        label = { Text("Avg speed (optional)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
             }
         },
         confirmButton = {
             TextButton(
                 onClick = {
-                    when (modality) {
-                        CardioModality.OUTDOOR -> onStart(CardioModality.OUTDOOR, null)
-                        CardioModality.INDOOR_TREADMILL -> {
-                            val speed = speedStr.toDoubleOrNull() ?: return@TextButton
-                            val inc = inclineStr.toDoubleOrNull() ?: 0.0
-                            val km = treadDistKmStr.toDoubleOrNull()
-                            val lb = if (builtin == CardioBuiltinActivity.RUCK) loadStr.toDoubleOrNull() else null
-                            onStart(
-                                CardioModality.INDOOR_TREADMILL,
-                                CardioTreadmillParams(
-                                    speed = speed,
-                                    speedUnit = speedUnit,
-                                    inclinePercent = inc,
-                                    distanceMeters = km?.times(1000.0),
-                                    loadKg = lb?.times(0.453592)
-                                )
-                            )
-                        }
-                    }
+                    val style = if (countDown) {
+                        val m = countDownMinutesStr.toIntOrNull() ?: return@TextButton
+                        CardioTimerStyle.CountDown(m * 60)
+                    } else CardioTimerStyle.CountUp
+                    val pace = outdoorPaceStr.toDoubleOrNull()?.takeIf { it > 0 }
+                    val pUnit = pace?.let { outdoorPaceUnit }
+                    onConfirm(style, pace, pUnit)
                     onDismiss()
                 },
-                enabled = canStart
-            ) { Text("Start timer") }
+                enabled = paceOptionalValid && countDownValid
+            ) { Text("Start") }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
     )
 }
 
 @Composable
 private fun ActivitiesTab(
     state: CardioLibraryState,
+    distanceUnit: CardioDistanceUnit,
     onAddCustom: () -> Unit,
     onEditCustom: (CardioCustomActivityType) -> Unit,
     onDeleteCustom: (String) -> Unit,
-    onStartWorkout: (CardioActivitySnapshot, CardioModality, CardioTreadmillParams?) -> Unit,
+    onStartWorkout: (CardioTimerSessionDraft) -> Unit,
     onLogFromSnapshot: (CardioActivitySnapshot) -> Unit
 ) {
     var pendingPick by remember { mutableStateOf<CardioActivitySnapshot?>(null) }
     var pendingModalityForStart by remember { mutableStateOf<CardioActivitySnapshot?>(null) }
+    var pendingTimerOpts by remember { mutableStateOf<PendingCardioTimerOpts?>(null) }
     val builtins = remember(state) {
         CardioBuiltinActivity.entries.map { b ->
             b.displayName() to state.resolveSnapshot(b, null)
@@ -1032,8 +1245,35 @@ private fun ActivitiesTab(
     pendingModalityForStart?.let { snap ->
         StartCardioModalityForTimerDialog(
             activity = snap,
+            distanceUnit = distanceUnit,
             onDismiss = { pendingModalityForStart = null },
-            onStart = { mod, tm -> onStartWorkout(snap, mod, tm) }
+            onModalityChosen = { mod, tm ->
+                pendingModalityForStart = null
+                pendingTimerOpts = PendingCardioTimerOpts(snap, mod, tm)
+            }
+        )
+    }
+
+    pendingTimerOpts?.let { p ->
+        CardioTimerStartOptionsDialog(
+            activity = p.snap,
+            modality = p.modality,
+            treadmill = p.treadmill,
+            distanceUnit = distanceUnit,
+            onDismiss = { pendingTimerOpts = null },
+            onConfirm = { style, pace, paceUnit ->
+                onStartWorkout(
+                    CardioTimerSessionDraft.fromQuickSnapshot(
+                        activity = p.snap,
+                        modality = p.modality,
+                        treadmill = p.treadmill,
+                        title = p.snap.displayLabel,
+                        timerStyle = style,
+                        outdoorPaceSpeed = pace,
+                        outdoorPaceSpeedUnit = paceUnit
+                    )
+                )
+            }
         )
     }
 
@@ -1052,7 +1292,11 @@ private fun ActivitiesTab(
                             if (pick.builtin?.supportsTreadmillModality() == true) {
                                 pendingModalityForStart = pick
                             } else {
-                                onStartWorkout(pick, CardioModality.OUTDOOR, null)
+                                pendingTimerOpts = PendingCardioTimerOpts(
+                                    pick,
+                                    CardioModality.OUTDOOR,
+                                    null
+                                )
                             }
                             pendingPick = null
                         },
@@ -1183,6 +1427,7 @@ private fun ActivitiesTab(
 fun CardioLogScreen(
     repository: CardioRepository,
     state: CardioLibraryState,
+    userPreferences: UserPreferences,
     relayPool: RelayPool?,
     signer: EventSigner?,
     onBack: () -> Unit
@@ -1192,6 +1437,7 @@ fun CardioLogScreen(
     var pendingDelete by remember { mutableStateOf<CardioSession?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val distanceUnit by userPreferences.cardioDistanceUnit.collectAsState(initial = CardioDistanceUnit.MILES)
     val entries = remember(state, selectedDate) { state.chronologicalCardioLogFor(selectedDate) }
     val darkTheme = isSystemInDarkTheme()
     val therapyRedMid = if (darkTheme) ErvDarkTherapyRedMid else ErvLightTherapyRedMid
@@ -1291,7 +1537,7 @@ fun CardioLogScreen(
                             ) {
                                 Column(Modifier.weight(1f)) {
                                     Text(s.activity.displayLabel, style = MaterialTheme.typography.titleMedium)
-                                    Text(s.summaryLine(), style = MaterialTheme.typography.bodySmall)
+                                    Text(s.summaryLine(distanceUnit), style = MaterialTheme.typography.bodySmall)
                                     Text(
                                         formatCardioLogTime(s.loggedAtEpochSeconds),
                                         style = MaterialTheme.typography.labelSmall,
@@ -1328,23 +1574,46 @@ private fun formatCardioLogTime(epochSeconds: Long): String {
 
 @Composable
 fun CardioElapsedTimerFullScreen(
-    titleLabel: String,
-    subtitle: String? = null,
+    draft: CardioTimerSessionDraft,
+    distanceUnit: CardioDistanceUnit,
     dark: Color,
     mid: Color,
     glow: Color,
     onStop: (elapsedSeconds: Int) -> Unit,
     onCancel: () -> Unit
 ) {
-    var running by remember { mutableStateOf(true) }
-    var elapsed by remember { mutableIntStateOf(0) }
-    LaunchedEffect(running) {
-        if (!running) return@LaunchedEffect
+    val countdownCap = (draft.timerStyle as? CardioTimerStyle.CountDown)?.totalSeconds
+    val tickKey = draft.startEpoch
+    var running by remember(tickKey) { mutableStateOf(true) }
+    var workoutElapsedSeconds by remember(tickKey) { mutableIntStateOf(0) }
+    var finished by remember(tickKey) { mutableStateOf(false) }
+
+    fun complete(elapsed: Int) {
+        if (finished) return
+        finished = true
+        running = false
+        onStop(elapsed)
+    }
+
+    LaunchedEffect(tickKey) {
         while (true) {
+            if (!running || finished) break
             delay(1000)
-            elapsed++
+            if (!running || finished) break
+            workoutElapsedSeconds++
+            val cap = countdownCap
+            if (cap != null && workoutElapsedSeconds >= cap) {
+                complete(cap)
+                break
+            }
         }
     }
+
+    val mainClockSeconds =
+        if (countdownCap != null) max(0, countdownCap - workoutElapsedSeconds)
+        else workoutElapsedSeconds
+    val distM = draft.liveDistanceMeters(workoutElapsedSeconds)
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -1363,8 +1632,14 @@ fun CardioElapsedTimerFullScreen(
                 color = Color.White.copy(alpha = 0.9f)
             )
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                val mins = elapsed / 60
-                val secs = elapsed % 60
+                Text(
+                    if (countdownCap != null) "Remaining" else "Elapsed",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = Color.White.copy(alpha = 0.75f)
+                )
+                Spacer(Modifier.height(4.dp))
+                val mins = mainClockSeconds / 60
+                val secs = mainClockSeconds % 60
                 Text(
                     text = "%d:%02d".format(mins, secs),
                     style = MaterialTheme.typography.displayLarge,
@@ -1372,25 +1647,35 @@ fun CardioElapsedTimerFullScreen(
                 )
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    titleLabel,
+                    draft.title,
                     style = MaterialTheme.typography.bodyLarge,
                     color = Color.White.copy(alpha = 0.85f)
                 )
-                subtitle?.let { s ->
-                    Spacer(Modifier.height(4.dp))
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    draft.modality.label(),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color.White.copy(alpha = 0.75f)
+                )
+                distM?.let { d ->
+                    Spacer(Modifier.height(12.dp))
                     Text(
-                        s,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Color.White.copy(alpha = 0.75f)
+                        "~${formatCardioDistanceFromMeters(d, distanceUnit)} (est.)",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = Color.White.copy(alpha = 0.9f)
+                    )
+                    Text(
+                        "Distance from pace × time",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.White.copy(alpha = 0.65f)
                     )
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedButton(
                     onClick = {
-                        if (running) {
-                            running = false
-                            onStop(elapsed)
+                        if (running && !finished) {
+                            complete(workoutElapsedSeconds)
                         }
                     },
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
@@ -1401,8 +1686,13 @@ fun CardioElapsedTimerFullScreen(
                     Text("Stop & log")
                 }
                 OutlinedButton(
-                    onClick = onCancel,
-                    enabled = running,
+                    onClick = {
+                        if (running && !finished) {
+                            running = false
+                            onCancel()
+                        }
+                    },
+                    enabled = running && !finished,
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
                     border = ButtonDefaults.outlinedButtonBorder.copy(brush = SolidColor(Color.White))
                 ) {
@@ -1417,11 +1707,19 @@ fun CardioElapsedTimerFullScreen(
 fun CardioWorkoutSummaryFullScreen(
     session: CardioSession,
     elapsedSeconds: Int?,
+    distanceUnit: CardioDistanceUnit,
     dark: Color,
     mid: Color,
     glow: Color,
+    relayPool: RelayPool?,
+    signer: EventSigner?,
     onDone: () -> Unit
 ) {
+    val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
+    var sharing by remember { mutableStateOf(false) }
+    var shared by remember { mutableStateOf(false) }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -1461,7 +1759,7 @@ fun CardioWorkoutSummaryFullScreen(
             )
             session.distanceMeters?.takeIf { it > 1 }?.let { d ->
                 Text(
-                    "Distance: " + String.format("%.2f km", d / 1000.0),
+                    "Distance: ${formatCardioDistanceFromMeters(d, distanceUnit)}",
                     style = MaterialTheme.typography.bodyLarge,
                     color = Color.White.copy(alpha = 0.85f)
                 )
@@ -1508,11 +1806,46 @@ fun CardioWorkoutSummaryFullScreen(
                 color = Color.White.copy(alpha = 0.35f)
             )
             Text(
-                session.summaryLine(),
+                session.summaryLine(distanceUnit),
                 style = MaterialTheme.typography.bodySmall,
                 color = Color.White.copy(alpha = 0.8f)
             )
             Spacer(Modifier.height(16.dp))
+            if (relayPool != null && signer != null) {
+                OutlinedButton(
+                    onClick = {
+                        if (sharing || shared) return@OutlinedButton
+                        sharing = true
+                        scope.launch {
+                            val ok = publishWorkoutNote(relayPool, signer, session, distanceUnit)
+                            sharing = false
+                            shared = ok
+                            snackbarHostState.showSnackbar(
+                                if (ok) "Shared to your relays!" else "Failed to share — check relay connection"
+                            )
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !sharing && !shared,
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                    border = ButtonDefaults.outlinedButtonBorder.copy(
+                        brush = androidx.compose.ui.graphics.SolidColor(Color.White)
+                    )
+                ) {
+                    Icon(
+                        if (shared) Icons.Default.Share else Icons.Default.Share,
+                        contentDescription = null
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        when {
+                            sharing -> "Sharing…"
+                            shared -> "Shared"
+                            else -> "Share Workout"
+                        }
+                    )
+                }
+            }
             Button(
                 onClick = onDone,
                 modifier = Modifier.fillMaxWidth(),
@@ -1521,7 +1854,54 @@ fun CardioWorkoutSummaryFullScreen(
                 Text("Done")
             }
         }
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier.align(Alignment.BottomCenter)
+        )
     }
+}
+
+private fun buildWorkoutNoteContent(session: CardioSession, distanceUnit: CardioDistanceUnit): String = buildString {
+    append("\uD83C\uDFC3 Completed: ${session.activity.displayLabel}")
+    if (session.modality == CardioModality.INDOOR_TREADMILL) append(" (treadmill)")
+    append("\n")
+    append("\u23F1 Duration: ${session.durationMinutes} min\n")
+    session.distanceMeters?.takeIf { it > 1 }?.let { d ->
+        append("\uD83D\uDCCF Distance: ${formatCardioDistanceFromMeters(d, distanceUnit)}\n")
+    }
+    session.estimatedKcal?.let { k ->
+        append("\uD83D\uDD25 Est. calories: ~${k.toInt()} kcal\n")
+    }
+    session.heartRate?.avgBpm?.let { avg ->
+        append("\u2764\uFE0F Avg HR: $avg bpm\n")
+    }
+    if (session.segments.isNotEmpty()) {
+        val labels = session.segments.sortedBy { it.orderIndex }.joinToString(" → ") { it.activity.displayLabel }
+        append("\uD83D\uDD04 Segments: $labels\n")
+    }
+    append("\n#erv #workout #fitness")
+}
+
+private suspend fun publishWorkoutNote(
+    relayPool: RelayPool,
+    signer: EventSigner,
+    session: CardioSession,
+    distanceUnit: CardioDistanceUnit
+): Boolean {
+    val content = buildWorkoutNoteContent(session, distanceUnit)
+    val unsigned = UnsignedEvent(
+        pubkey = signer.publicKey,
+        createdAt = System.currentTimeMillis() / 1000,
+        kind = 1,
+        tags = listOf(
+            listOf("t", "erv"),
+            listOf("t", "workout"),
+            listOf("t", "fitness")
+        ),
+        content = content
+    )
+    val signed = signer.sign(unsigned)
+    return relayPool.publish(signed)
 }
 
 @Composable
@@ -1681,12 +2061,15 @@ private data class RoutineStepDraft(
     val targetMinutesStr: String = "30"
 )
 
-private fun routineStepDraftsFromRoutine(routine: CardioRoutine?): List<RoutineStepDraft> {
+private fun routineStepDraftsFromRoutine(
+    routine: CardioRoutine?,
+    distanceUnit: CardioDistanceUnit
+): List<RoutineStepDraft> {
     if (routine == null) return listOf(RoutineStepDraft())
-    return routine.effectiveSteps().map { stepToRoutineDraft(it) }
+    return routine.effectiveSteps().map { stepToRoutineDraft(it, distanceUnit) }
 }
 
-private fun stepToRoutineDraft(step: CardioRoutineStep): RoutineStepDraft {
+private fun stepToRoutineDraft(step: CardioRoutineStep, distanceUnit: CardioDistanceUnit): RoutineStepDraft {
     val snap = step.activity
     val useCustom = snap.customTypeId != null
     val t = step.treadmill
@@ -1698,7 +2081,7 @@ private fun stepToRoutineDraft(step: CardioRoutineStep): RoutineStepDraft {
         speedStr = t?.speed?.toString() ?: "3.0",
         speedUnit = t?.speedUnit ?: CardioSpeedUnit.MPH,
         inclineStr = t?.inclinePercent?.toString() ?: "0",
-        treadDistKmStr = t?.distanceMeters?.let { d -> "%.2f".format(d / 1000.0) } ?: "",
+        treadDistKmStr = t?.distanceMeters?.let { d -> metersToCardioDistanceInputString(d, distanceUnit) } ?: "",
         loadStr = t?.loadKg?.let { kg -> "%.0f".format(kg / 0.453592) } ?: "",
         targetMinutesStr = (step.targetDurationMinutes ?: 30).toString()
     )
@@ -1707,7 +2090,8 @@ private fun stepToRoutineDraft(step: CardioRoutineStep): RoutineStepDraft {
 private fun buildRoutineStepFromDraft(
     d: RoutineStepDraft,
     idx: Int,
-    state: CardioLibraryState
+    state: CardioLibraryState,
+    distanceUnit: CardioDistanceUnit
 ): CardioRoutineStep? {
     val snap = if (d.useCustom) {
         val id = d.selectedCustomId ?: return null
@@ -1721,13 +2105,14 @@ private fun buildRoutineStepFromDraft(
     val tm = if (modalityEff == CardioModality.INDOOR_TREADMILL && treadmillApp) {
         val speed = d.speedStr.toDoubleOrNull() ?: return null
         val inc = d.inclineStr.toDoubleOrNull() ?: 0.0
-        val km = d.treadDistKmStr.toDoubleOrNull()
+        val distM = d.treadDistKmStr.toDoubleOrNull()
+            ?.let { parseCardioDistanceInputToMeters(it, distanceUnit) }
         val lb = if (builtinForM == CardioBuiltinActivity.RUCK) d.loadStr.toDoubleOrNull() else null
         CardioTreadmillParams(
             speed = speed,
             speedUnit = d.speedUnit,
             inclinePercent = inc,
-            distanceMeters = km?.times(1000.0),
+            distanceMeters = distM,
             loadKg = lb?.times(0.453592)
         )
     } else null
@@ -1747,11 +2132,14 @@ private fun RoutineEditorDialog(
     routine: CardioRoutine?,
     creating: Boolean,
     state: CardioLibraryState,
+    distanceUnit: CardioDistanceUnit,
     onDismiss: () -> Unit,
     onSave: (CardioRoutine) -> Unit
 ) {
     var name by remember(routine?.id) { mutableStateOf(routine?.name ?: "") }
-    var steps by remember(routine?.id) { mutableStateOf(routineStepDraftsFromRoutine(routine)) }
+    var steps by remember(routine?.id, distanceUnit) {
+        mutableStateOf(routineStepDraftsFromRoutine(routine, distanceUnit))
+    }
     var notes by remember(routine?.id) { mutableStateOf(routine?.notes ?: "") }
     var selectedDaySet by remember(routine?.id) {
         mutableStateOf(routine?.repeatDays?.toSet() ?: emptySet())
@@ -1762,7 +2150,7 @@ private fun RoutineEditorDialog(
     }
 
     val allStepsValid = steps.indices.all { i ->
-        buildRoutineStepFromDraft(steps[i], i, state) != null
+        buildRoutineStepFromDraft(steps[i], i, state, distanceUnit) != null
     }
 
     AlertDialog(
@@ -1923,7 +2311,7 @@ private fun RoutineEditorDialog(
                                 OutlinedTextField(
                                     draft.treadDistKmStr,
                                     { v -> updateStep(index) { s -> s.copy(treadDistKmStr = v) } },
-                                    label = { Text("Distance km (opt)") },
+                                    label = { Text(distanceUnit.distanceFieldLabelOptional()) },
                                     modifier = Modifier.fillMaxWidth()
                                 )
                                 if (builtinForM == CardioBuiltinActivity.RUCK) {
@@ -1980,7 +2368,9 @@ private fun RoutineEditorDialog(
                 onClick = {
                     val routineName = name.trim().ifBlank { "Routine" }
                     val days = selectedDaySet.toList().sortedBy { it.ordinal }
-                    val built = steps.mapIndexedNotNull { i, d -> buildRoutineStepFromDraft(d, i, state) }
+                    val built = steps.mapIndexedNotNull { i, d ->
+                        buildRoutineStepFromDraft(d, i, state, distanceUnit)
+                    }
                     if (built.size != steps.size) return@TextButton
                     val first = built.first()
                     val stepsToPersist = if (built.size > 1) built else emptyList()
