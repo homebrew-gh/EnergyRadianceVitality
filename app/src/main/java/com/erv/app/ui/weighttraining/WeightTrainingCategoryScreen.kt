@@ -1,5 +1,7 @@
 package com.erv.app.ui.weighttraining
 
+// Equipment uses FilterChips only — no MenuAnchorType / ExposedDropdownMenu (avoids Material3 API drift).
+
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -27,11 +29,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenu
-import androidx.compose.material3.ExposedDropdownMenuBox
-import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -39,7 +37,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -433,7 +430,6 @@ private fun RoutinesTabBody(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ExerciseEditorDialog(
     initial: WeightExercise?,
@@ -445,7 +441,6 @@ private fun ExerciseEditorDialog(
     var muscleGroup by remember(initial?.id) { mutableStateOf(initial?.muscleGroup.orEmpty()) }
     var pushOrPull by remember(initial?.id) { mutableStateOf(initial?.pushOrPull ?: WeightPushPull.PUSH) }
     var equipment by remember(initial?.id) { mutableStateOf(initial?.equipment ?: WeightEquipment.BARBELL) }
-    var equipmentMenu by remember { mutableStateOf(false) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -479,32 +474,20 @@ private fun ExerciseEditorDialog(
                         label = { Text("Pull") }
                     )
                 }
-                ExposedDropdownMenuBox(
-                    expanded = equipmentMenu,
-                    onExpandedChange = { equipmentMenu = it }
-                ) {
-                    OutlinedTextField(
-                        value = equipment.displayLabel(),
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text("Equipment") },
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = equipmentMenu) },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .menuAnchor(MenuAnchorType.PrimaryNotEditable, enabled = true)
-                    )
-                    ExposedDropdownMenu(
-                        expanded = equipmentMenu,
-                        onDismissRequest = { equipmentMenu = false }
-                    ) {
-                        WeightEquipment.entries.forEach { opt ->
-                            DropdownMenuItem(
-                                text = { Text(opt.displayLabel()) },
-                                onClick = {
-                                    equipment = opt
-                                    equipmentMenu = false
-                                }
-                            )
+                Text("Equipment", style = MaterialTheme.typography.labelLarge)
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    WeightEquipment.entries.chunked(3).forEach { rowOpts ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            rowOpts.forEach { opt ->
+                                FilterChip(
+                                    selected = equipment == opt,
+                                    onClick = { equipment = opt },
+                                    label = { Text(opt.displayLabel()) }
+                                )
+                            }
                         }
                     }
                 }
@@ -533,7 +516,6 @@ private fun ExerciseEditorDialog(
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun RoutineEditorDialog(
     initial: WeightRoutine,
