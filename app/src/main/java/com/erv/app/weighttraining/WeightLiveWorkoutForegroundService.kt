@@ -20,25 +20,19 @@ import com.erv.app.MainActivity
 import com.erv.app.R
 import com.erv.app.data.UserPreferences
 import com.erv.app.ui.weighttraining.WeightWorkoutBubbleActivity
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.flow.first
 
 /**
  * Foreground service for an active live weight workout: ongoing notification (required on Android)
  * and optional bubble (API 30+) when [UserPreferences.workoutBubbleEnabled] is true.
+ *
+ * Elapsed time uses a notification [chronometer] ([setUsesChronometer]) so we do not call
+ * [NotificationManager.notify] every second — frequent updates prevent bubble promotion on many devices.
  */
 class WeightLiveWorkoutForegroundService : Service() {
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private var updateJob: Job? = null
     private lateinit var userPreferences: UserPreferences
 
     @Volatile
@@ -78,36 +72,21 @@ class WeightLiveWorkoutForegroundService : Service() {
                 false
             }
         }
-        startTicker()
         postForeground(buildNotification())
         return START_NOT_STICKY
     }
 
     override fun onDestroy() {
         stopEverything()
-        scope.cancel()
         super.onDestroy()
     }
 
     private fun stopEverything() {
-        updateJob?.cancel()
-        updateJob = null
         ShortcutManagerCompat.removeDynamicShortcuts(
             this,
             listOf(WeightLiveWorkoutConstants.BUBBLE_SHORTCUT_ID)
         )
         stopForeground(STOP_FOREGROUND_REMOVE)
-    }
-
-    private fun startTicker() {
-        updateJob?.cancel()
-        updateJob = scope.launch {
-            while (isActive) {
-                val nm = getSystemService(NotificationManager::class.java)
-                nm.notify(WeightLiveWorkoutConstants.NOTIFICATION_ID, buildNotification())
-                delay(TICK_MS)
-            }
-        }
     }
 
     private fun postForeground(notification: android.app.Notification) {
@@ -124,8 +103,7 @@ class WeightLiveWorkoutForegroundService : Service() {
     }
 
     private fun buildNotification(): android.app.Notification {
-        val elapsed = (System.currentTimeMillis() / 1000L - startedAtEpochSeconds).coerceAtLeast(0L)
-        val elapsedLabel = formatElapsedForNotif(elapsed)
+        val startedAtMs = startedAtEpochSeconds * 1000L
 
         val immutable = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         val openApp = PendingIntent.getActivity(
@@ -139,18 +117,22 @@ class WeightLiveWorkoutForegroundService : Service() {
         )
 
         val builder = NotificationCompat.Builder(this, WeightLiveWorkoutConstants.NOTIFICATION_CHANNEL_ID)
-            // Use foreground vector — @drawable/ic_launcher is adaptive on API 26+ and breaks shortcuts/bubbles.
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle(getString(R.string.weight_live_notification_title))
-            .setContentText(getString(R.string.weight_live_notification_text, elapsedLabel))
+            .setContentText(getString(R.string.weight_live_notification_chronometer_line))
+            .setWhen(startedAtMs)
+            .setShowWhen(true)
+            .setUsesChronometer(true)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setContentIntent(openApp)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .addAction(0, getString(R.string.weight_live_notification_action_open), openApp)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && bubbleEnabled && bubbleUiReady) {
+            builder.setShortcutId(WeightLiveWorkoutConstants.BUBBLE_SHORTCUT_ID)
             try {
                 val bubbleMeta = NotificationCompat.BubbleMetadata.Builder(
                     WeightLiveWorkoutConstants.BUBBLE_SHORTCUT_ID
@@ -187,14 +169,17 @@ class WeightLiveWorkoutForegroundService : Service() {
     private fun ensureChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val nm = getSystemService(NotificationManager::class.java) ?: return
+        // Old channel ID was created before bubble flags; channels are immutable — remove stale channel.
+        nm.deleteNotificationChannel(LEGACY_NOTIFICATION_CHANNEL_ID)
         val ch = NotificationChannel(
             WeightLiveWorkoutConstants.NOTIFICATION_CHANNEL_ID,
             getString(R.string.weight_live_notification_channel_name),
-            NotificationManager.IMPORTANCE_DEFAULT
+            NotificationManager.IMPORTANCE_HIGH
         ).apply {
             description = getString(R.string.weight_live_notification_channel_desc)
             setSound(null, null)
             enableVibration(false)
+            lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 setAllowBubbles(true)
             }
@@ -206,7 +191,8 @@ class WeightLiveWorkoutForegroundService : Service() {
         private const val TAG = "WeightLiveFg"
         private const val ACTION_START = "com.erv.app.weight.LIVE_START"
         private const val EXTRA_STARTED_AT_EPOCH_SEC = "startedAtEpochSec"
-        private const val TICK_MS = 1_000L
+        /** Pre–bubble-v2 channel; deleting lets users get a single channel with bubble toggles. */
+        private const val LEGACY_NOTIFICATION_CHANNEL_ID = "erv_weight_live_workout"
 
         fun start(context: Context, startedAtEpochSeconds: Long) {
             val app = context.applicationContext
@@ -230,16 +216,5 @@ class WeightLiveWorkoutForegroundService : Service() {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_MULTIPLE_TASK
                 putExtra(WeightLiveWorkoutConstants.EXTRA_BUBBLE_SESSION_START, startedAtEpochSeconds)
             }
-    }
-}
-
-private fun formatElapsedForNotif(totalSeconds: Long): String {
-    val h = totalSeconds / 3600
-    val m = (totalSeconds % 3600) / 60
-    val s = totalSeconds % 60
-    return if (h > 0) {
-        String.format("%d:%02d:%02d", h, m, s)
-    } else {
-        String.format("%d:%02d", m, s)
     }
 }
