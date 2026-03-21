@@ -5,7 +5,7 @@ This document turns the product direction in [PLAN_OF_ACTION.md §2.4](PLAN_OF_A
 1. **GPS** — track + OSM review + **privacy-first sharing** (full **OSM map** *or* **track-only** / no basemap for social relays).
 2. **Bluetooth bike speed sensors** — wheel-based speed/distance via the standard **Cycling Speed and Cadence (CSC)** BLE profile (e.g. Garmin / Wahoo–class accessories), aligned with ERV’s **direct BLE** approach (no Health Connect; see PLAN §8).
 
-**Status:** Not implemented in app code yet; this is the plan.
+**Status:** **Partially implemented** — outdoor **timer** sessions (walk / run / hike / ruck) can record a **phone GPS track** locally with a **foreground location service**; daily log **relay publish strips `gpsTrack`** for privacy. **Not yet:** in-app map review, share cards, BLE CSC, multi-leg GPS, or background location beyond the ongoing workout notification.
 
 ---
 

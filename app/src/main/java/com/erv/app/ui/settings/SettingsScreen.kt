@@ -35,12 +35,16 @@ import com.erv.app.cardio.CardioDistanceUnit
 import com.erv.app.data.BodyWeightUnit
 import com.erv.app.data.ThemeMode
 import com.erv.app.data.UserPreferences
+import com.erv.app.data.WorkoutMediaUploadBackend
 import com.erv.app.nostr.AmberLauncherHost
 import com.erv.app.nostr.AmberSigner
 import com.erv.app.nostr.ConnectionState
 import com.erv.app.nostr.KeyManager
+import com.erv.app.nostr.Nip96Uploader
+import com.erv.app.nostr.NipB7
 import com.erv.app.nostr.RelayPool
 import com.erv.app.nostr.SettingsSync
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
 private const val WSS_PREFIX = "wss://"
@@ -61,6 +65,20 @@ fun SettingsScreen(
     val bodyWeightValue by userPreferences.bodyWeightValue.collectAsState(initial = "")
     val bodyWeightUnit by userPreferences.bodyWeightUnit.collectAsState(initial = BodyWeightUnit.LB)
     val cardioDistanceUnit by userPreferences.cardioDistanceUnit.collectAsState(initial = CardioDistanceUnit.MILES)
+    val cardioGpsPreferred by userPreferences.cardioGpsRecordingPreferred.collectAsState(initial = true)
+    val nip96MediaOrigin by userPreferences.nip96MediaServerOrigin.collectAsState(initial = "")
+    val blossomPublicSaved by userPreferences.blossomPublicServerOrigin.collectAsState(initial = "")
+    val blossomPrivateSaved by userPreferences.blossomPrivateServerOrigin.collectAsState(initial = "")
+    val workoutMediaBackend by userPreferences.workoutMediaUploadBackend.collectAsState(
+        initial = WorkoutMediaUploadBackend.NIP96
+    )
+    val attachRouteToNostr by userPreferences.attachRouteImageToWorkoutNostrShare.collectAsState(initial = false)
+    var nip96Draft by remember { mutableStateOf("") }
+    var blossomPublicDraft by remember { mutableStateOf("") }
+    var blossomPrivateDraft by remember { mutableStateOf("") }
+    LaunchedEffect(nip96MediaOrigin) { nip96Draft = nip96MediaOrigin }
+    LaunchedEffect(blossomPublicSaved) { blossomPublicDraft = blossomPublicSaved }
+    LaunchedEffect(blossomPrivateSaved) { blossomPrivateDraft = blossomPrivateSaved }
     val weightTrainingLoadUnit by userPreferences.weightTrainingLoadUnit.collectAsState(initial = BodyWeightUnit.LB)
     val workoutBubbleEnabled by userPreferences.workoutBubbleEnabled.collectAsState(initial = true)
 
@@ -138,6 +156,53 @@ fun SettingsScreen(
             CardioDistanceSection(
                 unit = cardioDistanceUnit,
                 onUnitChange = { u -> scope.launch { userPreferences.setCardioDistanceUnit(u) } }
+            )
+
+            Spacer(Modifier.height(12.dp))
+
+            CardioGpsSettingsSection(
+                enabled = cardioGpsPreferred,
+                onChange = { v -> scope.launch { userPreferences.setCardioGpsRecordingPreferred(v) } }
+            )
+
+            Spacer(Modifier.height(12.dp))
+
+            CardioNostrRouteShareSection(
+                uploadBackend = workoutMediaBackend,
+                onUploadBackendChange = { b -> scope.launch { userPreferences.setWorkoutMediaUploadBackend(b) } },
+                attachRouteImage = attachRouteToNostr,
+                onAttachChange = { v -> scope.launch { userPreferences.setAttachRouteImageToWorkoutNostrShare(v) } },
+                nip96Draft = nip96Draft,
+                onNip96DraftChange = { nip96Draft = it },
+                onSaveNip96Origin = {
+                    scope.launch {
+                        val n = Nip96Uploader.normalizeMediaServerOrigin(nip96Draft)
+                        userPreferences.setNip96MediaServerOrigin(n)
+                        nip96Draft = n
+                    }
+                },
+                blossomPublicDraft = blossomPublicDraft,
+                onBlossomPublicDraftChange = { blossomPublicDraft = it },
+                blossomPrivateDraft = blossomPrivateDraft,
+                onBlossomPrivateDraftChange = { blossomPrivateDraft = it },
+                onSaveBlossomServers = {
+                    scope.launch {
+                        val pub = Nip96Uploader.normalizeMediaServerOrigin(blossomPublicDraft)
+                        val priv = Nip96Uploader.normalizeMediaServerOrigin(blossomPrivateDraft)
+                        userPreferences.setBlossomPublicServerOrigin(pub)
+                        userPreferences.setBlossomPrivateServerOrigin(priv)
+                        blossomPublicDraft = pub
+                        blossomPrivateDraft = priv
+                    }
+                },
+                relayPool = relayPool,
+                blossomFetchPubkeyHex = keyManager.publicKeyHex,
+                fetchScope = scope,
+                onUserMessage = { snackbarMessage = it },
+                onApplyFetchedBlossomPublic = { normalized ->
+                    blossomPublicDraft = normalized
+                    scope.launch { userPreferences.setBlossomPublicServerOrigin(normalized) }
+                }
             )
 
             Spacer(Modifier.height(12.dp))
@@ -440,7 +505,7 @@ private fun CardioDistanceSection(
     onUnitChange: (CardioDistanceUnit) -> Unit
 ) {
     Text(
-        "Cardio distance",
+        "Cardio distance & elevation",
         style = MaterialTheme.typography.titleMedium,
         modifier = Modifier.padding(bottom = 8.dp)
     )
@@ -450,7 +515,7 @@ private fun CardioDistanceSection(
     ) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
-                "Units for distance in the cardio area: summaries, log, and workout forms. Default is miles.",
+                "Summaries, logs, workout forms, pace, and GPS elevation use this choice. Default is miles and feet; pick kilometers and meters if you prefer.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -459,14 +524,259 @@ private fun CardioDistanceSection(
                     selected = unit == CardioDistanceUnit.MILES,
                     onClick = { onUnitChange(CardioDistanceUnit.MILES) },
                     shape = SegmentedButtonDefaults.itemShape(0, 2)
-                ) { Text("Miles") }
+                ) { Text("Miles / ft") }
                 SegmentedButton(
                     selected = unit == CardioDistanceUnit.KILOMETERS,
                     onClick = { onUnitChange(CardioDistanceUnit.KILOMETERS) },
                     shape = SegmentedButtonDefaults.itemShape(1, 2)
-                ) { Text("Kilometers") }
+                ) { Text("Kilometers / m") }
             }
         }
+    }
+}
+
+@Composable
+private fun CardioGpsSettingsSection(
+    enabled: Boolean,
+    onChange: (Boolean) -> Unit
+) {
+    Text(
+        stringResource(R.string.settings_cardio_gps_title),
+        style = MaterialTheme.typography.titleMedium,
+        modifier = Modifier.padding(bottom = 8.dp)
+    )
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                Text(
+                    stringResource(R.string.settings_cardio_gps_switch),
+                    style = MaterialTheme.typography.bodyLarge
+                )
+                Text(
+                    stringResource(R.string.settings_cardio_gps_helper),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Switch(
+                checked = enabled,
+                onCheckedChange = onChange
+            )
+        }
+    }
+}
+
+@Composable
+private fun CardioNostrRouteShareSection(
+    uploadBackend: WorkoutMediaUploadBackend,
+    onUploadBackendChange: (WorkoutMediaUploadBackend) -> Unit,
+    attachRouteImage: Boolean,
+    onAttachChange: (Boolean) -> Unit,
+    nip96Draft: String,
+    onNip96DraftChange: (String) -> Unit,
+    onSaveNip96Origin: () -> Unit,
+    blossomPublicDraft: String,
+    onBlossomPublicDraftChange: (String) -> Unit,
+    blossomPrivateDraft: String,
+    onBlossomPrivateDraftChange: (String) -> Unit,
+    onSaveBlossomServers: () -> Unit,
+    relayPool: RelayPool?,
+    blossomFetchPubkeyHex: String?,
+    fetchScope: CoroutineScope,
+    onUserMessage: (String) -> Unit,
+    onApplyFetchedBlossomPublic: (String) -> Unit
+) {
+    val context = LocalContext.current
+    var fetchingBlossomServers by remember { mutableStateOf(false) }
+    var blossomPickList by remember { mutableStateOf<List<String>?>(null) }
+    Text(
+        stringResource(R.string.settings_cardio_nostr_route_title),
+        style = MaterialTheme.typography.titleMedium,
+        modifier = Modifier.padding(bottom = 8.dp)
+    )
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                    Text(
+                        stringResource(R.string.settings_cardio_nostr_route_switch),
+                        style = MaterialTheme.typography.bodyLarge
+                    )
+                    Text(
+                        stringResource(R.string.settings_cardio_nostr_route_switch_helper),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = attachRouteImage,
+                    onCheckedChange = onAttachChange
+                )
+            }
+            Text(
+                stringResource(R.string.settings_cardio_nostr_upload_type),
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                SegmentedButton(
+                    selected = uploadBackend == WorkoutMediaUploadBackend.NIP96,
+                    onClick = { onUploadBackendChange(WorkoutMediaUploadBackend.NIP96) },
+                    shape = SegmentedButtonDefaults.itemShape(0, 2)
+                ) { Text(stringResource(R.string.settings_cardio_nostr_upload_nip96)) }
+                SegmentedButton(
+                    selected = uploadBackend == WorkoutMediaUploadBackend.BLOSSOM,
+                    onClick = { onUploadBackendChange(WorkoutMediaUploadBackend.BLOSSOM) },
+                    shape = SegmentedButtonDefaults.itemShape(1, 2)
+                ) { Text(stringResource(R.string.settings_cardio_nostr_upload_blossom)) }
+            }
+            if (uploadBackend == WorkoutMediaUploadBackend.BLOSSOM) {
+                Text(
+                    stringResource(R.string.settings_cardio_nostr_fetch_blossom_helper),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                OutlinedButton(
+                    onClick = {
+                        fetchScope.launch {
+                            fetchingBlossomServers = true
+                            try {
+                                val pk = blossomFetchPubkeyHex
+                                if (pk == null) {
+                                    onUserMessage(context.getString(R.string.settings_cardio_nostr_fetch_no_pubkey))
+                                    return@launch
+                                }
+                                val pool = relayPool
+                                if (pool == null) {
+                                    onUserMessage(context.getString(R.string.settings_cardio_nostr_fetch_no_pool))
+                                    return@launch
+                                }
+                                if (!pool.awaitAtLeastOneConnected(12_000)) {
+                                    onUserMessage(context.getString(R.string.settings_cardio_nostr_fetch_no_relays))
+                                    return@launch
+                                }
+                                val list = NipB7.fetchBlossomServersFromNetwork(pool, pk)
+                                when {
+                                    list.isEmpty() ->
+                                        onUserMessage(context.getString(R.string.settings_cardio_nostr_fetch_blossom_none))
+                                    list.size == 1 -> {
+                                        val n = Nip96Uploader.normalizeMediaServerOrigin(list.first())
+                                        onApplyFetchedBlossomPublic(n)
+                                        onUserMessage(context.getString(R.string.settings_cardio_nostr_fetch_blossom_applied))
+                                    }
+                                    else -> blossomPickList = list
+                                }
+                            } finally {
+                                fetchingBlossomServers = false
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !fetchingBlossomServers && relayPool != null && blossomFetchPubkeyHex != null
+                ) {
+                    Text(
+                        if (fetchingBlossomServers) {
+                            stringResource(R.string.settings_cardio_nostr_fetch_blossom_loading)
+                        } else {
+                            stringResource(R.string.settings_cardio_nostr_fetch_blossom)
+                        }
+                    )
+                }
+            }
+            when (uploadBackend) {
+                WorkoutMediaUploadBackend.NIP96 -> {
+                    OutlinedTextField(
+                        value = nip96Draft,
+                        onValueChange = onNip96DraftChange,
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text(stringResource(R.string.settings_cardio_nostr_server_label_nip96)) },
+                        supportingText = {
+                            Text(stringResource(R.string.settings_cardio_nostr_server_helper_nip96))
+                        },
+                        singleLine = true
+                    )
+                    TextButton(onClick = onSaveNip96Origin) {
+                        Text(stringResource(R.string.settings_cardio_nostr_save_nip96_url))
+                    }
+                }
+                WorkoutMediaUploadBackend.BLOSSOM -> {
+                    OutlinedTextField(
+                        value = blossomPublicDraft,
+                        onValueChange = onBlossomPublicDraftChange,
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text(stringResource(R.string.settings_cardio_nostr_blossom_public_label)) },
+                        supportingText = {
+                            Text(stringResource(R.string.settings_cardio_nostr_blossom_public_helper))
+                        },
+                        singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = blossomPrivateDraft,
+                        onValueChange = onBlossomPrivateDraftChange,
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text(stringResource(R.string.settings_cardio_nostr_blossom_private_label)) },
+                        supportingText = {
+                            Text(stringResource(R.string.settings_cardio_nostr_blossom_private_helper))
+                        },
+                        singleLine = true
+                    )
+                    TextButton(onClick = onSaveBlossomServers) {
+                        Text(stringResource(R.string.settings_cardio_nostr_save_blossom_servers))
+                    }
+                }
+            }
+        }
+    }
+    val blossomPick = blossomPickList
+    if (blossomPick != null) {
+        AlertDialog(
+            onDismissRequest = { blossomPickList = null },
+            title = { Text(stringResource(R.string.settings_cardio_nostr_fetch_blossom_pick_title)) },
+            text = {
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    blossomPick.forEach { url ->
+                        TextButton(
+                            onClick = {
+                                val n = Nip96Uploader.normalizeMediaServerOrigin(url)
+                                onApplyFetchedBlossomPublic(n)
+                                blossomPickList = null
+                                onUserMessage(context.getString(R.string.settings_cardio_nostr_fetch_blossom_applied))
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(url, style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { blossomPickList = null }) {
+                    Text(stringResource(android.R.string.cancel))
+                }
+            }
+        )
     }
 }
 

@@ -35,6 +35,7 @@ import com.erv.app.cardio.CardioRepository
 import com.erv.app.supplements.SupplementRepository
 import com.erv.app.ui.cardio.CardioCategoryScreen
 import com.erv.app.ui.cardio.CardioLogScreen
+import com.erv.app.ui.cardio.CardioSessionDetailScreen
 import com.erv.app.ui.weighttraining.WeightLiveWorkoutViewModel
 import com.erv.app.ui.weighttraining.WeightExerciseDetailScreen
 import com.erv.app.ui.weighttraining.WeightTrainingCategoryScreen
@@ -65,6 +66,9 @@ object Routes {
     const val cardioLog = "category/cardio/log"
     const val cardioLogOpenCalendarRoute = "category/cardio/log/open/{logDate}"
     fun cardioLogOpenCalendar(logDateIso: String) = "category/cardio/log/open/$logDateIso"
+    const val cardioSessionDetailRoute = "category/cardio/log/session/{logDate}/{sessionId}"
+    fun cardioSessionDetail(logDateIso: String, sessionId: String) =
+        "category/cardio/log/session/$logDateIso/$sessionId"
     const val cardioCategory = "category/cardio"
     const val cardioCategoryNewWorkout = "category/cardio?openNewWorkout=true"
     const val weightTrainingCategory = "category/weight_training"
@@ -272,7 +276,10 @@ fun ErvNavHost(
                 userPreferences = userPreferences,
                 relayPool = relayPool,
                 signer = signer,
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackStack() },
+                onOpenSessionDetail = { logDate, sessionId ->
+                    navController.navigate(Routes.cardioSessionDetail(logDate.toString(), sessionId))
+                }
             )
         }
 
@@ -290,8 +297,31 @@ fun ErvNavHost(
                 relayPool = relayPool,
                 signer = signer,
                 onBack = { navController.popBackStack() },
+                onOpenSessionDetail = { logDate, sessionId ->
+                    navController.navigate(Routes.cardioSessionDetail(logDate.toString(), sessionId))
+                },
                 initialSelectedDate = initialDate,
                 openCalendarInitially = true
+            )
+        }
+
+        composable(
+            route = Routes.cardioSessionDetailRoute,
+            arguments = listOf(
+                navArgument("logDate") { type = NavType.StringType },
+                navArgument("sessionId") { type = NavType.StringType }
+            )
+        ) { backStackEntry ->
+            val logDateStr = backStackEntry.arguments?.getString("logDate").orEmpty()
+            val sessionId = backStackEntry.arguments?.getString("sessionId").orEmpty()
+            val logDate = runCatching { LocalDate.parse(logDateStr) }.getOrElse { LocalDate.now() }
+            val cardioState by cardioRepository.state.collectAsState(initial = CardioLibraryState())
+            CardioSessionDetailScreen(
+                state = cardioState,
+                logDate = logDate,
+                sessionId = sessionId,
+                userPreferences = userPreferences,
+                onBack = { navController.popBackStack() }
             )
         }
 

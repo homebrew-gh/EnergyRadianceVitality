@@ -53,16 +53,23 @@ object CardioMetEstimator {
         val builtin = session.activity.builtin ?: return 5.0
         return when (session.modality) {
             CardioModality.INDOOR_TREADMILL -> treadmillMet(builtin, session.treadmill)
-            CardioModality.OUTDOOR -> outdoorMet(builtin, session.treadmill)
+            CardioModality.OUTDOOR -> outdoorMet(builtin, session.treadmill, session.ruckLoadKg)
         }
     }
 
-    private fun outdoorMet(builtin: CardioBuiltinActivity, treadmill: CardioTreadmillParams?): Double =
+    private fun outdoorMet(
+        builtin: CardioBuiltinActivity,
+        treadmill: CardioTreadmillParams?,
+        ruckLoadKg: Double?
+    ): Double =
         when (builtin) {
             CardioBuiltinActivity.WALK -> 3.5
             CardioBuiltinActivity.RUN -> 9.0
             CardioBuiltinActivity.SPRINT -> 12.0
-            CardioBuiltinActivity.RUCK -> if ((treadmill?.loadKg ?: 0.0) > 0) 8.5 else 7.0
+            CardioBuiltinActivity.RUCK -> {
+                val load = treadmill?.loadKg ?: ruckLoadKg ?: 0.0
+                if (load > 0) 8.5 else 7.0
+            }
             CardioBuiltinActivity.HIKE -> 6.5
             CardioBuiltinActivity.BIKE -> 7.5
             CardioBuiltinActivity.SWIM -> 6.0
@@ -76,7 +83,7 @@ object CardioMetEstimator {
         }
 
     private fun treadmillMet(builtin: CardioBuiltinActivity, treadmill: CardioTreadmillParams?): Double {
-        val t = treadmill ?: return outdoorMet(builtin, null)
+        val t = treadmill ?: return outdoorMet(builtin, null, null)
         val mph = when (t.speedUnit) {
             CardioSpeedUnit.MPH -> t.speed
             CardioSpeedUnit.KMH -> t.speed / 1.60934
@@ -89,7 +96,7 @@ object CardioMetEstimator {
                 val load = t.loadKg ?: 0.0
                 runTreadmillMet(mph) + load.coerceAtMost(40.0) * 0.08
             }
-            else -> outdoorMet(builtin, t)
+            else -> outdoorMet(builtin, t, null)
         }
         return max(1.0, base * inclineBoost)
     }

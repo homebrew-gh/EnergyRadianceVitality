@@ -1,9 +1,20 @@
 -- Merging decision tree log ---
+provider#androidx.core.content.FileProvider
+INJECTED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:82:9-90:20
+	android:grantUriPermissions
+		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:86:13-47
+	android:authorities
+		INJECTED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml
+		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:84:13-64
+	android:exported
+		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:85:13-37
+	android:name
+		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:83:13-62
 manifest
-ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:2:1-76:12
-INJECTED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:2:1-76:12
-INJECTED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:2:1-76:12
-INJECTED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:2:1-76:12
+ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:2:1-93:12
+INJECTED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:2:1-93:12
+INJECTED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:2:1-93:12
+INJECTED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:2:1-93:12
 MERGED from [com.google.android.material:material:1.11.0] /home/samcornwell/.gradle/caches/transforms-3/98043702de691ac8dbaa52ee602a69df/transformed/material-1.11.0/AndroidManifest.xml:17:1-24:12
 MERGED from [androidx.appcompat:appcompat-resources:1.6.1] /home/samcornwell/.gradle/caches/transforms-3/e3ee6937308b7fb3c24b8e3798cdf054/transformed/appcompat-resources-1.6.1/AndroidManifest.xml:17:1-22:12
 MERGED from [androidx.constraintlayout:constraintlayout:2.0.1] /home/samcornwell/.gradle/caches/transforms-3/272a94236d8b87ac8bc2fade398ad17a/transformed/constraintlayout-2.0.1/AndroidManifest.xml:2:1-11:12
@@ -111,25 +122,37 @@ uses-permission#android.permission.SCHEDULE_EXACT_ALARM
 ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:10:5-79
 	android:name
 		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:10:22-76
-queries
-ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:13:5-27:15
-intent#action:name:android.intent.action.VIEW+data:scheme:nostrsigner
-ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:14:9-17:18
-action#android.intent.action.VIEW
-ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:15:13-65
+uses-permission#android.permission.ACCESS_FINE_LOCATION
+ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:11:5-79
 	android:name
-		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:15:21-62
+		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:11:22-76
+uses-permission#android.permission.ACCESS_COARSE_LOCATION
+ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:12:5-81
+	android:name
+		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:12:22-78
+uses-permission#android.permission.FOREGROUND_SERVICE_LOCATION
+ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:13:5-86
+	android:name
+		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:13:22-83
+queries
+ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:16:5-30:15
+intent#action:name:android.intent.action.VIEW+data:scheme:nostrsigner
+ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:17:9-20:18
+action#android.intent.action.VIEW
+ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:18:13-65
+	android:name
+		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:18:21-62
 data
-ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:16:13-50
+ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:19:13-50
 	android:scheme
-		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:16:19-47
+		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:19:19-47
 intent#action:name:android.intent.action.VIEW+data:scheme:https
-ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:19:9-22:18
+ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:22:9-25:18
 intent#action:name:android.intent.action.VIEW+data:scheme:http
-ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:23:9-26:18
+ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:26:9-29:18
 application
-ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:29:5-74:19
-INJECTED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:29:5-74:19
+ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:32:5-91:19
+INJECTED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:32:5-91:19
 MERGED from [com.google.android.material:material:1.11.0] /home/samcornwell/.gradle/caches/transforms-3/98043702de691ac8dbaa52ee602a69df/transformed/material-1.11.0/AndroidManifest.xml:22:5-20
 MERGED from [com.google.android.material:material:1.11.0] /home/samcornwell/.gradle/caches/transforms-3/98043702de691ac8dbaa52ee602a69df/transformed/material-1.11.0/AndroidManifest.xml:22:5-20
 MERGED from [androidx.constraintlayout:constraintlayout:2.0.1] /home/samcornwell/.gradle/caches/transforms-3/272a94236d8b87ac8bc2fade398ad17a/transformed/constraintlayout-2.0.1/AndroidManifest.xml:9:5-20
@@ -151,91 +174,105 @@ MERGED from [androidx.startup:startup-runtime:1.1.1] /home/samcornwell/.gradle/c
 	android:appComponentFactory
 		ADDED from [androidx.core:core:1.12.0] /home/samcornwell/.gradle/caches/transforms-3/f23e95a0fb0ac81f840512f02915cc80/transformed/core-1.12.0/AndroidManifest.xml:28:18-86
 	android:supportsRtl
-		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:34:9-35
+		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:37:9-35
 	android:label
-		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:32:9-41
-	android:roundIcon
-		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:33:9-50
-	android:icon
-		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:31:9-45
-	android:allowBackup
-		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:30:9-35
-	android:theme
 		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:35:9-41
-activity#com.erv.app.MainActivity
-ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:36:9-44:20
-	android:launchMode
-		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:39:13-43
-	android:exported
-		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:38:13-36
-	android:name
-		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:37:13-41
-intent-filter#action:name:android.intent.action.MAIN+category:name:android.intent.category.LAUNCHER
-ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:40:13-43:29
-action#android.intent.action.MAIN
-ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:41:17-69
-	android:name
-		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:41:25-66
-category#android.intent.category.LAUNCHER
-ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:42:17-77
-	android:name
-		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:42:27-74
-activity#com.erv.app.ui.weighttraining.WeightWorkoutBubbleActivity
-ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:46:9-51:44
-	android:exported
-		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:48:13-37
-	android:resizeableActivity
-		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:50:13-46
+	android:roundIcon
+		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:36:9-50
+	android:icon
+		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:34:9-45
+	android:allowBackup
+		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:33:9-35
 	android:theme
-		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:49:13-52
+		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:38:9-41
+activity#com.erv.app.MainActivity
+ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:39:9-47:20
+	android:launchMode
+		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:42:13-43
+	android:exported
+		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:41:13-36
 	android:name
-		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:47:13-74
+		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:40:13-41
+intent-filter#action:name:android.intent.action.MAIN+category:name:android.intent.category.LAUNCHER
+ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:43:13-46:29
+action#android.intent.action.MAIN
+ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:44:17-69
+	android:name
+		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:44:25-66
+category#android.intent.category.LAUNCHER
+ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:45:17-77
+	android:name
+		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:45:27-74
+activity#com.erv.app.ui.weighttraining.WeightWorkoutBubbleActivity
+ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:49:9-54:44
+	android:exported
+		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:51:13-37
+	android:resizeableActivity
+		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:53:13-46
+	android:theme
+		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:52:13-52
+	android:name
+		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:50:13-74
 	android:allowEmbedded
-		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:51:13-41
+		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:54:13-41
 service#com.erv.app.weighttraining.WeightLiveWorkoutForegroundService
-ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:53:9-60:19
+ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:56:9-63:19
 	android:exported
-		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:55:13-37
+		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:58:13-37
 	android:foregroundServiceType
-		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:56:13-55
+		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:59:13-55
 	android:name
-		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:54:13-78
+		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:57:13-78
 property
-ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:57:13-59:147
+ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:60:13-62:147
 	android:value
-		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:59:17-144
+		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:62:17-144
 	android:name
-		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:58:17-76
+		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:61:17-76
+service#com.erv.app.cardio.CardioGpsForegroundService
+ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:64:9-67:56
+	android:exported
+		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:66:13-37
+	android:foregroundServiceType
+		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:67:13-53
+	android:name
+		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:65:13-62
 receiver#com.erv.app.reminders.RoutineReminderReceiver
-ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:61:9-63:40
+ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:68:9-70:40
 	android:exported
-		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:63:13-37
+		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:70:13-37
 	android:name
-		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:62:13-62
+		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:69:13-62
 receiver#com.erv.app.reminders.RoutineReminderBootReceiver
-ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:64:9-73:20
+ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:71:9-80:20
 	android:exported
-		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:66:13-36
+		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:73:13-36
 	android:name
-		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:65:13-66
+		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:72:13-66
 intent-filter#action:name:android.intent.action.BOOT_COMPLETED+action:name:android.intent.action.MY_PACKAGE_REPLACED+action:name:android.intent.action.TIMEZONE_CHANGED+action:name:android.intent.action.TIME_SET
-ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:67:13-72:29
+ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:74:13-79:29
 action#android.intent.action.BOOT_COMPLETED
-ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:68:17-79
+ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:75:17-79
 	android:name
-		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:68:25-76
+		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:75:25-76
 action#android.intent.action.TIME_SET
-ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:69:17-73
+ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:76:17-73
 	android:name
-		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:69:25-70
+		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:76:25-70
 action#android.intent.action.TIMEZONE_CHANGED
-ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:70:17-81
+ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:77:17-81
 	android:name
-		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:70:25-78
+		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:77:25-78
 action#android.intent.action.MY_PACKAGE_REPLACED
-ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:71:17-84
+ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:78:17-84
 	android:name
-		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:71:25-81
+		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:78:25-81
+meta-data#android.support.FILE_PROVIDER_PATHS
+ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:87:13-89:54
+	android:resource
+		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:89:17-51
+	android:name
+		ADDED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:88:17-67
 uses-sdk
 INJECTED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml reason: use-sdk injection requested
 INJECTED from /home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml

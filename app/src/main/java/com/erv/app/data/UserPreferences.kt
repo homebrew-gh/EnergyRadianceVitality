@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "erv_prefs")
@@ -23,6 +24,15 @@ enum class TemperatureUnit {
     FAHRENHEIT, CELSIUS
 }
 
+/** How “Share Workout” uploads the route PNG when a media server URL is set. */
+enum class WorkoutMediaUploadBackend {
+    /** NIP-96 multipart + NIP-98 (kind 27235). */
+    NIP96,
+
+    /** Blossom PUT `/upload` + kind 24242 (e.g. Primal `blossom.primal.net`). */
+    BLOSSOM
+}
+
 class UserPreferences(private val context: Context) {
 
     private object Keys {
@@ -35,6 +45,13 @@ class UserPreferences(private val context: Context) {
         val TEMPERATURE_UNIT = stringPreferencesKey("temperature_unit")
         val WORKOUT_BUBBLE_ENABLED = booleanPreferencesKey("workout_bubble_enabled")
         val WEIGHT_LIVE_FGS_DISCLOSURE_SEEN = booleanPreferencesKey("weight_live_fgs_disclosure_seen")
+        val CARDIO_GPS_RECORDING_PREFERRED = booleanPreferencesKey("cardio_gps_recording_preferred")
+        val NIP96_MEDIA_SERVER_ORIGIN = stringPreferencesKey("nip96_media_server_origin")
+        val BLOSSOM_PUBLIC_SERVER_ORIGIN = stringPreferencesKey("blossom_public_server_origin")
+        val BLOSSOM_PRIVATE_SERVER_ORIGIN = stringPreferencesKey("blossom_private_server_origin")
+        val MEDIA_KEYS_SPLIT_V1 = booleanPreferencesKey("media_keys_split_v1")
+        val ATTACH_ROUTE_IMAGE_WORKOUT_NOSTR = booleanPreferencesKey("attach_route_image_workout_nostr")
+        val WORKOUT_MEDIA_UPLOAD_BACKEND = stringPreferencesKey("workout_media_upload_backend")
     }
 
     val themeMode: Flow<ThemeMode> = context.dataStore.data.map { prefs ->
@@ -74,9 +91,9 @@ class UserPreferences(private val context: Context) {
         }
     }
 
-    /** Cardio log / summaries / distance fields; default miles. */
+    /** Cardio log / summaries / distance fields; default miles (and feet for elevation labels). */
     val cardioDistanceUnit: Flow<CardioDistanceUnit> = context.dataStore.data.map { prefs ->
-        when (prefs[Keys.CARDIO_DISTANCE_UNIT]) {
+        when (prefs[Keys.CARDIO_DISTANCE_UNIT]?.uppercase()) {
             "KILOMETERS", "KM" -> CardioDistanceUnit.KILOMETERS
             else -> CardioDistanceUnit.MILES
         }
@@ -88,6 +105,33 @@ class UserPreferences(private val context: Context) {
                 CardioDistanceUnit.KILOMETERS -> "KM"
                 CardioDistanceUnit.MILES -> "MILES"
             }
+        }
+    }
+
+    /** Writes miles if no cardio distance key exists yet (first launch). Does not change km/mi if already set. */
+    suspend fun ensureCardioDistanceDefaultMiles() {
+        context.dataStore.edit { prefs ->
+            if (prefs[Keys.CARDIO_DISTANCE_UNIT] == null) {
+                prefs[Keys.CARDIO_DISTANCE_UNIT] = "MILES"
+            }
+        }
+    }
+
+    /**
+     * One-time migration: older builds stored the Blossom base URL in [nip96MediaServerOrigin].
+     * Copies that value into [blossomPublicServerOrigin] when upload backend is Blossom and public is still empty.
+     */
+    suspend fun ensureMediaKeysSplitV1() {
+        context.dataStore.edit { prefs ->
+            if (prefs[Keys.MEDIA_KEYS_SPLIT_V1] == true) return@edit
+            val legacy = prefs[Keys.NIP96_MEDIA_SERVER_ORIGIN]?.trim().orEmpty()
+            val backend = prefs[Keys.WORKOUT_MEDIA_UPLOAD_BACKEND]?.uppercase()
+            if (legacy.isNotEmpty() && backend == WorkoutMediaUploadBackend.BLOSSOM.name) {
+                if (prefs[Keys.BLOSSOM_PUBLIC_SERVER_ORIGIN].isNullOrBlank()) {
+                    prefs[Keys.BLOSSOM_PUBLIC_SERVER_ORIGIN] = legacy
+                }
+            }
+            prefs[Keys.MEDIA_KEYS_SPLIT_V1] = true
         }
     }
 
@@ -151,6 +195,87 @@ class UserPreferences(private val context: Context) {
     suspend fun setWeightLiveWorkoutFgsDisclosureSeen(seen: Boolean) {
         context.dataStore.edit { prefs ->
             prefs[Keys.WEIGHT_LIVE_FGS_DISCLOSURE_SEEN] = seen
+        }
+    }
+
+    /**
+     * When true (default), outdoor walk / run / hike / ruck timer sessions may record GPS if the user
+     * grants location permission. Does not affect manual logs or indoor (treadmill) activities.
+     */
+    val cardioGpsRecordingPreferred: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[Keys.CARDIO_GPS_RECORDING_PREFERRED] ?: true
+    }
+
+    suspend fun setCardioGpsRecordingPreferred(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.CARDIO_GPS_RECORDING_PREFERRED] = enabled
+        }
+    }
+
+    val workoutMediaUploadBackend: Flow<WorkoutMediaUploadBackend> = context.dataStore.data.map { prefs ->
+        when (prefs[Keys.WORKOUT_MEDIA_UPLOAD_BACKEND]?.uppercase()) {
+            "BLOSSOM" -> WorkoutMediaUploadBackend.BLOSSOM
+            else -> WorkoutMediaUploadBackend.NIP96
+        }
+    }
+
+    suspend fun setWorkoutMediaUploadBackend(backend: WorkoutMediaUploadBackend) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.WORKOUT_MEDIA_UPLOAD_BACKEND] = backend.name
+        }
+    }
+
+    /** HTTPS origin for NIP-96 only (`/.well-known/nostr/nip96.json`). */
+    val nip96MediaServerOrigin: Flow<String> = context.dataStore.data.map { prefs ->
+        prefs[Keys.NIP96_MEDIA_SERVER_ORIGIN].orEmpty()
+    }
+
+    suspend fun setNip96MediaServerOrigin(origin: String) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.NIP96_MEDIA_SERVER_ORIGIN] = origin.trim()
+        }
+    }
+
+    /**
+     * Public Blossom base URL (`PUT …/upload`). Used for workout route images linked from kind 1 notes.
+     * Not for sensitive media — use [blossomPrivateServerOrigin] for that.
+     */
+    val blossomPublicServerOrigin: Flow<String> = context.dataStore.data.map { prefs ->
+        prefs[Keys.BLOSSOM_PUBLIC_SERVER_ORIGIN].orEmpty()
+    }
+
+    suspend fun setBlossomPublicServerOrigin(origin: String) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.BLOSSOM_PUBLIC_SERVER_ORIGIN] = origin.trim()
+        }
+    }
+
+    /**
+     * Private Blossom base URL for personal media (e.g. future body-progress photos). ERV does not use this
+     * for Nostr posts or kind 1 content.
+     */
+    val blossomPrivateServerOrigin: Flow<String> = context.dataStore.data.map { prefs ->
+        prefs[Keys.BLOSSOM_PRIVATE_SERVER_ORIGIN].orEmpty()
+    }
+
+    suspend fun setBlossomPrivateServerOrigin(origin: String) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.BLOSSOM_PRIVATE_SERVER_ORIGIN] = origin.trim()
+        }
+    }
+
+    /** One-shot read for post-login import of **public** Blossom (kind 10063). */
+    suspend fun peekBlossomPublicServerOrigin(): String =
+        context.dataStore.data.map { prefs -> prefs[Keys.BLOSSOM_PUBLIC_SERVER_ORIGIN].orEmpty() }.first()
+
+    /** When true and a media server URL is set, “Share Workout” uploads the route PNG and appends the URL to the note. */
+    val attachRouteImageToWorkoutNostrShare: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[Keys.ATTACH_ROUTE_IMAGE_WORKOUT_NOSTR] == true
+    }
+
+    suspend fun setAttachRouteImageToWorkoutNostrShare(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.ATTACH_ROUTE_IMAGE_WORKOUT_NOSTR] = enabled
         }
     }
 }

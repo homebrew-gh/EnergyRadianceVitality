@@ -232,6 +232,7 @@ class AmberSigner(
             return context.packageManager.queryIntentActivities(intent, 0).isNotEmpty()
         }
 
-        private val REQUESTED_PERMISSIONS = """[{"type":"sign_event","kind":22242},{"type":"sign_event","kind":30078},{"type":"nip44_encrypt"},{"type":"nip44_decrypt"}]"""
+        private val REQUESTED_PERMISSIONS =
+            """[{"type":"sign_event","kind":22242},{"type":"sign_event","kind":24242},{"type":"sign_event","kind":27235},{"type":"sign_event","kind":30078},{"type":"nip44_encrypt"},{"type":"nip44_decrypt"}]"""
     }
 }

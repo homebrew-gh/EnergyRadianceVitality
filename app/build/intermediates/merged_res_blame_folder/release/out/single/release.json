@@ -16,6 +16,10 @@
         "source": "/home/samcornwell/.gradle/daemon/8.5/com.erv.app-main-63:/drawable/ic_launcher_foreground.xml"
     },
     {
+        "merged": "com.erv.app-merged_res-62:/xml_file_paths.xml.flat",
+        "source": "com.erv.app-main-63:/xml/file_paths.xml"
+    },
+    {
         "merged": "/home/samcornwell/.gradle/daemon/8.5/com.erv.app-merged_res-62:/font_varela_round_regular.ttf.flat",
         "source": "/home/samcornwell/.gradle/daemon/8.5/com.erv.app-main-63:/font/varela_round_regular.ttf"
     }

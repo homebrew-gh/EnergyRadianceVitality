@@ -73,6 +73,44 @@ fun formatCardioDistanceFromMeters(meters: Double, unit: CardioDistanceUnit): St
         CardioDistanceUnit.KILOMETERS -> String.format("%.2f km", meters / 1000.0)
     }
 
+/** M:SS per mile or per km; null if time or distance unusable. */
+fun formatCardioAveragePace(elapsedSeconds: Int, distanceMeters: Double, unit: CardioDistanceUnit): String? {
+    if (elapsedSeconds <= 0 || distanceMeters <= 1.0 || !distanceMeters.isFinite()) return null
+    val distInUnit = when (unit) {
+        CardioDistanceUnit.MILES -> distanceMeters / 1609.344
+        CardioDistanceUnit.KILOMETERS -> distanceMeters / 1000.0
+    }
+    if (distInUnit <= 0 || !distInUnit.isFinite()) return null
+    val minutesPerUnit = (elapsedSeconds / 60.0) / distInUnit
+    if (!minutesPerUnit.isFinite() || minutesPerUnit <= 0) return null
+    val totalSec = (minutesPerUnit * 60.0).toInt().coerceAtLeast(0)
+    val m = totalSec / 60
+    val s = totalSec % 60
+    val pace = "%d:%02d".format(m, s)
+    return when (unit) {
+        CardioDistanceUnit.MILES -> "$pace /mi"
+        CardioDistanceUnit.KILOMETERS -> "$pace /km"
+    }
+}
+
+/**
+ * Uses exact timer seconds when [elapsedSecondsFromTimer] is set; otherwise whole logged minutes × 60
+ * (slightly coarse for pace).
+ */
+fun formatCardioAveragePaceForSession(
+    session: CardioSession,
+    distanceUnit: CardioDistanceUnit,
+    elapsedSecondsFromTimer: Int?
+): String? {
+    val dist = session.distanceMeters?.takeIf { it > 1.0 } ?: return null
+    val sec = when {
+        elapsedSecondsFromTimer != null && elapsedSecondsFromTimer > 0 -> elapsedSecondsFromTimer
+        session.durationMinutes > 0 -> session.durationMinutes * 60
+        else -> return null
+    }
+    return formatCardioAveragePace(sec, dist, distanceUnit)
+}
+
 fun parseCardioDistanceInputToMeters(value: Double, unit: CardioDistanceUnit): Double =
     when (unit) {
         CardioDistanceUnit.MILES -> value * 1609.344
@@ -125,6 +163,41 @@ data class CardioActivitySnapshot(
     val displayLabel: String
 )
 
+/** Outdoor walk, run, hike, ruck — phone GPS is offered when modality is outdoor and user opts in. */
+fun CardioActivitySnapshot.supportsPhoneGpsTracking(): Boolean {
+    val b = builtin ?: return false
+    return when (b) {
+        CardioBuiltinActivity.WALK,
+        CardioBuiltinActivity.RUN,
+        CardioBuiltinActivity.HIKE,
+        CardioBuiltinActivity.RUCK -> true
+        else -> false
+    }
+}
+
+@Serializable
+data class CardioGpsPoint(
+    val lat: Double,
+    val lon: Double,
+    val epochSeconds: Long,
+    /** WGS84 ellipsoidal height when the device reported altitude (meters). */
+    val altitudeMeters: Double? = null
+)
+
+@Serializable
+data class CardioGpsTrack(
+    val points: List<CardioGpsPoint> = emptyList(),
+    val source: String = "phone_gps",
+    val recordedAtVersion: Int = 1
+)
+
+fun CardioTimerSessionDraft.eligibleForPhoneGps(): Boolean =
+    modality == CardioModality.OUTDOOR && activity.supportsPhoneGpsTracking()
+
+/** Strip precise tracks before syncing cardio logs to relays (privacy). */
+fun CardioDayLog.withoutGpsTracks(): CardioDayLog =
+    copy(sessions = sessions.map { it.copy(gpsTrack = null) })
+
 @Serializable
 data class CardioSessionSegment(
     val id: String = UUID.randomUUID().toString(),
@@ -155,8 +228,38 @@ data class CardioSession(
     val loggedAtEpochSeconds: Long = nowEpochSeconds(),
     val heartRate: CardioHrScaffolding? = null,
     /** Non-empty = multi-activity workout (brick, tri prep, etc.); top-level fields are rollups. */
-    val segments: List<CardioSessionSegment> = emptyList()
+    val segments: List<CardioSessionSegment> = emptyList(),
+    /** Local-only detailed path; omitted when publishing daily logs to Nostr. */
+    val gpsTrack: CardioGpsTrack? = null,
+    /** Public URL of the route map image (same upload as “Share Workout” / Blossom or NIP-96). */
+    val routeImageUrl: String? = null,
+    /** Outdoor ruck pack weight (kg). Indoor ruck uses [treadmill].loadKg instead. */
+    val ruckLoadKg: Double? = null,
+    /**
+     * Cumulative elevation gain/loss (meters) from GPS when recorded; also used in log summary and social post.
+     * Null if unknown; [resolvedElevationMeters] can recompute from [gpsTrack] for older sessions.
+     */
+    val elevationGainMeters: Double? = null,
+    val elevationLossMeters: Double? = null
 )
+
+/** Prefer stored values; otherwise derive from [CardioSession.gpsTrack] points. */
+fun CardioSession.resolvedElevationMeters(): Pair<Double, Double>? {
+    val g = elevationGainMeters
+    val l = elevationLossMeters
+    if (g != null && l != null) return g to l
+    val pts = gpsTrack?.points ?: return null
+    return CardioGpsElevation.computeGainLossMeters(pts)
+}
+
+/** Pack weight for display / MET: outdoor field or treadmill load. */
+fun CardioSession.ruckLoadKgResolved(): Double? =
+    (ruckLoadKg ?: treadmill?.loadKg)?.takeIf { it > 0.0 }
+
+fun formatCardioPackWeightFromKg(kg: Double): String {
+    val lb = kg / 0.453592
+    return String.format("%.0f lb (%.1f kg)", lb, kg)
+}
 
 @Serializable
 enum class CardioWeekday {
@@ -213,6 +316,59 @@ fun CardioRoutine.effectiveSteps(): List<CardioRoutineStep> {
 fun CardioRoutine.stepsSummaryLabel(): String =
     effectiveSteps().joinToString(" → ") { it.activity.displayLabel }
 
+/**
+ * Saved shortcut for “start this timer now” — single activity, full timer prefs.
+ * Unlike [CardioRoutine], this is not for multi-leg workouts or repeat-day scheduling.
+ */
+@Serializable
+enum class CardioQuickTimerMode {
+    COUNT_UP,
+    COUNT_DOWN
+}
+
+@Serializable
+data class CardioQuickLaunch(
+    val id: String = UUID.randomUUID().toString(),
+    val name: String,
+    val activity: CardioActivitySnapshot,
+    val modality: CardioModality = CardioModality.OUTDOOR,
+    val treadmill: CardioTreadmillParams? = null,
+    val timerMode: CardioQuickTimerMode = CardioQuickTimerMode.COUNT_UP,
+    /** Used when [timerMode] is [CardioQuickTimerMode.COUNT_DOWN]. */
+    val countDownMinutes: Int? = null,
+    val outdoorPaceSpeed: Double? = null,
+    val outdoorPaceSpeedUnit: CardioSpeedUnit? = null,
+    /** Default outdoor ruck pack (kg); user can change when starting. */
+    val defaultRuckLoadKg: Double? = null
+)
+
+fun CardioQuickLaunch.toTimerStyle(): CardioTimerStyle = when (timerMode) {
+    CardioQuickTimerMode.COUNT_UP -> CardioTimerStyle.CountUp
+    CardioQuickTimerMode.COUNT_DOWN -> CardioTimerStyle.CountDown(
+        ((countDownMinutes ?: 30).coerceIn(1, 24 * 60)) * 60
+    )
+}
+
+fun CardioQuickLaunch.summaryLabel(distanceUnit: CardioDistanceUnit): String = buildString {
+    append(name)
+    append(" • ")
+    append(activity.displayLabel)
+    append(" • ")
+    append(modality.label())
+    when (timerMode) {
+        CardioQuickTimerMode.COUNT_UP -> append(" • count up")
+        CardioQuickTimerMode.COUNT_DOWN -> append(" • ${countDownMinutes ?: 30} min timer")
+    }
+    defaultRuckLoadKg?.takeIf { it > 0 }?.let {
+        append(" • ")
+        append(formatCardioPackWeightFromKg(it))
+    }
+}
+
+/** Outdoor ruck: confirm pack weight each time (default from template). */
+fun CardioQuickLaunch.needsOutdoorRuckWeightPrompt(): Boolean =
+    activity.builtin == CardioBuiltinActivity.RUCK && modality == CardioModality.OUTDOOR
+
 @Serializable
 data class CardioCustomActivityType(
     val id: String = UUID.randomUUID().toString(),
@@ -230,6 +386,7 @@ data class CardioDayLog(
 data class CardioLibraryState(
     val routines: List<CardioRoutine> = emptyList(),
     val customActivityTypes: List<CardioCustomActivityType> = emptyList(),
+    val quickLaunches: List<CardioQuickLaunch> = emptyList(),
     val logs: List<CardioDayLog> = emptyList()
 ) {
     fun logFor(date: LocalDate): CardioDayLog? = logs.firstOrNull { it.date == date.toString() }
@@ -264,6 +421,9 @@ fun CardioSession.summaryLine(
             append(" • ${durationMinutes} min total")
             val dist = distanceMeters
             if (dist != null && dist > 1) append(" • ${formatCardioDistanceFromMeters(dist, distanceUnit)}")
+            resolvedElevationMeters()?.let { (gain, loss) ->
+                append(formatCardioElevationSummarySuffix(gain, loss, distanceUnit))
+            }
             estimatedKcal?.let { k -> append(" • ~${k.toInt()} kcal") }
         }
     }
@@ -275,11 +435,19 @@ fun CardioSession.summaryLine(
             append(" • ${formatSpeed(t.speed, t.speedUnit)}")
             if (t.inclinePercent > 0.01) append(" • ${t.inclinePercent.toInt()}% incline")
             t.loadKg?.let { kg ->
-                append(" • ${formatLoadLbKg(kg)}")
+                append(" • ${formatCardioPackWeightFromKg(kg)}")
+            }
+        }
+        if (modality == CardioModality.OUTDOOR && activity.builtin == CardioBuiltinActivity.RUCK) {
+            ruckLoadKg?.takeIf { it > 0 }?.let { kg ->
+                append(" • ${formatCardioPackWeightFromKg(kg)}")
             }
         }
         distanceMeters?.let { d ->
             if (d > 1) append(" • ${formatCardioDistanceFromMeters(d, distanceUnit)}")
+        }
+        resolvedElevationMeters()?.let { (gain, loss) ->
+            append(formatCardioElevationSummarySuffix(gain, loss, distanceUnit))
         }
         estimatedKcal?.let { k ->
             append(" • ~${k.toInt()} kcal")
@@ -290,11 +458,6 @@ fun CardioSession.summaryLine(
 private fun formatSpeed(speed: Double, unit: CardioSpeedUnit): String =
     if (unit == CardioSpeedUnit.MPH) String.format("%.1f mph", speed)
     else String.format("%.1f km/h", speed)
-
-private fun formatLoadLbKg(kg: Double): String {
-    val lb = kg / 0.453592
-    return String.format("%.0f lb (%.1f kg)", lb, kg)
-}
 
 fun nowEpochSeconds(): Long = System.currentTimeMillis() / 1000
 
@@ -326,9 +489,16 @@ data class CardioTimerSessionDraft(
     val timerStyle: CardioTimerStyle = CardioTimerStyle.CountUp,
     /** Optional outdoor average speed for a live distance estimate (not GPS). */
     val outdoorPaceSpeed: Double? = null,
-    val outdoorPaceSpeedUnit: CardioSpeedUnit? = null
+    val outdoorPaceSpeedUnit: CardioSpeedUnit? = null,
+    /** Outdoor ruck pack (kg); indoor ruck uses [treadmill].loadKg. */
+    val ruckLoadKg: Double? = null
 ) {
-    fun toSession(durationMinutes: Int, endEpoch: Long, elapsedSecondsForDistance: Int? = null): CardioSession {
+    fun toSession(
+        durationMinutes: Int,
+        endEpoch: Long,
+        elapsedSecondsForDistance: Int? = null,
+        gpsPoints: List<CardioGpsPoint> = emptyList()
+    ): CardioSession {
         val elapsed = elapsedSecondsForDistance ?: (durationMinutes * 60)
         var dist = treadmill?.distanceMeters
         if (dist == null && treadmill != null) {
@@ -341,6 +511,15 @@ data class CardioTimerSessionDraft(
         }
         if (timerStyle is CardioTimerStyle.CountDownDistance && dist != null) {
             dist = min(dist, timerStyle.targetMeters)
+        }
+        val track = if (gpsPoints.size >= 2) CardioGpsTrack(points = gpsPoints) else null
+        val elevPair = track?.points?.let { CardioGpsElevation.computeGainLossMeters(it) }
+        val gpsPathM = track?.let { CardioGpsMath.pathLengthMeters(it.points) } ?: 0.0
+        val useGpsDistance = track != null &&
+            gpsPathM >= CardioGpsDistanceRules.MIN_PATH_METERS &&
+            gpsPoints.size >= CardioGpsDistanceRules.MIN_POINTS
+        if (useGpsDistance) {
+            dist = gpsPathM
         }
         return CardioSession(
             activity = activity,
@@ -355,7 +534,11 @@ data class CardioTimerSessionDraft(
             endEpochSeconds = endEpoch,
             heartRate = CardioHrScaffolding(),
             estimatedKcal = null,
-            segments = emptyList()
+            segments = emptyList(),
+            gpsTrack = track,
+            ruckLoadKg = ruckLoadKg,
+            elevationGainMeters = elevPair?.first,
+            elevationLossMeters = elevPair?.second
         )
     }
 
@@ -374,7 +557,8 @@ data class CardioTimerSessionDraft(
                 routineName = routine.name,
                 timerStyle = CardioTimerStyle.CountUp,
                 outdoorPaceSpeed = null,
-                outdoorPaceSpeedUnit = null
+                outdoorPaceSpeedUnit = null,
+                ruckLoadKg = null
             )
         }
 
@@ -385,7 +569,8 @@ data class CardioTimerSessionDraft(
             title: String,
             timerStyle: CardioTimerStyle = CardioTimerStyle.CountUp,
             outdoorPaceSpeed: Double? = null,
-            outdoorPaceSpeedUnit: CardioSpeedUnit? = null
+            outdoorPaceSpeedUnit: CardioSpeedUnit? = null,
+            ruckLoadKg: Double? = null
         ) = CardioTimerSessionDraft(
             title = title,
             activity = activity,
@@ -396,7 +581,8 @@ data class CardioTimerSessionDraft(
             routineName = null,
             timerStyle = timerStyle,
             outdoorPaceSpeed = outdoorPaceSpeed,
-            outdoorPaceSpeedUnit = outdoorPaceSpeedUnit
+            outdoorPaceSpeedUnit = outdoorPaceSpeedUnit,
+            ruckLoadKg = ruckLoadKg
         )
 
         fun fromActivitySnapshot(snapshot: CardioActivitySnapshot) = fromQuickSnapshot(
@@ -405,6 +591,18 @@ data class CardioTimerSessionDraft(
             treadmill = null,
             title = snapshot.displayLabel
         )
+
+        fun fromQuickLaunch(quick: CardioQuickLaunch, ruckLoadKg: Double? = quick.defaultRuckLoadKg) =
+            fromQuickSnapshot(
+                activity = quick.activity,
+                modality = quick.modality,
+                treadmill = quick.treadmill,
+                title = quick.name,
+                timerStyle = quick.toTimerStyle(),
+                outdoorPaceSpeed = quick.outdoorPaceSpeed,
+                outdoorPaceSpeedUnit = quick.outdoorPaceSpeedUnit,
+                ruckLoadKg = ruckLoadKg
+            )
     }
 }
 

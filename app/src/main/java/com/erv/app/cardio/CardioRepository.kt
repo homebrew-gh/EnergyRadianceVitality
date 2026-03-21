@@ -52,6 +52,18 @@ class CardioRepository(context: Context) {
         updateState { it.copy(routines = it.routines.filterNot { r -> r.id == routineId }) }
     }
 
+    suspend fun addQuickLaunch(launch: CardioQuickLaunch) {
+        updateState { it.copy(quickLaunches = it.quickLaunches + launch) }
+    }
+
+    suspend fun updateQuickLaunch(launch: CardioQuickLaunch) {
+        updateState { it.copy(quickLaunches = it.quickLaunches.upsertQuickLaunchById(launch)) }
+    }
+
+    suspend fun deleteQuickLaunch(id: String) {
+        updateState { it.copy(quickLaunches = it.quickLaunches.filterNot { q -> q.id == id }) }
+    }
+
     suspend fun addCustomType(type: CardioCustomActivityType) {
         updateState { it.copy(customActivityTypes = it.customActivityTypes.upsertById(type)) }
     }
@@ -80,6 +92,23 @@ class CardioRepository(context: Context) {
             val log = current.logFor(date) ?: return@updateState current
             val newSessions = log.sessions.filterNot { it.id == sessionId }
             if (newSessions.size == log.sessions.size) return@updateState current
+            current.copy(logs = current.logs.upsertLog(log.copy(sessions = newSessions)))
+        }
+    }
+
+    suspend fun updateSession(
+        date: LocalDate,
+        sessionId: String,
+        transform: (CardioSession) -> CardioSession
+    ) {
+        updateState { current ->
+            val log = current.logFor(date) ?: return@updateState current
+            val idx = log.sessions.indexOfFirst { it.id == sessionId }
+            if (idx < 0) return@updateState current
+            val updated = transform(log.sessions[idx])
+            if (updated == log.sessions[idx]) return@updateState current
+            val newSessions = log.sessions.toMutableList()
+            newSessions[idx] = updated
             current.copy(logs = current.logs.upsertLog(log.copy(sessions = newSessions)))
         }
     }
@@ -117,6 +146,9 @@ private fun List<CardioRoutine>.upsertById(routine: CardioRoutine): List<CardioR
 
 private fun List<CardioCustomActivityType>.upsertById(type: CardioCustomActivityType): List<CardioCustomActivityType> =
     upsertById(type) { it.id }
+
+private fun List<CardioQuickLaunch>.upsertQuickLaunchById(launch: CardioQuickLaunch): List<CardioQuickLaunch> =
+    upsertById(launch) { it.id }
 
 private fun List<CardioDayLog>.upsertLog(log: CardioDayLog): List<CardioDayLog> {
     val items = toMutableList()

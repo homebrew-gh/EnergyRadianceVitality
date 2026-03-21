@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.rememberNavController
 import com.erv.app.data.ThemeMode
 import com.erv.app.data.UserPreferences
+import com.erv.app.data.WorkoutMediaUploadBackend
 import com.erv.app.nostr.*
 import com.erv.app.cardio.CardioRepository
 import com.erv.app.heatcold.HeatColdRepository
@@ -55,6 +56,7 @@ import androidx.core.content.ContextCompat
 import android.os.Build
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -149,6 +151,11 @@ private fun ErvApp(
 
     val scope = rememberCoroutineScope()
 
+    LaunchedEffect(Unit) {
+        userPreferences.ensureMediaKeysSplitV1()
+        userPreferences.ensureCardioDistanceDefaultMiles()
+    }
+
     when (appState) {
         AppState.LoggedOut -> LoginScreen(
             keyManager = keyManager,
@@ -159,7 +166,7 @@ private fun ErvApp(
                     onboardingLoading = true
                     onboardingPool = null
                     scope.launch {
-                        val resolved = runPostLoginSetup(keyManager, activeSigner)
+                        val resolved = runPostLoginSetup(keyManager, activeSigner, userPreferences)
                         if (resolved) {
                             onboardingLoading = false
                             appState = AppState.Ready
@@ -221,13 +228,15 @@ private fun ErvApp(
 }
 
 /**
- * After login: connect (bootstrap relays only if none saved), fetch NIP-65 relay list,
- * then fetch erv/settings from the network. If nothing yields stored relays, applies [KeyManager.DEFAULT_RELAYS].
+ * After login: connect (bootstrap relays only if none saved), fetch NIP-65 relay list and NIP-B7 Blossom
+ * servers (kind 10063) in parallel, then fetch erv/settings from the network. If nothing yields stored relays,
+ * applies [KeyManager.DEFAULT_RELAYS].
  * Returns true if settings were found (skip onboarding), false otherwise.
  */
 private suspend fun runPostLoginSetup(
     keyManager: KeyManager,
-    signer: EventSigner
+    signer: EventSigner,
+    userPreferences: UserPreferences
 ): Boolean {
     val pool = RelayPool(signer)
     try {
@@ -235,8 +244,13 @@ private suspend fun runPostLoginSetup(
         pool.awaitAtLeastOneConnected(timeoutMs = 15_000)
 
         val pubkey = keyManager.publicKeyHex ?: return false
-        val nip65Urls = Nip65.fetchRelayListFromNetwork(pool, pubkey, timeoutMs = 8000)
+        val (nip65Urls, blossomUrls) = coroutineScope {
+            val nip65 = async { Nip65.fetchRelayListFromNetwork(pool, pubkey, timeoutMs = 8000) }
+            val nipB7 = async { NipB7.fetchBlossomServersFromNetwork(pool, pubkey, timeoutMs = 8000) }
+            nip65.await() to nipB7.await()
+        }
         nip65Urls.forEach { keyManager.addSocialRelay(it) }
+        applyImportedBlossomServersFromProfile(userPreferences, blossomUrls)
 
         pool.setRelays(keyManager.relayUrlsForPool())
         delay(1500)
@@ -250,6 +264,22 @@ private suspend fun runPostLoginSetup(
     } finally {
         pool.disconnect()
     }
+}
+
+/**
+ * If the user has not set a **public** Blossom URL yet, copies the first entry from their kind 10063 list
+ * (same source as “Load from my Nostr profile” in Settings) and switches upload type to Blossom.
+ */
+private suspend fun applyImportedBlossomServersFromProfile(
+    userPreferences: UserPreferences,
+    blossomUrls: List<String>
+) {
+    if (userPreferences.peekBlossomPublicServerOrigin().isNotBlank()) return
+    val first = blossomUrls.firstOrNull() ?: return
+    val normalized = Nip96Uploader.normalizeMediaServerOrigin(first)
+    if (normalized.isEmpty()) return
+    userPreferences.setBlossomPublicServerOrigin(normalized)
+    userPreferences.setWorkoutMediaUploadBackend(WorkoutMediaUploadBackend.BLOSSOM)
 }
 
 // ---------------------------------------------------------------------------

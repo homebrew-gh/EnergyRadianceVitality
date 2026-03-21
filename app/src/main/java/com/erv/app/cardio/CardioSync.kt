@@ -17,7 +17,8 @@ private const val CARDIO_MASTER_D_TAG = "erv/cardio/routines"
 @Serializable
 private data class CardioMasterPayload(
     val routines: List<CardioRoutine> = emptyList(),
-    val customActivityTypes: List<CardioCustomActivityType> = emptyList()
+    val customActivityTypes: List<CardioCustomActivityType> = emptyList(),
+    val quickLaunches: List<CardioQuickLaunch> = emptyList()
 )
 
 object CardioSync {
@@ -35,7 +36,8 @@ object CardioSync {
     ): Boolean {
         val payload = CardioMasterPayload(
             routines = state.routines,
-            customActivityTypes = state.customActivityTypes
+            customActivityTypes = state.customActivityTypes,
+            quickLaunches = state.quickLaunches
         )
         val content = json.encodeToString(CardioMasterPayload.serializer(), payload)
         return publishEvent(relayPool, signer, CARDIO_MASTER_D_TAG, content)
@@ -46,7 +48,7 @@ object CardioSync {
         signer: EventSigner,
         log: CardioDayLog
     ): Boolean {
-        val content = json.encodeToString(CardioDayLog.serializer(), log)
+        val content = json.encodeToString(CardioDayLog.serializer(), log.withoutGpsTracks())
         return publishEvent(relayPool, signer, dailyTag(log.date), content)
     }
 
@@ -99,6 +101,7 @@ object CardioSync {
         CardioLibraryState(
             routines = master?.routines ?: emptyList(),
             customActivityTypes = master?.customActivityTypes ?: emptyList(),
+            quickLaunches = master?.quickLaunches ?: emptyList(),
             logs = logs.sortedBy { it.date }
         )
     }

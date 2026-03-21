@@ -37,4 +37,45 @@
     <string name="weight_added_load_info_title">Added weight</string>
     <string name="weight_added_load_info_message">This is extra load on top of your body weight (for example a belt, vest, or plate). It does not include your full body weight.</string>
     <string name="weight_added_load_info_icon_cd">What added weight means</string>
+
+    <!-- Cardio GPS foreground service -->
+    <string name="cardio_gps_notification_channel_name">Cardio location</string>
+    <string name="cardio_gps_notification_channel_desc">Records your route during outdoor walk, run, hike, or ruck timer sessions when you allow GPS.</string>
+    <string name="cardio_gps_notification_title">Outdoor cardio</string>
+    <string name="cardio_gps_notification_text">Recording GPS route — tap to return</string>
+    <string name="settings_cardio_gps_title">Cardio GPS tracking</string>
+    <string name="settings_cardio_gps_switch">Record GPS for outdoor walk, run, hike, ruck</string>
+    <string name="settings_cardio_gps_helper">When on, timer workouts for those outdoor activities can log distance from your route if you allow location access. Tracks stay on this device and are not uploaded to relays. Android shows an ongoing notification while recording.</string>
+    <string name="cardio_timer_gps_allow_location">Allow location for GPS distance</string>
+    <string name="cardio_timer_gps_recording">Acquiring GPS…</string>
+    <string name="cardio_timer_gps_from_route">From GPS route</string>
+    <string name="cardio_summary_gps_track_title">Your route</string>
+    <string name="cardio_summary_gps_track_subtitle_many">%1$d GPS points · shape preview (not a street map)</string>
+    <string name="cardio_summary_gps_track_subtitle_one">Single GPS fix — longer outdoor sessions draw a full path</string>
+    <string name="cardio_summary_elevation_unavailable">Elevation: GPS did not report enough altitude for this route (try again outdoors with a clear sky).</string>
+
+    <!-- Cardio: Nostr workout share + NIP-96 route image -->
+    <string name="settings_cardio_nostr_route_title">Workout share on social relays</string>
+    <string name="settings_cardio_nostr_route_switch">Include route image in “Share Workout”</string>
+    <string name="settings_cardio_nostr_route_switch_helper">When GPS was recorded, uploads the route image and adds the link to your kind 1 note. NIP-96 uses one host; Blossom splits a public host (workout / social posts) from a private host (not used in notes—reserved for sensitive in-app media later).</string>
+    <string name="settings_cardio_nostr_upload_type">Upload type</string>
+    <string name="settings_cardio_nostr_upload_nip96">NIP-96</string>
+    <string name="settings_cardio_nostr_upload_blossom">Blossom</string>
+    <string name="settings_cardio_nostr_server_label_nip96">NIP-96 media server (HTTPS origin)</string>
+    <string name="settings_cardio_nostr_server_helper_nip96">Must expose /.well-known/nostr/nip96.json (example: https://nostr.build). Amber may need kind 27235 allowed.</string>
+    <string name="settings_cardio_nostr_save_nip96_url">Save NIP-96 server</string>
+    <string name="settings_cardio_nostr_blossom_public_label">Public Blossom server</string>
+    <string name="settings_cardio_nostr_blossom_public_helper">Used for workout route images in kind 1 notes (same as typical kind 10063 entries). PUT …/upload; Amber may need kind 24242.</string>
+    <string name="settings_cardio_nostr_blossom_private_label">Private Blossom server</string>
+    <string name="settings_cardio_nostr_blossom_private_helper">For personal images only. ERV does not upload these to Nostr or put their URLs in posts. Use a self-hosted or restricted server you trust.</string>
+    <string name="settings_cardio_nostr_save_blossom_servers">Save Blossom servers</string>
+    <string name="settings_cardio_nostr_fetch_blossom">Load from my Nostr profile</string>
+    <string name="settings_cardio_nostr_fetch_blossom_helper">Fetches your latest kind 10063 (Blossom server list) from the relays connected below—the same list other clients publish.</string>
+    <string name="settings_cardio_nostr_fetch_blossom_loading">Looking up kind 10063…</string>
+    <string name="settings_cardio_nostr_fetch_blossom_none">No kind 10063 found. Configure Blossom servers in another Nostr client with this same key, then try again.</string>
+    <string name="settings_cardio_nostr_fetch_blossom_applied">Saved public Blossom server from your profile.</string>
+    <string name="settings_cardio_nostr_fetch_blossom_pick_title">Choose a server</string>
+    <string name="settings_cardio_nostr_fetch_no_pubkey">Sign in to load your Blossom server list.</string>
+    <string name="settings_cardio_nostr_fetch_no_relays">No relay connection. Add relays below and wait until at least one shows connected.</string>
+    <string name="settings_cardio_nostr_fetch_no_pool">Sign in and open Settings with relays connected to load your profile.</string>
 </resources>
