@@ -89,3 +89,21 @@ val ErvLightTherapyRedGlow = Color(0xFF7A1515)
 val ErvDarkTherapyRedDark = Color(0xFF3D1212)
 val ErvDarkTherapyRedMid = Color(0xFF9B2222)
 val ErvDarkTherapyRedGlow = Color(0xFFB83A3A)
+
+// --- Sauna / hot side: use same red family as Light therapy (see ErvLightTherapyRed*). ---
+
+// --- Cold Plunge accent (theme-aware, soft desaturated blues; stops kept mid-toned so white timer text reads well) ---
+val ErvColdDark = Color(0xFF34495C)
+val ErvColdMid = Color(0xFF5F83A0)
+val ErvColdGlow = Color(0xFF7FA3C0)
+val ErvDarkColdDark = Color(0xFF394E64)
+val ErvDarkColdMid = Color(0xFF5E80A0)
+val ErvDarkColdGlow = Color(0xFF7E9FC0)
+
+// Category bottom sheet (dashboard menu). Light = airy yellow-gold. Dark = deep brown-gold (R > G > B avoids olive/mustard).
+val ErvCategoryMenuMutedGold = Color(0xFFFFEBB0)
+val ErvDarkCategoryMenuMutedGold = Color(0xFF2A2210)
+
+// Calendar: day cell when any activity was logged (supplements, light, cardio, weight, sauna/cold).
+val ErvCalendarActivityDayLight = Color(0xFFFFF0D4)
+val ErvCalendarActivityDayDark = Color(0xFF3D3518)

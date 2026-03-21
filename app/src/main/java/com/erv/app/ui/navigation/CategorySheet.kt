@@ -1,6 +1,15 @@
 package com.erv.app.ui.navigation
 
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.runtime.Composable
@@ -12,18 +21,29 @@ data class Category(
     val id: String,
     val label: String,
     val icon: ImageVector,
-    val route: String
+    val route: String,
+    /** Optional second icon for combined tiles (e.g. hot + cold). */
+    val iconSecondary: ImageVector? = null
 )
 
 val categories = listOf(
     Category("stretching", "Stretching", Icons.Default.FavoriteBorder, "category/stretching"),
     Category("weight_training", "Weight Training", Icons.Default.FitnessCenter, "category/weight_training"),
     Category("cardio", "Cardio", Icons.Default.DirectionsRun, "category/cardio"),
-    Category("sauna", "Sauna", Icons.Default.Thermostat, "category/sauna"),
-    Category("cold_plunge", "Cold Plunge", Icons.Default.AcUnit, "category/cold_plunge"),
+    Category(
+        id = "heat_cold",
+        label = "Hot + Cold",
+        icon = Icons.Default.Thermostat,
+        route = "category/heat_cold",
+        iconSecondary = Icons.Default.AcUnit
+    ),
     Category("light_therapy", "Light Therapy", Icons.Default.WbSunny, "category/light_therapy"),
     Category("supplements", "Supplements", Icons.Default.LocalPharmacy, "category/supplements"),
-    Category("sleep", "Sleep", Icons.Default.Bedtime, "category/sleep")
+    Category("sleep", "Sleep", Icons.Default.Bedtime, "category/sleep"),
+    Category("protocols", "Protocols", Icons.Default.Rule, "category/protocols"),
+    Category("body_tracker", "Body tracker", Icons.Default.MonitorWeight, "category/body_tracker"),
+    Category("hiit", "HIIT", Icons.Default.Timer, "category/hiit"),
+    Category("programs", "Programs", Icons.Default.CalendarMonth, "category/programs")
 )
 
 @Composable
@@ -35,29 +55,37 @@ fun CategorySheet(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp)
-            // Space below the MENU bar so tile tops don’t show in the collapsed peek.
-            .padding(top = 24.dp, bottom = 16.dp)
+            .padding(top = 8.dp, bottom = 16.dp)
     ) {
-        // 2 rows x 4 columns
-        for (row in 0..1) {
+        val columns = 4
+        val rowCount = (categories.size + columns - 1) / columns
+        // 4 columns; rows grow with category count
+        for (row in 0 until rowCount) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                for (col in 0..3) {
-                    val index = row * 4 + col
-                    if (index < categories.size) {
-                        val cat = categories[index]
-                        CategoryTile(
-                            icon = cat.icon,
-                            label = cat.label,
-                            onClick = { onCategoryClick(cat) },
-                            modifier = Modifier.weight(1f)
-                        )
+                for (col in 0 until columns) {
+                    val index = row * columns + col
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .aspectRatio(1f)
+                    ) {
+                        if (index < categories.size) {
+                            val cat = categories[index]
+                            CategoryTile(
+                                icon = cat.icon,
+                                label = cat.label,
+                                onClick = { onCategoryClick(cat) },
+                                modifier = Modifier.fillMaxSize(),
+                                secondaryIcon = cat.iconSecondary
+                            )
+                        }
                     }
                 }
             }
-            if (row == 0) Spacer(Modifier.height(10.dp))
+            if (row < rowCount - 1) Spacer(Modifier.height(10.dp))
         }
     }
 }

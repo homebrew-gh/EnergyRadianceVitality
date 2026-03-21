@@ -12,8 +12,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.erv.app.ui.theme.ErvCalendarActivityDayDark
+import com.erv.app.ui.theme.ErvCalendarActivityDayLight
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.YearMonth
@@ -25,9 +28,13 @@ import java.util.Locale
 fun CalendarPopup(
     selectedDate: LocalDate,
     onDateSelected: (LocalDate) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    /** Days with any logged activity (e.g. dashboard); empty = no highlights. */
+    datesWithActivity: Set<LocalDate> = emptySet()
 ) {
     var displayedMonth by remember { mutableStateOf(YearMonth.from(selectedDate)) }
+    val darkCalendar = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val activityDayFill = if (darkCalendar) ErvCalendarActivityDayDark else ErvCalendarActivityDayLight
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
@@ -93,6 +100,7 @@ fun CalendarPopup(
                             val date = displayedMonth.atDay(dayNumber)
                             val isSelected = date == selectedDate
                             val isToday = date == LocalDate.now()
+                            val hasActivity = date in datesWithActivity
 
                             Box(
                                 modifier = Modifier
@@ -108,6 +116,10 @@ fun CalendarPopup(
                                             )
                                             isToday -> Modifier.background(
                                                 MaterialTheme.colorScheme.primaryContainer,
+                                                CircleShape
+                                            )
+                                            hasActivity -> Modifier.background(
+                                                activityDayFill,
                                                 CircleShape
                                             )
                                             else -> Modifier

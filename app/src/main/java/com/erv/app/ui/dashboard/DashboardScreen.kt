@@ -46,6 +46,7 @@ import com.erv.app.ui.navigation.Category
 import com.erv.app.ui.navigation.CategorySheet
 import com.erv.app.ui.navigation.HotColdDualIcons
 import com.erv.app.ui.navigation.categories
+import com.erv.app.ui.weighttraining.WeightLiveWorkoutFgsDisclosureDialog
 import com.erv.app.ui.weighttraining.WeightLiveWorkoutViewModel
 import com.erv.app.supplements.SupplementLibraryState
 import com.erv.app.supplements.SupplementActivityRow
@@ -203,6 +204,21 @@ fun DashboardScreen(
     val coldRows = remember(heatColdState, selectedDate) {
         heatColdState.coldActivityFor(selectedDate)
     }
+    val datesWithActivity = remember(
+        supplementState,
+        lightState,
+        cardioState,
+        weightState,
+        heatColdState
+    ) {
+        datesWithActivityLogged(
+            supplementState,
+            lightState,
+            cardioState,
+            weightState,
+            heatColdState
+        )
+    }
     val weightTrainingCategory = remember { categories.first { it.id == "weight_training" } }
     val heatColdCategory = remember { categories.first { it.id == "heat_cold" } }
     val today = remember { LocalDate.now() }
@@ -217,6 +233,10 @@ fun DashboardScreen(
     var cardioWorkoutSummary by remember { mutableStateOf<CardioTimerCompletionResult?>(null) }
     var showGoalsSheet by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
+    val fgsDisclosureSeen by userPreferences.weightLiveWorkoutFgsDisclosureSeen.collectAsState(initial = false)
+    var showWeightFgsDialog by remember { mutableStateOf(false) }
+    var pendingDashboardWeightBlank by remember { mutableStateOf(false) }
+    var pendingDashboardWeightRoutine by remember { mutableStateOf<WeightRoutine?>(null) }
     // Match app ThemeMode (LIGHT/DARK/SYSTEM), not raw system — same as ErvTheme in MainActivity.
     val darkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val therapyRedDark = if (darkTheme) ErvDarkTherapyRedDark else ErvLightTherapyRedDark
@@ -387,7 +407,7 @@ fun DashboardScreen(
             }
             Column(modifier = Modifier.fillMaxSize()) {
                 Column(modifier = Modifier.padding(horizontal = 16.dp)) {
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(6.dp))
 
                     DateNavigator(
                         selectedDate = selectedDate,
@@ -399,14 +419,14 @@ fun DashboardScreen(
                         onCalendarClick = { showCalendar = true }
                     )
 
-                    Spacer(Modifier.height(20.dp))
+                    Spacer(Modifier.height(8.dp))
 
                     if (selectedGoalIds.isNotEmpty()) {
                         DashboardGoalsSection(
                             rows = weeklyGoalRows,
                             onOpenDetails = { showGoalsSheet = true },
                         )
-                        Spacer(Modifier.height(16.dp))
+                        Spacer(Modifier.height(10.dp))
                     }
                 }
 
@@ -441,7 +461,7 @@ fun DashboardScreen(
                                 .padding(horizontal = 16.dp)
                                 .padding(bottom = 16.dp)
                         ) {
-                            Spacer(Modifier.height(8.dp))
+                            Spacer(Modifier.height(4.dp))
                             RoutinesSection(
                                 showSectionHeading = false,
                                 dashboardSelectedDate = selectedDate,
@@ -455,21 +475,33 @@ fun DashboardScreen(
                                 onOpenCardioNewWorkout = onOpenCardioNewWorkout,
                                 onOpenCardioLogBackfill = onOpenCardioLogBackfill,
                                 onOpenWeightNewWorkout = {
-                                    if (!weightLiveWorkoutViewModel.tryStartBlank()) {
-                                        scope.launch {
-                                            snackbarHostState.showSnackbar("Finish or cancel your live workout first.")
+                                    when {
+                                        !fgsDisclosureSeen -> {
+                                            pendingDashboardWeightBlank = true
+                                            pendingDashboardWeightRoutine = null
+                                            showWeightFgsDialog = true
                                         }
-                                    } else {
-                                        onNavigateToCategory(weightTrainingCategory)
+                                        !weightLiveWorkoutViewModel.tryStartBlank() -> {
+                                            scope.launch {
+                                                snackbarHostState.showSnackbar("Finish or cancel your live workout first.")
+                                            }
+                                        }
+                                        else -> onNavigateToCategory(weightTrainingCategory)
                                     }
                                 },
                                 onWeightRoutineSelected = { routine ->
-                                    if (!weightLiveWorkoutViewModel.tryStartFromRoutine(routine, weightState)) {
-                                        scope.launch {
-                                            snackbarHostState.showSnackbar("Finish or cancel your live workout first.")
+                                    when {
+                                        !fgsDisclosureSeen -> {
+                                            pendingDashboardWeightRoutine = routine
+                                            pendingDashboardWeightBlank = false
+                                            showWeightFgsDialog = true
                                         }
-                                    } else {
-                                        onNavigateToCategory(weightTrainingCategory)
+                                        !weightLiveWorkoutViewModel.tryStartFromRoutine(routine, weightState) -> {
+                                            scope.launch {
+                                                snackbarHostState.showSnackbar("Finish or cancel your live workout first.")
+                                            }
+                                        }
+                                        else -> onNavigateToCategory(weightTrainingCategory)
                                     }
                                 },
                                 onOpenWeightLogBackfill = onOpenWeightLogBackfill,
@@ -485,7 +517,7 @@ fun DashboardScreen(
                                 .padding(horizontal = 16.dp)
                                 .padding(bottom = 16.dp)
                         ) {
-                            Spacer(Modifier.height(8.dp))
+                            Spacer(Modifier.height(4.dp))
                             ActivitySection(
                                 showSectionHeading = false,
                                 selectedDate = selectedDate,
@@ -508,9 +540,45 @@ fun DashboardScreen(
                         viewModel.selectDate(date)
                         showCalendar = false
                     },
-                    onDismiss = { showCalendar = false }
+                    onDismiss = { showCalendar = false },
+                    datesWithActivity = datesWithActivity
                 )
             }
+
+            WeightLiveWorkoutFgsDisclosureDialog(
+                visible = showWeightFgsDialog,
+                onDismiss = {
+                    showWeightFgsDialog = false
+                    pendingDashboardWeightBlank = false
+                    pendingDashboardWeightRoutine = null
+                },
+                onContinue = {
+                    scope.launch {
+                        userPreferences.setWeightLiveWorkoutFgsDisclosureSeen(true)
+                        showWeightFgsDialog = false
+                        val blank = pendingDashboardWeightBlank
+                        val pendingR = pendingDashboardWeightRoutine
+                        pendingDashboardWeightBlank = false
+                        pendingDashboardWeightRoutine = null
+                        when {
+                            blank -> {
+                                if (weightLiveWorkoutViewModel.tryStartBlank()) {
+                                    onNavigateToCategory(weightTrainingCategory)
+                                } else {
+                                    snackbarHostState.showSnackbar("Finish or cancel your live workout first.")
+                                }
+                            }
+                            pendingR != null -> {
+                                if (weightLiveWorkoutViewModel.tryStartFromRoutine(pendingR, weightState)) {
+                                    onNavigateToCategory(weightTrainingCategory)
+                                } else {
+                                    snackbarHostState.showSnackbar("Finish or cancel your live workout first.")
+                                }
+                            }
+                        }
+                    }
+                }
+            )
 
             if (showGoalsSheet) {
                 GoalsOverviewSheet(
@@ -1633,7 +1701,7 @@ private fun ActivitySection(
                 }
                 if (hasCold) {
                     if (hasSupplements || hasLight || hasCardio || hasWeight || hasSauna) Spacer(Modifier.height(12.dp))
-                    ActivityCategorySection(title = "Cold plunge") {
+                    ActivityCategorySection(title = "Cold Plunge") {
                         coldRows.forEach { row ->
                             Text(
                                 text = row.summaryLine,
