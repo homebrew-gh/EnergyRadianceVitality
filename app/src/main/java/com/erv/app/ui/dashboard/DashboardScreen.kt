@@ -36,6 +36,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -168,7 +169,7 @@ fun DashboardScreen(
     val heatColdState by heatColdRepository.state.collectAsState(initial = HeatColdLibraryState())
     val weightKg by userPreferences.fallbackBodyWeightKg.collectAsState(initial = null)
     val cardioDistanceUnit by userPreferences.cardioDistanceUnit.collectAsState(initial = CardioDistanceUnit.MILES)
-    val weightTrainingLoadUnit by userPreferences.weightTrainingLoadUnit.collectAsState(initial = BodyWeightUnit.KG)
+    val weightTrainingLoadUnit by userPreferences.weightTrainingLoadUnit.collectAsState(initial = BodyWeightUnit.LB)
     val selectedGoalIds by userPreferences.selectedGoalIds.collectAsState(initial = emptySet())
     val goalsAsOfDate = LocalDate.now()
     val weeklyGoalRows = remember(
@@ -468,7 +469,7 @@ fun DashboardScreen(
                         onClick = {
                             scope.launch { dashboardPagerState.animateScrollToPage(0) }
                         },
-                        text = { Text("Routines") }
+                        text = { Text("Quick Log") }
                     )
                     Tab(
                         selected = dashboardPagerState.currentPage == 1,
@@ -493,7 +494,7 @@ fun DashboardScreen(
                                 .padding(horizontal = 16.dp)
                                 .padding(bottom = 16.dp)
                         ) {
-                            Spacer(Modifier.height(4.dp))
+                            Spacer(Modifier.height(14.dp))
                             RoutinesSection(
                                 showSectionHeading = false,
                                 dashboardSelectedDate = selectedDate,
@@ -549,7 +550,7 @@ fun DashboardScreen(
                                 .padding(horizontal = 16.dp)
                                 .padding(bottom = 16.dp)
                         ) {
-                            Spacer(Modifier.height(4.dp))
+                            Spacer(Modifier.height(14.dp))
                             ActivitySection(
                                 showSectionHeading = false,
                                 selectedDate = selectedDate,
@@ -1135,7 +1136,7 @@ private fun RoutinesSection(
 
     if (showSectionHeading) {
         Text(
-            text = "Routines",
+            text = "Quick Log",
             style = MaterialTheme.typography.titleLarge,
             modifier = Modifier.padding(bottom = 8.dp)
         )
@@ -1710,12 +1711,34 @@ private fun ActivitySection(
                 if (hasWeight) {
                     if (hasSupplements || hasLight || hasCardio) Spacer(Modifier.height(12.dp))
                     ActivityCategorySection(title = "Weight training") {
-                        weightRows.forEach { row ->
-                            Text(
-                                text = row.summaryLine,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            weightRows.forEach { row ->
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text(
+                                        text = row.headerLine,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    row.exerciseBlocks.forEach { block ->
+                                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                            Text(
+                                                text = block.titleLine,
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                            block.setLines.forEach { line ->
+                                                Text(
+                                                    text = line,
+                                                    modifier = Modifier.padding(start = 12.dp),
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
