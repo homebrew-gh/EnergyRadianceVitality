@@ -1,6 +1,5 @@
 package com.erv.app.ui.navigation
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -8,10 +7,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.erv.app.ui.theme.ErvDarkCategoryMenuCard
-import com.erv.app.ui.theme.ErvDarkCategoryMenuIconTint
-import com.erv.app.ui.theme.ErvDarkCategoryMenuOnSurface
+import androidx.compose.ui.unit.sp
 
 @Composable
 fun CategoryTile(
@@ -22,33 +20,25 @@ fun CategoryTile(
     /** When set, shows a heat + cold pair instead of a single [icon]. */
     secondaryIcon: ImageVector? = null
 ) {
-    val darkMenu = isSystemInDarkTheme()
+    // Match dashboard [RoutineTile]: default elevated card + primary icon (theme surface colors).
     ElevatedCard(
         onClick = onClick,
         modifier = modifier.aspectRatio(1f),
         elevation = CardDefaults.elevatedCardElevation(
             defaultElevation = 4.dp
         ),
-        shape = MaterialTheme.shapes.medium,
-        colors = if (darkMenu) {
-            CardDefaults.elevatedCardColors(
-                containerColor = ErvDarkCategoryMenuCard,
-                contentColor = ErvDarkCategoryMenuOnSurface,
-            )
-        } else {
-            CardDefaults.elevatedCardColors()
-        }
+        shape = MaterialTheme.shapes.medium
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(8.dp),
+                .padding(horizontal = 6.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             if (secondaryIcon != null) {
                 HotColdDualIcons(
-                    iconSize = 22.dp,
+                    iconSize = 24.dp,
                     heatIcon = icon,
                     coldIcon = secondaryIcon
                 )
@@ -56,16 +46,22 @@ fun CategoryTile(
                 Icon(
                     imageVector = icon,
                     contentDescription = label,
-                    tint = if (darkMenu) ErvDarkCategoryMenuIconTint else MaterialTheme.colorScheme.primary,
+                    tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(28.dp)
                 )
             }
             Spacer(Modifier.height(6.dp))
             Text(
                 text = label,
-                style = MaterialTheme.typography.labelSmall,
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontSize = 11.sp,
+                    lineHeight = 13.sp,
+                    letterSpacing = 0.sp
+                ),
                 textAlign = TextAlign.Center,
-                maxLines = 2
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.fillMaxWidth()
             )
         }
     }

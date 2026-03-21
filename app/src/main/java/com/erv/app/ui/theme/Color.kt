@@ -102,11 +102,10 @@ val ErvDarkColdGlow = Color(0xFF7E9FC0)
 
 // Category bottom sheet (dashboard menu). Light = airy yellow-gold.
 val ErvCategoryMenuMutedGold = Color(0xFFFFEBB0)
-// Dark = solid gold field (classic #D4AF37 family); darker gold tiles + dark text for contrast.
+// Dark = solid gold sheet; category tiles use default elevated Material colors (same as dashboard routines).
 val ErvDarkCategoryMenuMutedGold = Color(0xFFD4AF37)
-val ErvDarkCategoryMenuCard = Color(0xFFB6911F)
+/** "MENU" label on the sheet handle (readable on gold); tiles use theme elevated surfaces. */
 val ErvDarkCategoryMenuOnSurface = Color(0xFF1A1408)
-val ErvDarkCategoryMenuIconTint = Color(0xFF5C4300)
 val ErvDarkCategoryMenuHandleAccent = Color(0xFFA67C00)
 val ErvDarkCategoryMenuDivider = Color(0xFF926E0A)
 
