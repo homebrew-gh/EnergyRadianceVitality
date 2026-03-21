@@ -199,7 +199,9 @@ fun WeightManualWorkoutEditorScreen(
                 } else {
                     LazyColumn(
                         verticalArrangement = Arrangement.spacedBy(10.dp),
-                        modifier = Modifier.fillMaxSize()
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
                     ) {
                         itemsIndexed(exerciseOrder, key = { _, id -> id }) { index, exerciseId ->
                             val ex = library.exerciseById(exerciseId)
@@ -207,6 +209,7 @@ fun WeightManualWorkoutEditorScreen(
                             WeightExerciseInlineSetsCard(
                                 exerciseName = ex?.name ?: exerciseId,
                                 equipmentLabel = ex?.equipment?.displayLabel(),
+                                equipment = ex?.equipment,
                                 sets = sets,
                                 loadUnit = loadUnit,
                                 onSetsChange = { newSets ->

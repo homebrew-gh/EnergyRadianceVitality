@@ -99,7 +99,10 @@ import com.erv.app.ui.theme.ErvDarkTherapyRedMid
 import com.erv.app.ui.theme.ErvLightTherapyRedDark
 import com.erv.app.ui.theme.ErvLightTherapyRedGlow
 import com.erv.app.ui.theme.ErvCategoryMenuMutedGold
+import com.erv.app.ui.theme.ErvDarkCategoryMenuDivider
+import com.erv.app.ui.theme.ErvDarkCategoryMenuHandleAccent
 import com.erv.app.ui.theme.ErvDarkCategoryMenuMutedGold
+import com.erv.app.ui.theme.ErvDarkCategoryMenuOnSurface
 import com.erv.app.ui.theme.ErvLightTherapyRedMid
 import com.erv.app.supplements.SupplementSync
 import com.erv.app.supplements.SupplementTimeOfDay
@@ -316,17 +319,30 @@ fun DashboardScreen(
         },
         sheetDragHandle = {
             Column(modifier = Modifier.fillMaxWidth()) {
-                // Bright hairline + saturated band so the slider edge reads clearly on any background.
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(2.dp)
-                        .background(Color(0xFFFFD600))
-                )
-                HorizontalDivider(
-                    thickness = 2.dp,
-                    color = MaterialTheme.colorScheme.primary
-                )
+                if (darkTheme) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(2.dp)
+                            .background(ErvDarkCategoryMenuHandleAccent)
+                    )
+                    HorizontalDivider(
+                        thickness = 2.dp,
+                        color = ErvDarkCategoryMenuDivider
+                    )
+                } else {
+                    // Bright hairline + saturated band so the slider edge reads clearly on light gold.
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(2.dp)
+                            .background(Color(0xFFFFD600))
+                    )
+                    HorizontalDivider(
+                        thickness = 2.dp,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -336,7 +352,11 @@ fun DashboardScreen(
                     Text(
                         text = stringResource(R.string.dashboard_categories_menu),
                         style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = if (darkTheme) {
+                            ErvDarkCategoryMenuOnSurface.copy(alpha = 0.82f)
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        }
                     )
                 }
             }

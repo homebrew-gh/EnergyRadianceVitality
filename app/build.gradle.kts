@@ -48,6 +48,14 @@ android {
     }
 }
 
+// Android Gradle Plugin does not create the Java plugin's `testClasses` task; some IDE actions still request
+// `:app:testClasses`. Wire it to unit test compilation so those builds succeed.
+tasks.register("testClasses") {
+    group = "verification"
+    description = "Compiles debug unit test sources (Java plugin lifecycle parity)."
+    dependsOn("compileDebugUnitTestKotlin")
+}
+
 dependencies {
     implementation("androidx.core:core-ktx:1.12.0")
     implementation("androidx.appcompat:appcompat:1.6.1")

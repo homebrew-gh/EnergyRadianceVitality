@@ -1,6 +1,5 @@
 package com.erv.app.ui.dashboard
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
@@ -86,11 +85,11 @@ fun DateNavigator(
             }
         }
 
-        AnimatedVisibility(visible = !isToday) {
+        if (!isToday) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 4.dp),
+                    .padding(top = 2.dp),
                 horizontalArrangement = Arrangement.Center
             ) {
                 AssistChip(

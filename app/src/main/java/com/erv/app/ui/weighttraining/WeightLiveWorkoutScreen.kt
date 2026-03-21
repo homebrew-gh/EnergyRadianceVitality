@@ -220,9 +220,12 @@ fun WeightLiveWorkoutScreen(
                         modifier = Modifier.padding(top = 24.dp)
                     )
                 } else {
+                    // weight(1f): LazyColumn inside Column must not use fillMaxSize() — unbounded height crashes.
                     LazyColumn(
                         verticalArrangement = Arrangement.spacedBy(10.dp),
-                        modifier = Modifier.fillMaxSize()
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
                     ) {
                         itemsIndexed(draft.exerciseOrder, key = { _, id -> id }) { index, exerciseId ->
                             val ex = library.exerciseById(exerciseId)
@@ -230,6 +233,7 @@ fun WeightLiveWorkoutScreen(
                             WeightExerciseInlineSetsCard(
                                 exerciseName = ex?.name ?: exerciseId,
                                 equipmentLabel = ex?.equipment?.displayLabel(),
+                                equipment = ex?.equipment,
                                 sets = sets,
                                 loadUnit = loadUnit,
                                 onSetsChange = { onSaveSets(exerciseId, it) },

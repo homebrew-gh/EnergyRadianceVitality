@@ -100,9 +100,15 @@ val ErvDarkColdDark = Color(0xFF394E64)
 val ErvDarkColdMid = Color(0xFF5E80A0)
 val ErvDarkColdGlow = Color(0xFF7E9FC0)
 
-// Category bottom sheet (dashboard menu). Light = airy yellow-gold. Dark = deep brown-gold (R > G > B avoids olive/mustard).
+// Category bottom sheet (dashboard menu). Light = airy yellow-gold.
 val ErvCategoryMenuMutedGold = Color(0xFFFFEBB0)
-val ErvDarkCategoryMenuMutedGold = Color(0xFF2A2210)
+// Dark = matte dull gold throughout (sheet + tiles); avoids near-black sheet with default wine cards.
+val ErvDarkCategoryMenuMutedGold = Color(0xFF5A503C)
+val ErvDarkCategoryMenuCard = Color(0xFF4A4334)
+val ErvDarkCategoryMenuOnSurface = Color(0xFFEAE3D4)
+val ErvDarkCategoryMenuIconTint = Color(0xFFC4A86A)
+val ErvDarkCategoryMenuHandleAccent = Color(0xFF8F835F)
+val ErvDarkCategoryMenuDivider = Color(0xFF6E654E)
 
 // Calendar: day cell when any activity was logged (supplements, light, cardio, weight, sauna/cold).
 val ErvCalendarActivityDayLight = Color(0xFFFFF0D4)
