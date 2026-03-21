@@ -40,12 +40,18 @@ import com.erv.app.ui.weighttraining.WeightExerciseDetailScreen
 import com.erv.app.ui.weighttraining.WeightTrainingCategoryScreen
 import com.erv.app.ui.weighttraining.WeightTrainingLogScreen
 import com.erv.app.data.BodyWeightUnit
+import com.erv.app.heatcold.HeatColdLibraryState
+import com.erv.app.heatcold.HeatColdMode
+import com.erv.app.heatcold.HeatColdRepository
 import com.erv.app.weighttraining.WeightLibraryState
 import com.erv.app.weighttraining.WeightRepository
+import com.erv.app.ui.heatcold.HeatColdCategoryScreen
+import com.erv.app.ui.heatcold.HeatColdLogScreen
 import com.erv.app.ui.supplements.SupplementCategoryScreen
 import com.erv.app.ui.supplements.SupplementDetailScreen
 import com.erv.app.ui.supplements.SupplementLogScreen
 import java.time.LocalDate
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
 object Routes {
@@ -67,6 +73,7 @@ object Routes {
     fun weightTrainingLogOpenCalendar(logDateIso: String) = "category/weight_training/log/open/$logDateIso"
     const val weightExerciseDetailRoute = "category/weight_training/exercise/{exerciseId}"
     fun weightExerciseDetail(exerciseId: String) = "category/weight_training/exercise/$exerciseId"
+    const val heatColdLog = "category/heat_cold/log"
 }
 
 @Composable
@@ -80,21 +87,32 @@ fun ErvNavHost(
     lightTherapyRepository: LightTherapyRepository,
     cardioRepository: CardioRepository,
     weightRepository: WeightRepository,
+    heatColdRepository: HeatColdRepository,
     weightLiveWorkoutViewModel: WeightLiveWorkoutViewModel,
     relayPool: RelayPool?,
     signer: EventSigner?,
     pendingReminderRoutineId: StateFlow<String?>,
     consumePendingReminderRoutineId: () -> Unit,
+    navigateToWeightLiveWorkout: MutableStateFlow<Boolean>,
     onRelaysChanged: () -> Unit = {},
     onLogout: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val pendingRoutineId = pendingReminderRoutineId.collectAsState(initial = null).value
+    val openWeightLive by navigateToWeightLiveWorkout.collectAsState()
     LaunchedEffect(pendingRoutineId) {
         if (pendingRoutineId != null) {
             navController.navigate(Routes.DASHBOARD) {
                 launchSingleTop = true
             }
+        }
+    }
+    LaunchedEffect(openWeightLive) {
+        if (openWeightLive) {
+            navController.navigate(Routes.weightTrainingCategory) {
+                launchSingleTop = true
+            }
+            navigateToWeightLiveWorkout.value = false
         }
     }
     NavHost(
@@ -138,6 +156,10 @@ fun ErvNavHost(
                         launchSingleTop = true
                     }
                 },
+                onOpenHeatColdLog = {
+                    navController.navigate(Routes.heatColdLog) { launchSingleTop = true }
+                },
+                heatColdRepository = heatColdRepository,
                 viewModel = dashboardViewModel
             )
         }
@@ -301,6 +323,30 @@ fun ErvNavHost(
             )
         }
 
+        composable(Routes.category("heat_cold")) {
+            HeatColdCategoryScreen(
+                initialMode = HeatColdMode.SAUNA,
+                repository = heatColdRepository,
+                relayPool = relayPool,
+                signer = signer,
+                onBack = { navController.popBackStack() },
+                onOpenLog = {
+                    navController.navigate(Routes.heatColdLog) { launchSingleTop = true }
+                }
+            )
+        }
+
+        composable(Routes.heatColdLog) {
+            val state = heatColdRepository.state.collectAsState(initial = HeatColdLibraryState()).value
+            HeatColdLogScreen(
+                repository = heatColdRepository,
+                state = state,
+                relayPool = relayPool,
+                signer = signer,
+                onBack = { navController.popBackStack() }
+            )
+        }
+
         composable(
             route = Routes.weightTrainingLogOpenCalendarRoute,
             arguments = listOf(navArgument("logDate") { type = NavType.StringType })
@@ -351,7 +397,9 @@ fun ErvNavHost(
         }
 
         categories.forEach { cat ->
-            if (cat.id == "supplements" || cat.id == "light_therapy" || cat.id == "cardio" || cat.id == "weight_training") return@forEach
+            if (cat.id == "supplements" || cat.id == "light_therapy" || cat.id == "cardio" ||
+                cat.id == "weight_training" || cat.id == "heat_cold"
+            ) return@forEach
             composable(cat.route) {
                 ComingSoonScreen(
                     title = cat.label,

@@ -20,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.erv.app.data.BodyWeightUnit
+import com.erv.app.weighttraining.WeightEquipment
 import com.erv.app.weighttraining.WeightExerciseHistoryRow
 import com.erv.app.weighttraining.WeightLibraryState
 import com.erv.app.weighttraining.WeightWorkoutSession
@@ -91,7 +92,14 @@ fun WeightExerciseRecentWorkoutsDialog(
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         items(rows, key = { "${it.logDate}_${it.workout.id}_${it.entry.exerciseId}" }) { row ->
-                            RecentSessionBlock(row = row, loadUnit = loadUnit, loadSuffix = loadSuffix)
+                            val addedLoad =
+                                library.exerciseById(row.entry.exerciseId)?.equipment == WeightEquipment.OTHER
+                            RecentSessionBlock(
+                                row = row,
+                                loadUnit = loadUnit,
+                                loadSuffix = loadSuffix,
+                                weightIsAddedLoad = addedLoad
+                            )
                         }
                     }
                 }
@@ -110,7 +118,8 @@ fun WeightExerciseRecentWorkoutsDialog(
 private fun RecentSessionBlock(
     row: WeightExerciseHistoryRow,
     loadUnit: BodyWeightUnit,
-    loadSuffix: String
+    loadSuffix: String,
+    weightIsAddedLoad: Boolean
 ) {
     val dateStr = row.logDate.format(DateTimeFormatter.ISO_LOCAL_DATE)
     val src = when (row.workout.source) {
@@ -144,7 +153,7 @@ private fun RecentSessionBlock(
             )
             row.entry.sets.forEachIndexed { idx, set ->
                 Text(
-                    formatSetSummaryLine(set, idx + 1, loadUnit, loadSuffix),
+                    formatSetSummaryLine(set, idx + 1, loadUnit, loadSuffix, weightIsAddedLoad),
                     style = MaterialTheme.typography.bodyMedium
                 )
             }

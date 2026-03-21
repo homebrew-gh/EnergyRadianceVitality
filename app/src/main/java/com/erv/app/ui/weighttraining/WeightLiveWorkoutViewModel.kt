@@ -1,7 +1,9 @@
 package com.erv.app.ui.weighttraining
 
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
 import com.erv.app.weighttraining.WeightLibraryState
+import com.erv.app.weighttraining.WeightLiveWorkoutForegroundService
 import com.erv.app.weighttraining.WeightRoutine
 import com.erv.app.weighttraining.WeightSet
 import com.erv.app.weighttraining.WeightWorkoutDraft
@@ -10,7 +12,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-class WeightLiveWorkoutViewModel : ViewModel() {
+class WeightLiveWorkoutViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _activeDraft = MutableStateFlow<WeightWorkoutDraft?>(null)
     val activeDraft: StateFlow<WeightWorkoutDraft?> = _activeDraft.asStateFlow()
@@ -19,10 +21,12 @@ class WeightLiveWorkoutViewModel : ViewModel() {
 
     fun tryStartBlank(): Boolean {
         if (_activeDraft.value != null) return false
-        _activeDraft.value = WeightWorkoutDraft(
+        val draft = WeightWorkoutDraft(
             startedAtEpochSeconds = weightNowEpochSeconds(),
             exerciseOrder = emptyList()
         )
+        _activeDraft.value = draft
+        WeightLiveWorkoutForegroundService.start(getApplication(), draft.startedAtEpochSeconds)
         return true
     }
 
@@ -31,17 +35,22 @@ class WeightLiveWorkoutViewModel : ViewModel() {
         val ids = routine.exerciseIds.filter { id -> library.exerciseById(id) != null }
         val blankRow = listOf(WeightSet(reps = 0, weightKg = null, rpe = null))
         val setsSeed = ids.associateWith { blankRow }
-        _activeDraft.value = WeightWorkoutDraft(
+        val draft = WeightWorkoutDraft(
             startedAtEpochSeconds = weightNowEpochSeconds(),
             exerciseOrder = ids,
             routineId = routine.id,
             routineName = routine.name,
             setsByExerciseId = setsSeed
         )
+        _activeDraft.value = draft
+        WeightLiveWorkoutForegroundService.start(getApplication(), draft.startedAtEpochSeconds)
         return true
     }
 
     fun clearDraft() {
+        if (_activeDraft.value != null) {
+            WeightLiveWorkoutForegroundService.stop(getApplication())
+        }
         _activeDraft.value = null
     }
 

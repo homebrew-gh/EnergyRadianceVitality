@@ -18,7 +18,7 @@ Use this section so work is **not repeated** across sessions. Update it when you
 | **H** | Done | **`DashboardScreen`**: **Weight Training** routine tile (with Cardio on second row); bottom sheet **New workout** (`tryStartBlank` + nav) or pick **weight routine** (`tryStartFromRoutine` + nav); **Activity** card lists **Weight training** lines for **`selectedDate`** via `weightActivityRowsFor` + `dashboardSummaryLine` (respects kg/lb pref) |
 | **I** | Done | **Exercise history**: `WeightLibraryState.historyForExercise` + **`WeightExerciseDetailScreen`** (route `category/weight_training/exercise/{exerciseId}`). **Exercises** tab: tap a lift → detail with summary + chronological history from all `logs` (newest day first); cards show date, Live/Manual, time, routine name, set lines (uses `formatSetSummaryLine` / display unit from Settings). **`WeightExercise.sessionSummaries`**: per-workout rollups (date, `workoutId`, `volumeKg`, `bestEstOneRmKg`, set count) rebuilt from logs on every save/load; **not** sent on `erv/weight/exercises` (master list stays lean). **Edit / Delete exercise** live on the detail screen app bar, not the main list. |
 | **J** | Done | **Docs**: [PLAN_OF_ACTION.md](PLAN_OF_ACTION.md) §2.3 identifier note for weight daily logs; [PROTOCOL_GRAPH.md](PROTOCOL_GRAPH.md) §15 Nostr d-tag reference for shipped silos. |
-| **K** | Not started | FGS + notification + bubble ([spec §Stage K](WEIGHT_TRAINING_SPEC.md)) |
+| **K** | Done | **`WeightLiveWorkoutForegroundService`** (type `health`, API 34+): ongoing notification + elapsed; optional **bubble** (API 30+) via dynamic shortcut + `BubbleMetadata` when `UserPreferences.workoutBubbleEnabled` (default on); **`WeightWorkoutBubbleActivity`**; start/stop wired from **`WeightLiveWorkoutViewModel`**; **Settings** “Live weight workout” copy + bubble switch; **first-start disclosure** dialog (Weight screen + Dashboard); **MainActivity** `singleTop` + extra opens weight category |
 
 **How to verify stage A–C:** Run `./gradlew :app:testDebugUnitTest :app:assembleDebug`. Dashboard date on weight screen; **Exercises** tab shows **full default catalog** (fresh install) or **merged additions** after update (existing installs).
 
@@ -32,17 +32,20 @@ Use this section so work is **not repeated** across sessions. Update it when you
 
 **How to verify stage H:** Dashboard **Routines** shows **Weight Training** next to Cardio; sheet offers **New workout**, **Log previous workout** (opens weight log + calendar, dashboard date pre-selected), and saved routines. Completing new/routine navigates to Weight Training with live session started when allowed. **Activity** shows weight sessions for the **selected dashboard date** (switch date to confirm). With a live workout already running, choosing new/routine shows snackbar and does not start a second session.
 
-**Resume next:** Stage **K** (foreground service, ongoing notification, optional bubble).
+**Resume next:** None for weight MVP — Stage **K** shipped.
 
 **How to verify stage I:** Weight Training → **Exercises** → tap a lift with logged sessions → detail shows summary + past dates and set lines; unit: `historyForExercise_sortsNewestFirst_and_filters`.
 
 **How to verify stage J:** PLAN §2.3 weight identifier sentence matches **one event per day** `erv/weight/<date>`; PROTOCOL_GRAPH §15 lists weight d-tags and points here.
+
+**How to verify stage K:** Start a live workout → within a few seconds an **ongoing** notification appears with elapsed time; tap it → app opens **Weight Training**. On **API 30+** with bubble setting on and system bubbles allowed, a **bubble** may appear when leaving the app. **Finish** or **Cancel** clears the notification. **Settings** → Live weight workout: toggle bubble (API 30+ only) and read notification disclaimer. First **Start workout** (from Weight or Dashboard) shows the **disclosure** dialog once.
 
 ## Locked product rules
 
 - **Multiple workouts / day**: `workouts[]` on `erv/weight/<date>` holds each session; each **LIVE** session has **start/end** timestamps on the day’s timeline.
 - **One live session at a time**: No second **Start Workout** / **Start from routine** while a live draft is active—finish or cancel first. **Manual Add workout** is **disabled** while a live session is open (same gate).
 - **Empty workout**: **Never** call `addWorkout` / persist if there is nothing logged (no exercises with sets); live finish requires at least one logged exercise or stays draft / cancel.
+- **Bodyweight / station lifts (`equipment` = `other`)**: The set **weight** field is **added load only** (belt, vest, dumbbell between feet, etc.). UI labels it **Added (kg/lb)**; summaries and shares show **`+`** before the weight for these exercises. Other equipment types use the weight field as the full bar/machine load.
 - **Manual share**: **Allowed**; kind **1** body includes **log date** (`YYYY-MM-DD` for `selectedDate`).
 - **selectedDate**: Must match **dashboard calendar** when opening Weight from the **category sheet** — hoist `DashboardViewModel` to nav/activity scope (or pass date on every category navigation).
 - **Background / FGS disclosure**: Tell users **before or at first live start** that **live workouts** use a **foreground service** and Android may show a **persistent ongoing notification** so the timer keeps running—not optional to hide without ending the workout. Plain-language copy in Settings + one-time dialog/snackbar acceptable.

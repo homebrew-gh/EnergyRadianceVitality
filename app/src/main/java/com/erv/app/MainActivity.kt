@@ -33,7 +33,10 @@ import com.erv.app.data.ThemeMode
 import com.erv.app.data.UserPreferences
 import com.erv.app.nostr.*
 import com.erv.app.cardio.CardioRepository
+import com.erv.app.heatcold.HeatColdRepository
+import com.erv.app.heatcold.HeatColdSync
 import com.erv.app.cardio.CardioSync
+import com.erv.app.weighttraining.WeightLiveWorkoutConstants
 import com.erv.app.weighttraining.WeightRepository
 import com.erv.app.weighttraining.WeightSync
 import com.erv.app.lighttherapy.LightSync
@@ -62,12 +65,16 @@ class MainActivity : AppCompatActivity() {
     private lateinit var amberHost: AmberLauncherHost
     private lateinit var keyManager: KeyManager
     private val pendingReminderRoutineId = MutableStateFlow<String?>(null)
+    private val navigateToWeightLiveWorkout = MutableStateFlow(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         amberHost = AmberLauncherHost(this)
         keyManager = KeyManager(this)
         handleReminderIntent(intent)
+        if (intent.getBooleanExtra(WeightLiveWorkoutConstants.EXTRA_OPEN_WEIGHT_LIVE, false)) {
+            navigateToWeightLiveWorkout.value = true
+        }
 
         setContent {
             val userPreferences = remember { UserPreferences(this@MainActivity) }
@@ -86,7 +93,8 @@ class MainActivity : AppCompatActivity() {
                         amberHost = amberHost,
                         userPreferences = userPreferences,
                         pendingReminderRoutineId = pendingReminderRoutineId,
-                        consumePendingReminderRoutineId = { pendingReminderRoutineId.value = null }
+                        consumePendingReminderRoutineId = { pendingReminderRoutineId.value = null },
+                        navigateToWeightLiveWorkout = navigateToWeightLiveWorkout
                     )
                 }
             }
@@ -97,6 +105,9 @@ class MainActivity : AppCompatActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         handleReminderIntent(intent)
+        if (intent.getBooleanExtra(WeightLiveWorkoutConstants.EXTRA_OPEN_WEIGHT_LIVE, false)) {
+            navigateToWeightLiveWorkout.value = true
+        }
     }
 
     private fun handleReminderIntent(intent: android.content.Intent?) {
@@ -112,7 +123,8 @@ private fun ErvApp(
     amberHost: AmberLauncherHost,
     userPreferences: UserPreferences,
     pendingReminderRoutineId: StateFlow<String?>,
-    consumePendingReminderRoutineId: () -> Unit
+    consumePendingReminderRoutineId: () -> Unit,
+    navigateToWeightLiveWorkout: MutableStateFlow<Boolean>
 ) {
     val context = LocalContext.current
     var appState by remember {
@@ -199,6 +211,7 @@ private fun ErvApp(
             userPreferences = userPreferences,
             pendingReminderRoutineId = pendingReminderRoutineId,
             consumePendingReminderRoutineId = consumePendingReminderRoutineId,
+            navigateToWeightLiveWorkout = navigateToWeightLiveWorkout,
             onLogout = {
                 keyManager.logout()
                 appState = AppState.LoggedOut
@@ -250,6 +263,7 @@ private fun MainAppShell(
     userPreferences: UserPreferences,
     pendingReminderRoutineId: StateFlow<String?>,
     consumePendingReminderRoutineId: () -> Unit,
+    navigateToWeightLiveWorkout: MutableStateFlow<Boolean>,
     onLogout: () -> Unit
 ) {
     val context = LocalContext.current
@@ -258,6 +272,7 @@ private fun MainAppShell(
     val lightTherapyRepository = remember(context) { LightTherapyRepository(context) }
     val cardioRepository = remember(context) { CardioRepository(context) }
     val weightRepository = remember(context) { WeightRepository(context) }
+    val heatColdRepository = remember(context) { HeatColdRepository(context) }
     val reminderRepository = remember(context) { RoutineReminderRepository(context) }
     val signer = remember(keyManager, amberHost) {
         keyManager.createLocalSigner()
@@ -287,7 +302,7 @@ private fun MainAppShell(
     LaunchedEffect(relayPool, relayUrlsVersion) {
         relayPool?.setRelays(keyManager.relayUrlsForPool())
     }
-    LaunchedEffect(relayPool, signer, supplementRepository, lightTherapyRepository, cardioRepository, weightRepository) {
+    LaunchedEffect(relayPool, signer, supplementRepository, lightTherapyRepository, cardioRepository, weightRepository, heatColdRepository) {
         if (relayPool == null || signer == null) {
             initialSyncDone = true
             return@LaunchedEffect
@@ -311,6 +326,10 @@ private fun MainAppShell(
                 async {
                     WeightSync.fetchFromNetwork(relayPool, signer, pubkey, timeoutMs = 8000)
                         ?.let { weightRepository.replaceAll(it) }
+                },
+                async {
+                    HeatColdSync.fetchFromNetwork(relayPool, signer, pubkey, timeoutMs = 8000)
+                        ?.let { heatColdRepository.replaceAll(it) }
                 }
             )
         }
@@ -343,11 +362,13 @@ private fun MainAppShell(
         lightTherapyRepository = lightTherapyRepository,
         cardioRepository = cardioRepository,
         weightRepository = weightRepository,
+        heatColdRepository = heatColdRepository,
         weightLiveWorkoutViewModel = weightLiveWorkoutViewModel,
         relayPool = relayPool,
         signer = signer,
         pendingReminderRoutineId = pendingReminderRoutineId,
         consumePendingReminderRoutineId = consumePendingReminderRoutineId,
+        navigateToWeightLiveWorkout = navigateToWeightLiveWorkout,
         onRelaysChanged = { relayUrlsVersion++ },
         onLogout = onLogout
         )

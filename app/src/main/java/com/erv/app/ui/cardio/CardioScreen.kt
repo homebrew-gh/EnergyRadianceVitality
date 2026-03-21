@@ -300,13 +300,20 @@ fun CardioCategoryScreen(
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         floatingActionButton = {
-            if (CardioTab.entries[activeTab] == CardioTab.Activities) {
-                FloatingActionButton(
+            when (CardioTab.entries[activeTab]) {
+                CardioTab.Activities -> FloatingActionButton(
                     onClick = { creatingCustom = true; customEditor = null },
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
                     contentColor = MaterialTheme.colorScheme.onPrimaryContainer
                 ) {
                     Icon(Icons.Default.Add, contentDescription = "Add custom activity")
+                }
+                CardioTab.Routines -> FloatingActionButton(
+                    onClick = { creatingRoutine = true; routineEditor = null },
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = "New routine")
                 }
             }
         },
@@ -371,7 +378,6 @@ fun CardioCategoryScreen(
                 )
                 CardioTab.Routines -> RoutinesTab(
                     state = state,
-                    onCreateRoutine = { creatingRoutine = true; routineEditor = null },
                     onEditRoutine = { routineEditor = it; creatingRoutine = false },
                     onDeleteRoutine = { id ->
                         scope.launch {
@@ -936,7 +942,6 @@ private fun WorkoutBuilderBottomSheet(
 @Composable
 private fun RoutinesTab(
     state: CardioLibraryState,
-    onCreateRoutine: () -> Unit,
     onEditRoutine: (CardioRoutine) -> Unit,
     onDeleteRoutine: (String) -> Unit,
     onLogRoutineQuick: (CardioRoutine) -> Unit,
@@ -949,33 +954,11 @@ private fun RoutinesTab(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item {
-                ElevatedCard(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 4.dp)
-                        .clickable(onClick = onCreateRoutine),
-                    colors = CardDefaults.elevatedCardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant
-                    )
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(Modifier.weight(1f)) {
-                            Text("New routine", style = MaterialTheme.typography.titleSmall)
-                            Text(
-                                "One activity or several (e.g. bike → run)",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Icon(Icons.Default.Edit, contentDescription = null)
-                    }
-                }
+                Text(
+                    "Combine activities into one routine. Tap + for a new routine (e.g. bike → run).",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
             items(state.routines, key = { it.id }) { routine ->
                 ElevatedCard(modifier = Modifier.fillMaxWidth()) {
@@ -2241,7 +2224,7 @@ fun CardioMultiLegTimerFullScreen(
     }
 }
 
-private const val CardioMetCompendiumUrl = "https://pacompendium.hhs.gov/"
+private const val CardioMetCompendiumUrl = "https://pacompendium.com/"
 
 private fun openCardioMetCompendiumInBrowser(context: Context) {
     val intent = Intent(Intent.ACTION_VIEW, Uri.parse(CardioMetCompendiumUrl)).apply {

@@ -7,4 +7,25 @@
     <string name="toast_event_published">Saved and synced</string>
     <string name="toast_publish_failed">Something went wrong. Please try again.</string>
     <string name="toast_error_generic">An error occurred</string>
+
+    <!-- Weight live workout — foreground service & bubble (Stage K) -->
+    <string name="weight_live_notification_channel_name">Live weight workout</string>
+    <string name="weight_live_notification_channel_desc">Ongoing session timer while you train. Required during an active live workout.</string>
+    <string name="weight_live_notification_title">Weight workout</string>
+    <string name="weight_live_notification_text">Elapsed %1$s · tap to return</string>
+    <string name="weight_live_notification_action_open">Open workout</string>
+    <string name="weight_live_bubble_shortcut_short">Workout</string>
+    <string name="weight_live_bubble_shortcut_long">Live weight workout</string>
+    <string name="weight_live_bubble_title">Live workout</string>
+    <string name="weight_live_bubble_open_full">Open full workout</string>
+    <string name="weight_live_fgs_dialog_title">Background timer</string>
+    <string name="weight_live_fgs_dialog_body">While a live workout is running, ERV keeps a background timer so your session time stays accurate. Android requires a persistent notification for this—it is not used for ads or tracking. You can return to the workout from the notification (and, on supported devices, a bubble).</string>
+    <string name="weight_live_fgs_dialog_confirm">Continue</string>
+    <string name="weight_live_fgs_dialog_cancel">Not now</string>
+    <string name="settings_live_weight_workout_title">Live weight workout</string>
+    <string name="settings_live_weight_workout_explanation">During an active live workout, ERV runs in the background so your session timer stays accurate. Android requires a persistent, ongoing notification for this—it is not optional inside the app while the workout is running, and it is not used for ads or tracking.</string>
+    <string name="settings_live_weight_workout_bubble_switch">Show workout bubble</string>
+    <string name="settings_live_weight_workout_bubble_helper">On (default): on supported Android versions, a bubble can appear when you leave the workout screen, so you can jump back quickly. Off: only the bubble is disabled. You will still see the ongoing workout notification until you finish or cancel the workout—that is required by Android for background timers. To minimize or change sounds, use Settings → Apps → ERV → Notifications on your device.</string>
+    <string name="settings_live_weight_workout_bubble_unavailable">Floating bubbles are not available on this version of Android. An ongoing notification still appears during live workouts.</string>
+    <string name="settings_live_weight_workout_notifications_denied">Notifications are off—live workout timer and return-to-workout actions may not work. Enable in system Settings.</string>
 </resources>

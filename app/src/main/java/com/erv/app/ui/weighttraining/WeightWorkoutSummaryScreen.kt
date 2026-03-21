@@ -44,6 +44,7 @@ import com.erv.app.data.BodyWeightUnit
 import com.erv.app.nostr.EventSigner
 import com.erv.app.nostr.RelayPool
 import com.erv.app.nostr.UnsignedEvent
+import com.erv.app.weighttraining.WeightEquipment
 import com.erv.app.weighttraining.WeightLibraryState
 import com.erv.app.weighttraining.WeightRepository
 import com.erv.app.weighttraining.WeightRoutine
@@ -92,11 +93,14 @@ internal fun buildWeightWorkoutNoteContent(
     append("Exercises:\n")
     session.entries.forEach { e ->
         val name = library.exerciseById(e.exerciseId)?.name ?: e.exerciseId
+        val addedLoad = library.exerciseById(e.exerciseId)?.equipment == WeightEquipment.OTHER
         val setsLine = e.sets.joinToString(", ") { st ->
             buildString {
                 append("${st.reps} reps")
                 st.weightKg?.let { w ->
-                    append(" @ ${formatWeightLoadNumber(w, displayUnit)}$unitSfx")
+                    val num = formatWeightLoadNumber(w, displayUnit)
+                    if (addedLoad) append(" @ +$num$unitSfx")
+                    else append(" @ $num$unitSfx")
                 }
             }
         }
@@ -212,11 +216,14 @@ fun WeightWorkoutSummaryFullScreen(
             )
             session.entries.forEach { e ->
                 val name = library.exerciseById(e.exerciseId)?.name ?: e.exerciseId
+                val addedLoad = library.exerciseById(e.exerciseId)?.equipment == WeightEquipment.OTHER
                 val line = e.sets.joinToString(" · ") { st ->
                     buildString {
                         append(st.reps)
                         st.weightKg?.let { w ->
-                            append("×${formatWeightLoadNumber(w, loadUnit)}$sfx")
+                            val num = formatWeightLoadNumber(w, loadUnit)
+                            if (addedLoad) append("×+$num$sfx")
+                            else append("×$num$sfx")
                         }
                     }
                 }

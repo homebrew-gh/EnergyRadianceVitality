@@ -75,6 +75,8 @@ internal fun builtinCatalogBeyondCompounds(): List<WeightExercise> = listOf(
     WeightExercise(id = "erv-weight-exercise-bw-pullup-v1", name = "Pull-Up", muscleGroup = "back", pushOrPull = WeightPushPull.PULL, equipment = WeightEquipment.OTHER),
     WeightExercise(id = "erv-weight-exercise-bw-chinup-v1", name = "Chin-Up", muscleGroup = "back", pushOrPull = WeightPushPull.PULL, equipment = WeightEquipment.OTHER),
     WeightExercise(id = "erv-weight-exercise-bw-dip-v1", name = "Dip", muscleGroup = "chest", pushOrPull = WeightPushPull.PUSH, equipment = WeightEquipment.OTHER),
+    WeightExercise(id = "erv-weight-exercise-bw-hanging-leg-raise-v1", name = "Hanging Leg Raise", muscleGroup = "core", pushOrPull = WeightPushPull.PULL, equipment = WeightEquipment.OTHER),
+    WeightExercise(id = "erv-weight-exercise-bw-ab-wheel-rollout-v1", name = "Ab Wheel Rollout", muscleGroup = "core", pushOrPull = WeightPushPull.PUSH, equipment = WeightEquipment.OTHER),
 
     // —— Machine / selectorized ——
     WeightExercise(id = "erv-weight-exercise-m-leg-press-v1", name = "Leg Press", muscleGroup = "legs", pushOrPull = WeightPushPull.PUSH, equipment = WeightEquipment.MACHINE),

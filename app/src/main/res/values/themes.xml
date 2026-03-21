@@ -6,4 +6,8 @@
         <item name="colorSurface">@color/erv_surface</item>
         <item name="colorOnSurface">@color/erv_on_surface</item>
     </style>
+
+    <style name="Theme.ERV.Bubble" parent="Theme.MaterialComponents.DayNight.Dialog">
+        <item name="android:windowIsFloating">true</item>
+    </style>
 </resources>

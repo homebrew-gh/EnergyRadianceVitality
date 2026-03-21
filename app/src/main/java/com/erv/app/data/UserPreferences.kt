@@ -4,6 +4,7 @@ import com.erv.app.cardio.CardioDistanceUnit
 import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -18,6 +19,10 @@ enum class BodyWeightUnit {
     LB, KG
 }
 
+enum class TemperatureUnit {
+    FAHRENHEIT, CELSIUS
+}
+
 class UserPreferences(private val context: Context) {
 
     private object Keys {
@@ -27,6 +32,9 @@ class UserPreferences(private val context: Context) {
         val CARDIO_DISTANCE_UNIT = stringPreferencesKey("cardio_distance_unit")
         val WEIGHT_TRAINING_LOAD_UNIT = stringPreferencesKey("weight_training_load_unit")
         val SELECTED_GOAL_IDS = stringPreferencesKey("selected_goal_ids")
+        val TEMPERATURE_UNIT = stringPreferencesKey("temperature_unit")
+        val WORKOUT_BUBBLE_ENABLED = booleanPreferencesKey("workout_bubble_enabled")
+        val WEIGHT_LIVE_FGS_DISCLOSURE_SEEN = booleanPreferencesKey("weight_live_fgs_disclosure_seen")
     }
 
     val themeMode: Flow<ThemeMode> = context.dataStore.data.map { prefs ->
@@ -97,6 +105,19 @@ class UserPreferences(private val context: Context) {
         }
     }
 
+    val temperatureUnit: Flow<TemperatureUnit> = context.dataStore.data.map { prefs ->
+        when (prefs[Keys.TEMPERATURE_UNIT]) {
+            "CELSIUS" -> TemperatureUnit.CELSIUS
+            else -> TemperatureUnit.FAHRENHEIT
+        }
+    }
+
+    suspend fun setTemperatureUnit(unit: TemperatureUnit) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.TEMPERATURE_UNIT] = unit.name
+        }
+    }
+
     /** User-selected goals from [AllUserGoalOptions]; empty until they configure on Edit goals. */
     val selectedGoalIds: Flow<Set<String>> = context.dataStore.data.map { prefs ->
         parseGoalIdsFromStorage(prefs[Keys.SELECTED_GOAL_IDS])
@@ -105,6 +126,31 @@ class UserPreferences(private val context: Context) {
     suspend fun setSelectedGoalIds(ids: Set<String>) {
         context.dataStore.edit { prefs ->
             prefs[Keys.SELECTED_GOAL_IDS] = encodeGoalIdsForStorage(ids)
+        }
+    }
+
+    /**
+     * When true (default), live weight workout notifications may show a bubble on API 30+.
+     * Ongoing notification remains whenever a live workout is active.
+     */
+    val workoutBubbleEnabled: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[Keys.WORKOUT_BUBBLE_ENABLED] ?: true
+    }
+
+    suspend fun setWorkoutBubbleEnabled(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.WORKOUT_BUBBLE_ENABLED] = enabled
+        }
+    }
+
+    /** User has acknowledged the foreground-service / notification disclosure for live weight workouts. */
+    val weightLiveWorkoutFgsDisclosureSeen: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[Keys.WEIGHT_LIVE_FGS_DISCLOSURE_SEEN] == true
+    }
+
+    suspend fun setWeightLiveWorkoutFgsDisclosureSeen(seen: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.WEIGHT_LIVE_FGS_DISCLOSURE_SEEN] = seen
         }
     }
 }

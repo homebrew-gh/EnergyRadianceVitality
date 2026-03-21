@@ -1,6 +1,7 @@
 @file:OptIn(ExperimentalMaterial3Api::class)
 package com.erv.app.ui.settings
 
+import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -27,6 +28,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.stringResource
+import androidx.core.app.NotificationManagerCompat
+import com.erv.app.R
 import com.erv.app.cardio.CardioDistanceUnit
 import com.erv.app.data.BodyWeightUnit
 import com.erv.app.data.ThemeMode
@@ -58,6 +62,7 @@ fun SettingsScreen(
     val bodyWeightUnit by userPreferences.bodyWeightUnit.collectAsState(initial = BodyWeightUnit.LB)
     val cardioDistanceUnit by userPreferences.cardioDistanceUnit.collectAsState(initial = CardioDistanceUnit.MILES)
     val weightTrainingLoadUnit by userPreferences.weightTrainingLoadUnit.collectAsState(initial = BodyWeightUnit.KG)
+    val workoutBubbleEnabled by userPreferences.workoutBubbleEnabled.collectAsState(initial = true)
 
     val signer = remember(keyManager, amberHost) {
         keyManager.createLocalSigner()
@@ -140,6 +145,16 @@ fun SettingsScreen(
             WeightTrainingLoadSection(
                 unit = weightTrainingLoadUnit,
                 onUnitChange = { u -> scope.launch { userPreferences.setWeightTrainingLoadUnit(u) } }
+            )
+
+            Spacer(Modifier.height(12.dp))
+
+            LiveWeightWorkoutSettingsSection(
+                workoutBubbleEnabled = workoutBubbleEnabled,
+                notificationsEnabled = NotificationManagerCompat.from(context).areNotificationsEnabled(),
+                onBubbleChange = { enabled ->
+                    scope.launch { userPreferences.setWorkoutBubbleEnabled(enabled) }
+                }
             )
 
             Spacer(Modifier.height(12.dp))
@@ -308,6 +323,70 @@ private fun BodyWeightSection(
                 onClick = { onSave(draft, draftUnit) },
                 modifier = Modifier.fillMaxWidth()
             ) { Text("Save weight") }
+        }
+    }
+}
+
+@Composable
+private fun LiveWeightWorkoutSettingsSection(
+    workoutBubbleEnabled: Boolean,
+    notificationsEnabled: Boolean,
+    onBubbleChange: (Boolean) -> Unit
+) {
+    Text(
+        stringResource(R.string.settings_live_weight_workout_title),
+        style = MaterialTheme.typography.titleMedium,
+        modifier = Modifier.padding(bottom = 8.dp)
+    )
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(
+                stringResource(R.string.settings_live_weight_workout_explanation),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                        Text(
+                            stringResource(R.string.settings_live_weight_workout_bubble_switch),
+                            style = MaterialTheme.typography.bodyLarge
+                        )
+                        Text(
+                            stringResource(R.string.settings_live_weight_workout_bubble_helper),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = workoutBubbleEnabled,
+                        onCheckedChange = onBubbleChange
+                    )
+                }
+            } else {
+                Text(
+                    stringResource(R.string.settings_live_weight_workout_bubble_unavailable),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            if (!notificationsEnabled) {
+                Text(
+                    stringResource(R.string.settings_live_weight_workout_notifications_denied),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
         }
     }
 }

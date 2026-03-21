@@ -45,6 +45,7 @@ import com.erv.app.weighttraining.WeightExerciseHistoryRow
 import com.erv.app.weighttraining.WeightLibraryState
 import com.erv.app.weighttraining.WeightRepository
 import com.erv.app.weighttraining.WeightSync
+import com.erv.app.weighttraining.WeightEquipment
 import com.erv.app.weighttraining.WeightWorkoutSession
 import com.erv.app.weighttraining.WeightWorkoutSource
 import com.erv.app.weighttraining.displayLabel
@@ -215,7 +216,13 @@ fun WeightExerciseDetailScreen(
                 }
             } else {
                 items(history, key = { "${it.logDate}_${it.workout.id}_${it.entry.exerciseId}" }) { row ->
-                    ExerciseHistoryCard(row = row, loadUnit = loadUnit, loadSuffix = loadSuffix)
+                    val addedLoad = library.exerciseById(row.entry.exerciseId)?.equipment == WeightEquipment.OTHER
+                    ExerciseHistoryCard(
+                        row = row,
+                        loadUnit = loadUnit,
+                        loadSuffix = loadSuffix,
+                        weightIsAddedLoad = addedLoad
+                    )
                 }
             }
         }
@@ -267,7 +274,8 @@ fun WeightExerciseDetailScreen(
 private fun ExerciseHistoryCard(
     row: WeightExerciseHistoryRow,
     loadUnit: BodyWeightUnit,
-    loadSuffix: String
+    loadSuffix: String,
+    weightIsAddedLoad: Boolean
 ) {
     val dateStr = row.logDate.format(DateTimeFormatter.ISO_LOCAL_DATE)
     val src = when (row.workout.source) {
@@ -301,7 +309,7 @@ private fun ExerciseHistoryCard(
             )
             row.entry.sets.forEachIndexed { idx, set ->
                 Text(
-                    formatSetSummaryLine(set, idx + 1, loadUnit, loadSuffix),
+                    formatSetSummaryLine(set, idx + 1, loadUnit, loadSuffix, weightIsAddedLoad),
                     style = MaterialTheme.typography.bodyMedium
                 )
             }

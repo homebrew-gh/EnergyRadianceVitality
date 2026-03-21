@@ -36,9 +36,8 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.SmallFloatingActionButton
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -98,8 +97,6 @@ import java.time.format.DateTimeFormatter
 import java.util.UUID
 import kotlinx.coroutines.launch
 
-private val WeightTrainingFabBarInset = 96.dp
-
 private enum class WeightTrainingTab { Exercises, Routines }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -129,6 +126,11 @@ fun WeightTrainingCategoryScreen(
 
     var routineBeingEdited by remember { mutableStateOf<WeightRoutine?>(null) }
     var routinePendingDelete by remember { mutableStateOf<WeightRoutine?>(null) }
+
+    val fgsDisclosureSeen by userPreferences.weightLiveWorkoutFgsDisclosureSeen.collectAsState(initial = false)
+    var showWeightFgsDialog by remember { mutableStateOf(false) }
+    var pendingWeightBlankStart by remember { mutableStateOf(false) }
+    var pendingWeightRoutine by remember { mutableStateOf<WeightRoutine?>(null) }
 
     val darkTheme = isSystemInDarkTheme()
     val headerDark = if (darkTheme) ErvDarkTherapyRedDark else ErvLightTherapyRedDark
@@ -181,6 +183,32 @@ fun WeightTrainingCategoryScreen(
         Scaffold(
             modifier = Modifier.fillMaxSize(),
             snackbarHost = { SnackbarHost(snackbarHostState) },
+            floatingActionButton = {
+                if (liveDraft == null) {
+                    when (tabEnum) {
+                        WeightTrainingTab.Exercises -> FloatingActionButton(
+                            onClick = { showExerciseCreator = true },
+                            containerColor = MaterialTheme.colorScheme.primaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = "Add exercise")
+                        }
+                        WeightTrainingTab.Routines -> FloatingActionButton(
+                            onClick = {
+                                routineBeingEdited = WeightRoutine(
+                                    id = UUID.randomUUID().toString(),
+                                    name = "",
+                                    exerciseIds = emptyList()
+                                )
+                            },
+                            containerColor = MaterialTheme.colorScheme.primaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = "Add routine")
+                        }
+                    }
+                }
+            },
             topBar = {
                 TopAppBar(
                     title = {
@@ -199,6 +227,24 @@ fun WeightTrainingCategoryScreen(
                         }
                     },
                     actions = {
+                        if (liveDraft == null) {
+                            IconButton(onClick = {
+                                when {
+                                    !fgsDisclosureSeen -> {
+                                        pendingWeightBlankStart = true
+                                        pendingWeightRoutine = null
+                                        showWeightFgsDialog = true
+                                    }
+                                    !liveWorkoutViewModel.tryStartBlank() -> {
+                                        scope.launch {
+                                            snackbarHostState.showSnackbar("Finish or cancel your live workout first.")
+                                        }
+                                    }
+                                }
+                            }) {
+                                Icon(Icons.Default.PlayArrow, contentDescription = "Start workout")
+                            }
+                        }
                         IconButton(onClick = onOpenLog) {
                             Icon(Icons.Default.DateRange, contentDescription = "Open log")
                         }
@@ -216,7 +262,6 @@ fun WeightTrainingCategoryScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding)
-                    .padding(bottom = WeightTrainingFabBarInset)
             ) {
                 TabRow(
                     selectedTabIndex = tabEnum.ordinal,
@@ -243,58 +288,20 @@ fun WeightTrainingCategoryScreen(
                         onEdit = { routineBeingEdited = it },
                         onDeleteRequest = { routinePendingDelete = it },
                         onStartRoutine = { routine ->
-                            if (!liveWorkoutViewModel.tryStartFromRoutine(routine, state)) {
-                                scope.launch {
-                                    snackbarHostState.showSnackbar("Finish or cancel your live workout first.")
+                            when {
+                                !fgsDisclosureSeen -> {
+                                    pendingWeightRoutine = routine
+                                    pendingWeightBlankStart = false
+                                    showWeightFgsDialog = true
+                                }
+                                !liveWorkoutViewModel.tryStartFromRoutine(routine, state) -> {
+                                    scope.launch {
+                                        snackbarHostState.showSnackbar("Finish or cancel your live workout first.")
+                                    }
                                 }
                             }
                         }
                     )
-                }
-            }
-        }
-
-        if (liveDraft == null) {
-            Row(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Bottom
-            ) {
-                ExtendedFloatingActionButton(
-                    onClick = {
-                        if (!liveWorkoutViewModel.tryStartBlank()) {
-                            scope.launch {
-                                snackbarHostState.showSnackbar("Finish or cancel your live workout first.")
-                            }
-                        }
-                    },
-                    icon = { Icon(Icons.Default.PlayArrow, contentDescription = null) },
-                    text = { Text("Start workout") }
-                )
-                when (tabEnum) {
-                    WeightTrainingTab.Exercises -> {
-                        SmallFloatingActionButton(
-                            onClick = { showExerciseCreator = true }
-                        ) {
-                            Icon(Icons.Default.Add, contentDescription = "Add exercise")
-                        }
-                    }
-                    WeightTrainingTab.Routines -> {
-                        ExtendedFloatingActionButton(
-                            onClick = {
-                                routineBeingEdited = WeightRoutine(
-                                    id = UUID.randomUUID().toString(),
-                                    name = "",
-                                    exerciseIds = emptyList()
-                                )
-                            },
-                            icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                            text = { Text("Add routine") }
-                        )
-                    }
                 }
             }
         }
@@ -324,6 +331,37 @@ fun WeightTrainingCategoryScreen(
             )
         }
     }
+
+    WeightLiveWorkoutFgsDisclosureDialog(
+        visible = showWeightFgsDialog,
+        onDismiss = {
+            showWeightFgsDialog = false
+            pendingWeightBlankStart = false
+            pendingWeightRoutine = null
+        },
+        onContinue = {
+            scope.launch {
+                userPreferences.setWeightLiveWorkoutFgsDisclosureSeen(true)
+                showWeightFgsDialog = false
+                val blank = pendingWeightBlankStart
+                val pendingRoutine = pendingWeightRoutine
+                pendingWeightBlankStart = false
+                pendingWeightRoutine = null
+                when {
+                    blank -> {
+                        if (!liveWorkoutViewModel.tryStartBlank()) {
+                            snackbarHostState.showSnackbar("Finish or cancel your live workout first.")
+                        }
+                    }
+                    pendingRoutine != null -> {
+                        if (!liveWorkoutViewModel.tryStartFromRoutine(pendingRoutine, state)) {
+                            snackbarHostState.showSnackbar("Finish or cancel your live workout first.")
+                        }
+                    }
+                }
+            }
+        }
+    )
 
     routinePendingDelete?.let { r ->
         AlertDialog(
@@ -449,7 +487,7 @@ private fun ExercisesTabBody(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        "No exercises yet. Add one with the button below.",
+                        "No exercises yet.",
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -558,7 +596,7 @@ private fun RoutinesTabBody(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
-                "No routines yet. Build a template with the button below.",
+                "No routines yet.",
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

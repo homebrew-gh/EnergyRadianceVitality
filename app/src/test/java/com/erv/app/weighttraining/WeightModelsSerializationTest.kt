@@ -94,6 +94,8 @@ class WeightModelsSerializationTest {
         assertTrue(catalog.any { it.id == "erv-weight-exercise-bw-chinup-v1" })
         assertTrue(catalog.any { it.id == "erv-weight-exercise-bw-dip-v1" })
         assertTrue(catalog.any { it.id == "erv-weight-exercise-bb-ezbar-curl-v1" })
+        assertTrue(catalog.any { it.id == "erv-weight-exercise-bw-hanging-leg-raise-v1" })
+        assertTrue(catalog.any { it.id == "erv-weight-exercise-bw-ab-wheel-rollout-v1" })
     }
 
     @Test

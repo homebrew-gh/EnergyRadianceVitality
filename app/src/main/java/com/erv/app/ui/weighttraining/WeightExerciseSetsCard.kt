@@ -30,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.erv.app.data.BodyWeightUnit
+import com.erv.app.weighttraining.WeightEquipment
 import com.erv.app.weighttraining.WeightSet
 import com.erv.app.weighttraining.WeightWorkoutDraft
 import com.erv.app.weighttraining.formatWeightLoadNumber
@@ -62,11 +63,15 @@ internal fun formatSetSummaryLine(
     set: WeightSet,
     setNumber: Int,
     loadUnit: BodyWeightUnit,
-    loadSuffix: String
+    loadSuffix: String,
+    /** When true (e.g. bodyweight / station exercises), weight is shown as added load. */
+    weightIsAddedLoad: Boolean = false
 ): String {
     val repsPart = if (set.reps > 0) "${set.reps} reps" else "— reps"
     val weightPart = set.weightKg?.let { w ->
-        " @ ${formatWeightLoadNumber(w, loadUnit)} $loadSuffix"
+        val num = formatWeightLoadNumber(w, loadUnit)
+        if (weightIsAddedLoad) " @ +$num $loadSuffix"
+        else " @ $num $loadSuffix"
     }.orEmpty()
     val rpePart = set.rpe?.let { " · RPE ${formatRpeFieldForSets(it)}" }.orEmpty()
     return "Set $setNumber: $repsPart$weightPart$rpePart"
@@ -80,6 +85,8 @@ fun <T> List<T>.replaceAt(index: Int, value: T): List<T> =
 fun WeightExerciseInlineSetsCard(
     exerciseName: String,
     equipmentLabel: String?,
+    /** Used to label the weight column as added load for bodyweight-style exercises (`OTHER`). */
+    equipment: WeightEquipment? = null,
     sets: List<WeightSet>,
     loadUnit: BodyWeightUnit,
     onSetsChange: (List<WeightSet>) -> Unit,
@@ -95,6 +102,8 @@ fun WeightExerciseInlineSetsCard(
     onRecentWorkouts: (() -> Unit)? = null
 ) {
     val loadSuffix = weightLoadUnitSuffix(loadUnit)
+    val weightIsAddedLoad = equipment == WeightEquipment.OTHER
+    val weightColumnLabel = if (weightIsAddedLoad) "Added ($loadSuffix)" else loadSuffix
     val canCollapseSets = onCollapseSets != null && onExpandSets != null
     Card(
         colors = CardDefaults.cardColors(
@@ -176,7 +185,7 @@ fun WeightExerciseInlineSetsCard(
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     sets.forEachIndexed { idx, set ->
                         Text(
-                            formatSetSummaryLine(set, idx + 1, loadUnit, loadSuffix),
+                            formatSetSummaryLine(set, idx + 1, loadUnit, loadSuffix, weightIsAddedLoad),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurface
                         )
@@ -210,7 +219,7 @@ fun WeightExerciseInlineSetsCard(
                                     )
                                 )
                             },
-                            label = { Text(loadSuffix) },
+                            label = { Text(weightColumnLabel) },
                             singleLine = true,
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                             modifier = Modifier.weight(1f)
