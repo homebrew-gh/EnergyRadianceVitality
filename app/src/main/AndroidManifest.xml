@@ -3,6 +3,9 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- Live workout is not Health Connect / activity recognition; use specialUse (required subtype on API 34+). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
 
@@ -32,12 +35,29 @@
         android:theme="@style/Theme.ERV">
         <activity
             android:name=".MainActivity"
-            android:exported="true">
+            android:exported="true"
+            android:launchMode="singleTop">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".ui.weighttraining.WeightWorkoutBubbleActivity"
+            android:exported="false"
+            android:theme="@style/Theme.ERV.Bubble"
+            android:resizeableActivity="true"
+            android:allowEmbedded="true" />
+
+        <service
+            android:name=".weighttraining.WeightLiveWorkoutForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Ongoing weight-training session: timer, notification, and optional bubble to return to the live workout screen." />
+        </service>
         <receiver
             android:name=".reminders.RoutineReminderReceiver"
             android:exported="false" />
