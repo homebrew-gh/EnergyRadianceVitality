@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -13,6 +14,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -88,7 +90,9 @@ fun WeightExerciseInlineSetsCard(
     onRemoveExercise: () -> Unit,
     setsCollapsed: Boolean = false,
     onCollapseSets: (() -> Unit)? = null,
-    onExpandSets: (() -> Unit)? = null
+    onExpandSets: (() -> Unit)? = null,
+    /** When set, shows a control to open recent logged sessions for this exercise (e.g. live workout reference). */
+    onRecentWorkouts: (() -> Unit)? = null
 ) {
     val loadSuffix = weightLoadUnitSuffix(loadUnit)
     val canCollapseSets = onCollapseSets != null && onExpandSets != null
@@ -128,6 +132,19 @@ fun WeightExerciseInlineSetsCard(
                     }
                     IconButton(onClick = onRemoveExercise) {
                         Icon(Icons.Default.Close, contentDescription = "Remove exercise")
+                    }
+                }
+            }
+            if (onRecentWorkouts != null) {
+                TextButton(onClick = onRecentWorkouts) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Default.History,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text("Recent workouts")
                     }
                 }
             }

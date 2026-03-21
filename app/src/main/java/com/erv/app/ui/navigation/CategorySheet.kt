@@ -35,7 +35,8 @@ fun CategorySheet(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp)
-            .padding(bottom = 16.dp)
+            // Space below the MENU bar so tile tops don’t show in the collapsed peek.
+            .padding(top = 24.dp, bottom = 16.dp)
     ) {
         // 2 rows x 4 columns
         for (row in 0..1) {

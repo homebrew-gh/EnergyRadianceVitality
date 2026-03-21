@@ -77,6 +77,7 @@ fun WeightLiveWorkoutScreen(
     var setsCollapsedIds by remember(draft.startedAtEpochSeconds) {
         mutableStateOf(emptySet<String>())
     }
+    var recentWorkoutsExerciseId by remember { mutableStateOf<String?>(null) }
 
     val darkTheme = isSystemInDarkTheme()
     val headerMid = if (darkTheme) ErvDarkTherapyRedMid else ErvLightTherapyRedMid
@@ -110,6 +111,17 @@ fun WeightLiveWorkoutScreen(
             dismissButton = {
                 TextButton(onClick = { showCancelConfirm = false }) { Text("Keep going") }
             }
+        )
+    }
+
+    recentWorkoutsExerciseId?.let { id ->
+        val name = library.exerciseById(id)?.name ?: id
+        WeightExerciseRecentWorkoutsDialog(
+            exerciseId = id,
+            exerciseName = name,
+            library = library,
+            loadUnit = loadUnit,
+            onDismiss = { recentWorkoutsExerciseId = null }
         )
     }
 
@@ -235,7 +247,8 @@ fun WeightLiveWorkoutScreen(
                                 },
                                 onExpandSets = {
                                     setsCollapsedIds = setsCollapsedIds - exerciseId
-                                }
+                                },
+                                onRecentWorkouts = { recentWorkoutsExerciseId = exerciseId }
                             )
                         }
                     }

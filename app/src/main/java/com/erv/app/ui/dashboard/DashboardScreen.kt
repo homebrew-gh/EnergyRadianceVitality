@@ -199,7 +199,9 @@ fun DashboardScreen(
 
     val scaffoldState = rememberBottomSheetScaffoldState(
         bottomSheetState = rememberStandardBottomSheetState(
-            initialValue = SheetValue.PartiallyExpanded
+            initialValue = SheetValue.PartiallyExpanded,
+            confirmValueChange = { newValue -> newValue != SheetValue.Hidden },
+            skipHiddenState = true,
         )
     )
 
@@ -245,7 +247,10 @@ fun DashboardScreen(
     BottomSheetScaffold(
         scaffoldState = scaffoldState,
         snackbarHost = { SnackbarHost(snackbarHostState) },
-        sheetPeekHeight = 56.dp,
+        sheetPeekHeight = 72.dp,
+        sheetContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+        sheetTonalElevation = 2.dp,
+        sheetShadowElevation = 6.dp,
         sheetContent = {
             CategorySheet(
                 onCategoryClick = { category ->
@@ -257,17 +262,30 @@ fun DashboardScreen(
             )
         },
         sheetDragHandle = {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 8.dp),
-                contentAlignment = Alignment.Center
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                tonalElevation = 2.dp,
+                shadowElevation = 0.dp,
             ) {
-                Text(
-                    text = stringResource(R.string.dashboard_categories_menu),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                Column {
+                    HorizontalDivider(
+                        thickness = 1.dp,
+                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.45f)
+                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 12.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = stringResource(R.string.dashboard_categories_menu),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                }
             }
         },
         topBar = {

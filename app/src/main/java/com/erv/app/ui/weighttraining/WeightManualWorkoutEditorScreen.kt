@@ -71,6 +71,7 @@ fun WeightManualWorkoutEditorScreen(
     var showPickExercise by remember { mutableStateOf(false) }
     var showNothingLogged by remember { mutableStateOf(false) }
     var setsCollapsedIds by remember(sessionKey) { mutableStateOf(emptySet<String>()) }
+    var recentWorkoutsExerciseId by remember { mutableStateOf<String?>(null) }
 
     if (showPickExercise) {
         WeightPickExerciseDialog(
@@ -97,6 +98,17 @@ fun WeightManualWorkoutEditorScreen(
             confirmButton = {
                 TextButton(onClick = { showNothingLogged = false }) { Text("OK") }
             }
+        )
+    }
+
+    recentWorkoutsExerciseId?.let { id ->
+        val name = library.exerciseById(id)?.name ?: id
+        WeightExerciseRecentWorkoutsDialog(
+            exerciseId = id,
+            exerciseName = name,
+            library = library,
+            loadUnit = loadUnit,
+            onDismiss = { recentWorkoutsExerciseId = null }
         )
     }
 
@@ -227,7 +239,8 @@ fun WeightManualWorkoutEditorScreen(
                                 },
                                 onExpandSets = {
                                     setsCollapsedIds = setsCollapsedIds - exerciseId
-                                }
+                                },
+                                onRecentWorkouts = { recentWorkoutsExerciseId = exerciseId }
                             )
                         }
                     }
