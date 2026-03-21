@@ -89,6 +89,7 @@ import com.erv.app.nostr.EventSigner
 import com.erv.app.nostr.RelayPool
 import com.erv.app.ui.dashboard.CalendarPopup
 import com.erv.app.ui.dashboard.DateNavigator
+import com.erv.app.ui.dashboard.datesWithHeatColdActivity
 import com.erv.app.ui.theme.ErvColdDark
 import com.erv.app.ui.theme.ErvColdGlow
 import com.erv.app.ui.theme.ErvColdMid
@@ -700,6 +701,7 @@ fun HeatColdLogScreen(
     var pendingDelete by remember { mutableStateOf<Pair<HeatColdMode, HeatColdSession>?>(null) }
     val saunaEntries = remember(state, selectedDate) { state.chronologicalSaunaLogFor(selectedDate) }
     val coldEntries = remember(state, selectedDate) { state.chronologicalColdLogFor(selectedDate) }
+    val datesWithActivity = remember(state) { datesWithHeatColdActivity(state) }
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     val darkTheme = isSystemInDarkTheme()
@@ -830,7 +832,8 @@ fun HeatColdLogScreen(
         CalendarPopup(
             selectedDate = selectedDate,
             onDateSelected = { selectedDate = it; showCalendar = false },
-            onDismiss = { showCalendar = false }
+            onDismiss = { showCalendar = false },
+            datesWithActivity = datesWithActivity
         )
     }
 }

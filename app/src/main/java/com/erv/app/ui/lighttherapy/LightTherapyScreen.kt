@@ -55,6 +55,7 @@ import com.erv.app.reminders.toReminder
 import com.erv.app.ui.reminders.RoutineReminderFormSection
 import com.erv.app.ui.dashboard.CalendarPopup
 import com.erv.app.ui.dashboard.DateNavigator
+import com.erv.app.ui.dashboard.datesWithLightActivity
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
@@ -619,6 +620,7 @@ fun LightLogScreen(
     var showCalendar by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<LightSession?>(null) }
     val entries = remember(state, selectedDate) { state.chronologicalLightLogFor(selectedDate) }
+    val datesWithActivity = remember(state) { datesWithLightActivity(state) }
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     val darkTheme = isSystemInDarkTheme()
@@ -694,7 +696,8 @@ fun LightLogScreen(
         CalendarPopup(
             selectedDate = selectedDate,
             onDateSelected = { selectedDate = it; showCalendar = false },
-            onDismiss = { showCalendar = false }
+            onDismiss = { showCalendar = false },
+            datesWithActivity = datesWithActivity
         )
     }
 }

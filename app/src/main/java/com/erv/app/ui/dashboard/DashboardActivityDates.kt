@@ -38,3 +38,43 @@ fun datesWithActivityLogged(
         if (log.sessions.isNotEmpty()) runCatching { add(LocalDate.parse(log.date)) }
     }
 }
+
+/** Dates with at least one supplement log entry (routine or ad hoc). */
+fun datesWithSupplementActivity(state: SupplementLibraryState): Set<LocalDate> = buildSet {
+    state.logs.forEach { log ->
+        if (log.routineRuns.isNotEmpty() || log.adHocIntakes.isNotEmpty()) {
+            runCatching { add(LocalDate.parse(log.date)) }
+        }
+    }
+}
+
+/** Dates with at least one light therapy session logged. */
+fun datesWithLightActivity(state: LightLibraryState): Set<LocalDate> = buildSet {
+    state.logs.forEach { log ->
+        if (log.sessions.isNotEmpty()) runCatching { add(LocalDate.parse(log.date)) }
+    }
+}
+
+/** Dates with at least one cardio session logged. */
+fun datesWithCardioActivity(state: CardioLibraryState): Set<LocalDate> = buildSet {
+    state.logs.forEach { log ->
+        if (log.sessions.isNotEmpty()) runCatching { add(LocalDate.parse(log.date)) }
+    }
+}
+
+/** Dates with at least one weight training workout logged. */
+fun datesWithWeightActivity(state: WeightLibraryState): Set<LocalDate> = buildSet {
+    state.logs.forEach { log ->
+        if (log.workouts.isNotEmpty()) runCatching { add(LocalDate.parse(log.date)) }
+    }
+}
+
+/** Dates with at least one sauna or cold plunge session logged. */
+fun datesWithHeatColdActivity(state: HeatColdLibraryState): Set<LocalDate> = buildSet {
+    state.saunaLogs.forEach { log ->
+        if (log.sessions.isNotEmpty()) runCatching { add(LocalDate.parse(log.date)) }
+    }
+    state.coldLogs.forEach { log ->
+        if (log.sessions.isNotEmpty()) runCatching { add(LocalDate.parse(log.date)) }
+    }
+}

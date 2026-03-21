@@ -38,6 +38,7 @@ import com.erv.app.nostr.EventSigner
 import com.erv.app.nostr.RelayPool
 import com.erv.app.ui.dashboard.CalendarPopup
 import com.erv.app.ui.dashboard.DateNavigator
+import com.erv.app.ui.dashboard.datesWithWeightActivity
 import com.erv.app.ui.theme.ErvDarkTherapyRedMid
 import com.erv.app.ui.theme.ErvLightTherapyRedMid
 import com.erv.app.weighttraining.WeightLibraryState
@@ -70,6 +71,7 @@ fun WeightTrainingLogScreen(
 ) {
     val loadUnit by userPreferences.weightTrainingLoadUnit.collectAsState(initial = BodyWeightUnit.LB)
     val state by repository.state.collectAsState(initial = WeightLibraryState())
+    val datesWithActivity = remember(state) { datesWithWeightActivity(state) }
     var selectedDate by remember(initialSelectedDate) {
         mutableStateOf(initialSelectedDate ?: LocalDate.now())
     }
@@ -247,7 +249,8 @@ fun WeightTrainingLogScreen(
         CalendarPopup(
             selectedDate = selectedDate,
             onDateSelected = { selectedDate = it; showCal = false },
-            onDismiss = { showCal = false }
+            onDismiss = { showCal = false },
+            datesWithActivity = datesWithActivity
         )
     }
 }

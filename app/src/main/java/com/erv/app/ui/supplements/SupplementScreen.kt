@@ -60,6 +60,7 @@ import com.erv.app.supplements.SupplementSync
 import com.erv.app.supplements.chronologicalSupplementLogFor
 import com.erv.app.ui.dashboard.CalendarPopup
 import com.erv.app.ui.dashboard.DateNavigator
+import com.erv.app.ui.dashboard.datesWithSupplementActivity
 import com.erv.app.ui.theme.ErvDarkTherapyRedMid
 import com.erv.app.ui.theme.ErvLightTherapyRedMid
 import kotlinx.coroutines.launch
@@ -552,6 +553,7 @@ fun SupplementLogScreen(
     var selectedDate by remember { mutableStateOf(LocalDate.now()) }
     var showCalendar by remember { mutableStateOf(false) }
     val entries = remember(state, selectedDate) { state.chronologicalSupplementLogFor(selectedDate) }
+    val datesWithActivity = remember(state) { datesWithSupplementActivity(state) }
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     val darkTheme = isSystemInDarkTheme()
@@ -674,7 +676,8 @@ fun SupplementLogScreen(
                 selectedDate = it
                 showCalendar = false
             },
-            onDismiss = { showCalendar = false }
+            onDismiss = { showCalendar = false },
+            datesWithActivity = datesWithActivity
         )
     }
 }
