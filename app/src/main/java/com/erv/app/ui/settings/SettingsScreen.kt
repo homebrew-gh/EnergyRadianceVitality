@@ -387,6 +387,13 @@ private fun LiveWeightWorkoutSettingsSection(
                     color = MaterialTheme.colorScheme.error
                 )
             }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                Text(
+                    stringResource(R.string.settings_live_weight_system_bubbles_hint),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
     }
 }

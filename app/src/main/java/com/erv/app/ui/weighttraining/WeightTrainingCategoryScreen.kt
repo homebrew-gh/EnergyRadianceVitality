@@ -46,6 +46,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Tab
@@ -93,7 +94,6 @@ import com.erv.app.weighttraining.exerciseIdsUsedInAnyLog
 import com.erv.app.weighttraining.exercisesGroupedByMuscle
 import com.erv.app.weighttraining.formatMuscleGroupHeader
 import java.time.LocalDate
-import java.time.format.DateTimeFormatter
 import java.util.UUID
 import kotlinx.coroutines.launch
 
@@ -102,7 +102,6 @@ private enum class WeightTrainingTab { Exercises, Routines }
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WeightTrainingCategoryScreen(
-    selectedDate: LocalDate,
     repository: WeightRepository,
     liveWorkoutViewModel: WeightLiveWorkoutViewModel,
     userPreferences: UserPreferences,
@@ -115,8 +114,8 @@ fun WeightTrainingCategoryScreen(
 ) {
     val loadUnit by userPreferences.weightTrainingLoadUnit.collectAsState(initial = BodyWeightUnit.KG)
     val liveDraft by liveWorkoutViewModel.activeDraft.collectAsState()
+    val liveWorkoutUiExpanded by liveWorkoutViewModel.liveWorkoutUiExpanded.collectAsState()
     val state by repository.state.collectAsState(initial = WeightLibraryState())
-    val dateLabel = selectedDate.format(DateTimeFormatter.ISO_LOCAL_DATE)
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     var activeTab by rememberSaveable { mutableStateOf(WeightTrainingTab.Exercises.name) }
@@ -174,6 +173,13 @@ fun WeightTrainingCategoryScreen(
             signer = signer,
             repository = repository,
             onAfterRoutineSync = { scope.launch { pushMasters() } },
+            onRemoveFromLog = {
+                scope.launch {
+                    repository.deleteWorkout(LocalDate.now(), summarySession.id)
+                    pushDayLog(LocalDate.now())
+                    completedSessionForSummary = null
+                }
+            },
             onDone = { completedSessionForSummary = null }
         )
         return
@@ -211,16 +217,7 @@ fun WeightTrainingCategoryScreen(
             },
             topBar = {
                 TopAppBar(
-                    title = {
-                        Column {
-                            Text("Weight Training")
-                            Text(
-                                text = dateLabel,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = Color.White.copy(alpha = 0.85f)
-                            )
-                        }
-                    },
+                    title = { Text("Weight Training") },
                     navigationIcon = {
                         IconButton(onClick = onBack) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -263,6 +260,12 @@ fun WeightTrainingCategoryScreen(
                     .fillMaxSize()
                     .padding(padding)
             ) {
+                if (liveDraft != null && !liveWorkoutUiExpanded) {
+                    LiveWorkoutInProgressBanner(
+                        onClick = { liveWorkoutViewModel.setLiveWorkoutUiExpanded(true) },
+                        modifier = Modifier.padding(bottom = 4.dp)
+                    )
+                }
                 TabRow(
                     selectedTabIndex = tabEnum.ordinal,
                     containerColor = headerDark,
@@ -306,13 +309,28 @@ fun WeightTrainingCategoryScreen(
             }
         }
 
-        liveDraft?.let { d ->
+        val expandedDraft = liveDraft
+        if (expandedDraft != null && liveWorkoutUiExpanded) {
             WeightLiveWorkoutScreen(
                 modifier = Modifier.fillMaxSize(),
-                draft = d,
+                draft = expandedDraft,
                 library = state,
                 loadUnit = loadUnit,
-                onCancel = { liveWorkoutViewModel.clearDraft() },
+                onLeaveWorkoutUi = {
+                    val draft = liveWorkoutViewModel.activeDraft.value
+                    if (draft != null) {
+                        val noExercises = draft.exerciseOrder.isEmpty()
+                        val noLoggedSets = draft.setsByExerciseId.values.all { rows ->
+                            rows.isEmpty() || rows.all { it.reps <= 0 }
+                        }
+                        if (noExercises && noLoggedSets) {
+                            liveWorkoutViewModel.clearDraft()
+                        } else {
+                            liveWorkoutViewModel.setLiveWorkoutUiExpanded(false)
+                        }
+                    }
+                },
+                onDiscardWorkout = { liveWorkoutViewModel.clearDraft() },
                 onFinish = {
                     scope.launch {
                         val current = liveWorkoutViewModel.activeDraft.value ?: return@launch

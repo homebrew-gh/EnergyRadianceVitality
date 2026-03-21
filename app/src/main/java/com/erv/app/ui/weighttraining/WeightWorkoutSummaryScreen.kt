@@ -146,6 +146,8 @@ fun WeightWorkoutSummaryFullScreen(
     signer: EventSigner?,
     repository: WeightRepository,
     onAfterRoutineSync: () -> Unit,
+    /** Remove this session from [logDate] and close (e.g. user regrets saving). */
+    onRemoveFromLog: (() -> Unit)? = null,
     onDone: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
@@ -154,6 +156,7 @@ fun WeightWorkoutSummaryFullScreen(
     var shared by remember { mutableStateOf(false) }
     var showRoutineConfirm by remember { mutableStateOf(false) }
     var routineUpdating by remember { mutableStateOf(false) }
+    var showDiscardLogConfirm by remember { mutableStateOf(false) }
 
     val routineToUpdate: WeightRoutine? = remember(session.routineId, library.routines) {
         session.routineId?.let { rid -> library.routines.firstOrNull { it.id == rid } }
@@ -278,6 +281,16 @@ fun WeightWorkoutSummaryFullScreen(
                     )
                 }
             }
+            if (onRemoveFromLog != null) {
+                OutlinedButton(
+                    onClick = { showDiscardLogConfirm = true },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White.copy(alpha = 0.9f)),
+                    border = ButtonDefaults.outlinedButtonBorder.copy(brush = SolidColor(Color.White.copy(alpha = 0.6f)))
+                ) {
+                    Text("Discard workout (remove from log)")
+                }
+            }
             Button(
                 onClick = onDone,
                 modifier = Modifier.fillMaxWidth(),
@@ -289,6 +302,31 @@ fun WeightWorkoutSummaryFullScreen(
         SnackbarHost(
             hostState = snackbarHostState,
             modifier = Modifier.align(Alignment.BottomCenter)
+        )
+    }
+
+    val removeFromLogCallback = onRemoveFromLog
+    if (showDiscardLogConfirm && removeFromLogCallback != null) {
+        AlertDialog(
+            onDismissRequest = { showDiscardLogConfirm = false },
+            title = { Text("Remove from log?") },
+            text = {
+                Text(
+                    "This workout will be removed from ${logDate.format(DateTimeFormatter.ISO_LOCAL_DATE)}. " +
+                        "It will not stay in your history or sync as a saved session."
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDiscardLogConfirm = false
+                        removeFromLogCallback()
+                    }
+                ) { Text("Remove") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDiscardLogConfirm = false }) { Text("Cancel") }
+            }
         )
     }
 

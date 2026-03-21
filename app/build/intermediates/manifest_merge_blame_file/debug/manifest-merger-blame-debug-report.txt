@@ -17,216 +17,224 @@
 13    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
 13-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:6:5-77
 13-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:6:22-74
-14    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_HEALTH" />
-14-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:7:5-84
-14-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:7:22-81
-15    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-15-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:8:5-81
-15-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:8:22-78
-16    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
-16-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:9:5-79
-16-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:9:22-76
-17
-18    <!-- Package visibility (API 30+): intents we need to resolve -->
-19    <queries>
-19-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:12:5-26:15
-20        <intent>
-20-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:13:9-16:18
-21            <action android:name="android.intent.action.VIEW" />
-21-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:14:13-65
-21-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:14:21-62
-22
-23            <data android:scheme="nostrsigner" />
-23-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:15:13-50
-23-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:15:19-47
-24        </intent>
-25        <!-- Browsers for https/http links (e.g. MET compendium from in-app links) -->
-26        <intent>
-26-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:18:9-21:18
-27            <action android:name="android.intent.action.VIEW" />
-27-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:14:13-65
-27-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:14:21-62
-28
-29            <data android:scheme="https" />
-29-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:15:13-50
-29-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:15:19-47
-30        </intent>
-31        <intent>
-31-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:22:9-25:18
-32            <action android:name="android.intent.action.VIEW" />
-32-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:14:13-65
-32-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:14:21-62
-33
-34            <data android:scheme="http" />
-34-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:15:13-50
-34-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:15:19-47
-35        </intent>
-36    </queries>
-37
-38    <permission
-38-->[androidx.core:core:1.12.0] /home/samcornwell/.gradle/caches/transforms-3/f23e95a0fb0ac81f840512f02915cc80/transformed/core-1.12.0/AndroidManifest.xml:22:5-24:47
-39        android:name="com.erv.app.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
-39-->[androidx.core:core:1.12.0] /home/samcornwell/.gradle/caches/transforms-3/f23e95a0fb0ac81f840512f02915cc80/transformed/core-1.12.0/AndroidManifest.xml:23:9-81
-40        android:protectionLevel="signature" />
-40-->[androidx.core:core:1.12.0] /home/samcornwell/.gradle/caches/transforms-3/f23e95a0fb0ac81f840512f02915cc80/transformed/core-1.12.0/AndroidManifest.xml:24:9-44
-41
-42    <uses-permission android:name="com.erv.app.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION" />
-42-->[androidx.core:core:1.12.0] /home/samcornwell/.gradle/caches/transforms-3/f23e95a0fb0ac81f840512f02915cc80/transformed/core-1.12.0/AndroidManifest.xml:26:5-97
-42-->[androidx.core:core:1.12.0] /home/samcornwell/.gradle/caches/transforms-3/f23e95a0fb0ac81f840512f02915cc80/transformed/core-1.12.0/AndroidManifest.xml:26:22-94
-43
-44    <application
-44-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:28:5-69:19
-45        android:allowBackup="true"
-45-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:29:9-35
-46        android:appComponentFactory="androidx.core.app.CoreComponentFactory"
-46-->[androidx.core:core:1.12.0] /home/samcornwell/.gradle/caches/transforms-3/f23e95a0fb0ac81f840512f02915cc80/transformed/core-1.12.0/AndroidManifest.xml:28:18-86
-47        android:debuggable="true"
-48        android:extractNativeLibs="false"
-49        android:icon="@drawable/ic_launcher"
-49-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:30:9-45
-50        android:label="@string/app_name"
-50-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:31:9-41
-51        android:roundIcon="@drawable/ic_launcher"
-51-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:32:9-50
-52        android:supportsRtl="true"
-52-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:33:9-35
-53        android:theme="@style/Theme.ERV" >
-53-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:34:9-41
-54        <activity
-54-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:35:9-43:20
-55            android:name="com.erv.app.MainActivity"
-55-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:36:13-41
-56            android:exported="true"
-56-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:37:13-36
-57            android:launchMode="singleTop" >
-57-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:38:13-43
-58            <intent-filter>
-58-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:39:13-42:29
-59                <action android:name="android.intent.action.MAIN" />
-59-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:40:17-69
-59-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:40:25-66
-60
-61                <category android:name="android.intent.category.LAUNCHER" />
-61-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:41:17-77
-61-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:41:27-74
-62            </intent-filter>
-63        </activity>
-64        <activity
-64-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:45:9-50:44
-65            android:name="com.erv.app.ui.weighttraining.WeightWorkoutBubbleActivity"
-65-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:46:13-74
-66            android:allowEmbedded="true"
-66-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:50:13-41
-67            android:exported="false"
-67-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:47:13-37
-68            android:resizeableActivity="true"
-68-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:49:13-46
-69            android:theme="@style/Theme.ERV.Bubble" />
-69-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:48:13-52
-70
-71        <service
-71-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:52:9-55:54
-72            android:name="com.erv.app.weighttraining.WeightLiveWorkoutForegroundService"
-72-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:53:13-78
-73            android:exported="false"
-73-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:54:13-37
-74            android:foregroundServiceType="health" />
-74-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:55:13-51
-75
-76        <receiver
-76-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:56:9-58:40
-77            android:name="com.erv.app.reminders.RoutineReminderReceiver"
-77-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:57:13-62
-78            android:exported="false" />
-78-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:58:13-37
-79        <receiver
-79-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:59:9-68:20
-80            android:name="com.erv.app.reminders.RoutineReminderBootReceiver"
-80-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:60:13-66
-81            android:exported="true" >
-81-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:61:13-36
-82            <intent-filter>
-82-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:62:13-67:29
-83                <action android:name="android.intent.action.BOOT_COMPLETED" />
-83-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:63:17-79
-83-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:63:25-76
-84                <action android:name="android.intent.action.TIME_SET" />
-84-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:64:17-73
-84-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:64:25-70
-85                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
-85-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:65:17-81
-85-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:65:25-78
-86                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
-86-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:66:17-84
-86-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:66:25-81
-87            </intent-filter>
-88        </receiver>
-89
-90        <provider
-90-->[androidx.emoji2:emoji2:1.3.0] /home/samcornwell/.gradle/caches/transforms-3/60898bbd25a401f3b4fd1affe975fb0e/transformed/emoji2-1.3.0/AndroidManifest.xml:24:9-32:20
-91            android:name="androidx.startup.InitializationProvider"
-91-->[androidx.emoji2:emoji2:1.3.0] /home/samcornwell/.gradle/caches/transforms-3/60898bbd25a401f3b4fd1affe975fb0e/transformed/emoji2-1.3.0/AndroidManifest.xml:25:13-67
-92            android:authorities="com.erv.app.androidx-startup"
-92-->[androidx.emoji2:emoji2:1.3.0] /home/samcornwell/.gradle/caches/transforms-3/60898bbd25a401f3b4fd1affe975fb0e/transformed/emoji2-1.3.0/AndroidManifest.xml:26:13-68
-93            android:exported="false" >
-93-->[androidx.emoji2:emoji2:1.3.0] /home/samcornwell/.gradle/caches/transforms-3/60898bbd25a401f3b4fd1affe975fb0e/transformed/emoji2-1.3.0/AndroidManifest.xml:27:13-37
-94            <meta-data
-94-->[androidx.emoji2:emoji2:1.3.0] /home/samcornwell/.gradle/caches/transforms-3/60898bbd25a401f3b4fd1affe975fb0e/transformed/emoji2-1.3.0/AndroidManifest.xml:29:13-31:52
-95                android:name="androidx.emoji2.text.EmojiCompatInitializer"
-95-->[androidx.emoji2:emoji2:1.3.0] /home/samcornwell/.gradle/caches/transforms-3/60898bbd25a401f3b4fd1affe975fb0e/transformed/emoji2-1.3.0/AndroidManifest.xml:30:17-75
-96                android:value="androidx.startup" />
-96-->[androidx.emoji2:emoji2:1.3.0] /home/samcornwell/.gradle/caches/transforms-3/60898bbd25a401f3b4fd1affe975fb0e/transformed/emoji2-1.3.0/AndroidManifest.xml:31:17-49
-97            <meta-data
-97-->[androidx.lifecycle:lifecycle-process:2.7.0] /home/samcornwell/.gradle/caches/transforms-3/ca3c5601564d451ecfa358034bb94d3b/transformed/lifecycle-process-2.7.0/AndroidManifest.xml:29:13-31:52
-98                android:name="androidx.lifecycle.ProcessLifecycleInitializer"
-98-->[androidx.lifecycle:lifecycle-process:2.7.0] /home/samcornwell/.gradle/caches/transforms-3/ca3c5601564d451ecfa358034bb94d3b/transformed/lifecycle-process-2.7.0/AndroidManifest.xml:30:17-78
-99                android:value="androidx.startup" />
-99-->[androidx.lifecycle:lifecycle-process:2.7.0] /home/samcornwell/.gradle/caches/transforms-3/ca3c5601564d451ecfa358034bb94d3b/transformed/lifecycle-process-2.7.0/AndroidManifest.xml:31:17-49
-100            <meta-data
-100-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/samcornwell/.gradle/caches/transforms-3/76559d810210792045e76b5bcb8f11e2/transformed/profileinstaller-1.3.0/AndroidManifest.xml:29:13-31:52
-101                android:name="androidx.profileinstaller.ProfileInstallerInitializer"
-101-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/samcornwell/.gradle/caches/transforms-3/76559d810210792045e76b5bcb8f11e2/transformed/profileinstaller-1.3.0/AndroidManifest.xml:30:17-85
-102                android:value="androidx.startup" />
-102-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/samcornwell/.gradle/caches/transforms-3/76559d810210792045e76b5bcb8f11e2/transformed/profileinstaller-1.3.0/AndroidManifest.xml:31:17-49
-103        </provider>
-104
-105        <receiver
-105-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/samcornwell/.gradle/caches/transforms-3/76559d810210792045e76b5bcb8f11e2/transformed/profileinstaller-1.3.0/AndroidManifest.xml:34:9-52:20
-106            android:name="androidx.profileinstaller.ProfileInstallReceiver"
-106-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/samcornwell/.gradle/caches/transforms-3/76559d810210792045e76b5bcb8f11e2/transformed/profileinstaller-1.3.0/AndroidManifest.xml:35:13-76
-107            android:directBootAware="false"
-107-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/samcornwell/.gradle/caches/transforms-3/76559d810210792045e76b5bcb8f11e2/transformed/profileinstaller-1.3.0/AndroidManifest.xml:36:13-44
-108            android:enabled="true"
-108-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/samcornwell/.gradle/caches/transforms-3/76559d810210792045e76b5bcb8f11e2/transformed/profileinstaller-1.3.0/AndroidManifest.xml:37:13-35
-109            android:exported="true"
-109-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/samcornwell/.gradle/caches/transforms-3/76559d810210792045e76b5bcb8f11e2/transformed/profileinstaller-1.3.0/AndroidManifest.xml:38:13-36
-110            android:permission="android.permission.DUMP" >
-110-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/samcornwell/.gradle/caches/transforms-3/76559d810210792045e76b5bcb8f11e2/transformed/profileinstaller-1.3.0/AndroidManifest.xml:39:13-57
-111            <intent-filter>
-111-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/samcornwell/.gradle/caches/transforms-3/76559d810210792045e76b5bcb8f11e2/transformed/profileinstaller-1.3.0/AndroidManifest.xml:40:13-42:29
-112                <action android:name="androidx.profileinstaller.action.INSTALL_PROFILE" />
-112-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/samcornwell/.gradle/caches/transforms-3/76559d810210792045e76b5bcb8f11e2/transformed/profileinstaller-1.3.0/AndroidManifest.xml:41:17-91
-112-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/samcornwell/.gradle/caches/transforms-3/76559d810210792045e76b5bcb8f11e2/transformed/profileinstaller-1.3.0/AndroidManifest.xml:41:25-88
-113            </intent-filter>
-114            <intent-filter>
-114-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/samcornwell/.gradle/caches/transforms-3/76559d810210792045e76b5bcb8f11e2/transformed/profileinstaller-1.3.0/AndroidManifest.xml:43:13-45:29
-115                <action android:name="androidx.profileinstaller.action.SKIP_FILE" />
-115-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/samcornwell/.gradle/caches/transforms-3/76559d810210792045e76b5bcb8f11e2/transformed/profileinstaller-1.3.0/AndroidManifest.xml:44:17-85
-115-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/samcornwell/.gradle/caches/transforms-3/76559d810210792045e76b5bcb8f11e2/transformed/profileinstaller-1.3.0/AndroidManifest.xml:44:25-82
-116            </intent-filter>
-117            <intent-filter>
-117-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/samcornwell/.gradle/caches/transforms-3/76559d810210792045e76b5bcb8f11e2/transformed/profileinstaller-1.3.0/AndroidManifest.xml:46:13-48:29
-118                <action android:name="androidx.profileinstaller.action.SAVE_PROFILE" />
-118-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/samcornwell/.gradle/caches/transforms-3/76559d810210792045e76b5bcb8f11e2/transformed/profileinstaller-1.3.0/AndroidManifest.xml:47:17-88
-118-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/samcornwell/.gradle/caches/transforms-3/76559d810210792045e76b5bcb8f11e2/transformed/profileinstaller-1.3.0/AndroidManifest.xml:47:25-85
-119            </intent-filter>
-120            <intent-filter>
-120-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/samcornwell/.gradle/caches/transforms-3/76559d810210792045e76b5bcb8f11e2/transformed/profileinstaller-1.3.0/AndroidManifest.xml:49:13-51:29
-121                <action android:name="androidx.profileinstaller.action.BENCHMARK_OPERATION" />
-121-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/samcornwell/.gradle/caches/transforms-3/76559d810210792045e76b5bcb8f11e2/transformed/profileinstaller-1.3.0/AndroidManifest.xml:50:17-95
-121-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/samcornwell/.gradle/caches/transforms-3/76559d810210792045e76b5bcb8f11e2/transformed/profileinstaller-1.3.0/AndroidManifest.xml:50:25-92
-122            </intent-filter>
-123        </receiver>
-124    </application>
-125
-126</manifest>
+14    <!-- Live workout is not Health Connect / activity recognition; use specialUse (required subtype on API 34+). -->
+15    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+15-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:8:5-89
+15-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:8:22-86
+16    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+16-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:9:5-81
+16-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:9:22-78
+17    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+17-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:10:5-79
+17-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:10:22-76
+18
+19    <!-- Package visibility (API 30+): intents we need to resolve -->
+20    <queries>
+20-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:13:5-27:15
+21        <intent>
+21-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:14:9-17:18
+22            <action android:name="android.intent.action.VIEW" />
+22-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:15:13-65
+22-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:15:21-62
+23
+24            <data android:scheme="nostrsigner" />
+24-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:16:13-50
+24-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:16:19-47
+25        </intent>
+26        <!-- Browsers for https/http links (e.g. MET compendium from in-app links) -->
+27        <intent>
+27-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:19:9-22:18
+28            <action android:name="android.intent.action.VIEW" />
+28-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:15:13-65
+28-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:15:21-62
+29
+30            <data android:scheme="https" />
+30-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:16:13-50
+30-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:16:19-47
+31        </intent>
+32        <intent>
+32-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:23:9-26:18
+33            <action android:name="android.intent.action.VIEW" />
+33-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:15:13-65
+33-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:15:21-62
+34
+35            <data android:scheme="http" />
+35-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:16:13-50
+35-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:16:19-47
+36        </intent>
+37    </queries>
+38
+39    <permission
+39-->[androidx.core:core:1.12.0] /home/samcornwell/.gradle/caches/transforms-3/f23e95a0fb0ac81f840512f02915cc80/transformed/core-1.12.0/AndroidManifest.xml:22:5-24:47
+40        android:name="com.erv.app.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
+40-->[androidx.core:core:1.12.0] /home/samcornwell/.gradle/caches/transforms-3/f23e95a0fb0ac81f840512f02915cc80/transformed/core-1.12.0/AndroidManifest.xml:23:9-81
+41        android:protectionLevel="signature" />
+41-->[androidx.core:core:1.12.0] /home/samcornwell/.gradle/caches/transforms-3/f23e95a0fb0ac81f840512f02915cc80/transformed/core-1.12.0/AndroidManifest.xml:24:9-44
+42
+43    <uses-permission android:name="com.erv.app.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION" />
+43-->[androidx.core:core:1.12.0] /home/samcornwell/.gradle/caches/transforms-3/f23e95a0fb0ac81f840512f02915cc80/transformed/core-1.12.0/AndroidManifest.xml:26:5-97
+43-->[androidx.core:core:1.12.0] /home/samcornwell/.gradle/caches/transforms-3/f23e95a0fb0ac81f840512f02915cc80/transformed/core-1.12.0/AndroidManifest.xml:26:22-94
+44
+45    <application
+45-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:29:5-74:19
+46        android:allowBackup="true"
+46-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:30:9-35
+47        android:appComponentFactory="androidx.core.app.CoreComponentFactory"
+47-->[androidx.core:core:1.12.0] /home/samcornwell/.gradle/caches/transforms-3/f23e95a0fb0ac81f840512f02915cc80/transformed/core-1.12.0/AndroidManifest.xml:28:18-86
+48        android:debuggable="true"
+49        android:extractNativeLibs="false"
+50        android:icon="@drawable/ic_launcher"
+50-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:31:9-45
+51        android:label="@string/app_name"
+51-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:32:9-41
+52        android:roundIcon="@drawable/ic_launcher"
+52-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:33:9-50
+53        android:supportsRtl="true"
+53-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:34:9-35
+54        android:theme="@style/Theme.ERV" >
+54-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:35:9-41
+55        <activity
+55-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:36:9-44:20
+56            android:name="com.erv.app.MainActivity"
+56-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:37:13-41
+57            android:exported="true"
+57-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:38:13-36
+58            android:launchMode="singleTop" >
+58-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:39:13-43
+59            <intent-filter>
+59-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:40:13-43:29
+60                <action android:name="android.intent.action.MAIN" />
+60-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:41:17-69
+60-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:41:25-66
+61
+62                <category android:name="android.intent.category.LAUNCHER" />
+62-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:42:17-77
+62-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:42:27-74
+63            </intent-filter>
+64        </activity>
+65        <activity
+65-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:46:9-51:44
+66            android:name="com.erv.app.ui.weighttraining.WeightWorkoutBubbleActivity"
+66-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:47:13-74
+67            android:allowEmbedded="true"
+67-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:51:13-41
+68            android:exported="false"
+68-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:48:13-37
+69            android:resizeableActivity="true"
+69-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:50:13-46
+70            android:theme="@style/Theme.ERV.Bubble" />
+70-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:49:13-52
+71
+72        <service
+72-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:53:9-60:19
+73            android:name="com.erv.app.weighttraining.WeightLiveWorkoutForegroundService"
+73-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:54:13-78
+74            android:exported="false"
+74-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:55:13-37
+75            android:foregroundServiceType="specialUse" >
+75-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:56:13-55
+76            <property
+76-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:57:13-59:147
+77                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+77-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:58:17-76
+78                android:value="Ongoing weight-training session: timer, notification, and optional bubble to return to the live workout screen." />
+78-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:59:17-144
+79        </service>
+80
+81        <receiver
+81-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:61:9-63:40
+82            android:name="com.erv.app.reminders.RoutineReminderReceiver"
+82-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:62:13-62
+83            android:exported="false" />
+83-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:63:13-37
+84        <receiver
+84-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:64:9-73:20
+85            android:name="com.erv.app.reminders.RoutineReminderBootReceiver"
+85-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:65:13-66
+86            android:exported="true" >
+86-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:66:13-36
+87            <intent-filter>
+87-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:67:13-72:29
+88                <action android:name="android.intent.action.BOOT_COMPLETED" />
+88-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:68:17-79
+88-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:68:25-76
+89                <action android:name="android.intent.action.TIME_SET" />
+89-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:69:17-73
+89-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:69:25-70
+90                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+90-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:70:17-81
+90-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:70:25-78
+91                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+91-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:71:17-84
+91-->/home/samcornwell/Projects/EnergyRadianceVitality/app/src/main/AndroidManifest.xml:71:25-81
+92            </intent-filter>
+93        </receiver>
+94
+95        <provider
+95-->[androidx.emoji2:emoji2:1.3.0] /home/samcornwell/.gradle/caches/transforms-3/60898bbd25a401f3b4fd1affe975fb0e/transformed/emoji2-1.3.0/AndroidManifest.xml:24:9-32:20
+96            android:name="androidx.startup.InitializationProvider"
+96-->[androidx.emoji2:emoji2:1.3.0] /home/samcornwell/.gradle/caches/transforms-3/60898bbd25a401f3b4fd1affe975fb0e/transformed/emoji2-1.3.0/AndroidManifest.xml:25:13-67
+97            android:authorities="com.erv.app.androidx-startup"
+97-->[androidx.emoji2:emoji2:1.3.0] /home/samcornwell/.gradle/caches/transforms-3/60898bbd25a401f3b4fd1affe975fb0e/transformed/emoji2-1.3.0/AndroidManifest.xml:26:13-68
+98            android:exported="false" >
+98-->[androidx.emoji2:emoji2:1.3.0] /home/samcornwell/.gradle/caches/transforms-3/60898bbd25a401f3b4fd1affe975fb0e/transformed/emoji2-1.3.0/AndroidManifest.xml:27:13-37
+99            <meta-data
+99-->[androidx.emoji2:emoji2:1.3.0] /home/samcornwell/.gradle/caches/transforms-3/60898bbd25a401f3b4fd1affe975fb0e/transformed/emoji2-1.3.0/AndroidManifest.xml:29:13-31:52
+100                android:name="androidx.emoji2.text.EmojiCompatInitializer"
+100-->[androidx.emoji2:emoji2:1.3.0] /home/samcornwell/.gradle/caches/transforms-3/60898bbd25a401f3b4fd1affe975fb0e/transformed/emoji2-1.3.0/AndroidManifest.xml:30:17-75
+101                android:value="androidx.startup" />
+101-->[androidx.emoji2:emoji2:1.3.0] /home/samcornwell/.gradle/caches/transforms-3/60898bbd25a401f3b4fd1affe975fb0e/transformed/emoji2-1.3.0/AndroidManifest.xml:31:17-49
+102            <meta-data
+102-->[androidx.lifecycle:lifecycle-process:2.7.0] /home/samcornwell/.gradle/caches/transforms-3/ca3c5601564d451ecfa358034bb94d3b/transformed/lifecycle-process-2.7.0/AndroidManifest.xml:29:13-31:52
+103                android:name="androidx.lifecycle.ProcessLifecycleInitializer"
+103-->[androidx.lifecycle:lifecycle-process:2.7.0] /home/samcornwell/.gradle/caches/transforms-3/ca3c5601564d451ecfa358034bb94d3b/transformed/lifecycle-process-2.7.0/AndroidManifest.xml:30:17-78
+104                android:value="androidx.startup" />
+104-->[androidx.lifecycle:lifecycle-process:2.7.0] /home/samcornwell/.gradle/caches/transforms-3/ca3c5601564d451ecfa358034bb94d3b/transformed/lifecycle-process-2.7.0/AndroidManifest.xml:31:17-49
+105            <meta-data
+105-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/samcornwell/.gradle/caches/transforms-3/76559d810210792045e76b5bcb8f11e2/transformed/profileinstaller-1.3.0/AndroidManifest.xml:29:13-31:52
+106                android:name="androidx.profileinstaller.ProfileInstallerInitializer"
+106-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/samcornwell/.gradle/caches/transforms-3/76559d810210792045e76b5bcb8f11e2/transformed/profileinstaller-1.3.0/AndroidManifest.xml:30:17-85
+107                android:value="androidx.startup" />
+107-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/samcornwell/.gradle/caches/transforms-3/76559d810210792045e76b5bcb8f11e2/transformed/profileinstaller-1.3.0/AndroidManifest.xml:31:17-49
+108        </provider>
+109
+110        <receiver
+110-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/samcornwell/.gradle/caches/transforms-3/76559d810210792045e76b5bcb8f11e2/transformed/profileinstaller-1.3.0/AndroidManifest.xml:34:9-52:20
+111            android:name="androidx.profileinstaller.ProfileInstallReceiver"
+111-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/samcornwell/.gradle/caches/transforms-3/76559d810210792045e76b5bcb8f11e2/transformed/profileinstaller-1.3.0/AndroidManifest.xml:35:13-76
+112            android:directBootAware="false"
+112-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/samcornwell/.gradle/caches/transforms-3/76559d810210792045e76b5bcb8f11e2/transformed/profileinstaller-1.3.0/AndroidManifest.xml:36:13-44
+113            android:enabled="true"
+113-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/samcornwell/.gradle/caches/transforms-3/76559d810210792045e76b5bcb8f11e2/transformed/profileinstaller-1.3.0/AndroidManifest.xml:37:13-35
+114            android:exported="true"
+114-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/samcornwell/.gradle/caches/transforms-3/76559d810210792045e76b5bcb8f11e2/transformed/profileinstaller-1.3.0/AndroidManifest.xml:38:13-36
+115            android:permission="android.permission.DUMP" >
+115-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/samcornwell/.gradle/caches/transforms-3/76559d810210792045e76b5bcb8f11e2/transformed/profileinstaller-1.3.0/AndroidManifest.xml:39:13-57
+116            <intent-filter>
+116-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/samcornwell/.gradle/caches/transforms-3/76559d810210792045e76b5bcb8f11e2/transformed/profileinstaller-1.3.0/AndroidManifest.xml:40:13-42:29
+117                <action android:name="androidx.profileinstaller.action.INSTALL_PROFILE" />
+117-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/samcornwell/.gradle/caches/transforms-3/76559d810210792045e76b5bcb8f11e2/transformed/profileinstaller-1.3.0/AndroidManifest.xml:41:17-91
+117-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/samcornwell/.gradle/caches/transforms-3/76559d810210792045e76b5bcb8f11e2/transformed/profileinstaller-1.3.0/AndroidManifest.xml:41:25-88
+118            </intent-filter>
+119            <intent-filter>
+119-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/samcornwell/.gradle/caches/transforms-3/76559d810210792045e76b5bcb8f11e2/transformed/profileinstaller-1.3.0/AndroidManifest.xml:43:13-45:29
+120                <action android:name="androidx.profileinstaller.action.SKIP_FILE" />
+120-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/samcornwell/.gradle/caches/transforms-3/76559d810210792045e76b5bcb8f11e2/transformed/profileinstaller-1.3.0/AndroidManifest.xml:44:17-85
+120-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/samcornwell/.gradle/caches/transforms-3/76559d810210792045e76b5bcb8f11e2/transformed/profileinstaller-1.3.0/AndroidManifest.xml:44:25-82
+121            </intent-filter>
+122            <intent-filter>
+122-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/samcornwell/.gradle/caches/transforms-3/76559d810210792045e76b5bcb8f11e2/transformed/profileinstaller-1.3.0/AndroidManifest.xml:46:13-48:29
+123                <action android:name="androidx.profileinstaller.action.SAVE_PROFILE" />
+123-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/samcornwell/.gradle/caches/transforms-3/76559d810210792045e76b5bcb8f11e2/transformed/profileinstaller-1.3.0/AndroidManifest.xml:47:17-88
+123-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/samcornwell/.gradle/caches/transforms-3/76559d810210792045e76b5bcb8f11e2/transformed/profileinstaller-1.3.0/AndroidManifest.xml:47:25-85
+124            </intent-filter>
+125            <intent-filter>
+125-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/samcornwell/.gradle/caches/transforms-3/76559d810210792045e76b5bcb8f11e2/transformed/profileinstaller-1.3.0/AndroidManifest.xml:49:13-51:29
+126                <action android:name="androidx.profileinstaller.action.BENCHMARK_OPERATION" />
+126-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/samcornwell/.gradle/caches/transforms-3/76559d810210792045e76b5bcb8f11e2/transformed/profileinstaller-1.3.0/AndroidManifest.xml:50:17-95
+126-->[androidx.profileinstaller:profileinstaller:1.3.0] /home/samcornwell/.gradle/caches/transforms-3/76559d810210792045e76b5bcb8f11e2/transformed/profileinstaller-1.3.0/AndroidManifest.xml:50:25-92
+127            </intent-filter>
+128        </receiver>
+129    </application>
+130
+131</manifest>

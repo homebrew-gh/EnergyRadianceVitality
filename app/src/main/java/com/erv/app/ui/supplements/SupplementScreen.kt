@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.DateRange
@@ -355,21 +356,20 @@ private fun RoutinesTab(
                                 }
                             }
                             Spacer(Modifier.height(12.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
                                 FilledTonalButton(onClick = { onRunRoutine(routine) }) {
                                     Icon(Icons.Default.PlayArrow, contentDescription = null)
                                     Spacer(Modifier.width(8.dp))
-                                    Text("Run")
+                                    Text("Log")
                                 }
-                                OutlinedButton(onClick = { onEditRoutine(routine) }) {
-                                    Icon(Icons.Default.Edit, contentDescription = null)
-                                    Spacer(Modifier.width(8.dp))
-                                    Text("Edit")
+                                IconButton(onClick = { onEditRoutine(routine) }) {
+                                    Icon(Icons.Default.Edit, contentDescription = "Edit routine")
                                 }
-                                OutlinedButton(onClick = { onDeleteRoutine(routine.id) }) {
-                                    Icon(Icons.Default.Delete, contentDescription = null)
-                                    Spacer(Modifier.width(8.dp))
-                                    Text("Delete")
+                                IconButton(onClick = { onDeleteRoutine(routine.id) }) {
+                                    Icon(Icons.Default.Close, contentDescription = "Delete routine")
                                 }
                             }
                         }

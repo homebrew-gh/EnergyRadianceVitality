@@ -2,12 +2,17 @@ package com.erv.app.ui.weighttraining
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -16,6 +21,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.erv.app.weighttraining.WeightExercise
@@ -39,9 +45,24 @@ fun WeightPickExerciseDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
-            Text(
-                selectedMuscleKey?.let { formatMuscleGroupHeader(it) } ?: "Body part"
-            )
+            when (val key = selectedMuscleKey) {
+                null -> Text("Body part", style = MaterialTheme.typography.titleLarge)
+                else -> Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    IconButton(onClick = { selectedMuscleKey = null }) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Change body part"
+                        )
+                    }
+                    Text(
+                        text = formatMuscleGroupHeader(key),
+                        style = MaterialTheme.typography.titleLarge
+                    )
+                }
+            }
         },
         text = {
             Column(
@@ -78,12 +99,6 @@ fun WeightPickExerciseDialog(
                         }
                     }
                     else -> {
-                        TextButton(
-                            onClick = { selectedMuscleKey = null },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("← Change body part", modifier = Modifier.fillMaxWidth())
-                        }
                         val inGroup = grouped.firstOrNull { it.first == selectedMuscleKey }?.second.orEmpty()
                         if (inGroup.isEmpty()) {
                             Text(

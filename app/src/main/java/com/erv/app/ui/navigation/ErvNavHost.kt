@@ -109,6 +109,7 @@ fun ErvNavHost(
     }
     LaunchedEffect(openWeightLive) {
         if (openWeightLive) {
+            weightLiveWorkoutViewModel.setLiveWorkoutUiExpanded(true)
             navController.navigate(Routes.weightTrainingCategory) {
                 launchSingleTop = true
             }
@@ -295,9 +296,7 @@ fun ErvNavHost(
         }
 
         composable(Routes.weightTrainingCategory) {
-            val selectedDate by dashboardViewModel.selectedDate.collectAsState()
             WeightTrainingCategoryScreen(
-                selectedDate = selectedDate,
                 repository = weightRepository,
                 liveWorkoutViewModel = weightLiveWorkoutViewModel,
                 userPreferences = userPreferences,

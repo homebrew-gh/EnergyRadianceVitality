@@ -17,6 +17,14 @@ class WeightLiveWorkoutViewModel(application: Application) : AndroidViewModel(ap
     private val _activeDraft = MutableStateFlow<WeightWorkoutDraft?>(null)
     val activeDraft: StateFlow<WeightWorkoutDraft?> = _activeDraft.asStateFlow()
 
+    /** When false, the category screen shows tabs while the draft + FGS keep running (user left via back arrow). */
+    private val _liveWorkoutUiExpanded = MutableStateFlow(true)
+    val liveWorkoutUiExpanded: StateFlow<Boolean> = _liveWorkoutUiExpanded.asStateFlow()
+
+    fun setLiveWorkoutUiExpanded(expanded: Boolean) {
+        _liveWorkoutUiExpanded.value = expanded
+    }
+
     val hasLiveSession: Boolean get() = _activeDraft.value != null
 
     fun tryStartBlank(): Boolean {
@@ -26,6 +34,7 @@ class WeightLiveWorkoutViewModel(application: Application) : AndroidViewModel(ap
             exerciseOrder = emptyList()
         )
         _activeDraft.value = draft
+        _liveWorkoutUiExpanded.value = true
         WeightLiveWorkoutForegroundService.start(getApplication(), draft.startedAtEpochSeconds)
         return true
     }
@@ -43,6 +52,7 @@ class WeightLiveWorkoutViewModel(application: Application) : AndroidViewModel(ap
             setsByExerciseId = setsSeed
         )
         _activeDraft.value = draft
+        _liveWorkoutUiExpanded.value = true
         WeightLiveWorkoutForegroundService.start(getApplication(), draft.startedAtEpochSeconds)
         return true
     }
@@ -52,6 +62,7 @@ class WeightLiveWorkoutViewModel(application: Application) : AndroidViewModel(ap
             WeightLiveWorkoutForegroundService.stop(getApplication())
         }
         _activeDraft.value = null
+        _liveWorkoutUiExpanded.value = true
     }
 
     fun addExercise(exerciseId: String) {

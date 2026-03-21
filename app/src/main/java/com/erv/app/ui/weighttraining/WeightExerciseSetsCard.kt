@@ -14,7 +14,10 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -25,10 +28,16 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.erv.app.R
 import com.erv.app.data.BodyWeightUnit
 import com.erv.app.weighttraining.WeightEquipment
 import com.erv.app.weighttraining.WeightSet
@@ -103,8 +112,9 @@ fun WeightExerciseInlineSetsCard(
 ) {
     val loadSuffix = weightLoadUnitSuffix(loadUnit)
     val weightIsAddedLoad = equipment == WeightEquipment.OTHER
-    val weightColumnLabel = if (weightIsAddedLoad) "Added ($loadSuffix)" else loadSuffix
+    var showAddedLoadInfo by remember { mutableStateOf(false) }
     val canCollapseSets = onCollapseSets != null && onExpandSets != null
+    val collapsedSummary = canCollapseSets && setsCollapsed
     Card(
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceVariant
@@ -114,16 +124,52 @@ fun WeightExerciseInlineSetsCard(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+                .padding(
+                    horizontal = 12.dp,
+                    vertical = if (collapsedSummary) 8.dp else 12.dp
+                ),
+            verticalArrangement = Arrangement.spacedBy(if (collapsedSummary) 4.dp else 10.dp)
         ) {
+            if (showAddedLoadInfo) {
+                AlertDialog(
+                    onDismissRequest = { showAddedLoadInfo = false },
+                    title = { Text(stringResource(R.string.weight_added_load_info_title)) },
+                    text = { Text(stringResource(R.string.weight_added_load_info_message)) },
+                    confirmButton = {
+                        TextButton(onClick = { showAddedLoadInfo = false }) {
+                            Text(stringResource(android.R.string.ok))
+                        }
+                    }
+                )
+            }
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f, fill = false)) {
-                    Text(exerciseName, style = MaterialTheme.typography.titleMedium)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            exerciseName,
+                            style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier.weight(1f)
+                        )
+                        if (collapsedSummary) {
+                            IconButton(
+                                onClick = { onExpandSets!!() },
+                                modifier = Modifier.size(40.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Edit,
+                                    contentDescription = "Edit sets",
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                    }
                     equipmentLabel?.let {
                         Text(
                             it,
@@ -144,7 +190,8 @@ fun WeightExerciseInlineSetsCard(
                     }
                 }
             }
-            if (onRecentWorkouts != null) {
+            // Hide while collapsed to summary; "Edit" expands and brings this back.
+            if (onRecentWorkouts != null && !setsCollapsed) {
                 TextButton(onClick = onRecentWorkouts) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
@@ -158,21 +205,12 @@ fun WeightExerciseInlineSetsCard(
                 }
             }
             if (canCollapseSets) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                if (!setsCollapsed) {
                     Text(
                         "Sets",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    if (setsCollapsed) {
-                        TextButton(onClick = { onExpandSets!!() }) {
-                            Text("Edit")
-                        }
-                    }
                 }
             } else {
                 Text(
@@ -219,7 +257,19 @@ fun WeightExerciseInlineSetsCard(
                                     )
                                 )
                             },
-                            label = { Text(weightColumnLabel) },
+                            label = { Text(loadSuffix) },
+                            trailingIcon = if (weightIsAddedLoad) {
+                                {
+                                    IconButton(onClick = { showAddedLoadInfo = true }) {
+                                        Icon(
+                                            Icons.Outlined.Info,
+                                            contentDescription = stringResource(
+                                                R.string.weight_added_load_info_icon_cd
+                                            )
+                                        )
+                                    }
+                                }
+                            } else null,
                             singleLine = true,
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                             modifier = Modifier.weight(1f)

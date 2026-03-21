@@ -54,7 +54,10 @@ fun WeightLiveWorkoutScreen(
     draft: WeightWorkoutDraft,
     library: WeightLibraryState,
     loadUnit: BodyWeightUnit,
-    onCancel: () -> Unit,
+    /** Back arrow: leave this screen; workout keeps running (notification). Parent may clear an empty draft. */
+    onLeaveWorkoutUi: () -> Unit,
+    /** User explicitly abandons the live session (top bar Discard). */
+    onDiscardWorkout: () -> Unit,
     onFinish: () -> Unit,
     onAddExercise: (String) -> Unit,
     onRemoveExerciseAt: (Int) -> Unit,
@@ -72,7 +75,7 @@ fun WeightLiveWorkoutScreen(
         }
     }
     var showPickExercise by remember { mutableStateOf(false) }
-    var showCancelConfirm by remember { mutableStateOf(false) }
+    var showDiscardConfirm by remember { mutableStateOf(false) }
     var showFinishBlocked by remember { mutableStateOf(false) }
     var setsCollapsedIds by remember(draft.startedAtEpochSeconds) {
         mutableStateOf(emptySet<String>())
@@ -95,21 +98,21 @@ fun WeightLiveWorkoutScreen(
         )
     }
 
-    if (showCancelConfirm) {
+    if (showDiscardConfirm) {
         AlertDialog(
-            onDismissRequest = { showCancelConfirm = false },
+            onDismissRequest = { showDiscardConfirm = false },
             title = { Text("Discard workout?") },
             text = { Text("Your session will not be saved.") },
             confirmButton = {
                 TextButton(
                     onClick = {
-                        showCancelConfirm = false
-                        onCancel()
+                        showDiscardConfirm = false
+                        onDiscardWorkout()
                     }
                 ) { Text("Discard") }
             },
             dismissButton = {
-                TextButton(onClick = { showCancelConfirm = false }) { Text("Keep going") }
+                TextButton(onClick = { showDiscardConfirm = false }) { Text("Cancel") }
             }
         )
     }
@@ -142,19 +145,20 @@ fun WeightLiveWorkoutScreen(
                 TopAppBar(
                     title = { Text("Live workout") },
                     navigationIcon = {
-                        IconButton(
-                            onClick = {
-                                if (draft.exerciseOrder.isNotEmpty() || draft.setsByExerciseId.isNotEmpty()) {
-                                    showCancelConfirm = true
-                                } else {
-                                    onCancel()
-                                }
-                            }
-                        ) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Cancel")
+                        IconButton(onClick = onLeaveWorkoutUi) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Leave workout screen"
+                            )
                         }
                     },
                     actions = {
+                        TextButton(
+                            onClick = { showDiscardConfirm = true },
+                            modifier = Modifier.padding(end = 4.dp)
+                        ) {
+                            Text("Discard", color = Color.White.copy(alpha = 0.92f))
+                        }
                         TextButton(
                             onClick = {
                                 val hasLogged = draft.exerciseOrder.any { id ->
@@ -220,7 +224,6 @@ fun WeightLiveWorkoutScreen(
                         modifier = Modifier.padding(top = 24.dp)
                     )
                 } else {
-                    // weight(1f): LazyColumn inside Column must not use fillMaxSize() — unbounded height crashes.
                     LazyColumn(
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                         modifier = Modifier

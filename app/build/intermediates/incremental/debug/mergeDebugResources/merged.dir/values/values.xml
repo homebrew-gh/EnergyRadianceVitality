@@ -2118,6 +2118,7 @@
     <string description="Content description for the X button to clear text [CHAR_LIMIT=NONE]" name="searchview_clear_text_content_description">Clear text</string>
     <string description="Content description for the navigation button to return to the previous screen [CHAR_LIMIT=NONE]" name="searchview_navigation_content_description">Back</string>
     <string name="selected">Selected</string>
+    <string name="settings_live_weight_system_bubbles_hint">To allow bubbles: Settings → Apps → ERV → Notifications → open the “Live weight workout” category, then turn on Bubbles (wording varies by Android version). Start a live workout once after updating so that category appears.</string>
     <string name="settings_live_weight_workout_bubble_helper">On (default): on supported Android versions, a bubble can appear when you leave the workout screen, so you can jump back quickly. Off: only the bubble is disabled. You will still see the ongoing workout notification until you finish or cancel the workout—that is required by Android for background timers. To minimize or change sounds, use Settings → Apps → ERV → Notifications on your device.</string>
     <string name="settings_live_weight_workout_bubble_switch">Show workout bubble</string>
     <string name="settings_live_weight_workout_bubble_unavailable">Floating bubbles are not available on this version of Android. An ongoing notification still appears during live workouts.</string>
@@ -2146,6 +2147,7 @@
     <string name="weight_live_notification_action_open">Open workout</string>
     <string name="weight_live_notification_channel_desc">Ongoing session timer while you train. Required during an active live workout.</string>
     <string name="weight_live_notification_channel_name">Live weight workout</string>
+    <string name="weight_live_notification_chronometer_line">Session timer · tap to return</string>
     <string name="weight_live_notification_text">Elapsed %1$s · tap to return</string>
     <string name="weight_live_notification_title">Weight workout</string>
     <style name="AlertDialog.AppCompat" parent="Base.AlertDialog.AppCompat"/>

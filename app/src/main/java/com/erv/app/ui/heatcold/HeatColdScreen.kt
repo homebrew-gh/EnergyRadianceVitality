@@ -7,7 +7,8 @@ import android.media.ToneGenerator
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -56,17 +57,20 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.awaitPointerEvent
+import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -399,6 +403,8 @@ private fun BinarySegmentedSlider(
     val density = LocalDensity.current
     val viewConfig = LocalViewConfiguration.current
     val scope = rememberCoroutineScope()
+    val onSelectLeftLatest = rememberUpdatedState(onSelectLeft)
+    val onSelectRightLatest = rememberUpdatedState(onSelectRight)
 
     BoxWithConstraints(
         modifier = modifier
@@ -416,10 +422,6 @@ private fun BinarySegmentedSlider(
 
         val thumbX = remember { Animatable(Float.NaN) }
         var dragging by remember { mutableStateOf(false) }
-        var dragAccumulated by remember { mutableFloatStateOf(0f) }
-        var tapStartX by remember { mutableFloatStateOf(0f) }
-        var dragAnchorPx by remember { mutableFloatStateOf(0f) }
-        var dragDeltaPx by remember { mutableFloatStateOf(0f) }
 
         LaunchedEffect(leftXPx, rightXPx, selectedLeft, dragging) {
             val target = if (selectedLeft) leftXPx else rightXPx
@@ -481,42 +483,77 @@ private fun BinarySegmentedSlider(
         Box(
             Modifier
                 .fillMaxSize()
-                .pointerInput(leftXPx, rightXPx, viewConfig.touchSlop, selectedLeft) {
-                    detectHorizontalDragGestures(
-                        onDragStart = { down ->
-                            dragging = true
-                            dragAccumulated = 0f
-                            dragDeltaPx = 0f
-                            tapStartX = down.x
-                            dragAnchorPx =
-                                if (thumbX.value.isNaN()) {
-                                    if (selectedLeft) leftXPx else rightXPx
-                                } else {
-                                    thumbX.value
-                                }
-                            scope.launch { thumbX.stop() }
-                        },
-                        onHorizontalDrag = { _, dragAmount ->
-                            dragAccumulated += abs(dragAmount)
-                            dragDeltaPx += dragAmount
-                            val next = (dragAnchorPx + dragDeltaPx).coerceIn(leftXPx, rightXPx)
-                            scope.launch { thumbX.snapTo(next) }
-                        },
-                        onDragEnd = {
-                            dragging = false
-                            if (dragAccumulated < viewConfig.touchSlop) {
-                                val half = size.width / 2f
-                                if (tapStartX < half) onSelectLeft() else onSelectRight()
-                            } else {
-                                val distL = abs(thumbX.value - leftXPx)
-                                val distR = abs(thumbX.value - rightXPx)
-                                if (distL <= distR) onSelectLeft() else onSelectRight()
+                .pointerInput(
+                    leftXPx,
+                    rightXPx,
+                    viewConfig.touchSlop,
+                    selectedLeft,
+                    maxWpx,
+                ) {
+                    val slop = viewConfig.touchSlop.toFloat()
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        val pointerId = down.id
+                        var cumulativeDx = 0f
+                        var cumulativeAbsDx = 0f
+                        var dragStarted = false
+                        var thumbAtGestureStart = 0f
+
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.find { it.id == pointerId }
+                            if (change == null) {
+                                dragging = false
+                                break
                             }
-                        },
-                        onDragCancel = {
-                            dragging = false
+
+                            if (change.changedToUpIgnoreConsumed()) {
+                                dragging = false
+                                if (!dragStarted) {
+                                    if (cumulativeAbsDx < slop) {
+                                        val halfW = size.width / 2f
+                                        if (down.position.x < halfW) {
+                                            onSelectLeftLatest.value()
+                                        } else {
+                                            onSelectRightLatest.value()
+                                        }
+                                    }
+                                } else {
+                                    val distL = abs(thumbX.value - leftXPx)
+                                    val distR = abs(thumbX.value - rightXPx)
+                                    if (distL <= distR) {
+                                        onSelectLeftLatest.value()
+                                    } else {
+                                        onSelectRightLatest.value()
+                                    }
+                                }
+                                break
+                            }
+
+                            val dx = change.positionChange().x
+                            cumulativeAbsDx += abs(dx)
+                            cumulativeDx += dx
+
+                            if (!dragStarted && cumulativeAbsDx > slop) {
+                                dragStarted = true
+                                dragging = true
+                                thumbAtGestureStart =
+                                    if (thumbX.value.isNaN()) {
+                                        if (selectedLeft) leftXPx else rightXPx
+                                    } else {
+                                        thumbX.value
+                                    }
+                                scope.launch { thumbX.stop() }
+                            }
+
+                            if (dragStarted) {
+                                change.consume()
+                                val next =
+                                    (thumbAtGestureStart + cumulativeDx).coerceIn(leftXPx, rightXPx)
+                                scope.launch { thumbX.snapTo(next) }
+                            }
                         }
-                    )
+                    }
                 }
         )
     }

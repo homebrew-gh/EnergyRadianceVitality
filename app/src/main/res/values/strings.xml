@@ -13,6 +13,8 @@
     <string name="weight_live_notification_channel_desc">Ongoing session timer while you train. Required during an active live workout.</string>
     <string name="weight_live_notification_title">Weight workout</string>
     <string name="weight_live_notification_text">Elapsed %1$s · tap to return</string>
+    <!-- Shown with notification chronometer (elapsed updates without re-posting the notification). -->
+    <string name="weight_live_notification_chronometer_line">Session timer · tap to return</string>
     <string name="weight_live_notification_action_open">Open workout</string>
     <string name="weight_live_bubble_shortcut_short">Workout</string>
     <string name="weight_live_bubble_shortcut_long">Live weight workout</string>
@@ -26,6 +28,13 @@
     <string name="settings_live_weight_workout_explanation">During an active live workout, ERV runs in the background so your session timer stays accurate. Android requires a persistent, ongoing notification for this—it is not optional inside the app while the workout is running, and it is not used for ads or tracking.</string>
     <string name="settings_live_weight_workout_bubble_switch">Show workout bubble</string>
     <string name="settings_live_weight_workout_bubble_helper">On (default): on supported Android versions, a bubble can appear when you leave the workout screen, so you can jump back quickly. Off: only the bubble is disabled. You will still see the ongoing workout notification until you finish or cancel the workout—that is required by Android for background timers. To minimize or change sounds, use Settings → Apps → ERV → Notifications on your device.</string>
+    <string name="settings_live_weight_system_bubbles_hint">To allow bubbles: Settings → Apps → ERV → Notifications → open the “Live weight workout” category, then turn on Bubbles (wording varies by Android version). Start a live workout once after updating so that category appears.</string>
     <string name="settings_live_weight_workout_bubble_unavailable">Floating bubbles are not available on this version of Android. An ongoing notification still appears during live workouts.</string>
     <string name="settings_live_weight_workout_notifications_denied">Notifications are off—live workout timer and return-to-workout actions may not work. Enable in system Settings.</string>
+    <string name="live_workout_in_progress_banner">Live workout in progress — tap to resume</string>
+
+    <!-- Weight training — bodyweight-style exercises: load is added weight only -->
+    <string name="weight_added_load_info_title">Added weight</string>
+    <string name="weight_added_load_info_message">This is extra load on top of your body weight (for example a belt, vest, or plate). It does not include your full body weight.</string>
+    <string name="weight_added_load_info_icon_cd">What added weight means</string>
 </resources>

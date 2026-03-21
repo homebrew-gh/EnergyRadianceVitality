@@ -46,6 +46,7 @@ import com.erv.app.ui.navigation.Category
 import com.erv.app.ui.navigation.CategorySheet
 import com.erv.app.ui.navigation.HotColdDualIcons
 import com.erv.app.ui.navigation.categories
+import com.erv.app.ui.weighttraining.LiveWorkoutInProgressBanner
 import com.erv.app.ui.weighttraining.WeightLiveWorkoutFgsDisclosureDialog
 import com.erv.app.ui.weighttraining.WeightLiveWorkoutViewModel
 import com.erv.app.supplements.SupplementLibraryState
@@ -223,6 +224,7 @@ fun DashboardScreen(
         )
     }
     val weightTrainingCategory = remember { categories.first { it.id == "weight_training" } }
+    val liveWeightDraft by weightLiveWorkoutViewModel.activeDraft.collectAsState()
     val heatColdCategory = remember { categories.first { it.id == "heat_cold" } }
     val today = remember { LocalDate.now() }
     val scope = rememberCoroutineScope()
@@ -428,6 +430,16 @@ fun DashboardScreen(
             Column(modifier = Modifier.fillMaxSize()) {
                 Column(modifier = Modifier.padding(horizontal = 16.dp)) {
                     Spacer(Modifier.height(6.dp))
+
+                    if (liveWeightDraft != null) {
+                        LiveWorkoutInProgressBanner(
+                            onClick = {
+                                weightLiveWorkoutViewModel.setLiveWorkoutUiExpanded(true)
+                                onNavigateToCategory(weightTrainingCategory)
+                            },
+                            modifier = Modifier.padding(bottom = 8.dp)
+                        )
+                    }
 
                     DateNavigator(
                         selectedDate = selectedDate,
