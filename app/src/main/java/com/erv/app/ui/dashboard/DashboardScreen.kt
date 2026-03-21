@@ -1,7 +1,10 @@
 package com.erv.app.ui.dashboard
 
-import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -16,10 +19,10 @@ import androidx.compose.material.icons.filled.DirectionsRun
 import androidx.compose.material.icons.filled.FitnessCenter
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Medication
-import androidx.compose.material.icons.filled.Spa
+import androidx.compose.material.icons.filled.AcUnit
+import androidx.compose.material.icons.filled.Thermostat
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material.icons.filled.Bedtime
-import androidx.compose.material.icons.filled.AcUnit
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
@@ -28,6 +31,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -40,6 +44,7 @@ import com.erv.app.nostr.EventSigner
 import com.erv.app.nostr.RelayPool
 import com.erv.app.ui.navigation.Category
 import com.erv.app.ui.navigation.CategorySheet
+import com.erv.app.ui.navigation.HotColdDualIcons
 import com.erv.app.ui.navigation.categories
 import com.erv.app.ui.weighttraining.WeightLiveWorkoutViewModel
 import com.erv.app.supplements.SupplementLibraryState
@@ -73,6 +78,13 @@ import com.erv.app.goals.anySelectedGoalMet
 import com.erv.app.goals.computeWeeklyGoalProgress
 import com.erv.app.goals.summaryLine
 import com.erv.app.data.UserPreferences
+import com.erv.app.heatcold.HeatColdActivityRow
+import com.erv.app.heatcold.HeatColdLibraryState
+import com.erv.app.heatcold.HeatColdRepository
+import com.erv.app.heatcold.HeatColdSync
+import com.erv.app.heatcold.coldActivityFor
+import com.erv.app.heatcold.saunaActivityFor
+import com.erv.app.heatcold.summaryLine
 import com.erv.app.lighttherapy.LightTherapyRepository
 import com.erv.app.ui.cardio.CardioElapsedTimerFullScreen
 import com.erv.app.ui.cardio.CardioMultiLegTimerFullScreen
@@ -85,6 +97,8 @@ import com.erv.app.ui.theme.ErvDarkTherapyRedGlow
 import com.erv.app.ui.theme.ErvDarkTherapyRedMid
 import com.erv.app.ui.theme.ErvLightTherapyRedDark
 import com.erv.app.ui.theme.ErvLightTherapyRedGlow
+import com.erv.app.ui.theme.ErvCategoryMenuMutedGold
+import com.erv.app.ui.theme.ErvDarkCategoryMenuMutedGold
 import com.erv.app.ui.theme.ErvLightTherapyRedMid
 import com.erv.app.supplements.SupplementSync
 import com.erv.app.supplements.SupplementTimeOfDay
@@ -113,7 +127,7 @@ private data class LightTimerSession(
     val deviceName: String?
 )
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun DashboardScreen(
     onNavigateToSettings: () -> Unit,
@@ -124,10 +138,13 @@ fun DashboardScreen(
     onOpenCardioLogBackfill: (LocalDate) -> Unit,
     /** Weight training manual log: opens log screen with calendar (dashboard date pre-selected). */
     onOpenWeightLogBackfill: (LocalDate) -> Unit,
+    /** Sauna / cold plunge combined history (same pattern as other category logs). */
+    onOpenHeatColdLog: () -> Unit,
     supplementRepository: SupplementRepository,
     lightTherapyRepository: LightTherapyRepository,
     cardioRepository: CardioRepository,
     weightRepository: WeightRepository,
+    heatColdRepository: HeatColdRepository,
     weightLiveWorkoutViewModel: WeightLiveWorkoutViewModel,
     userPreferences: UserPreferences,
     relayPool: RelayPool?,
@@ -143,6 +160,7 @@ fun DashboardScreen(
     val lightState by lightTherapyRepository.state.collectAsState(initial = LightLibraryState())
     val cardioState by cardioRepository.state.collectAsState(initial = CardioLibraryState())
     val weightState by weightRepository.state.collectAsState(initial = WeightLibraryState())
+    val heatColdState by heatColdRepository.state.collectAsState(initial = HeatColdLibraryState())
     val weightKg by userPreferences.fallbackBodyWeightKg.collectAsState(initial = null)
     val cardioDistanceUnit by userPreferences.cardioDistanceUnit.collectAsState(initial = CardioDistanceUnit.MILES)
     val weightTrainingLoadUnit by userPreferences.weightTrainingLoadUnit.collectAsState(initial = BodyWeightUnit.KG)
@@ -179,7 +197,14 @@ fun DashboardScreen(
     val weightRows = remember(weightState, selectedDate, weightTrainingLoadUnit) {
         weightState.weightActivityRowsFor(selectedDate, weightTrainingLoadUnit)
     }
+    val saunaRows = remember(heatColdState, selectedDate) {
+        heatColdState.saunaActivityFor(selectedDate)
+    }
+    val coldRows = remember(heatColdState, selectedDate) {
+        heatColdState.coldActivityFor(selectedDate)
+    }
     val weightTrainingCategory = remember { categories.first { it.id == "weight_training" } }
+    val heatColdCategory = remember { categories.first { it.id == "heat_cold" } }
     val today = remember { LocalDate.now() }
     val scope = rememberCoroutineScope()
     var showCalendar by remember { mutableStateOf(false) }
@@ -192,7 +217,8 @@ fun DashboardScreen(
     var cardioWorkoutSummary by remember { mutableStateOf<CardioTimerCompletionResult?>(null) }
     var showGoalsSheet by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
-    val darkTheme = isSystemInDarkTheme()
+    // Match app ThemeMode (LIGHT/DARK/SYSTEM), not raw system — same as ErvTheme in MainActivity.
+    val darkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val therapyRedDark = if (darkTheme) ErvDarkTherapyRedDark else ErvLightTherapyRedDark
     val therapyRedMid = if (darkTheme) ErvDarkTherapyRedMid else ErvLightTherapyRedMid
     val therapyRedGlow = if (darkTheme) ErvDarkTherapyRedGlow else ErvLightTherapyRedGlow
@@ -226,6 +252,12 @@ fun DashboardScreen(
             cardioRepository.currentState().logFor(selectedDate)?.let { log ->
                 CardioSync.publishDailyLog(relayPool, signer, log)
             }
+            heatColdRepository.currentState().saunaLogFor(today)?.let { log ->
+                HeatColdSync.publishSaunaDailyLog(relayPool, signer, log)
+            }
+            heatColdRepository.currentState().coldLogFor(today)?.let { log ->
+                HeatColdSync.publishColdDailyLog(relayPool, signer, log)
+            }
         }
     }
 
@@ -247,10 +279,10 @@ fun DashboardScreen(
     BottomSheetScaffold(
         scaffoldState = scaffoldState,
         snackbarHost = { SnackbarHost(snackbarHostState) },
-        sheetPeekHeight = 72.dp,
-        sheetContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-        sheetTonalElevation = 2.dp,
-        sheetShadowElevation = 6.dp,
+        sheetPeekHeight = 48.dp,
+        sheetContainerColor = if (darkTheme) ErvDarkCategoryMenuMutedGold else ErvCategoryMenuMutedGold,
+        sheetTonalElevation = 0.dp,
+        sheetShadowElevation = 4.dp,
         sheetContent = {
             CategorySheet(
                 onCategoryClick = { category ->
@@ -258,33 +290,34 @@ fun DashboardScreen(
                         scaffoldState.bottomSheetState.partialExpand()
                         onNavigateToCategory(category)
                     }
-                }
+                },
+                modifier = Modifier.wrapContentHeight()
             )
         },
         sheetDragHandle = {
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                tonalElevation = 2.dp,
-                shadowElevation = 0.dp,
-            ) {
-                Column {
-                    HorizontalDivider(
-                        thickness = 1.dp,
-                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.45f)
+            Column(modifier = Modifier.fillMaxWidth()) {
+                // Bright hairline + saturated band so the slider edge reads clearly on any background.
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(2.dp)
+                        .background(Color(0xFFFFD600))
+                )
+                HorizontalDivider(
+                    thickness = 2.dp,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 10.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = stringResource(R.string.dashboard_categories_menu),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 12.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = stringResource(R.string.dashboard_categories_menu),
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
                 }
             }
         },
@@ -346,77 +379,126 @@ fun DashboardScreen(
     ) { padding ->
         Box(modifier = Modifier.fillMaxSize().padding(padding)) {
             // The dashboard keeps routines lightweight: select, preview, then log or edit.
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp)
-            ) {
-            Spacer(Modifier.height(8.dp))
-
-            DateNavigator(
-                selectedDate = selectedDate,
-                onPreviousDay = viewModel::previousDay,
-                onNextDay = viewModel::nextDay,
-                onPreviousWeek = viewModel::previousWeek,
-                onNextWeek = viewModel::nextWeek,
-                onTodayClick = viewModel::goToToday,
-                onCalendarClick = { showCalendar = true }
-            )
-
-            Spacer(Modifier.height(20.dp))
-
-            if (selectedGoalIds.isNotEmpty()) {
-                DashboardGoalsSection(
-                    rows = weeklyGoalRows,
-                    onOpenDetails = { showGoalsSheet = true },
-                )
-                Spacer(Modifier.height(16.dp))
+            val dashboardPagerState = rememberPagerState(pageCount = { 2 })
+            val routinesScrollState = rememberScrollState()
+            val activityScrollState = rememberScrollState()
+            LaunchedEffect(Unit) {
+                dashboardPagerState.scrollToPage(0)
             }
+            Column(modifier = Modifier.fillMaxSize()) {
+                Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+                    Spacer(Modifier.height(8.dp))
 
-            RoutinesSection(
-                dashboardSelectedDate = selectedDate,
-                supplementRoutines = supplementState.routines,
-                lightRoutines = lightState.routines,
-                cardioRoutines = cardioState.routines,
-                weightRoutines = weightState.routines,
-                onSupplementRoutineSelected = { routinePreview = it },
-                onLightRoutineSelected = { lightRoutinePreview = it },
-                onCardioRoutineSelected = { cardioRoutinePreview = it },
-                onOpenCardioNewWorkout = onOpenCardioNewWorkout,
-                onOpenCardioLogBackfill = onOpenCardioLogBackfill,
-                onOpenWeightNewWorkout = {
-                    if (!weightLiveWorkoutViewModel.tryStartBlank()) {
-                        scope.launch {
-                            snackbarHostState.showSnackbar("Finish or cancel your live workout first.")
-                        }
-                    } else {
-                        onNavigateToCategory(weightTrainingCategory)
+                    DateNavigator(
+                        selectedDate = selectedDate,
+                        onPreviousDay = viewModel::previousDay,
+                        onNextDay = viewModel::nextDay,
+                        onPreviousWeek = viewModel::previousWeek,
+                        onNextWeek = viewModel::nextWeek,
+                        onTodayClick = viewModel::goToToday,
+                        onCalendarClick = { showCalendar = true }
+                    )
+
+                    Spacer(Modifier.height(20.dp))
+
+                    if (selectedGoalIds.isNotEmpty()) {
+                        DashboardGoalsSection(
+                            rows = weeklyGoalRows,
+                            onOpenDetails = { showGoalsSheet = true },
+                        )
+                        Spacer(Modifier.height(16.dp))
                     }
-                },
-                onWeightRoutineSelected = { routine ->
-                    if (!weightLiveWorkoutViewModel.tryStartFromRoutine(routine, weightState)) {
-                        scope.launch {
-                            snackbarHostState.showSnackbar("Finish or cancel your live workout first.")
+                }
+
+                TabRow(selectedTabIndex = dashboardPagerState.currentPage) {
+                    Tab(
+                        selected = dashboardPagerState.currentPage == 0,
+                        onClick = {
+                            scope.launch { dashboardPagerState.animateScrollToPage(0) }
+                        },
+                        text = { Text("Routines") }
+                    )
+                    Tab(
+                        selected = dashboardPagerState.currentPage == 1,
+                        onClick = {
+                            scope.launch { dashboardPagerState.animateScrollToPage(1) }
+                        },
+                        text = { Text("Activity") }
+                    )
+                }
+
+                HorizontalPager(
+                    state = dashboardPagerState,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                ) { page ->
+                    when (page) {
+                        0 -> Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .verticalScroll(routinesScrollState)
+                                .padding(horizontal = 16.dp)
+                                .padding(bottom = 16.dp)
+                        ) {
+                            Spacer(Modifier.height(8.dp))
+                            RoutinesSection(
+                                showSectionHeading = false,
+                                dashboardSelectedDate = selectedDate,
+                                supplementRoutines = supplementState.routines,
+                                lightRoutines = lightState.routines,
+                                cardioRoutines = cardioState.routines,
+                                weightRoutines = weightState.routines,
+                                onSupplementRoutineSelected = { routinePreview = it },
+                                onLightRoutineSelected = { lightRoutinePreview = it },
+                                onCardioRoutineSelected = { cardioRoutinePreview = it },
+                                onOpenCardioNewWorkout = onOpenCardioNewWorkout,
+                                onOpenCardioLogBackfill = onOpenCardioLogBackfill,
+                                onOpenWeightNewWorkout = {
+                                    if (!weightLiveWorkoutViewModel.tryStartBlank()) {
+                                        scope.launch {
+                                            snackbarHostState.showSnackbar("Finish or cancel your live workout first.")
+                                        }
+                                    } else {
+                                        onNavigateToCategory(weightTrainingCategory)
+                                    }
+                                },
+                                onWeightRoutineSelected = { routine ->
+                                    if (!weightLiveWorkoutViewModel.tryStartFromRoutine(routine, weightState)) {
+                                        scope.launch {
+                                            snackbarHostState.showSnackbar("Finish or cancel your live workout first.")
+                                        }
+                                    } else {
+                                        onNavigateToCategory(weightTrainingCategory)
+                                    }
+                                },
+                                onOpenWeightLogBackfill = onOpenWeightLogBackfill,
+                                onOpenHeatColdCategory = { onNavigateToCategory(heatColdCategory) },
+                                onOpenHeatColdLog = onOpenHeatColdLog
+                            )
                         }
-                    } else {
-                        onNavigateToCategory(weightTrainingCategory)
+
+                        else -> Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .verticalScroll(activityScrollState)
+                                .padding(horizontal = 16.dp)
+                                .padding(bottom = 16.dp)
+                        ) {
+                            Spacer(Modifier.height(8.dp))
+                            ActivitySection(
+                                showSectionHeading = false,
+                                selectedDate = selectedDate,
+                                supplementRows = supplementRows,
+                                lightRows = lightRows,
+                                cardioRows = cardioRows,
+                                weightRows = weightRows,
+                                saunaRows = saunaRows,
+                                coldRows = coldRows
+                            )
+                        }
                     }
-                },
-                onOpenWeightLogBackfill = onOpenWeightLogBackfill
-            )
-
-            Spacer(Modifier.height(16.dp))
-
-            ActivitySection(
-                selectedDate = selectedDate,
-                supplementRows = supplementRows,
-                lightRows = lightRows,
-                cardioRows = cardioRows,
-                weightRows = weightRows
-            )
-
-            Spacer(Modifier.height(16.dp))
+                }
             }
 
             if (showCalendar) {
@@ -869,8 +951,66 @@ private fun GoalsOverviewSheet(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun HeatColdQuickSheet(
+    title: String,
+    onDismiss: () -> Unit,
+    onLogNewSession: () -> Unit,
+    onViewLog: () -> Unit
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(title, style = MaterialTheme.typography.titleMedium)
+            Surface(
+                onClick = {
+                    onLogNewSession()
+                    onDismiss()
+                },
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.medium,
+                color = MaterialTheme.colorScheme.primaryContainer
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("Log a new session", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "Choose hot (sauna) or cold plunge, then run the timer (optional temperature)",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            Surface(
+                onClick = {
+                    onViewLog()
+                    onDismiss()
+                },
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.medium,
+                color = MaterialTheme.colorScheme.surfaceVariant
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("View log", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "Hot + Cold history by date",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun RoutinesSection(
+    showSectionHeading: Boolean = true,
     dashboardSelectedDate: LocalDate,
     supplementRoutines: List<SupplementRoutine>,
     lightRoutines: List<LightRoutine>,
@@ -883,18 +1023,23 @@ private fun RoutinesSection(
     onOpenCardioLogBackfill: (LocalDate) -> Unit,
     onOpenWeightNewWorkout: () -> Unit,
     onOpenWeightLogBackfill: (LocalDate) -> Unit,
-    onWeightRoutineSelected: (WeightRoutine) -> Unit
+    onWeightRoutineSelected: (WeightRoutine) -> Unit,
+    onOpenHeatColdCategory: () -> Unit,
+    onOpenHeatColdLog: () -> Unit
 ) {
     var showSupplementPicker by remember { mutableStateOf(false) }
     var showLightPicker by remember { mutableStateOf(false) }
     var showCardioPicker by remember { mutableStateOf(false) }
     var showWeightPicker by remember { mutableStateOf(false) }
+    var showHeatColdSheet by remember { mutableStateOf(false) }
 
-    Text(
-        text = "Routines",
-        style = MaterialTheme.typography.titleLarge,
-        modifier = Modifier.padding(bottom = 8.dp)
-    )
+    if (showSectionHeading) {
+        Text(
+            text = "Routines",
+            style = MaterialTheme.typography.titleLarge,
+            modifier = Modifier.padding(bottom = 8.dp)
+        )
+    }
     ElevatedCard(
         modifier = Modifier.fillMaxWidth(),
         elevation = CardDefaults.elevatedCardElevation(defaultElevation = 4.dp)
@@ -907,7 +1052,7 @@ private fun RoutinesSection(
         ) {
             if (supplementRoutines.isEmpty() && lightRoutines.isEmpty()) {
                 Text(
-                    text = "Create supplement or light routines, or use Cardio / Weight Training to log a workout.",
+                    text = "Create supplement or light routines, or use Cardio / Weight Training. Hot + Cold timer is below.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -968,7 +1113,30 @@ private fun RoutinesSection(
                     modifier = Modifier.weight(1f)
                 )
             }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                RoutineTile(
+                    icon = Icons.Default.Thermostat,
+                    secondaryIcon = Icons.Default.AcUnit,
+                    label = "Hot + Cold",
+                    subtitle = "Timer · pick session type",
+                    onClick = { showHeatColdSheet = true },
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(modifier = Modifier.weight(1f))
+            }
         }
+    }
+
+    if (showHeatColdSheet) {
+        HeatColdQuickSheet(
+            title = "Hot + Cold",
+            onDismiss = { showHeatColdSheet = false },
+            onLogNewSession = onOpenHeatColdCategory,
+            onViewLog = onOpenHeatColdLog
+        )
     }
 
     if (showSupplementPicker) {
@@ -1365,17 +1533,22 @@ private fun LightRoutinePickerSheet(
 
 @Composable
 private fun ActivitySection(
+    showSectionHeading: Boolean = true,
     selectedDate: LocalDate,
     supplementRows: List<SupplementActivityRow>,
     lightRows: List<LightActivityRow>,
     cardioRows: List<CardioActivityRow>,
-    weightRows: List<WeightActivityRow>
+    weightRows: List<WeightActivityRow>,
+    saunaRows: List<HeatColdActivityRow>,
+    coldRows: List<HeatColdActivityRow>
 ) {
-    Text(
-        text = "Activity",
-        style = MaterialTheme.typography.titleLarge,
-        modifier = Modifier.padding(bottom = 8.dp)
-    )
+    if (showSectionHeading) {
+        Text(
+            text = "Activity",
+            style = MaterialTheme.typography.titleLarge,
+            modifier = Modifier.padding(bottom = 8.dp)
+        )
+    }
     ElevatedCard(
         modifier = Modifier.fillMaxWidth(),
         elevation = CardDefaults.elevatedCardElevation(defaultElevation = 4.dp)
@@ -1389,8 +1562,10 @@ private fun ActivitySection(
             val hasLight = lightRows.isNotEmpty()
             val hasCardio = cardioRows.isNotEmpty()
             val hasWeight = weightRows.isNotEmpty()
+            val hasSauna = saunaRows.isNotEmpty()
+            val hasCold = coldRows.isNotEmpty()
 
-            if (!hasSupplements && !hasLight && !hasCardio && !hasWeight) {
+            if (!hasSupplements && !hasLight && !hasCardio && !hasWeight && !hasSauna && !hasCold) {
                 Text(
                     text = "No activity logged yet.",
                     style = MaterialTheme.typography.bodySmall,
@@ -1436,6 +1611,30 @@ private fun ActivitySection(
                     if (hasSupplements || hasLight || hasCardio) Spacer(Modifier.height(12.dp))
                     ActivityCategorySection(title = "Weight training") {
                         weightRows.forEach { row ->
+                            Text(
+                                text = row.summaryLine,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+                if (hasSauna) {
+                    if (hasSupplements || hasLight || hasCardio || hasWeight) Spacer(Modifier.height(12.dp))
+                    ActivityCategorySection(title = "Sauna") {
+                        saunaRows.forEach { row ->
+                            Text(
+                                text = row.summaryLine,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+                if (hasCold) {
+                    if (hasSupplements || hasLight || hasCardio || hasWeight || hasSauna) Spacer(Modifier.height(12.dp))
+                    ActivityCategorySection(title = "Cold plunge") {
+                        coldRows.forEach { row ->
                             Text(
                                 text = row.summaryLine,
                                 style = MaterialTheme.typography.bodyMedium,
@@ -1772,7 +1971,8 @@ private fun RoutineTile(
     label: String,
     subtitle: String,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    secondaryIcon: ImageVector? = null
 ) {
     ElevatedCard(
         onClick = onClick,
@@ -1787,12 +1987,20 @@ private fun RoutineTile(
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = label,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(32.dp)
-            )
+            if (secondaryIcon != null) {
+                HotColdDualIcons(
+                    iconSize = 26.dp,
+                    heatIcon = icon,
+                    coldIcon = secondaryIcon
+                )
+            } else {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = label,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(32.dp)
+                )
+            }
             Spacer(Modifier.height(8.dp))
             Text(
                 text = label,
@@ -1812,13 +2020,12 @@ private fun RoutineTile(
     }
 }
 
-private fun routineIconFor(index: Int) = when (index % 8) {
+private fun routineIconFor(index: Int) = when (index % 7) {
     0 -> Icons.Default.Medication
     1 -> Icons.Default.Bedtime
     2 -> Icons.Default.WbSunny
     3 -> Icons.Default.FitnessCenter
     4 -> Icons.Default.DirectionsRun
-    5 -> Icons.Default.Spa
-    6 -> Icons.Default.AcUnit
+    5 -> Icons.Default.Thermostat
     else -> Icons.Default.Medication
 }
