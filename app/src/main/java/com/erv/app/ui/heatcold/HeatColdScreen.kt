@@ -9,6 +9,7 @@ import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.horizontalDrag
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -67,15 +68,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.input.pointer.awaitPointerEvent
-import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.unit.dp
 import com.erv.app.heatcold.HeatColdLibraryState
 import com.erv.app.heatcold.HeatColdMode
@@ -401,7 +399,6 @@ private fun BinarySegmentedSlider(
 ) {
     val inset = 4.dp
     val density = LocalDensity.current
-    val viewConfig = LocalViewConfiguration.current
     val scope = rememberCoroutineScope()
     val onSelectLeftLatest = rememberUpdatedState(onSelectLeft)
     val onSelectRightLatest = rememberUpdatedState(onSelectRight)
@@ -486,71 +483,55 @@ private fun BinarySegmentedSlider(
                 .pointerInput(
                     leftXPx,
                     rightXPx,
-                    viewConfig.touchSlop,
                     selectedLeft,
                     maxWpx,
                 ) {
-                    val slop = viewConfig.touchSlop.toFloat()
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
                         val pointerId = down.id
-                        var cumulativeDx = 0f
-                        var cumulativeAbsDx = 0f
+                        val tapX = down.position.x
                         var dragStarted = false
                         var thumbAtGestureStart = 0f
-
-                        while (true) {
-                            val event = awaitPointerEvent()
-                            val change = event.changes.find { it.id == pointerId }
-                            if (change == null) {
-                                dragging = false
-                                break
-                            }
-
-                            if (change.changedToUpIgnoreConsumed()) {
-                                dragging = false
+                        var cumulativeDx = 0f
+                        var dragCallbacks = 0
+                        try {
+                            horizontalDrag(pointerId) { change ->
+                                dragCallbacks++
+                                val dx = change.positionChange().x
                                 if (!dragStarted) {
-                                    if (cumulativeAbsDx < slop) {
-                                        val halfW = size.width / 2f
-                                        if (down.position.x < halfW) {
-                                            onSelectLeftLatest.value()
+                                    dragStarted = true
+                                    dragging = true
+                                    thumbAtGestureStart =
+                                        if (thumbX.value.isNaN()) {
+                                            if (selectedLeft) leftXPx else rightXPx
                                         } else {
-                                            onSelectRightLatest.value()
+                                            thumbX.value
                                         }
-                                    }
-                                } else {
-                                    val distL = abs(thumbX.value - leftXPx)
-                                    val distR = abs(thumbX.value - rightXPx)
-                                    if (distL <= distR) {
-                                        onSelectLeftLatest.value()
-                                    } else {
-                                        onSelectRightLatest.value()
-                                    }
+                                    scope.launch { thumbX.stop() }
                                 }
-                                break
-                            }
-
-                            val dx = change.positionChange().x
-                            cumulativeAbsDx += abs(dx)
-                            cumulativeDx += dx
-
-                            if (!dragStarted && cumulativeAbsDx > slop) {
-                                dragStarted = true
-                                dragging = true
-                                thumbAtGestureStart =
-                                    if (thumbX.value.isNaN()) {
-                                        if (selectedLeft) leftXPx else rightXPx
-                                    } else {
-                                        thumbX.value
-                                    }
-                                scope.launch { thumbX.stop() }
-                            }
-
-                            if (dragStarted) {
+                                cumulativeDx += dx
                                 change.consume()
                                 val next =
                                     (thumbAtGestureStart + cumulativeDx).coerceIn(leftXPx, rightXPx)
                                 scope.launch { thumbX.snapTo(next) }
+                            }
+                        } finally {
+                            dragging = false
+                        }
+                        if (dragCallbacks == 0) {
+                            val halfW = size.width / 2f
+                            if (tapX < halfW) {
+                                onSelectLeftLatest.value()
+                            } else {
+                                onSelectRightLatest.value()
+                            }
+                        } else {
+                            val distL = abs(thumbX.value - leftXPx)
+                            val distR = abs(thumbX.value - rightXPx)
+                            if (distL <= distR) {
+                                onSelectLeftLatest.value()
+                            } else {
+                                onSelectRightLatest.value()
                             }
                         }
                     }

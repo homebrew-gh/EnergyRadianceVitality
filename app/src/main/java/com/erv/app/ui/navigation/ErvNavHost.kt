@@ -369,7 +369,7 @@ fun ErvNavHost(
         ) { backStackEntry ->
             val exerciseId = backStackEntry.arguments?.getString("exerciseId").orEmpty()
             val state by weightRepository.state.collectAsState(initial = WeightLibraryState())
-            val loadUnit by userPreferences.weightTrainingLoadUnit.collectAsState(initial = BodyWeightUnit.KG)
+            val loadUnit by userPreferences.weightTrainingLoadUnit.collectAsState(initial = BodyWeightUnit.LB)
             WeightExerciseDetailScreen(
                 exerciseId = exerciseId,
                 library = state,

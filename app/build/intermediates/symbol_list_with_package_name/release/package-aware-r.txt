@@ -3736,6 +3736,7 @@ string icon_content_description
 string in_progress
 string indeterminate
 string item_view_role_description
+string live_workout_in_progress_banner
 string m3_exceed_max_badge_text_suffix
 string m3_ref_typeface_brand_medium
 string m3_ref_typeface_brand_regular
@@ -3926,6 +3927,9 @@ string toast_event_published
 string toast_publish_failed
 string tooltip_description
 string tooltip_label
+string weight_added_load_info_icon_cd
+string weight_added_load_info_message
+string weight_added_load_info_title
 string weight_live_bubble_open_full
 string weight_live_bubble_shortcut_long
 string weight_live_bubble_shortcut_short

@@ -25,6 +25,7 @@ import com.erv.app.weighttraining.WeightExerciseHistoryRow
 import com.erv.app.weighttraining.WeightLibraryState
 import com.erv.app.weighttraining.WeightWorkoutSession
 import com.erv.app.weighttraining.WeightWorkoutSource
+import com.erv.app.weighttraining.formatSetSummaryLine
 import com.erv.app.weighttraining.historyForExercise
 import com.erv.app.weighttraining.totalVolumeLoadTimesReps
 import com.erv.app.weighttraining.weightLoadUnitSuffix

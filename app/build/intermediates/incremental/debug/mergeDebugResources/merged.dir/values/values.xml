@@ -1934,6 +1934,7 @@
     <string name="in_progress">In progress</string>
     <string name="indeterminate">Partially checked</string>
     <string name="item_view_role_description">Tab</string>
+    <string name="live_workout_in_progress_banner">Live workout in progress — tap to resume</string>
     <string name="m3_exceed_max_badge_text_suffix" translatable="false"><ns2:g example="Some te" id="part of a long text">%1$s</ns2:g><ns2:g example="…" id="suffix">%2$s</ns2:g></string>
     <string name="m3_ref_typeface_brand_medium" translatable="false">sans-serif-medium</string>
     <string name="m3_ref_typeface_brand_regular" translatable="false">sans-serif</string>
@@ -2136,6 +2137,9 @@
     <string name="toast_publish_failed">Something went wrong. Please try again.</string>
     <string name="tooltip_description">tooltip</string>
     <string name="tooltip_label">show tooltip</string>
+    <string name="weight_added_load_info_icon_cd">What added weight means</string>
+    <string name="weight_added_load_info_message">This is extra load on top of your body weight (for example a belt, vest, or plate). It does not include your full body weight.</string>
+    <string name="weight_added_load_info_title">Added weight</string>
     <string name="weight_live_bubble_open_full">Open full workout</string>
     <string name="weight_live_bubble_shortcut_long">Live weight workout</string>
     <string name="weight_live_bubble_shortcut_short">Workout</string>

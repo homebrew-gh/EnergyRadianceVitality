@@ -46,7 +46,7 @@ fun WeightPickExerciseDialog(
         onDismissRequest = onDismiss,
         title = {
             when (val key = selectedMuscleKey) {
-                null -> Text("Body part", style = MaterialTheme.typography.titleLarge)
+                null -> Text("Muscle Group", style = MaterialTheme.typography.titleLarge)
                 else -> Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.fillMaxWidth()
@@ -54,7 +54,7 @@ fun WeightPickExerciseDialog(
                     IconButton(onClick = { selectedMuscleKey = null }) {
                         Icon(
                             Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Change body part"
+                            contentDescription = "Change muscle group"
                         )
                     }
                     Text(
@@ -81,7 +81,7 @@ fun WeightPickExerciseDialog(
                     }
                     selectedMuscleKey == null -> {
                         Text(
-                            "Choose a body part, then pick an exercise.",
+                            "Choose a muscle group, then select an exercise.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(bottom = 8.dp)

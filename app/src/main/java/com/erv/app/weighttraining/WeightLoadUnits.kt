@@ -3,6 +3,31 @@ package com.erv.app.weighttraining
 import com.erv.app.data.BodyWeightUnit
 import java.time.LocalDate
 
+fun formatRpeFieldForSets(v: Double): String =
+    if (v == v.toLong().toDouble()) v.toLong().toString()
+    else String.format("%.1f", v)
+
+/**
+ * One line per set; matches the live workout collapsed set summary (reps, load, RPE).
+ */
+fun formatSetSummaryLine(
+    set: WeightSet,
+    setNumber: Int,
+    loadUnit: BodyWeightUnit,
+    loadSuffix: String,
+    /** When true (e.g. bodyweight / station exercises), weight is shown as added load. */
+    weightIsAddedLoad: Boolean = false
+): String {
+    val repsPart = if (set.reps > 0) "${set.reps} reps" else "— reps"
+    val weightPart = set.weightKg?.let { w ->
+        val num = formatWeightLoadNumber(w, loadUnit)
+        if (weightIsAddedLoad) " @ +$num $loadSuffix"
+        else " @ $num $loadSuffix"
+    }.orEmpty()
+    val rpePart = set.rpe?.let { " · RPE ${formatRpeFieldForSets(it)}" }.orEmpty()
+    return "Set $setNumber: $repsPart$weightPart$rpePart"
+}
+
 fun WeightWorkoutSession.totalSetCount(): Int =
     entries.sumOf { it.sets.size }
 
@@ -54,7 +79,17 @@ fun WeightWorkoutEntry.totalVolumeLoadTimesReps(unit: BodyWeightUnit): Double =
         perRep * s.reps
     }
 
-data class WeightActivityRow(val summaryLine: String)
+data class WeightActivityExerciseBlock(
+    /** Exercise name and equipment, e.g. `Bench press · Barbell`. */
+    val titleLine: String,
+    val setLines: List<String>
+)
+
+data class WeightActivityRow(
+    /** Session summary: source, duration, set count, volume. */
+    val headerLine: String,
+    val exerciseBlocks: List<WeightActivityExerciseBlock>
+)
 
 private fun WeightWorkoutSession.elapsedSecondsForSummary(): Long {
     val a = startedAtEpochSeconds ?: return 0L
@@ -62,7 +97,7 @@ private fun WeightWorkoutSession.elapsedSecondsForSummary(): Long {
     return (b - a).coerceAtLeast(0L)
 }
 
-fun WeightWorkoutSession.dashboardSummaryLine(library: WeightLibraryState, unit: BodyWeightUnit): String {
+fun WeightWorkoutSession.activityHeaderLine(unit: BodyWeightUnit): String {
     val src = when (source) {
         WeightWorkoutSource.LIVE -> "Live"
         WeightWorkoutSource.MANUAL -> "Manual"
@@ -77,10 +112,26 @@ fun WeightWorkoutSession.dashboardSummaryLine(library: WeightLibraryState, unit:
     bits += "${totalSetCount()} sets"
     val vol = totalVolumeLoadTimesReps(unit)
     if (vol > 0.5) bits += "~${vol.toInt()} ${weightLoadUnitSuffix(unit)}×reps"
-    val nameHint = entries.take(2).joinToString(", ") { e ->
-        library.exerciseById(e.exerciseId)?.name ?: "Exercise"
-    } + if (entries.size > 2) "…" else ""
-    return bits.joinToString(" • ") + " — " + nameHint
+    return bits.joinToString(" • ")
+}
+
+fun WeightWorkoutSession.buildActivityRow(library: WeightLibraryState, unit: BodyWeightUnit): WeightActivityRow {
+    val loadSuffix = weightLoadUnitSuffix(unit)
+    val blocks = entries.map { entry ->
+        val ex = library.exerciseById(entry.exerciseId)
+        val name = ex?.name ?: "Exercise"
+        val equipSuffix = ex?.equipment?.displayLabel()?.let { " · $it" }.orEmpty()
+        val titleLine = "$name$equipSuffix"
+        val weightIsAddedLoad = ex?.equipment == WeightEquipment.OTHER
+        val setLines = entry.sets.mapIndexed { idx, set ->
+            formatSetSummaryLine(set, idx + 1, unit, loadSuffix, weightIsAddedLoad)
+        }
+        WeightActivityExerciseBlock(titleLine = titleLine, setLines = setLines)
+    }
+    return WeightActivityRow(
+        headerLine = activityHeaderLine(unit),
+        exerciseBlocks = blocks
+    )
 }
 
 fun WeightLibraryState.weightActivityRowsFor(date: LocalDate, displayUnit: BodyWeightUnit): List<WeightActivityRow> {
@@ -88,5 +139,5 @@ fun WeightLibraryState.weightActivityRowsFor(date: LocalDate, displayUnit: BodyW
     val sorted = log.workouts.sortedWith(
         compareBy<WeightWorkoutSession> { it.startedAtEpochSeconds ?: it.finishedAtEpochSeconds ?: 0L }
     )
-    return sorted.map { WeightActivityRow(it.dashboardSummaryLine(this, displayUnit)) }
+    return sorted.map { it.buildActivityRow(this, displayUnit) }
 }

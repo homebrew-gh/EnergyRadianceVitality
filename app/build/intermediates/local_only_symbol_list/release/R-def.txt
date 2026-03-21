@@ -12,6 +12,7 @@ drawable ic_sun
 font varela_round_regular
 string app_name
 string dashboard_categories_menu
+string live_workout_in_progress_banner
 string settings_live_weight_system_bubbles_hint
 string settings_live_weight_workout_bubble_helper
 string settings_live_weight_workout_bubble_switch
@@ -22,6 +23,9 @@ string settings_live_weight_workout_title
 string toast_error_generic
 string toast_event_published
 string toast_publish_failed
+string weight_added_load_info_icon_cd
+string weight_added_load_info_message
+string weight_added_load_info_title
 string weight_live_bubble_open_full
 string weight_live_bubble_shortcut_long
 string weight_live_bubble_shortcut_short

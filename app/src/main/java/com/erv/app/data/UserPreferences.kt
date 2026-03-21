@@ -91,11 +91,11 @@ class UserPreferences(private val context: Context) {
         }
     }
 
-    /** Bar/load when logging weight-training sets (stored on disk as kg). */
+    /** Bar/load when logging weight-training sets (stored on disk as kg). Default lb when unset. */
     val weightTrainingLoadUnit: Flow<BodyWeightUnit> = context.dataStore.data.map { prefs ->
         when (prefs[Keys.WEIGHT_TRAINING_LOAD_UNIT]) {
-            "LB" -> BodyWeightUnit.LB
-            else -> BodyWeightUnit.KG
+            "KG" -> BodyWeightUnit.KG
+            else -> BodyWeightUnit.LB
         }
     }
 

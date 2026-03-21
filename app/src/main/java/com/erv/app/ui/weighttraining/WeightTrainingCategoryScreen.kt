@@ -26,7 +26,6 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.PlayArrow
@@ -43,7 +42,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -112,7 +110,7 @@ fun WeightTrainingCategoryScreen(
     onOpenExerciseDetail: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val loadUnit by userPreferences.weightTrainingLoadUnit.collectAsState(initial = BodyWeightUnit.KG)
+    val loadUnit by userPreferences.weightTrainingLoadUnit.collectAsState(initial = BodyWeightUnit.LB)
     val liveDraft by liveWorkoutViewModel.activeDraft.collectAsState()
     val liveWorkoutUiExpanded by liveWorkoutViewModel.liveWorkoutUiExpanded.collectAsState()
     val state by repository.state.collectAsState(initial = WeightLibraryState())
@@ -644,21 +642,20 @@ private fun RoutinesTabBody(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Spacer(Modifier.height(12.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         FilledTonalButton(onClick = { onStartRoutine(routine) }) {
                             Icon(Icons.Default.PlayArrow, contentDescription = null)
                             Spacer(Modifier.width(8.dp))
                             Text("Start")
                         }
-                        OutlinedButton(onClick = { onEdit(routine) }) {
-                            Icon(Icons.Default.Edit, contentDescription = null)
-                            Spacer(Modifier.width(8.dp))
-                            Text("Edit")
+                        IconButton(onClick = { onEdit(routine) }) {
+                            Icon(Icons.Default.Edit, contentDescription = "Edit routine")
                         }
-                        OutlinedButton(onClick = { onDeleteRequest(routine) }) {
-                            Icon(Icons.Default.Delete, contentDescription = null)
-                            Spacer(Modifier.width(8.dp))
-                            Text("Delete")
+                        IconButton(onClick = { onDeleteRequest(routine) }) {
+                            Icon(Icons.Default.Close, contentDescription = "Delete routine")
                         }
                     }
                 }
@@ -681,7 +678,7 @@ private fun RoutineEditorDialog(
     var showPickExercise by remember { mutableStateOf(false) }
 
     if (showPickExercise) {
-        PickExerciseDialog(
+        WeightPickExerciseDialog(
             exercises = exerciseLibrary,
             excludeIds = exerciseIds.toSet(),
             onDismiss = { showPickExercise = false },
@@ -810,44 +807,4 @@ private fun RoutineEditorDialog(
             }
         }
     }
-}
-
-@Composable
-private fun PickExerciseDialog(
-    exercises: List<WeightExercise>,
-    excludeIds: Set<String>,
-    onDismiss: () -> Unit,
-    onPick: (String) -> Unit
-) {
-    val choices = exercises.filter { it.id !in excludeIds }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Add to routine") },
-        text = {
-            Column(
-                Modifier
-                    .heightIn(max = 400.dp)
-                    .verticalScroll(rememberScrollState())
-            ) {
-                if (choices.isEmpty()) {
-                    Text(
-                        "All exercises are already in this routine.",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                } else {
-                    choices.forEach { ex ->
-                        TextButton(
-                            onClick = { onPick(ex.id) },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("${ex.name} (${ex.muscleGroup})", modifier = Modifier.fillMaxWidth())
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Close") }
-        }
-    )
 }

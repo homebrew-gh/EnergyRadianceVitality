@@ -7,6 +7,7 @@
     <color name="erv_surface">#FFF8F0</color>
     <string name="app_name">ERV</string>
     <string name="dashboard_categories_menu">MENU</string>
+    <string name="live_workout_in_progress_banner">Live workout in progress — tap to resume</string>
     <string name="settings_live_weight_system_bubbles_hint">To allow bubbles: Settings → Apps → ERV → Notifications → open the “Live weight workout” category, then turn on Bubbles (wording varies by Android version). Start a live workout once after updating so that category appears.</string>
     <string name="settings_live_weight_workout_bubble_helper">On (default): on supported Android versions, a bubble can appear when you leave the workout screen, so you can jump back quickly. Off: only the bubble is disabled. You will still see the ongoing workout notification until you finish or cancel the workout—that is required by Android for background timers. To minimize or change sounds, use Settings → Apps → ERV → Notifications on your device.</string>
     <string name="settings_live_weight_workout_bubble_switch">Show workout bubble</string>
@@ -17,6 +18,9 @@
     <string name="toast_error_generic">An error occurred</string>
     <string name="toast_event_published">Saved and synced</string>
     <string name="toast_publish_failed">Something went wrong. Please try again.</string>
+    <string name="weight_added_load_info_icon_cd">What added weight means</string>
+    <string name="weight_added_load_info_message">This is extra load on top of your body weight (for example a belt, vest, or plate). It does not include your full body weight.</string>
+    <string name="weight_added_load_info_title">Added weight</string>
     <string name="weight_live_bubble_open_full">Open full workout</string>
     <string name="weight_live_bubble_shortcut_long">Live weight workout</string>
     <string name="weight_live_bubble_shortcut_short">Workout</string>

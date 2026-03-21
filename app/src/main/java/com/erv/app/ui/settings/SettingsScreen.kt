@@ -61,7 +61,7 @@ fun SettingsScreen(
     val bodyWeightValue by userPreferences.bodyWeightValue.collectAsState(initial = "")
     val bodyWeightUnit by userPreferences.bodyWeightUnit.collectAsState(initial = BodyWeightUnit.LB)
     val cardioDistanceUnit by userPreferences.cardioDistanceUnit.collectAsState(initial = CardioDistanceUnit.MILES)
-    val weightTrainingLoadUnit by userPreferences.weightTrainingLoadUnit.collectAsState(initial = BodyWeightUnit.KG)
+    val weightTrainingLoadUnit by userPreferences.weightTrainingLoadUnit.collectAsState(initial = BodyWeightUnit.LB)
     val workoutBubbleEnabled by userPreferences.workoutBubbleEnabled.collectAsState(initial = true)
 
     val signer = remember(keyManager, amberHost) {

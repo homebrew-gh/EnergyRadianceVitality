@@ -68,7 +68,7 @@ fun WeightTrainingLogScreen(
     /** When true, calendar opens immediately (e.g. backfill flow from dashboard). */
     openCalendarInitially: Boolean = false
 ) {
-    val loadUnit by userPreferences.weightTrainingLoadUnit.collectAsState(initial = BodyWeightUnit.KG)
+    val loadUnit by userPreferences.weightTrainingLoadUnit.collectAsState(initial = BodyWeightUnit.LB)
     val state by repository.state.collectAsState(initial = WeightLibraryState())
     var selectedDate by remember(initialSelectedDate) {
         mutableStateOf(initialSelectedDate ?: LocalDate.now())

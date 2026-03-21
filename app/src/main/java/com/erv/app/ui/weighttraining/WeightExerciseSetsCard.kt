@@ -42,6 +42,8 @@ import com.erv.app.data.BodyWeightUnit
 import com.erv.app.weighttraining.WeightEquipment
 import com.erv.app.weighttraining.WeightSet
 import com.erv.app.weighttraining.WeightWorkoutDraft
+import com.erv.app.weighttraining.formatRpeFieldForSets
+import com.erv.app.weighttraining.formatSetSummaryLine
 import com.erv.app.weighttraining.formatWeightLoadNumber
 import com.erv.app.weighttraining.parseWeightInputToKg
 import com.erv.app.weighttraining.weightLoadUnitSuffix
@@ -56,10 +58,6 @@ fun weightSetsDisplayedForExercise(stored: List<WeightSet>?): List<WeightSet> =
 fun weightSetsInDraft(draft: WeightWorkoutDraft, exerciseId: String): List<WeightSet> =
     weightSetsDisplayedForExercise(draft.setsByExerciseId[exerciseId])
 
-internal fun formatRpeFieldForSets(v: Double): String =
-    if (v == v.toLong().toDouble()) v.toLong().toString()
-    else String.format("%.1f", v)
-
 internal fun repsFieldText(reps: Int): String = if (reps <= 0) "" else reps.toString()
 
 internal fun weightFieldText(set: WeightSet, unit: BodyWeightUnit): String =
@@ -67,24 +65,6 @@ internal fun weightFieldText(set: WeightSet, unit: BodyWeightUnit): String =
 
 internal fun rpeFieldText(set: WeightSet): String =
     set.rpe?.let { formatRpeFieldForSets(it) }.orEmpty()
-
-internal fun formatSetSummaryLine(
-    set: WeightSet,
-    setNumber: Int,
-    loadUnit: BodyWeightUnit,
-    loadSuffix: String,
-    /** When true (e.g. bodyweight / station exercises), weight is shown as added load. */
-    weightIsAddedLoad: Boolean = false
-): String {
-    val repsPart = if (set.reps > 0) "${set.reps} reps" else "— reps"
-    val weightPart = set.weightKg?.let { w ->
-        val num = formatWeightLoadNumber(w, loadUnit)
-        if (weightIsAddedLoad) " @ +$num $loadSuffix"
-        else " @ $num $loadSuffix"
-    }.orEmpty()
-    val rpePart = set.rpe?.let { " · RPE ${formatRpeFieldForSets(it)}" }.orEmpty()
-    return "Set $setNumber: $repsPart$weightPart$rpePart"
-}
 
 fun <T> List<T>.replaceAt(index: Int, value: T): List<T> =
     mapIndexed { i, t -> if (i == index) value else t }
@@ -234,61 +214,82 @@ fun WeightExerciseInlineSetsCard(
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalAlignment = Alignment.Bottom
                     ) {
-                        OutlinedTextField(
-                            value = repsFieldText(set.reps),
-                            onValueChange = { t ->
-                                val r = t.trim().toIntOrNull() ?: 0
-                                onSetsChange(sets.replaceAt(idx, set.copy(reps = r)))
-                            },
-                            label = { Text("Reps") },
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            modifier = Modifier.weight(1f)
-                        )
-                        OutlinedTextField(
-                            value = weightFieldText(set, loadUnit),
-                            onValueChange = { t ->
-                                onSetsChange(
-                                    sets.replaceAt(
-                                        idx,
-                                        set.copy(weightKg = parseWeightInputToKg(t, loadUnit))
-                                    )
-                                )
-                            },
-                            label = { Text(loadSuffix) },
-                            trailingIcon = if (weightIsAddedLoad) {
-                                {
-                                    IconButton(onClick = { showAddedLoadInfo = true }) {
-                                        Icon(
-                                            Icons.Outlined.Info,
-                                            contentDescription = stringResource(
-                                                R.string.weight_added_load_info_icon_cd
-                                            )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "Reps",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(bottom = 4.dp)
+                            )
+                            OutlinedTextField(
+                                value = repsFieldText(set.reps),
+                                onValueChange = { t ->
+                                    val r = t.trim().toIntOrNull() ?: 0
+                                    onSetsChange(sets.replaceAt(idx, set.copy(reps = r)))
+                                },
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                loadSuffix,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(bottom = 4.dp)
+                            )
+                            OutlinedTextField(
+                                value = weightFieldText(set, loadUnit),
+                                onValueChange = { t ->
+                                    onSetsChange(
+                                        sets.replaceAt(
+                                            idx,
+                                            set.copy(weightKg = parseWeightInputToKg(t, loadUnit))
                                         )
-                                    }
-                                }
-                            } else null,
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                            modifier = Modifier.weight(1f)
-                        )
-                        OutlinedTextField(
-                            value = rpeFieldText(set),
-                            onValueChange = { t ->
-                                onSetsChange(
-                                    sets.replaceAt(
-                                        idx,
-                                        set.copy(rpe = t.trim().toDoubleOrNull())
                                     )
-                                )
-                            },
-                            label = { Text("RPE") },
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                            modifier = Modifier.weight(1f)
-                        )
+                                },
+                                trailingIcon = if (weightIsAddedLoad) {
+                                    {
+                                        IconButton(onClick = { showAddedLoadInfo = true }) {
+                                            Icon(
+                                                Icons.Outlined.Info,
+                                                contentDescription = stringResource(
+                                                    R.string.weight_added_load_info_icon_cd
+                                                )
+                                            )
+                                        }
+                                    }
+                                } else null,
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "RPE",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(bottom = 4.dp)
+                            )
+                            OutlinedTextField(
+                                value = rpeFieldText(set),
+                                onValueChange = { t ->
+                                    onSetsChange(
+                                        sets.replaceAt(
+                                            idx,
+                                            set.copy(rpe = t.trim().toDoubleOrNull())
+                                        )
+                                    )
+                                },
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
                         IconButton(
                             onClick = {
                                 if (sets.size > 1) {

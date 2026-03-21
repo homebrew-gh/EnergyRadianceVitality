@@ -50,6 +50,7 @@ import com.erv.app.weighttraining.WeightWorkoutSession
 import com.erv.app.weighttraining.WeightWorkoutSource
 import com.erv.app.weighttraining.displayLabel
 import com.erv.app.weighttraining.formatMuscleGroupHeader
+import com.erv.app.weighttraining.formatSetSummaryLine
 import com.erv.app.weighttraining.formatWeightLoadNumber
 import com.erv.app.weighttraining.historyForExercise
 import com.erv.app.weighttraining.kgToPounds
