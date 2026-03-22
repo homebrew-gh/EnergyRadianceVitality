@@ -22,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.KeyboardType
@@ -424,6 +425,19 @@ private fun MainAppShell(
             viewModel<WeightLiveWorkoutViewModel>(viewModelStoreOwner = activityForLifecycle)
         val cardioLiveWorkoutViewModel =
             viewModel<CardioLiveWorkoutViewModel>(viewModelStoreOwner = activityForLifecycle)
+        val activeWeightWorkout by weightLiveWorkoutViewModel.activeDraft.collectAsState()
+        val activeCardioTimer by cardioLiveWorkoutViewModel.activeTimer.collectAsState()
+        val keepScreenAwakeForLiveWorkout =
+            activeWeightWorkout != null || activeCardioTimer != null
+        val windowContentView = LocalView.current
+        DisposableEffect(keepScreenAwakeForLiveWorkout) {
+            if (keepScreenAwakeForLiveWorkout) {
+                windowContentView.keepScreenOn = true
+            }
+            onDispose {
+                windowContentView.keepScreenOn = false
+            }
+        }
         CompositionLocalProvider(LocalRelayDataSyncInProgress provides relayDataSyncInProgress) {
             ErvNavHost(
                 navController = navController,
