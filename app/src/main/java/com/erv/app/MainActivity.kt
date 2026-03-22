@@ -35,8 +35,11 @@ import com.erv.app.data.WorkoutMediaUploadBackend
 import com.erv.app.nostr.*
 import com.erv.app.cardio.CardioRepository
 import com.erv.app.heatcold.HeatColdRepository
+import com.erv.app.stretching.StretchingRepository
+import com.erv.app.stretching.StretchingSync
 import com.erv.app.heatcold.HeatColdSync
 import com.erv.app.cardio.CardioSync
+import com.erv.app.cardio.CardioLiveWorkoutConstants
 import com.erv.app.weighttraining.WeightLiveWorkoutConstants
 import com.erv.app.weighttraining.WeightRepository
 import com.erv.app.weighttraining.WeightSync
@@ -49,6 +52,7 @@ import com.erv.app.reminders.RoutineReminderScheduler
 import com.erv.app.ui.navigation.ErvNavHost
 import com.erv.app.ui.dashboard.DashboardViewModel
 import com.erv.app.ui.weighttraining.WeightLiveWorkoutViewModel
+import com.erv.app.ui.cardio.CardioLiveWorkoutViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.erv.app.ui.onboarding.RelaySetupScreen
 import com.erv.app.ui.theme.ErvTheme
@@ -68,6 +72,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var keyManager: KeyManager
     private val pendingReminderRoutineId = MutableStateFlow<String?>(null)
     private val navigateToWeightLiveWorkout = MutableStateFlow(false)
+    private val navigateToCardioLiveWorkout = MutableStateFlow(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -76,6 +81,9 @@ class MainActivity : AppCompatActivity() {
         handleReminderIntent(intent)
         if (intent.getBooleanExtra(WeightLiveWorkoutConstants.EXTRA_OPEN_WEIGHT_LIVE, false)) {
             navigateToWeightLiveWorkout.value = true
+        }
+        if (intent.getBooleanExtra(CardioLiveWorkoutConstants.EXTRA_OPEN_CARDIO_LIVE, false)) {
+            navigateToCardioLiveWorkout.value = true
         }
 
         setContent {
@@ -96,7 +104,8 @@ class MainActivity : AppCompatActivity() {
                         userPreferences = userPreferences,
                         pendingReminderRoutineId = pendingReminderRoutineId,
                         consumePendingReminderRoutineId = { pendingReminderRoutineId.value = null },
-                        navigateToWeightLiveWorkout = navigateToWeightLiveWorkout
+                        navigateToWeightLiveWorkout = navigateToWeightLiveWorkout,
+                        navigateToCardioLiveWorkout = navigateToCardioLiveWorkout
                     )
                 }
             }
@@ -109,6 +118,9 @@ class MainActivity : AppCompatActivity() {
         handleReminderIntent(intent)
         if (intent.getBooleanExtra(WeightLiveWorkoutConstants.EXTRA_OPEN_WEIGHT_LIVE, false)) {
             navigateToWeightLiveWorkout.value = true
+        }
+        if (intent.getBooleanExtra(CardioLiveWorkoutConstants.EXTRA_OPEN_CARDIO_LIVE, false)) {
+            navigateToCardioLiveWorkout.value = true
         }
     }
 
@@ -126,7 +138,8 @@ private fun ErvApp(
     userPreferences: UserPreferences,
     pendingReminderRoutineId: StateFlow<String?>,
     consumePendingReminderRoutineId: () -> Unit,
-    navigateToWeightLiveWorkout: MutableStateFlow<Boolean>
+    navigateToWeightLiveWorkout: MutableStateFlow<Boolean>,
+    navigateToCardioLiveWorkout: MutableStateFlow<Boolean>
 ) {
     val context = LocalContext.current
     var appState by remember {
@@ -219,6 +232,7 @@ private fun ErvApp(
             pendingReminderRoutineId = pendingReminderRoutineId,
             consumePendingReminderRoutineId = consumePendingReminderRoutineId,
             navigateToWeightLiveWorkout = navigateToWeightLiveWorkout,
+            navigateToCardioLiveWorkout = navigateToCardioLiveWorkout,
             onLogout = {
                 keyManager.logout()
                 appState = AppState.LoggedOut
@@ -294,15 +308,17 @@ private fun MainAppShell(
     pendingReminderRoutineId: StateFlow<String?>,
     consumePendingReminderRoutineId: () -> Unit,
     navigateToWeightLiveWorkout: MutableStateFlow<Boolean>,
+    navigateToCardioLiveWorkout: MutableStateFlow<Boolean>,
     onLogout: () -> Unit
 ) {
     val context = LocalContext.current
     val navController = rememberNavController()
     val supplementRepository = remember(context) { SupplementRepository(context) }
     val lightTherapyRepository = remember(context) { LightTherapyRepository(context) }
-    val cardioRepository = remember(context) { CardioRepository(context) }
+    val cardioRepository = remember(context, userPreferences) { CardioRepository(context, userPreferences) }
     val weightRepository = remember(context) { WeightRepository(context) }
     val heatColdRepository = remember(context) { HeatColdRepository(context) }
+    val stretchingRepository = remember(context) { StretchingRepository(context) }
     val reminderRepository = remember(context) { RoutineReminderRepository(context) }
     val signer = remember(keyManager, amberHost) {
         keyManager.createLocalSigner()
@@ -332,7 +348,17 @@ private fun MainAppShell(
     LaunchedEffect(relayPool, relayUrlsVersion) {
         relayPool?.setRelays(keyManager.relayUrlsForPool())
     }
-    LaunchedEffect(relayPool, signer, supplementRepository, lightTherapyRepository, cardioRepository, weightRepository, heatColdRepository) {
+    LaunchedEffect(
+        relayPool,
+        signer,
+        userPreferences,
+        supplementRepository,
+        lightTherapyRepository,
+        cardioRepository,
+        weightRepository,
+        heatColdRepository,
+        stretchingRepository
+    ) {
         if (relayPool == null || signer == null) {
             initialSyncDone = true
             return@LaunchedEffect
@@ -360,6 +386,16 @@ private fun MainAppShell(
                 async {
                     HeatColdSync.fetchFromNetwork(relayPool, signer, pubkey, timeoutMs = 8000)
                         ?.let { heatColdRepository.replaceAll(it) }
+                },
+                async {
+                    StretchingSync.fetchFromNetwork(relayPool, signer, pubkey, timeoutMs = 8000)
+                        ?.let { stretchingRepository.replaceAll(it) }
+                },
+                async {
+                    FitnessEquipmentSync.fetchFromNetwork(relayPool, signer, pubkey, timeoutMs = 8000)?.let { remote ->
+                        userPreferences.setGymMembership(remote.gymMembership)
+                        userPreferences.setOwnedEquipment(remote.equipment)
+                    }
                 }
             )
         }
@@ -382,6 +418,8 @@ private fun MainAppShell(
     Box(Modifier.fillMaxSize()) {
         val weightLiveWorkoutViewModel =
             viewModel<WeightLiveWorkoutViewModel>(viewModelStoreOwner = activityForLifecycle)
+        val cardioLiveWorkoutViewModel =
+            viewModel<CardioLiveWorkoutViewModel>(viewModelStoreOwner = activityForLifecycle)
         ErvNavHost(
         navController = navController,
         keyManager = keyManager,
@@ -393,12 +431,15 @@ private fun MainAppShell(
         cardioRepository = cardioRepository,
         weightRepository = weightRepository,
         heatColdRepository = heatColdRepository,
+        stretchingRepository = stretchingRepository,
         weightLiveWorkoutViewModel = weightLiveWorkoutViewModel,
+        cardioLiveWorkoutViewModel = cardioLiveWorkoutViewModel,
         relayPool = relayPool,
         signer = signer,
         pendingReminderRoutineId = pendingReminderRoutineId,
         consumePendingReminderRoutineId = consumePendingReminderRoutineId,
         navigateToWeightLiveWorkout = navigateToWeightLiveWorkout,
+        navigateToCardioLiveWorkout = navigateToCardioLiveWorkout,
         onRelaysChanged = { relayUrlsVersion++ },
         onLogout = onLogout
         )

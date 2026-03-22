@@ -78,6 +78,7 @@ import com.erv.app.ui.theme.ErvDarkTherapyRedMid
 import com.erv.app.ui.theme.ErvLightTherapyRedDark
 import com.erv.app.ui.theme.ErvLightTherapyRedGlow
 import com.erv.app.ui.theme.ErvLightTherapyRedMid
+import com.erv.app.ui.cardio.CardioLiveWorkoutViewModel
 import com.erv.app.weighttraining.WeightEquipment
 import com.erv.app.weighttraining.WeightExercise
 import com.erv.app.weighttraining.WeightLibraryState
@@ -102,6 +103,7 @@ private enum class WeightTrainingTab { Exercises, Routines }
 fun WeightTrainingCategoryScreen(
     repository: WeightRepository,
     liveWorkoutViewModel: WeightLiveWorkoutViewModel,
+    cardioLiveWorkoutViewModel: CardioLiveWorkoutViewModel,
     userPreferences: UserPreferences,
     relayPool: RelayPool?,
     signer: EventSigner?,
@@ -225,6 +227,11 @@ fun WeightTrainingCategoryScreen(
                         if (liveDraft == null) {
                             IconButton(onClick = {
                                 when {
+                                    cardioLiveWorkoutViewModel.hasActiveTimer -> {
+                                        scope.launch {
+                                            snackbarHostState.showSnackbar("Finish or cancel your cardio timer first.")
+                                        }
+                                    }
                                     !fgsDisclosureSeen -> {
                                         pendingWeightBlankStart = true
                                         pendingWeightRoutine = null
@@ -290,6 +297,11 @@ fun WeightTrainingCategoryScreen(
                         onDeleteRequest = { routinePendingDelete = it },
                         onStartRoutine = { routine ->
                             when {
+                                cardioLiveWorkoutViewModel.hasActiveTimer -> {
+                                    scope.launch {
+                                        snackbarHostState.showSnackbar("Finish or cancel your cardio timer first.")
+                                    }
+                                }
                                 !fgsDisclosureSeen -> {
                                     pendingWeightRoutine = routine
                                     pendingWeightBlankStart = false
@@ -365,13 +377,19 @@ fun WeightTrainingCategoryScreen(
                 pendingWeightRoutine = null
                 when {
                     blank -> {
-                        if (!liveWorkoutViewModel.tryStartBlank()) {
-                            snackbarHostState.showSnackbar("Finish or cancel your live workout first.")
+                        when {
+                            cardioLiveWorkoutViewModel.hasActiveTimer ->
+                                snackbarHostState.showSnackbar("Finish or cancel your cardio timer first.")
+                            !liveWorkoutViewModel.tryStartBlank() ->
+                                snackbarHostState.showSnackbar("Finish or cancel your live workout first.")
                         }
                     }
                     pendingRoutine != null -> {
-                        if (!liveWorkoutViewModel.tryStartFromRoutine(pendingRoutine, state)) {
-                            snackbarHostState.showSnackbar("Finish or cancel your live workout first.")
+                        when {
+                            cardioLiveWorkoutViewModel.hasActiveTimer ->
+                                snackbarHostState.showSnackbar("Finish or cancel your cardio timer first.")
+                            !liveWorkoutViewModel.tryStartFromRoutine(pendingRoutine, state) ->
+                                snackbarHostState.showSnackbar("Finish or cancel your live workout first.")
                         }
                     }
                 }

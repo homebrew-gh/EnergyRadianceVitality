@@ -46,12 +46,15 @@ class UserPreferences(private val context: Context) {
         val WORKOUT_BUBBLE_ENABLED = booleanPreferencesKey("workout_bubble_enabled")
         val WEIGHT_LIVE_FGS_DISCLOSURE_SEEN = booleanPreferencesKey("weight_live_fgs_disclosure_seen")
         val CARDIO_GPS_RECORDING_PREFERRED = booleanPreferencesKey("cardio_gps_recording_preferred")
+        val CARDIO_GPS_TRACK_RETAIN_ON_DEVICE = booleanPreferencesKey("cardio_gps_track_retain_on_device")
         val NIP96_MEDIA_SERVER_ORIGIN = stringPreferencesKey("nip96_media_server_origin")
         val BLOSSOM_PUBLIC_SERVER_ORIGIN = stringPreferencesKey("blossom_public_server_origin")
         val BLOSSOM_PRIVATE_SERVER_ORIGIN = stringPreferencesKey("blossom_private_server_origin")
         val MEDIA_KEYS_SPLIT_V1 = booleanPreferencesKey("media_keys_split_v1")
         val ATTACH_ROUTE_IMAGE_WORKOUT_NOSTR = booleanPreferencesKey("attach_route_image_workout_nostr")
         val WORKOUT_MEDIA_UPLOAD_BACKEND = stringPreferencesKey("workout_media_upload_backend")
+        val GYM_MEMBERSHIP = booleanPreferencesKey("gym_membership")
+        val OWNED_EQUIPMENT_JSON_V1 = stringPreferencesKey("owned_equipment_json_v1")
     }
 
     val themeMode: Flow<ThemeMode> = context.dataStore.data.map { prefs ->
@@ -212,6 +215,20 @@ class UserPreferences(private val context: Context) {
         }
     }
 
+    /**
+     * When true (default), completed sessions may persist [com.erv.app.cardio.CardioSession.gpsTrack] locally.
+     * When false, point lists are not stored after save (summaries and optional route image URL still can be).
+     */
+    val cardioGpsTrackRetainOnDevice: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[Keys.CARDIO_GPS_TRACK_RETAIN_ON_DEVICE] ?: true
+    }
+
+    suspend fun setCardioGpsTrackRetainOnDevice(retain: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.CARDIO_GPS_TRACK_RETAIN_ON_DEVICE] = retain
+        }
+    }
+
     val workoutMediaUploadBackend: Flow<WorkoutMediaUploadBackend> = context.dataStore.data.map { prefs ->
         when (prefs[Keys.WORKOUT_MEDIA_UPLOAD_BACKEND]?.uppercase()) {
             "BLOSSOM" -> WorkoutMediaUploadBackend.BLOSSOM
@@ -276,6 +293,28 @@ class UserPreferences(private val context: Context) {
     suspend fun setAttachRouteImageToWorkoutNostrShare(enabled: Boolean) {
         context.dataStore.edit { prefs ->
             prefs[Keys.ATTACH_ROUTE_IMAGE_WORKOUT_NOSTR] = enabled
+        }
+    }
+
+    /** Commercial or other gym access; useful for AI / workout planning. */
+    val gymMembership: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[Keys.GYM_MEMBERSHIP] == true
+    }
+
+    suspend fun setGymMembership(member: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.GYM_MEMBERSHIP] = member
+        }
+    }
+
+    /** Equipment the user owns at home (or elsewhere), tagged by modality. */
+    val ownedEquipment: Flow<List<OwnedEquipmentItem>> = context.dataStore.data.map { prefs ->
+        decodeOwnedEquipmentList(prefs[Keys.OWNED_EQUIPMENT_JSON_V1])
+    }
+
+    suspend fun setOwnedEquipment(items: List<OwnedEquipmentItem>) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.OWNED_EQUIPMENT_JSON_V1] = encodeOwnedEquipmentList(items)
         }
     }
 }

@@ -21,17 +21,30 @@
     <string name="weight_live_bubble_title">Live workout</string>
     <string name="weight_live_bubble_open_full">Open full workout</string>
     <string name="weight_live_fgs_dialog_title">Background timer</string>
-    <string name="weight_live_fgs_dialog_body">While a live workout is running, ERV keeps a background timer so your session time stays accurate. Android requires a persistent notification for this—it is not used for ads or tracking. You can return to the workout from the notification (and, on supported devices, a bubble).</string>
+    <string name="weight_live_fgs_dialog_body">While a live weight or cardio timer is running, ERV keeps a background timer so your session time stays accurate. Android requires a persistent notification for this—it is not used for ads or tracking. You can return from the notification (and, on supported devices, a bubble).</string>
     <string name="weight_live_fgs_dialog_confirm">Continue</string>
     <string name="weight_live_fgs_dialog_cancel">Not now</string>
-    <string name="settings_live_weight_workout_title">Live weight workout</string>
-    <string name="settings_live_weight_workout_explanation">During an active live workout, ERV runs in the background so your session timer stays accurate. Android requires a persistent, ongoing notification for this—it is not optional inside the app while the workout is running, and it is not used for ads or tracking.</string>
+    <string name="settings_live_weight_workout_title">Live workouts</string>
+    <string name="settings_live_weight_workout_explanation">During an active live weight or cardio timer, ERV runs in the background so your session clock stays accurate. Android requires a persistent, ongoing notification for this—it is not optional while a timer is running, and it is not used for ads or tracking.</string>
     <string name="settings_live_weight_workout_bubble_switch">Show workout bubble</string>
-    <string name="settings_live_weight_workout_bubble_helper">On (default): on supported Android versions, a bubble can appear when you leave the workout screen, so you can jump back quickly. Off: only the bubble is disabled. You will still see the ongoing workout notification until you finish or cancel the workout—that is required by Android for background timers. To minimize or change sounds, use Settings → Apps → ERV → Notifications on your device.</string>
-    <string name="settings_live_weight_system_bubbles_hint">To allow bubbles: Settings → Apps → ERV → Notifications → open the “Live weight workout” category, then turn on Bubbles (wording varies by Android version). Start a live workout once after updating so that category appears.</string>
+    <string name="settings_live_weight_workout_bubble_helper">On (default): when you leave ERV during a live workout, Android may show a floating bubble (if your device allows it). Turn this off to use only the ongoing notification bar. You will still see the workout notification until you finish or cancel—that is required for the background timer. Use the button below if bubbles stay off because of system settings.</string>
+    <string name="settings_open_erv_notification_settings">Open ERV notification settings</string>
+    <string name="settings_live_weight_system_bubbles_hint">To allow bubbles: Settings → Apps → ERV → Notifications → open the “Live weight workout” or “Live cardio workout” category, then turn on Bubbles (wording varies by Android version). Start a live workout once so each category appears.</string>
     <string name="settings_live_weight_workout_bubble_unavailable">Floating bubbles are not available on this version of Android. An ongoing notification still appears during live workouts.</string>
     <string name="settings_live_weight_workout_notifications_denied">Notifications are off—live workout timer and return-to-workout actions may not work. Enable in system Settings.</string>
     <string name="live_workout_in_progress_banner">Live workout in progress — tap to resume</string>
+    <string name="live_cardio_in_progress_banner">Cardio timer running — tap to resume</string>
+
+    <!-- Cardio live timer — foreground service & bubble (same pattern as weight) -->
+    <string name="cardio_live_notification_channel_name">Live cardio workout</string>
+    <string name="cardio_live_notification_channel_desc">Ongoing cardio session timer while you train. Required during an active cardio timer.</string>
+    <string name="cardio_live_notification_title">Cardio workout</string>
+    <string name="cardio_live_notification_chronometer_line">Session timer · tap to return</string>
+    <string name="cardio_live_notification_action_open">Open cardio timer</string>
+    <string name="cardio_live_bubble_shortcut_short">Cardio</string>
+    <string name="cardio_live_bubble_shortcut_long">Live cardio workout</string>
+    <string name="cardio_live_bubble_title">Live cardio</string>
+    <string name="cardio_live_bubble_open_full">Open full timer</string>
 
     <!-- Weight training — bodyweight-style exercises: load is added weight only -->
     <string name="weight_added_load_info_title">Added weight</string>
@@ -45,7 +58,14 @@
     <string name="cardio_gps_notification_text">Recording GPS route — tap to return</string>
     <string name="settings_cardio_gps_title">Cardio GPS tracking</string>
     <string name="settings_cardio_gps_switch">Record GPS for outdoor walk, run, hike, ruck</string>
-    <string name="settings_cardio_gps_helper">When on, timer workouts for those outdoor activities can log distance from your route if you allow location access. Tracks stay on this device and are not uploaded to relays. Android shows an ongoing notification while recording.</string>
+    <string name="settings_cardio_gps_helper">When on, timer workouts for those outdoor activities can log distance from your route if you allow location access. Raw GPS point lists are never sent to Nostr relays (only session summaries sync). Android shows an ongoing notification while recording. Use the next option to control whether point lists are kept on this device after each workout is saved.</string>
+    <string name="settings_cardio_gps_retention_title">GPS track on device</string>
+    <string name="settings_cardio_gps_retention_switch">Keep detailed GPS track on device</string>
+    <string name="settings_cardio_gps_retention_switch_helper">When off, lat/lon point lists are not stored after a workout is saved. Distance, duration, estimated calories, and elevation gain/loss (when derived from the route) are still kept. Interactive maps, splits, exports, or other future features that need the full path may be limited.</string>
+    <string name="settings_cardio_gps_retention_privacy">Your raw GPS points are not included in encrypted cardio logs published to relays—those events only carry summaries. Full tracks exist on your phone only when this setting is on.</string>
+    <string name="settings_cardio_gps_retention_storage_title">Local storage path</string>
+    <string name="settings_cardio_gps_retention_storage_intro">Workout logs (including GPS tracks when kept) live in app-private storage as JSON inside a DataStore file. Typical path:</string>
+    <string name="settings_cardio_gps_retention_backup">You cannot open this file from Downloads. To back it up, use Android backup, adb, or your device manufacturer’s full backup tools—the app does not export this data for you.</string>
     <string name="cardio_timer_gps_allow_location">Allow location for GPS distance</string>
     <string name="cardio_timer_gps_recording">Acquiring GPS…</string>
     <string name="cardio_timer_gps_from_route">From GPS route</string>
@@ -78,4 +98,16 @@
     <string name="settings_cardio_nostr_fetch_no_pubkey">Sign in to load your Blossom server list.</string>
     <string name="settings_cardio_nostr_fetch_no_relays">No relay connection. Add relays below and wait until at least one shows connected.</string>
     <string name="settings_cardio_nostr_fetch_no_pool">Sign in and open Settings with relays connected to load your profile.</string>
+
+    <!-- Live workout: system media (volume + optional session transport) -->
+    <string name="media_notification_listener_name">ERV media controls</string>
+    <string name="media_control_sheet_title">Media</string>
+    <string name="media_control_volume_label">Media volume</string>
+    <string name="media_control_listener_hint">To show what is playing and use play, pause, and skip for your current audio app, enable notification access for “ERV media controls” in system settings. ERV does not read notification text for features—only the active media session. You can use volume below without this.</string>
+    <string name="media_control_open_listener_settings">Open notification access settings</string>
+    <string name="media_control_no_session">No active media session detected. Start playback in your music or podcast app, then return here.</string>
+    <string name="media_control_cd_music">Open media controls</string>
+    <string name="media_control_cd_play_pause">Play or pause</string>
+    <string name="media_control_cd_skip_next">Skip to next</string>
+    <string name="media_control_cd_skip_previous">Skip to previous</string>
 </resources>

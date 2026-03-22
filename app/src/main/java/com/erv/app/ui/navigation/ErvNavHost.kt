@@ -37,10 +37,15 @@ import com.erv.app.ui.cardio.CardioCategoryScreen
 import com.erv.app.ui.cardio.CardioLogScreen
 import com.erv.app.ui.cardio.CardioSessionDetailScreen
 import com.erv.app.ui.weighttraining.WeightLiveWorkoutViewModel
+import com.erv.app.ui.cardio.CardioLiveWorkoutViewModel
 import com.erv.app.ui.weighttraining.WeightExerciseDetailScreen
 import com.erv.app.ui.weighttraining.WeightTrainingCategoryScreen
 import com.erv.app.ui.weighttraining.WeightTrainingLogScreen
 import com.erv.app.data.BodyWeightUnit
+import com.erv.app.stretching.StretchLibraryState
+import com.erv.app.stretching.StretchingRepository
+import com.erv.app.ui.stretching.StretchingCategoryScreen
+import com.erv.app.ui.stretching.StretchingLogScreen
 import com.erv.app.heatcold.HeatColdLibraryState
 import com.erv.app.heatcold.HeatColdMode
 import com.erv.app.heatcold.HeatColdRepository
@@ -78,6 +83,7 @@ object Routes {
     const val weightExerciseDetailRoute = "category/weight_training/exercise/{exerciseId}"
     fun weightExerciseDetail(exerciseId: String) = "category/weight_training/exercise/$exerciseId"
     const val heatColdLog = "category/heat_cold/log"
+    const val stretchingLog = "category/stretching/log"
 }
 
 @Composable
@@ -92,18 +98,22 @@ fun ErvNavHost(
     cardioRepository: CardioRepository,
     weightRepository: WeightRepository,
     heatColdRepository: HeatColdRepository,
+    stretchingRepository: StretchingRepository,
     weightLiveWorkoutViewModel: WeightLiveWorkoutViewModel,
+    cardioLiveWorkoutViewModel: CardioLiveWorkoutViewModel,
     relayPool: RelayPool?,
     signer: EventSigner?,
     pendingReminderRoutineId: StateFlow<String?>,
     consumePendingReminderRoutineId: () -> Unit,
     navigateToWeightLiveWorkout: MutableStateFlow<Boolean>,
+    navigateToCardioLiveWorkout: MutableStateFlow<Boolean>,
     onRelaysChanged: () -> Unit = {},
     onLogout: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val pendingRoutineId = pendingReminderRoutineId.collectAsState(initial = null).value
     val openWeightLive by navigateToWeightLiveWorkout.collectAsState()
+    val openCardioLive by navigateToCardioLiveWorkout.collectAsState()
     LaunchedEffect(pendingRoutineId) {
         if (pendingRoutineId != null) {
             navController.navigate(Routes.DASHBOARD) {
@@ -118,6 +128,15 @@ fun ErvNavHost(
                 launchSingleTop = true
             }
             navigateToWeightLiveWorkout.value = false
+        }
+    }
+    LaunchedEffect(openCardioLive) {
+        if (openCardioLive) {
+            cardioLiveWorkoutViewModel.setCardioLiveUiExpanded(true)
+            navController.navigate(Routes.cardioCategory) {
+                launchSingleTop = true
+            }
+            navigateToCardioLiveWorkout.value = false
         }
     }
     NavHost(
@@ -138,6 +157,7 @@ fun ErvNavHost(
                 cardioRepository = cardioRepository,
                 weightRepository = weightRepository,
                 weightLiveWorkoutViewModel = weightLiveWorkoutViewModel,
+                cardioLiveWorkoutViewModel = cardioLiveWorkoutViewModel,
                 userPreferences = userPreferences,
                 relayPool = relayPool,
                 signer = signer,
@@ -165,6 +185,7 @@ fun ErvNavHost(
                     navController.navigate(Routes.heatColdLog) { launchSingleTop = true }
                 },
                 heatColdRepository = heatColdRepository,
+                stretchingRepository = stretchingRepository,
                 viewModel = dashboardViewModel
             )
         }
@@ -242,6 +263,8 @@ fun ErvNavHost(
             CardioCategoryScreen(
                 repository = cardioRepository,
                 userPreferences = userPreferences,
+                cardioLiveWorkoutViewModel = cardioLiveWorkoutViewModel,
+                weightLiveWorkoutViewModel = weightLiveWorkoutViewModel,
                 relayPool = relayPool,
                 signer = signer,
                 onBack = { navController.popBackStack() },
@@ -257,6 +280,8 @@ fun ErvNavHost(
             CardioCategoryScreen(
                 repository = cardioRepository,
                 userPreferences = userPreferences,
+                cardioLiveWorkoutViewModel = cardioLiveWorkoutViewModel,
+                weightLiveWorkoutViewModel = weightLiveWorkoutViewModel,
                 relayPool = relayPool,
                 signer = signer,
                 onBack = { navController.popBackStack() },
@@ -329,6 +354,7 @@ fun ErvNavHost(
             WeightTrainingCategoryScreen(
                 repository = weightRepository,
                 liveWorkoutViewModel = weightLiveWorkoutViewModel,
+                cardioLiveWorkoutViewModel = cardioLiveWorkoutViewModel,
                 userPreferences = userPreferences,
                 relayPool = relayPool,
                 signer = signer,
@@ -369,6 +395,29 @@ fun ErvNavHost(
             val state = heatColdRepository.state.collectAsState(initial = HeatColdLibraryState()).value
             HeatColdLogScreen(
                 repository = heatColdRepository,
+                state = state,
+                relayPool = relayPool,
+                signer = signer,
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(Routes.category("stretching")) {
+            StretchingCategoryScreen(
+                repository = stretchingRepository,
+                relayPool = relayPool,
+                signer = signer,
+                onBack = { navController.popBackStack() },
+                onOpenLog = {
+                    navController.navigate(Routes.stretchingLog) { launchSingleTop = true }
+                }
+            )
+        }
+
+        composable(Routes.stretchingLog) {
+            val state = stretchingRepository.state.collectAsState(initial = StretchLibraryState()).value
+            StretchingLogScreen(
+                repository = stretchingRepository,
                 state = state,
                 relayPool = relayPool,
                 signer = signer,
@@ -426,9 +475,7 @@ fun ErvNavHost(
         }
 
         categories.forEach { cat ->
-            if (cat.id == "supplements" || cat.id == "light_therapy" || cat.id == "cardio" ||
-                cat.id == "weight_training" || cat.id == "heat_cold"
-            ) return@forEach
+            if (cat.id in implementedCategoryIds) return@forEach
             composable(cat.route) {
                 ComingSoonScreen(
                     title = cat.label,

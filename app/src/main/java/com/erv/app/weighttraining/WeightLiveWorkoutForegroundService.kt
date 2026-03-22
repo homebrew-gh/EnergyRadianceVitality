@@ -13,16 +13,19 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
-import androidx.core.content.pm.ShortcutInfoCompat
-import androidx.core.content.pm.ShortcutManagerCompat
-import androidx.core.graphics.drawable.IconCompat
 import com.erv.app.MainActivity
 import com.erv.app.R
 import com.erv.app.data.UserPreferences
+import com.erv.app.notification.bubbleMetadataIconCompat
 import com.erv.app.ui.weighttraining.WeightWorkoutBubbleActivity
+import kotlinx.coroutines.CoroutineExceptionHandler
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Foreground service for an active live weight workout: ongoing notification (required on Android)
@@ -30,20 +33,27 @@ import kotlinx.coroutines.flow.first
  *
  * Elapsed time uses a notification [chronometer] ([setUsesChronometer]) so we do not call
  * [NotificationManager.notify] every second — frequent updates prevent bubble promotion on many devices.
+ *
+ * Bubble metadata uses [NotificationCompat.BubbleMetadata.Builder] with a [PendingIntent] and
+ * [R.drawable.ic_stat_erv] (sun icon), not shortcut-only metadata, so a failed dynamic shortcut
+ * cannot block the bubble.
  */
 class WeightLiveWorkoutForegroundService : Service() {
 
     private lateinit var userPreferences: UserPreferences
 
+    private val serviceScope = CoroutineScope(
+        SupervisorJob() + Dispatchers.Main.immediate + CoroutineExceptionHandler { _, e ->
+            Log.e(TAG, "Async notification update failed", e)
+        }
+    )
+
     @Volatile
     private var startedAtEpochSeconds: Long = 0L
 
+    /** Updated async from DataStore; false until loaded so we do not attach bubble metadata prematurely. */
     @Volatile
-    private var bubbleEnabled: Boolean = true
-
-    /** False if shortcut/bubble setup failed (e.g. invalid icon) — notification still works. */
-    @Volatile
-    private var bubbleUiReady: Boolean = false
+    private var bubbleEnabled: Boolean = false
 
     override fun onCreate() {
         super.onCreate()
@@ -59,33 +69,26 @@ class WeightLiveWorkoutForegroundService : Service() {
             return START_NOT_STICKY
         }
         startedAtEpochSeconds = intent!!.getLongExtra(EXTRA_STARTED_AT_EPOCH_SEC, weightNowEpochSeconds())
-        bubbleEnabled = runBlocking(Dispatchers.IO) {
-            userPreferences.workoutBubbleEnabled.first()
-        }
-        bubbleUiReady = false
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && bubbleEnabled) {
-            bubbleUiReady = try {
-                pushBubbleShortcut()
-                true
-            } catch (e: RuntimeException) {
-                Log.w(TAG, "Workout bubble shortcut failed; continuing with notification only", e)
-                false
+        postForeground(buildNotification())
+        serviceScope.launch {
+            val enabled = withContext(Dispatchers.IO) {
+                userPreferences.workoutBubbleEnabled.first()
+            }
+            if (enabled != bubbleEnabled) {
+                bubbleEnabled = enabled
+                postForeground(buildNotification())
             }
         }
-        postForeground(buildNotification())
         return START_NOT_STICKY
     }
 
     override fun onDestroy() {
+        serviceScope.cancel()
         stopEverything()
         super.onDestroy()
     }
 
     private fun stopEverything() {
-        ShortcutManagerCompat.removeDynamicShortcuts(
-            this,
-            listOf(WeightLiveWorkoutConstants.BUBBLE_SHORTCUT_ID)
-        )
         stopForeground(STOP_FOREGROUND_REMOVE)
     }
 
@@ -117,7 +120,7 @@ class WeightLiveWorkoutForegroundService : Service() {
         )
 
         val builder = NotificationCompat.Builder(this, WeightLiveWorkoutConstants.NOTIFICATION_CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setSmallIcon(R.drawable.ic_stat_erv)
             .setContentTitle(getString(R.string.weight_live_notification_title))
             .setContentText(getString(R.string.weight_live_notification_chronometer_line))
             .setWhen(startedAtMs)
@@ -131,39 +134,28 @@ class WeightLiveWorkoutForegroundService : Service() {
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .addAction(0, getString(R.string.weight_live_notification_action_open), openApp)
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && bubbleEnabled && bubbleUiReady) {
-            builder.setShortcutId(WeightLiveWorkoutConstants.BUBBLE_SHORTCUT_ID)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && bubbleEnabled) {
             try {
-                val bubbleMeta = NotificationCompat.BubbleMetadata.Builder(
-                    WeightLiveWorkoutConstants.BUBBLE_SHORTCUT_ID
+                val bubbleLaunch = bubbleActivityIntent(this, startedAtEpochSeconds).apply {
+                    action = Intent.ACTION_VIEW
+                }
+                val bubblePi = PendingIntent.getActivity(
+                    this,
+                    BUBBLE_PENDING_INTENT_REQUEST,
+                    bubbleLaunch,
+                    immutable
                 )
+                val bubbleIcon = bubbleMetadataIconCompat(this)
+                val bubbleMeta = NotificationCompat.BubbleMetadata.Builder(bubblePi, bubbleIcon)
                     .setDesiredHeight(220)
                     .build()
                 builder.setBubbleMetadata(bubbleMeta)
-            } catch (e: RuntimeException) {
-                Log.w(TAG, "Omitting bubble metadata", e)
+            } catch (t: Throwable) {
+                Log.w(TAG, "Omitting bubble metadata", t)
             }
         }
 
         return builder.build()
-    }
-
-    /**
-     * Publishes the dynamic shortcut backing the bubble. Must not use @drawable/ic_launcher on API 26+
-     * (adaptive icon); the system rejects it for shortcuts and can crash.
-     */
-    private fun pushBubbleShortcut() {
-        val bubbleLaunch = bubbleActivityIntent(this, startedAtEpochSeconds).apply {
-            action = Intent.ACTION_VIEW
-        }
-        val shortcut = ShortcutInfoCompat.Builder(this, WeightLiveWorkoutConstants.BUBBLE_SHORTCUT_ID)
-            .setShortLabel(getString(R.string.weight_live_bubble_shortcut_short))
-            .setLongLabel(getString(R.string.weight_live_bubble_shortcut_long))
-            .setIcon(IconCompat.createWithResource(this, R.drawable.ic_launcher_foreground))
-            .setIntent(bubbleLaunch)
-            .setLongLived(true)
-            .build()
-        ShortcutManagerCompat.pushDynamicShortcut(this, shortcut)
     }
 
     private fun ensureChannel() {
@@ -189,6 +181,7 @@ class WeightLiveWorkoutForegroundService : Service() {
 
     companion object {
         private const val TAG = "WeightLiveFg"
+        private const val BUBBLE_PENDING_INTENT_REQUEST = 2
         private const val ACTION_START = "com.erv.app.weight.LIVE_START"
         private const val EXTRA_STARTED_AT_EPOCH_SEC = "startedAtEpochSec"
         /** Pre–bubble-v2 channel; deleting lets users get a single channel with bubble toggles. */

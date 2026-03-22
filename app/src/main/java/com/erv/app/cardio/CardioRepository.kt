@@ -1,6 +1,7 @@
 package com.erv.app.cardio
 
 import android.content.Context
+import com.erv.app.data.UserPreferences
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
@@ -15,7 +16,10 @@ import java.time.LocalDate
 
 private val Context.cardioDataStore: DataStore<Preferences> by preferencesDataStore(name = "erv_cardio")
 
-class CardioRepository(context: Context) {
+class CardioRepository(
+    context: Context,
+    private val userPreferences: UserPreferences
+) {
 
     private val appContext = context.applicationContext
 
@@ -77,11 +81,13 @@ class CardioRepository(context: Context) {
     }
 
     suspend fun addSession(date: LocalDate, session: CardioSession) {
+        val retain = userPreferences.cardioGpsTrackRetainOnDevice.first()
+        val toStore = if (retain) session else session.copy(gpsTrack = null)
         updateState { current ->
             val log = current.logFor(date) ?: CardioDayLog(date = date.toString())
             current.copy(
                 logs = current.logs.upsertLog(
-                    log.copy(sessions = log.sessions + session)
+                    log.copy(sessions = log.sessions + toStore)
                 )
             )
         }
@@ -101,11 +107,13 @@ class CardioRepository(context: Context) {
         sessionId: String,
         transform: (CardioSession) -> CardioSession
     ) {
+        val retain = userPreferences.cardioGpsTrackRetainOnDevice.first()
         updateState { current ->
             val log = current.logFor(date) ?: return@updateState current
             val idx = log.sessions.indexOfFirst { it.id == sessionId }
             if (idx < 0) return@updateState current
-            val updated = transform(log.sessions[idx])
+            val transformed = transform(log.sessions[idx])
+            val updated = if (retain) transformed else transformed.copy(gpsTrack = null)
             if (updated == log.sessions[idx]) return@updateState current
             val newSessions = log.sessions.toMutableList()
             newSessions[idx] = updated

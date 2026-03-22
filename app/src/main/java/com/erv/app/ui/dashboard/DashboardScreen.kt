@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.AcUnit
 import androidx.compose.material.icons.filled.Thermostat
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material.icons.filled.Bedtime
+import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
@@ -55,6 +56,7 @@ import com.erv.app.ui.navigation.categories
 import com.erv.app.ui.weighttraining.LiveWorkoutInProgressBanner
 import com.erv.app.ui.weighttraining.WeightLiveWorkoutFgsDisclosureDialog
 import com.erv.app.ui.weighttraining.WeightLiveWorkoutViewModel
+import com.erv.app.ui.cardio.CardioLiveWorkoutViewModel
 import com.erv.app.supplements.SupplementLibraryState
 import com.erv.app.supplements.SupplementActivityRow
 import com.erv.app.supplements.SupplementRepository
@@ -93,6 +95,11 @@ import com.erv.app.goals.summaryLine
 import com.erv.app.data.UserPreferences
 import com.erv.app.heatcold.HeatColdActivityRow
 import com.erv.app.heatcold.HeatColdLibraryState
+import com.erv.app.stretching.StretchActivityRow
+import com.erv.app.stretching.StretchLibraryState
+import com.erv.app.stretching.StretchingRepository
+import com.erv.app.stretching.StretchingSync
+import com.erv.app.stretching.stretchActivityFor
 import com.erv.app.heatcold.HeatColdRepository
 import com.erv.app.heatcold.HeatColdSync
 import com.erv.app.heatcold.coldActivityFor
@@ -163,7 +170,9 @@ fun DashboardScreen(
     cardioRepository: CardioRepository,
     weightRepository: WeightRepository,
     heatColdRepository: HeatColdRepository,
+    stretchingRepository: StretchingRepository,
     weightLiveWorkoutViewModel: WeightLiveWorkoutViewModel,
+    cardioLiveWorkoutViewModel: CardioLiveWorkoutViewModel,
     userPreferences: UserPreferences,
     relayPool: RelayPool?,
     signer: EventSigner?,
@@ -179,6 +188,7 @@ fun DashboardScreen(
     val cardioState by cardioRepository.state.collectAsState(initial = CardioLibraryState())
     val weightState by weightRepository.state.collectAsState(initial = WeightLibraryState())
     val heatColdState by heatColdRepository.state.collectAsState(initial = HeatColdLibraryState())
+    val stretchState by stretchingRepository.state.collectAsState(initial = StretchLibraryState())
     val weightKg by userPreferences.fallbackBodyWeightKg.collectAsState(initial = null)
     val cardioDistanceUnit by userPreferences.cardioDistanceUnit.collectAsState(initial = CardioDistanceUnit.MILES)
     val cardioGpsPreferred by userPreferences.cardioGpsRecordingPreferred.collectAsState(initial = true)
@@ -192,6 +202,7 @@ fun DashboardScreen(
         lightState,
         cardioState,
         weightState,
+        stretchState,
     ) {
         computeWeeklyGoalProgress(
             asOfDate = goalsAsOfDate,
@@ -200,6 +211,7 @@ fun DashboardScreen(
             lightState = lightState,
             cardioState = cardioState,
             weightState = weightState,
+            stretchState = stretchState,
         )
     }
     val anyGoalMetThisWeek = remember(weeklyGoalRows) { anySelectedGoalMet(weeklyGoalRows) }
@@ -222,24 +234,33 @@ fun DashboardScreen(
     val coldRows = remember(heatColdState, selectedDate) {
         heatColdState.coldActivityFor(selectedDate)
     }
+    val stretchRows = remember(stretchState, selectedDate) {
+        stretchState.stretchActivityFor(selectedDate)
+    }
     val datesWithActivity = remember(
         supplementState,
         lightState,
         cardioState,
         weightState,
-        heatColdState
+        heatColdState,
+        stretchState
     ) {
         datesWithActivityLogged(
             supplementState,
             lightState,
             cardioState,
             weightState,
-            heatColdState
+            heatColdState,
+            stretchState
         )
     }
     val weightTrainingCategory = remember { categories.first { it.id == "weight_training" } }
+    val cardioCategory = remember { categories.first { it.id == "cardio" } }
     val liveWeightDraft by weightLiveWorkoutViewModel.activeDraft.collectAsState()
+    val cardioActiveTimer by cardioLiveWorkoutViewModel.activeTimer.collectAsState()
+    val cardioLiveUiExpanded by cardioLiveWorkoutViewModel.cardioLiveUiExpanded.collectAsState()
     val heatColdCategory = remember { categories.first { it.id == "heat_cold" } }
+    val stretchingCategory = remember { categories.first { it.id == "stretching" } }
     val today = remember { LocalDate.now() }
     val scope = rememberCoroutineScope()
     var showCalendar by remember { mutableStateOf(false) }
@@ -249,7 +270,8 @@ fun DashboardScreen(
     var lightTimerSession by remember { mutableStateOf<LightTimerSession?>(null) }
     var cardioRoutinePreview by remember { mutableStateOf<CardioRoutine?>(null) }
     var pendingDashboardQuickLaunchRuck by remember { mutableStateOf<CardioQuickLaunch?>(null) }
-    var cardioActiveTimer by remember { mutableStateOf<CardioActiveTimerSession?>(null) }
+    var showDashboardCardioFgsDialog by remember { mutableStateOf(false) }
+    var pendingDashboardCardioSession by remember { mutableStateOf<CardioActiveTimerSession?>(null) }
     var cardioWorkoutSummary by remember { mutableStateOf<CardioTimerCompletionResult?>(null) }
     var dashboardLocationFineGranted by remember {
         mutableStateOf(
@@ -306,6 +328,28 @@ fun DashboardScreen(
             }
             heatColdRepository.currentState().coldLogFor(today)?.let { log ->
                 HeatColdSync.publishColdDailyLog(relayPool, signer, log)
+            }
+            stretchingRepository.currentState().logFor(today)?.let { log ->
+                StretchingSync.publishDailyLog(relayPool, signer, log)
+            }
+        }
+    }
+
+    fun dashboardStartOrQueueCardio(session: CardioActiveTimerSession) {
+        if (weightLiveWorkoutViewModel.hasLiveSession) {
+            scope.launch {
+                snackbarHostState.showSnackbar("Finish or cancel your live weight workout first.")
+            }
+            return
+        }
+        if (!fgsDisclosureSeen) {
+            pendingDashboardCardioSession = session
+            showDashboardCardioFgsDialog = true
+            return
+        }
+        if (!cardioLiveWorkoutViewModel.tryStartSession(session)) {
+            scope.launch {
+                snackbarHostState.showSnackbar("Finish or cancel your cardio timer first.")
             }
         }
     }
@@ -465,6 +509,17 @@ fun DashboardScreen(
                         )
                     }
 
+                    if (cardioActiveTimer != null && !cardioLiveUiExpanded) {
+                        LiveWorkoutInProgressBanner(
+                            onClick = {
+                                cardioLiveWorkoutViewModel.setCardioLiveUiExpanded(true)
+                                onNavigateToCategory(cardioCategory)
+                            },
+                            modifier = Modifier.padding(bottom = 8.dp),
+                            text = stringResource(R.string.live_cardio_in_progress_banner)
+                        )
+                    }
+
                     DateNavigator(
                         selectedDate = selectedDate,
                         onPreviousDay = viewModel::previousDay,
@@ -536,8 +591,10 @@ fun DashboardScreen(
                                         if (ql.needsOutdoorRuckWeightPrompt()) {
                                             pendingDashboardQuickLaunchRuck = ql
                                         } else {
-                                            cardioActiveTimer = CardioActiveTimerSession.Single(
-                                                CardioTimerSessionDraft.fromQuickLaunch(ql)
+                                            dashboardStartOrQueueCardio(
+                                                CardioActiveTimerSession.Single(
+                                                    CardioTimerSessionDraft.fromQuickLaunch(ql)
+                                                )
                                             )
                                         }
                                     },
@@ -545,6 +602,11 @@ fun DashboardScreen(
                                     onOpenCardioLogBackfill = onOpenCardioLogBackfill,
                                     onOpenWeightNewWorkout = {
                                         when {
+                                            cardioLiveWorkoutViewModel.hasActiveTimer -> {
+                                                scope.launch {
+                                                    snackbarHostState.showSnackbar("Finish or cancel your cardio timer first.")
+                                                }
+                                            }
                                             !fgsDisclosureSeen -> {
                                                 pendingDashboardWeightBlank = true
                                                 pendingDashboardWeightRoutine = null
@@ -560,6 +622,11 @@ fun DashboardScreen(
                                     },
                                     onWeightRoutineSelected = { routine ->
                                         when {
+                                            cardioLiveWorkoutViewModel.hasActiveTimer -> {
+                                                scope.launch {
+                                                    snackbarHostState.showSnackbar("Finish or cancel your cardio timer first.")
+                                                }
+                                            }
                                             !fgsDisclosureSeen -> {
                                                 pendingDashboardWeightRoutine = routine
                                                 pendingDashboardWeightBlank = false
@@ -575,7 +642,9 @@ fun DashboardScreen(
                                     },
                                     onOpenWeightLogBackfill = onOpenWeightLogBackfill,
                                     onOpenHeatColdCategory = { onNavigateToCategory(heatColdCategory) },
-                                    onOpenHeatColdLog = onOpenHeatColdLog
+                                    onOpenHeatColdLog = onOpenHeatColdLog,
+                                    stretchRoutineCount = stretchState.routines.size,
+                                    onOpenStretchingCategory = { onNavigateToCategory(stretchingCategory) }
                                 )
                             }
 
@@ -595,7 +664,8 @@ fun DashboardScreen(
                                     cardioRows = cardioRows,
                                     weightRows = weightRows,
                                     saunaRows = saunaRows,
-                                    coldRows = coldRows
+                                    coldRows = coldRows,
+                                    stretchRows = stretchRows
                                 )
                             }
                         }
@@ -618,7 +688,8 @@ fun DashboardScreen(
                             cardioRows = cardioRows,
                             weightRows = weightRows,
                             saunaRows = saunaRows,
-                            coldRows = coldRows
+                            coldRows = coldRows,
+                            stretchRows = stretchRows
                         )
                     }
                 }
@@ -653,18 +724,45 @@ fun DashboardScreen(
                         pendingDashboardWeightRoutine = null
                         when {
                             blank -> {
-                                if (weightLiveWorkoutViewModel.tryStartBlank()) {
+                                if (cardioLiveWorkoutViewModel.hasActiveTimer) {
+                                    snackbarHostState.showSnackbar("Finish or cancel your cardio timer first.")
+                                } else if (weightLiveWorkoutViewModel.tryStartBlank()) {
                                     onNavigateToCategory(weightTrainingCategory)
                                 } else {
                                     snackbarHostState.showSnackbar("Finish or cancel your live workout first.")
                                 }
                             }
                             pendingR != null -> {
-                                if (weightLiveWorkoutViewModel.tryStartFromRoutine(pendingR, weightState)) {
+                                if (cardioLiveWorkoutViewModel.hasActiveTimer) {
+                                    snackbarHostState.showSnackbar("Finish or cancel your cardio timer first.")
+                                } else if (weightLiveWorkoutViewModel.tryStartFromRoutine(pendingR, weightState)) {
                                     onNavigateToCategory(weightTrainingCategory)
                                 } else {
                                     snackbarHostState.showSnackbar("Finish or cancel your live workout first.")
                                 }
+                            }
+                        }
+                    }
+                }
+            )
+
+            WeightLiveWorkoutFgsDisclosureDialog(
+                visible = showDashboardCardioFgsDialog,
+                onDismiss = {
+                    showDashboardCardioFgsDialog = false
+                    pendingDashboardCardioSession = null
+                },
+                onContinue = {
+                    scope.launch {
+                        userPreferences.setWeightLiveWorkoutFgsDisclosureSeen(true)
+                        showDashboardCardioFgsDialog = false
+                        val pending = pendingDashboardCardioSession
+                        pendingDashboardCardioSession = null
+                        if (pending != null) {
+                            if (weightLiveWorkoutViewModel.hasLiveSession) {
+                                snackbarHostState.showSnackbar("Finish or cancel your live weight workout first.")
+                            } else if (!cardioLiveWorkoutViewModel.tryStartSession(pending)) {
+                                snackbarHostState.showSnackbar("Finish or cancel your cardio timer first.")
                             }
                         }
                     }
@@ -821,8 +919,10 @@ fun DashboardScreen(
                     defaultRuckLoadKg = ql.defaultRuckLoadKg,
                     onDismiss = { pendingDashboardQuickLaunchRuck = null },
                     onStart = { kg ->
-                        cardioActiveTimer = CardioActiveTimerSession.Single(
-                            CardioTimerSessionDraft.fromQuickLaunch(ql, ruckLoadKg = kg)
+                        dashboardStartOrQueueCardio(
+                            CardioActiveTimerSession.Single(
+                                CardioTimerSessionDraft.fromQuickLaunch(ql, ruckLoadKg = kg)
+                            )
                         )
                         pendingDashboardQuickLaunchRuck = null
                     }
@@ -855,9 +955,9 @@ fun DashboardScreen(
                     },
                     onStartTimer = { r ->
                         CardioTimerSessionDraft.fromRoutine(r)?.let { d ->
-                            cardioActiveTimer = CardioActiveTimerSession.Single(d)
+                            dashboardStartOrQueueCardio(CardioActiveTimerSession.Single(d))
                         } ?: CardioMultiLegTimerState.fromRoutine(r)?.let { m ->
-                            cardioActiveTimer = CardioActiveTimerSession.Multi(m)
+                            dashboardStartOrQueueCardio(CardioActiveTimerSession.Multi(m))
                         }
                         cardioRoutinePreview = null
                     }
@@ -882,91 +982,97 @@ fun DashboardScreen(
                 )
             } else when (val ct = cardioActiveTimer) {
                 is CardioActiveTimerSession.Single -> {
-                    val draft = ct.draft
-                    val paceOnlyTimer = draft.timerStyle is CardioTimerStyle.CountDownDistance
-                    val recordGps =
-                        draft.eligibleForPhoneGps() && cardioGpsPreferred && dashboardLocationFineGranted && !paceOnlyTimer
-                    val showGpsPermissionHint =
-                        draft.eligibleForPhoneGps() && cardioGpsPreferred && !dashboardLocationFineGranted && !paceOnlyTimer
-                    CardioElapsedTimerFullScreen(
-                        draft = draft,
-                        distanceUnit = cardioDistanceUnit,
-                        dark = therapyRedDark,
-                        mid = therapyRedMid,
-                        glow = therapyRedGlow,
-                        gpsRecordingActive = recordGps,
-                        showGpsPermissionHint = showGpsPermissionHint,
-                        onRequestLocationPermission = {
-                            requestDashboardCardioLocation.launch(Manifest.permission.ACCESS_FINE_LOCATION)
-                        },
-                        onStop = { elapsedSeconds ->
-                            val gpsPoints = drainCardioGpsIfNeeded(recordGps, context.applicationContext)
-                            scope.launch {
-                                val durationMinutes = max(1, (elapsedSeconds + 59) / 60)
-                                val end = nowEpochSeconds()
-                                val raw = draft.toSession(
-                                    durationMinutes = durationMinutes,
-                                    endEpoch = end,
-                                    elapsedSecondsForDistance = elapsedSeconds,
-                                    gpsPoints = gpsPoints
-                                )
-                                val session = CardioMetEstimator.applyEstimatedKcal(
-                                    raw,
-                                    cardioRepository.currentState(),
-                                    weightKg
-                                )
-                                cardioActiveTimer = null
-                                cardioWorkoutSummary = CardioTimerCompletionResult(session, elapsedSeconds)
-                                cardioRepository.addSession(selectedDate, session)
-                                cardioRepository.currentState().logFor(selectedDate)?.let { log ->
-                                    if (relayPool != null && signer != null) {
-                                        CardioSync.publishDailyLog(relayPool, signer, log)
-                                    }
-                                }
-                            }
-                        },
-                        onCancel = {
-                            drainCardioGpsIfNeeded(recordGps, context.applicationContext)
-                            cardioActiveTimer = null
-                        }
-                    )
-                }
-                is CardioActiveTimerSession.Multi -> {
-                    val multiKey = ct.state.currentLegIndex to ct.state.completedSegments.size
-                    CardioMultiLegTimerFullScreen(
-                        state = ct.state,
-                        stateKey = multiKey,
-                        dark = therapyRedDark,
-                        mid = therapyRedMid,
-                        glow = therapyRedGlow,
-                        onFinishLeg = { elapsedSeconds ->
-                            scope.launch {
-                                val durationMinutes = max(1, (elapsedSeconds + 59) / 60)
-                                val end = nowEpochSeconds()
-                                val (next, session) = CardioMetEstimator.advanceMultiLegTimer(
-                                    ct.state,
-                                    durationMinutes,
-                                    end,
-                                    cardioRepository.currentState(),
-                                    weightKg
-                                )
-                                if (session != null) {
-                                    cardioActiveTimer = null
-                                    cardioWorkoutSummary = CardioTimerCompletionResult(session, null)
+                    if (cardioLiveUiExpanded) {
+                        val draft = ct.draft
+                        val paceOnlyTimer = draft.timerStyle is CardioTimerStyle.CountDownDistance
+                        val recordGps =
+                            draft.eligibleForPhoneGps() && cardioGpsPreferred && dashboardLocationFineGranted && !paceOnlyTimer
+                        val showGpsPermissionHint =
+                            draft.eligibleForPhoneGps() && cardioGpsPreferred && !dashboardLocationFineGranted && !paceOnlyTimer
+                        CardioElapsedTimerFullScreen(
+                            draft = draft,
+                            distanceUnit = cardioDistanceUnit,
+                            dark = therapyRedDark,
+                            mid = therapyRedMid,
+                            glow = therapyRedGlow,
+                            gpsRecordingActive = recordGps,
+                            showGpsPermissionHint = showGpsPermissionHint,
+                            onRequestLocationPermission = {
+                                requestDashboardCardioLocation.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+                            },
+                            onLeaveTimerUi = { cardioLiveWorkoutViewModel.setCardioLiveUiExpanded(false) },
+                            onStop = { elapsedSeconds ->
+                                val gpsPoints = drainCardioGpsIfNeeded(recordGps, context.applicationContext)
+                                scope.launch {
+                                    val durationMinutes = max(1, (elapsedSeconds + 59) / 60)
+                                    val end = nowEpochSeconds()
+                                    val raw = draft.toSession(
+                                        durationMinutes = durationMinutes,
+                                        endEpoch = end,
+                                        elapsedSecondsForDistance = elapsedSeconds,
+                                        gpsPoints = gpsPoints
+                                    )
+                                    val session = CardioMetEstimator.applyEstimatedKcal(
+                                        raw,
+                                        cardioRepository.currentState(),
+                                        weightKg
+                                    )
+                                    cardioLiveWorkoutViewModel.clearSession()
+                                    cardioWorkoutSummary = CardioTimerCompletionResult(session, elapsedSeconds)
                                     cardioRepository.addSession(selectedDate, session)
                                     cardioRepository.currentState().logFor(selectedDate)?.let { log ->
                                         if (relayPool != null && signer != null) {
                                             CardioSync.publishDailyLog(relayPool, signer, log)
                                         }
                                     }
-                                } else if (next != null) {
-                                    cardioActiveTimer = CardioActiveTimerSession.Multi(next)
-                                    snackbarHostState.showSnackbar("Leg saved — start next when ready")
                                 }
+                            },
+                            onCancel = {
+                                drainCardioGpsIfNeeded(recordGps, context.applicationContext)
+                                cardioLiveWorkoutViewModel.clearSession()
                             }
-                        },
-                        onCancel = { cardioActiveTimer = null }
-                    )
+                        )
+                    }
+                }
+                is CardioActiveTimerSession.Multi -> {
+                    if (cardioLiveUiExpanded) {
+                        val multiKey = ct.state.currentLegIndex to ct.state.completedSegments.size
+                        CardioMultiLegTimerFullScreen(
+                            state = ct.state,
+                            stateKey = multiKey,
+                            dark = therapyRedDark,
+                            mid = therapyRedMid,
+                            glow = therapyRedGlow,
+                            onLeaveWorkoutUi = { cardioLiveWorkoutViewModel.setCardioLiveUiExpanded(false) },
+                            onFinishLeg = { elapsedSeconds ->
+                                scope.launch {
+                                    val durationMinutes = max(1, (elapsedSeconds + 59) / 60)
+                                    val end = nowEpochSeconds()
+                                    val (next, session) = CardioMetEstimator.advanceMultiLegTimer(
+                                        ct.state,
+                                        durationMinutes,
+                                        end,
+                                        cardioRepository.currentState(),
+                                        weightKg
+                                    )
+                                    if (session != null) {
+                                        cardioLiveWorkoutViewModel.clearSession()
+                                        cardioWorkoutSummary = CardioTimerCompletionResult(session, null)
+                                        cardioRepository.addSession(selectedDate, session)
+                                        cardioRepository.currentState().logFor(selectedDate)?.let { log ->
+                                            if (relayPool != null && signer != null) {
+                                                CardioSync.publishDailyLog(relayPool, signer, log)
+                                            }
+                                        }
+                                    } else if (next != null) {
+                                        cardioLiveWorkoutViewModel.replaceSession(CardioActiveTimerSession.Multi(next))
+                                        snackbarHostState.showSnackbar("Leg saved — start next when ready")
+                                    }
+                                }
+                            },
+                            onCancel = { cardioLiveWorkoutViewModel.clearSession() }
+                        )
+                    }
                 }
                 null -> Unit
             }
@@ -1235,7 +1341,9 @@ private fun RoutinesSection(
     onOpenWeightLogBackfill: (LocalDate) -> Unit,
     onWeightRoutineSelected: (WeightRoutine) -> Unit,
     onOpenHeatColdCategory: () -> Unit,
-    onOpenHeatColdLog: () -> Unit
+    onOpenHeatColdLog: () -> Unit,
+    stretchRoutineCount: Int,
+    onOpenStretchingCategory: () -> Unit,
 ) {
     var showSupplementPicker by remember { mutableStateOf(false) }
     var showLightPicker by remember { mutableStateOf(false) }
@@ -1262,7 +1370,7 @@ private fun RoutinesSection(
         ) {
             if (supplementRoutines.isEmpty() && lightRoutines.isEmpty()) {
                 Text(
-                    text = "Create supplement or light routines, or use Cardio / Weight Training. Hot + Cold timer is below.",
+                    text = "Create supplement or light routines, or use Cardio, Weight Training, and Stretching. Hot + Cold timer is below.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -1335,7 +1443,13 @@ private fun RoutinesSection(
                     onClick = { showHeatColdSheet = true },
                     modifier = Modifier.weight(1f)
                 )
-                Spacer(modifier = Modifier.weight(1f))
+                RoutineTile(
+                    icon = Icons.Default.FavoriteBorder,
+                    label = "Stretching",
+                    subtitle = if (stretchRoutineCount == 0) "Browse & routines" else if (stretchRoutineCount == 1) "1 routine" else "$stretchRoutineCount routines",
+                    onClick = onOpenStretchingCategory,
+                    modifier = Modifier.weight(1f)
+                )
             }
         }
     }
@@ -1815,7 +1929,8 @@ private fun ActivitySection(
     cardioRows: List<CardioActivityRow>,
     weightRows: List<WeightActivityRow>,
     saunaRows: List<HeatColdActivityRow>,
-    coldRows: List<HeatColdActivityRow>
+    coldRows: List<HeatColdActivityRow>,
+    stretchRows: List<StretchActivityRow>
 ) {
     if (showSectionHeading) {
         Text(
@@ -1839,8 +1954,9 @@ private fun ActivitySection(
             val hasWeight = weightRows.isNotEmpty()
             val hasSauna = saunaRows.isNotEmpty()
             val hasCold = coldRows.isNotEmpty()
+            val hasStretch = stretchRows.isNotEmpty()
 
-            if (!hasSupplements && !hasLight && !hasCardio && !hasWeight && !hasSauna && !hasCold) {
+            if (!hasSupplements && !hasLight && !hasCardio && !hasWeight && !hasSauna && !hasCold && !hasStretch) {
                 Text(
                     text = "No activity logged yet.",
                     style = MaterialTheme.typography.bodySmall,
@@ -1932,6 +2048,20 @@ private fun ActivitySection(
                     if (hasSupplements || hasLight || hasCardio || hasWeight || hasSauna) Spacer(Modifier.height(12.dp))
                     ActivityCategorySection(title = "Cold Plunge") {
                         coldRows.forEach { row ->
+                            Text(
+                                text = row.summaryLine,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+                if (hasStretch) {
+                    if (hasSupplements || hasLight || hasCardio || hasWeight || hasSauna || hasCold) {
+                        Spacer(Modifier.height(12.dp))
+                    }
+                    ActivityCategorySection(title = "Stretching") {
+                        stretchRows.forEach { row ->
                             Text(
                                 text = row.summaryLine,
                                 style = MaterialTheme.typography.bodyMedium,

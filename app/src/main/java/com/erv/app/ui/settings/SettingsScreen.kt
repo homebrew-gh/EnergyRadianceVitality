@@ -1,7 +1,10 @@
 @file:OptIn(ExperimentalMaterial3Api::class)
 package com.erv.app.ui.settings
 
+import android.content.Intent
 import android.os.Build
+import android.provider.Settings
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -11,11 +14,18 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.NavigateNext
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.DirectionsRun
+import androidx.compose.material.icons.filled.FitnessCenter
+import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.LightMode
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.SettingsBrightness
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.semantics.contentDescription
@@ -29,16 +39,23 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.core.app.NotificationManagerCompat
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
 import com.erv.app.R
 import com.erv.app.cardio.CardioDistanceUnit
 import com.erv.app.data.BodyWeightUnit
+import com.erv.app.data.OwnedEquipmentItem
 import com.erv.app.data.ThemeMode
 import com.erv.app.data.UserPreferences
 import com.erv.app.data.WorkoutMediaUploadBackend
 import com.erv.app.nostr.AmberLauncherHost
 import com.erv.app.nostr.AmberSigner
 import com.erv.app.nostr.ConnectionState
+import com.erv.app.nostr.EventSigner
+import com.erv.app.nostr.FitnessEquipmentSync
 import com.erv.app.nostr.KeyManager
 import com.erv.app.nostr.Nip96Uploader
 import com.erv.app.nostr.NipB7
@@ -46,10 +63,21 @@ import com.erv.app.nostr.RelayPool
 import com.erv.app.nostr.SettingsSync
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import java.io.File
 
 private const val WSS_PREFIX = "wss://"
 
-@OptIn(ExperimentalMaterial3Api::class)
+private object SettingsRoutes {
+    const val HOME = "settings_home"
+    const val APPEARANCE = "settings_appearance"
+    const val UNITS = "settings_units"
+    const val CARDIO = "settings_cardio"
+    const val STRENGTH = "settings_strength"
+    const val ACCOUNT = "settings_account"
+    const val RELAYS = "settings_relays"
+    const val EQUIPMENT = "settings_equipment"
+}
+
 @Composable
 fun SettingsScreen(
     keyManager: KeyManager,
@@ -66,6 +94,7 @@ fun SettingsScreen(
     val bodyWeightUnit by userPreferences.bodyWeightUnit.collectAsState(initial = BodyWeightUnit.LB)
     val cardioDistanceUnit by userPreferences.cardioDistanceUnit.collectAsState(initial = CardioDistanceUnit.MILES)
     val cardioGpsPreferred by userPreferences.cardioGpsRecordingPreferred.collectAsState(initial = true)
+    val cardioGpsTrackRetainOnDevice by userPreferences.cardioGpsTrackRetainOnDevice.collectAsState(initial = true)
     val nip96MediaOrigin by userPreferences.nip96MediaServerOrigin.collectAsState(initial = "")
     val blossomPublicSaved by userPreferences.blossomPublicServerOrigin.collectAsState(initial = "")
     val blossomPrivateSaved by userPreferences.blossomPrivateServerOrigin.collectAsState(initial = "")
@@ -81,6 +110,8 @@ fun SettingsScreen(
     LaunchedEffect(blossomPrivateSaved) { blossomPrivateDraft = blossomPrivateSaved }
     val weightTrainingLoadUnit by userPreferences.weightTrainingLoadUnit.collectAsState(initial = BodyWeightUnit.LB)
     val workoutBubbleEnabled by userPreferences.workoutBubbleEnabled.collectAsState(initial = true)
+    val gymMembership by userPreferences.gymMembership.collectAsState(initial = false)
+    val ownedEquipment by userPreferences.ownedEquipment.collectAsState(initial = emptyList())
 
     val signer = remember(keyManager, amberHost) {
         keyManager.createLocalSigner()
@@ -116,8 +147,282 @@ fun SettingsScreen(
         }
     }
 
+    val nestedNav = rememberNavController()
+    BackHandler(enabled = true) {
+        if (!nestedNav.popBackStack()) {
+            onBack()
+        }
+    }
+
     Scaffold(
-        snackbarHost = { SnackbarHost(snackbarHostState) },
+        snackbarHost = { SnackbarHost(snackbarHostState) }
+    ) { padding ->
+        NavHost(
+            navController = nestedNav,
+            startDestination = SettingsRoutes.HOME,
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+        ) {
+            composable(SettingsRoutes.HOME) {
+                val homeContext = LocalContext.current
+                SettingsHomeScreen(
+                    onBack = onBack,
+                    onOpenSection = { nestedNav.navigate(it) },
+                    workoutBubbleEnabled = workoutBubbleEnabled,
+                    notificationsEnabled = NotificationManagerCompat.from(homeContext).areNotificationsEnabled(),
+                    onBubbleChange = { enabled ->
+                        scope.launch { userPreferences.setWorkoutBubbleEnabled(enabled) }
+                    }
+                )
+            }
+            composable(SettingsRoutes.APPEARANCE) {
+                SettingsSubScreenScaffold(
+                    title = "Appearance",
+                    onBack = { nestedNav.popBackStack() }
+                ) {
+                    ThemeSection(
+                        themeMode = themeMode,
+                        onThemeChange = { mode -> scope.launch { userPreferences.setThemeMode(mode) } }
+                    )
+                }
+            }
+            composable(SettingsRoutes.UNITS) {
+                SettingsSubScreenScaffold(
+                    title = "Units & Body",
+                    onBack = { nestedNav.popBackStack() }
+                ) {
+                    BodyWeightSection(
+                        value = bodyWeightValue,
+                        unit = bodyWeightUnit,
+                        onSave = { raw, u ->
+                            scope.launch { userPreferences.setFallbackBodyWeight(raw, u) }
+                        }
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    CardioDistanceSection(
+                        unit = cardioDistanceUnit,
+                        onUnitChange = { u -> scope.launch { userPreferences.setCardioDistanceUnit(u) } }
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    WeightTrainingLoadSection(
+                        unit = weightTrainingLoadUnit,
+                        onUnitChange = { u -> scope.launch { userPreferences.setWeightTrainingLoadUnit(u) } }
+                    )
+                }
+            }
+            composable(SettingsRoutes.CARDIO) {
+                SettingsSubScreenScaffold(
+                    title = "Cardio & Sharing",
+                    onBack = { nestedNav.popBackStack() }
+                ) {
+                    CardioGpsSettingsSection(
+                        enabled = cardioGpsPreferred,
+                        onChange = { v -> scope.launch { userPreferences.setCardioGpsRecordingPreferred(v) } }
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    CardioGpsRetentionSettingsSection(
+                        retainOnDevice = cardioGpsTrackRetainOnDevice,
+                        onRetainChange = { v -> scope.launch { userPreferences.setCardioGpsTrackRetainOnDevice(v) } }
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    CardioNostrRouteShareSection(
+                        uploadBackend = workoutMediaBackend,
+                        onUploadBackendChange = { b -> scope.launch { userPreferences.setWorkoutMediaUploadBackend(b) } },
+                        attachRouteImage = attachRouteToNostr,
+                        onAttachChange = { v -> scope.launch { userPreferences.setAttachRouteImageToWorkoutNostrShare(v) } },
+                        nip96Draft = nip96Draft,
+                        onNip96DraftChange = { nip96Draft = it },
+                        onSaveNip96Origin = {
+                            scope.launch {
+                                val n = Nip96Uploader.normalizeMediaServerOrigin(nip96Draft)
+                                userPreferences.setNip96MediaServerOrigin(n)
+                                nip96Draft = n
+                            }
+                        },
+                        blossomPublicDraft = blossomPublicDraft,
+                        onBlossomPublicDraftChange = { blossomPublicDraft = it },
+                        blossomPrivateDraft = blossomPrivateDraft,
+                        onBlossomPrivateDraftChange = { blossomPrivateDraft = it },
+                        onSaveBlossomServers = {
+                            scope.launch {
+                                val pub = Nip96Uploader.normalizeMediaServerOrigin(blossomPublicDraft)
+                                val priv = Nip96Uploader.normalizeMediaServerOrigin(blossomPrivateDraft)
+                                userPreferences.setBlossomPublicServerOrigin(pub)
+                                userPreferences.setBlossomPrivateServerOrigin(priv)
+                                blossomPublicDraft = pub
+                                blossomPrivateDraft = priv
+                            }
+                        },
+                        relayPool = relayPool,
+                        blossomFetchPubkeyHex = keyManager.publicKeyHex,
+                        fetchScope = scope,
+                        onUserMessage = { snackbarMessage = it },
+                        onApplyFetchedBlossomPublic = { normalized ->
+                            blossomPublicDraft = normalized
+                            scope.launch { userPreferences.setBlossomPublicServerOrigin(normalized) }
+                        }
+                    )
+                }
+            }
+            composable(SettingsRoutes.STRENGTH) {
+                SettingsSubScreenScaffold(
+                    title = "Strength Training",
+                    onBack = { nestedNav.popBackStack() }
+                ) {
+                    LiveWeightWorkoutSettingsSection(
+                        workoutBubbleEnabled = workoutBubbleEnabled,
+                        notificationsEnabled = NotificationManagerCompat.from(context).areNotificationsEnabled(),
+                        onBubbleChange = { enabled ->
+                            scope.launch { userPreferences.setWorkoutBubbleEnabled(enabled) }
+                        }
+                    )
+                }
+            }
+            composable(SettingsRoutes.ACCOUNT) {
+                SettingsSubScreenScaffold(
+                    title = "Account",
+                    onBack = { nestedNav.popBackStack() }
+                ) {
+                    IdentitySection(
+                        keyManager = keyManager,
+                        onLogout = onLogout
+                    )
+                }
+            }
+            composable(SettingsRoutes.EQUIPMENT) {
+                SettingsSubScreenScaffold(
+                    title = "Equipment & Gym",
+                    onBack = { nestedNav.popBackStack() }
+                ) {
+                    FitnessEquipmentSettingsContent(
+                        gymMembership = gymMembership,
+                        ownedEquipment = ownedEquipment,
+                        weightUnit = weightTrainingLoadUnit,
+                        onGymMembershipChange = { enabled ->
+                            scope.launch {
+                                userPreferences.setGymMembership(enabled)
+                                syncFitnessEquipmentToNostr(relayPool, signer, enabled, ownedEquipment)
+                            }
+                        },
+                        onEquipmentChange = { list ->
+                            scope.launch {
+                                userPreferences.setOwnedEquipment(list)
+                                syncFitnessEquipmentToNostr(relayPool, signer, gymMembership, list)
+                            }
+                        }
+                    )
+                }
+            }
+            composable(SettingsRoutes.RELAYS) {
+                SettingsSubScreenScaffold(
+                    title = "Relays",
+                    onBack = { nestedNav.popBackStack() }
+                ) {
+                    Text(
+                        "Toggle Data (encrypted activity) and Social (public posts) per relay.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                    allRelays.forEach { url ->
+                        RelayRow(
+                            url = url,
+                            connectionState = relayStates[url] ?: ConnectionState.Disconnected,
+                            isData = keyManager.isDataRelay(url),
+                            isSocial = keyManager.isSocialRelay(url),
+                            onToggleData = { enabled ->
+                                if (enabled) keyManager.addRelay(url) else keyManager.removeRelay(url)
+                                relayRevision++
+                                onRelaysChanged()
+                                hasUnsavedChanges = true
+                            },
+                            onToggleSocial = { enabled ->
+                                if (enabled) keyManager.addSocialRelay(url) else keyManager.removeSocialRelay(url)
+                                relayRevision++
+                                onRelaysChanged()
+                                hasUnsavedChanges = true
+                            },
+                            onRemove = {
+                                keyManager.removeRelayCompletely(url)
+                                relayRevision++
+                                onRelaysChanged()
+                                hasUnsavedChanges = true
+                            }
+                        )
+                    }
+                    if (allRelays.isEmpty()) {
+                        Text(
+                            "No relays configured. Add one below or fetch from network.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(vertical = 8.dp)
+                        )
+                    }
+                    RelayAddRow(
+                        suffix = newRelaySuffix,
+                        onSuffixChange = { newRelaySuffix = it },
+                        onAdd = {
+                            val url = normalizeRelayUrl(newRelaySuffix)
+                            if (url != null) {
+                                keyManager.addRelay(url)
+                                relayRevision++
+                                onRelaysChanged()
+                                hasUnsavedChanges = true
+                                newRelaySuffix = ""
+                            }
+                        }
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "Social relays are imported automatically during relay setup.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    if (hasUnsavedChanges) {
+                        Spacer(Modifier.height(8.dp))
+                        Button(
+                            onClick = {
+                                if (relayPool == null || signer == null) return@Button
+                                scope.launch {
+                                    saving = true
+                                    try {
+                                        val ok = SettingsSync.saveToNetwork(relayPool, signer, keyManager)
+                                        if (ok) {
+                                            hasUnsavedChanges = false
+                                            snackbarMessage = "Settings saved"
+                                        } else {
+                                            snackbarMessage = "Save failed — check relay connections"
+                                        }
+                                    } catch (e: Exception) {
+                                        snackbarMessage = "Save failed: ${e.message}"
+                                    } finally {
+                                        saving = false
+                                    }
+                                }
+                            },
+                            enabled = !saving,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(if (saving) "Saving…" else "Save")
+                        }
+                    }
+                    Spacer(Modifier.height(16.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsHomeScreen(
+    onBack: () -> Unit,
+    onOpenSection: (String) -> Unit,
+    workoutBubbleEnabled: Boolean,
+    notificationsEnabled: Boolean,
+    onBubbleChange: (Boolean) -> Unit,
+) {
+    Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Settings") },
@@ -128,211 +433,155 @@ fun SettingsScreen(
                 }
             )
         }
-    ) { padding ->
+    ) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
+                .padding(innerPadding)
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp)
+                .padding(bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            ThemeSection(
-                themeMode = themeMode,
-                onThemeChange = { mode -> scope.launch { userPreferences.setThemeMode(mode) } }
-            )
-
-            Spacer(Modifier.height(12.dp))
-
-            BodyWeightSection(
-                value = bodyWeightValue,
-                unit = bodyWeightUnit,
-                onSave = { raw, u ->
-                    scope.launch { userPreferences.setFallbackBodyWeight(raw, u) }
-                }
-            )
-
-            Spacer(Modifier.height(12.dp))
-
-            CardioDistanceSection(
-                unit = cardioDistanceUnit,
-                onUnitChange = { u -> scope.launch { userPreferences.setCardioDistanceUnit(u) } }
-            )
-
-            Spacer(Modifier.height(12.dp))
-
-            CardioGpsSettingsSection(
-                enabled = cardioGpsPreferred,
-                onChange = { v -> scope.launch { userPreferences.setCardioGpsRecordingPreferred(v) } }
-            )
-
-            Spacer(Modifier.height(12.dp))
-
-            CardioNostrRouteShareSection(
-                uploadBackend = workoutMediaBackend,
-                onUploadBackendChange = { b -> scope.launch { userPreferences.setWorkoutMediaUploadBackend(b) } },
-                attachRouteImage = attachRouteToNostr,
-                onAttachChange = { v -> scope.launch { userPreferences.setAttachRouteImageToWorkoutNostrShare(v) } },
-                nip96Draft = nip96Draft,
-                onNip96DraftChange = { nip96Draft = it },
-                onSaveNip96Origin = {
-                    scope.launch {
-                        val n = Nip96Uploader.normalizeMediaServerOrigin(nip96Draft)
-                        userPreferences.setNip96MediaServerOrigin(n)
-                        nip96Draft = n
-                    }
-                },
-                blossomPublicDraft = blossomPublicDraft,
-                onBlossomPublicDraftChange = { blossomPublicDraft = it },
-                blossomPrivateDraft = blossomPrivateDraft,
-                onBlossomPrivateDraftChange = { blossomPrivateDraft = it },
-                onSaveBlossomServers = {
-                    scope.launch {
-                        val pub = Nip96Uploader.normalizeMediaServerOrigin(blossomPublicDraft)
-                        val priv = Nip96Uploader.normalizeMediaServerOrigin(blossomPrivateDraft)
-                        userPreferences.setBlossomPublicServerOrigin(pub)
-                        userPreferences.setBlossomPrivateServerOrigin(priv)
-                        blossomPublicDraft = pub
-                        blossomPrivateDraft = priv
-                    }
-                },
-                relayPool = relayPool,
-                blossomFetchPubkeyHex = keyManager.publicKeyHex,
-                fetchScope = scope,
-                onUserMessage = { snackbarMessage = it },
-                onApplyFetchedBlossomPublic = { normalized ->
-                    blossomPublicDraft = normalized
-                    scope.launch { userPreferences.setBlossomPublicServerOrigin(normalized) }
-                }
-            )
-
-            Spacer(Modifier.height(12.dp))
-
-            WeightTrainingLoadSection(
-                unit = weightTrainingLoadUnit,
-                onUnitChange = { u -> scope.launch { userPreferences.setWeightTrainingLoadUnit(u) } }
-            )
-
-            Spacer(Modifier.height(12.dp))
-
             LiveWeightWorkoutSettingsSection(
                 workoutBubbleEnabled = workoutBubbleEnabled,
-                notificationsEnabled = NotificationManagerCompat.from(context).areNotificationsEnabled(),
-                onBubbleChange = { enabled ->
-                    scope.launch { userPreferences.setWorkoutBubbleEnabled(enabled) }
-                }
+                notificationsEnabled = notificationsEnabled,
+                onBubbleChange = onBubbleChange
             )
-
-            Spacer(Modifier.height(12.dp))
-
-            IdentitySection(
-                keyManager = keyManager,
-                onLogout = onLogout
-            )
-
             Spacer(Modifier.height(16.dp))
-
             Text(
-                "Relays",
-                style = MaterialTheme.typography.titleMedium,
+                "More settings",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(bottom = 4.dp)
             )
-            Text(
-                "Toggle Data (encrypted activity) and Social (public posts) per relay.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(bottom = 8.dp)
+            SettingsHubRow(
+                title = "Appearance",
+                subtitle = "Light, dark, or system theme",
+                icon = Icons.Default.SettingsBrightness,
+                onClick = { onOpenSection(SettingsRoutes.APPEARANCE) }
             )
-
-            allRelays.forEach { url ->
-                RelayRow(
-                    url = url,
-                    connectionState = relayStates[url] ?: ConnectionState.Disconnected,
-                    isData = keyManager.isDataRelay(url),
-                    isSocial = keyManager.isSocialRelay(url),
-                    onToggleData = { enabled ->
-                        if (enabled) keyManager.addRelay(url) else keyManager.removeRelay(url)
-                        relayRevision++
-                        onRelaysChanged()
-                        hasUnsavedChanges = true
-                    },
-                    onToggleSocial = { enabled ->
-                        if (enabled) keyManager.addSocialRelay(url) else keyManager.removeSocialRelay(url)
-                        relayRevision++
-                        onRelaysChanged()
-                        hasUnsavedChanges = true
-                    },
-                    onRemove = {
-                        keyManager.removeRelayCompletely(url)
-                        relayRevision++
-                        onRelaysChanged()
-                        hasUnsavedChanges = true
-                    }
-                )
-            }
-
-            if (allRelays.isEmpty()) {
-                Text(
-                    "No relays configured. Add one below or fetch from network.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(vertical = 8.dp)
-                )
-            }
-
-            RelayAddRow(
-                suffix = newRelaySuffix,
-                onSuffixChange = { newRelaySuffix = it },
-                onAdd = {
-                    val url = normalizeRelayUrl(newRelaySuffix)
-                    if (url != null) {
-                        keyManager.addRelay(url)
-                        relayRevision++
-                        onRelaysChanged()
-                        hasUnsavedChanges = true
-                        newRelaySuffix = ""
-                    }
-                }
+            SettingsHubRow(
+                title = "Units & Body",
+                subtitle = "Weight, distances, and training loads",
+                icon = Icons.Default.Speed,
+                onClick = { onOpenSection(SettingsRoutes.UNITS) }
             )
-
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "Social relays are imported automatically during relay setup.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+            SettingsHubRow(
+                title = "Cardio & Sharing",
+                subtitle = "GPS tracking and workout route uploads",
+                icon = Icons.Default.DirectionsRun,
+                onClick = { onOpenSection(SettingsRoutes.CARDIO) }
             )
-
-            if (hasUnsavedChanges) {
-                Spacer(Modifier.height(8.dp))
-                Button(
-                    onClick = {
-                        if (relayPool == null || signer == null) return@Button
-                        scope.launch {
-                            saving = true
-                            try {
-                                val ok = SettingsSync.saveToNetwork(relayPool, signer, keyManager)
-                                if (ok) {
-                                    hasUnsavedChanges = false
-                                    snackbarMessage = "Settings saved"
-                                } else {
-                                    snackbarMessage = "Save failed — check relay connections"
-                                }
-                            } catch (e: Exception) {
-                                snackbarMessage = "Save failed: ${e.message}"
-                            } finally {
-                                saving = false
-                            }
-                        }
-                    },
-                    enabled = !saving,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(if (saving) "Saving…" else "Save")
-                }
-            }
-
-            Spacer(Modifier.height(32.dp))
+            SettingsHubRow(
+                title = "Strength Training",
+                subtitle = "Live workout bubble (same controls as above)",
+                icon = Icons.Default.FitnessCenter,
+                onClick = { onOpenSection(SettingsRoutes.STRENGTH) }
+            )
+            SettingsHubRow(
+                title = "Equipment & Gym",
+                subtitle = "What you own, gym access, and workout tags",
+                icon = Icons.Default.Inventory2,
+                onClick = { onOpenSection(SettingsRoutes.EQUIPMENT) }
+            )
+            SettingsHubRow(
+                title = "Account",
+                subtitle = "Keys and logout",
+                icon = Icons.Default.Person,
+                onClick = { onOpenSection(SettingsRoutes.ACCOUNT) }
+            )
+            SettingsHubRow(
+                title = "Relays",
+                subtitle = "Nostr data and social sync",
+                icon = Icons.Default.Cloud,
+                onClick = { onOpenSection(SettingsRoutes.RELAYS) }
+            )
         }
     }
+}
+
+@Composable
+private fun SettingsSubScreenScaffold(
+    title: String,
+    onBack: () -> Unit,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(title) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                }
+            )
+        }
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(0.dp)
+        ) {
+            content()
+        }
+    }
+}
+
+@Composable
+private fun SettingsHubRow(
+    title: String,
+    subtitle: String,
+    icon: ImageVector,
+    onClick: () -> Unit
+) {
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        onClick = onClick,
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 1.dp)
+    ) {
+        ListItem(
+            headlineContent = { Text(title, style = MaterialTheme.typography.titleSmall) },
+            supportingContent = {
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            },
+            leadingContent = {
+                Icon(
+                    icon,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            },
+            trailingContent = {
+                Icon(
+                    Icons.AutoMirrored.Filled.NavigateNext,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            },
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
+}
+
+private suspend fun syncFitnessEquipmentToNostr(
+    relayPool: RelayPool?,
+    signer: EventSigner?,
+    gymMembership: Boolean,
+    ownedEquipment: List<OwnedEquipmentItem>
+) {
+    val pool = relayPool ?: return
+    val sig = signer ?: return
+    FitnessEquipmentSync.saveToNetwork(pool, sig, gymMembership, ownedEquipment)
 }
 
 private fun normalizeRelayUrl(input: String): String? {
@@ -398,6 +647,7 @@ private fun LiveWeightWorkoutSettingsSection(
     notificationsEnabled: Boolean,
     onBubbleChange: (Boolean) -> Unit
 ) {
+    val context = LocalContext.current
     Text(
         stringResource(R.string.settings_live_weight_workout_title),
         style = MaterialTheme.typography.titleMedium,
@@ -458,6 +708,22 @@ private fun LiveWeightWorkoutSettingsSection(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+            }
+            TextButton(
+                onClick = {
+                    try {
+                        context.startActivity(
+                            Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                                putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                            }
+                        )
+                    } catch (_: Exception) {
+                        // ignore
+                    }
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(stringResource(R.string.settings_open_erv_notification_settings))
             }
         }
     }
@@ -570,6 +836,75 @@ private fun CardioGpsSettingsSection(
             Switch(
                 checked = enabled,
                 onCheckedChange = onChange
+            )
+        }
+    }
+}
+
+@Composable
+private fun CardioGpsRetentionSettingsSection(
+    retainOnDevice: Boolean,
+    onRetainChange: (Boolean) -> Unit
+) {
+    val context = LocalContext.current
+    val cardioDatastoreFile = remember(context) {
+        File(context.applicationContext.filesDir, "datastore/erv_cardio.preferences_pb")
+    }
+    Text(
+        stringResource(R.string.settings_cardio_gps_retention_title),
+        style = MaterialTheme.typography.titleMedium,
+        modifier = Modifier.padding(bottom = 8.dp)
+    )
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                    Text(
+                        stringResource(R.string.settings_cardio_gps_retention_switch),
+                        style = MaterialTheme.typography.bodyLarge
+                    )
+                    Text(
+                        stringResource(R.string.settings_cardio_gps_retention_switch_helper),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = retainOnDevice,
+                    onCheckedChange = onRetainChange
+                )
+            }
+            Text(
+                stringResource(R.string.settings_cardio_gps_retention_privacy),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                stringResource(R.string.settings_cardio_gps_retention_storage_title),
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                stringResource(R.string.settings_cardio_gps_retention_storage_intro),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                cardioDatastoreFile.absolutePath,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                stringResource(R.string.settings_cardio_gps_retention_backup),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }
@@ -964,7 +1299,6 @@ private fun RelayAddRow(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun RelayRow(
     url: String,

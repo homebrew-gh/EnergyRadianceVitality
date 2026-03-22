@@ -40,11 +40,11 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.DirectionsRun
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Stop
@@ -163,6 +163,10 @@ import com.erv.app.nostr.RelayPool
 import com.erv.app.ui.dashboard.CalendarPopup
 import com.erv.app.ui.dashboard.DateNavigator
 import com.erv.app.ui.dashboard.datesWithCardioActivity
+import com.erv.app.ui.weighttraining.LiveWorkoutInProgressBanner
+import com.erv.app.ui.media.WorkoutMediaControlSheet
+import com.erv.app.ui.weighttraining.WeightLiveWorkoutFgsDisclosureDialog
+import com.erv.app.ui.weighttraining.WeightLiveWorkoutViewModel
 import com.erv.app.ui.theme.ErvDarkTherapyRedDark
 import com.erv.app.ui.theme.ErvDarkTherapyRedGlow
 import com.erv.app.ui.theme.ErvDarkTherapyRedMid
@@ -185,6 +189,8 @@ private enum class CardioTab { Activities, Routines }
 fun CardioCategoryScreen(
     repository: CardioRepository,
     userPreferences: UserPreferences,
+    cardioLiveWorkoutViewModel: CardioLiveWorkoutViewModel,
+    weightLiveWorkoutViewModel: WeightLiveWorkoutViewModel,
     relayPool: RelayPool?,
     signer: EventSigner?,
     onBack: () -> Unit,
@@ -220,7 +226,11 @@ fun CardioCategoryScreen(
     var pendingQuickLaunchRuck by remember { mutableStateOf<CardioQuickLaunch?>(null) }
     var customEditor by remember { mutableStateOf<CardioCustomActivityType?>(null) }
     var creatingCustom by remember { mutableStateOf(false) }
-    var activeTimer by remember { mutableStateOf<CardioActiveTimerSession?>(null) }
+    val activeTimer by cardioLiveWorkoutViewModel.activeTimer.collectAsState()
+    val cardioLiveUiExpanded by cardioLiveWorkoutViewModel.cardioLiveUiExpanded.collectAsState()
+    val fgsDisclosureSeen by userPreferences.weightLiveWorkoutFgsDisclosureSeen.collectAsState(initial = false)
+    var showCardioFgsDialog by remember { mutableStateOf(false) }
+    var pendingCardioSession by remember { mutableStateOf<CardioActiveTimerSession?>(null) }
     var completedWorkoutSummary by remember { mutableStateOf<CardioTimerCompletionResult?>(null) }
     val darkTheme = isSystemInDarkTheme()
     val therapyRedDark = if (darkTheme) ErvDarkTherapyRedDark else ErvLightTherapyRedDark
@@ -243,6 +253,25 @@ fun CardioCategoryScreen(
     suspend fun syncDailyLog(log: CardioDayLog) {
         if (relayPool != null && signer != null) {
             CardioSync.publishDailyLog(relayPool, signer, log)
+        }
+    }
+
+    fun startOrQueueCardio(session: CardioActiveTimerSession) {
+        if (weightLiveWorkoutViewModel.hasLiveSession) {
+            scope.launch {
+                snackbarHostState.showSnackbar("Finish or cancel your live weight workout first.")
+            }
+            return
+        }
+        if (!fgsDisclosureSeen) {
+            pendingCardioSession = session
+            showCardioFgsDialog = true
+            return
+        }
+        if (!cardioLiveWorkoutViewModel.tryStartSession(session)) {
+            scope.launch {
+                snackbarHostState.showSnackbar("Finish or cancel your cardio timer first.")
+            }
         }
     }
 
@@ -280,86 +309,7 @@ fun CardioCategoryScreen(
         return
     }
 
-    when (val timer = activeTimer) {
-        is CardioActiveTimerSession.Single -> {
-            val draft = timer.draft
-            val paceOnlyTimer = draft.timerStyle is CardioTimerStyle.CountDownDistance
-            val recordGps = draft.eligibleForPhoneGps() && cardioGpsPreferred && locationFineGranted && !paceOnlyTimer
-            val showGpsPermissionHint =
-                draft.eligibleForPhoneGps() && cardioGpsPreferred && !locationFineGranted && !paceOnlyTimer
-            CardioElapsedTimerFullScreen(
-                draft = draft,
-                distanceUnit = distanceUnit,
-                dark = therapyRedDark,
-                mid = therapyRedMid,
-                glow = therapyRedGlow,
-                gpsRecordingActive = recordGps,
-                showGpsPermissionHint = showGpsPermissionHint,
-                onRequestLocationPermission = {
-                    requestCardioLocationPermission.launch(Manifest.permission.ACCESS_FINE_LOCATION)
-                },
-                onStop = { elapsedSeconds ->
-                    val gpsPoints = drainCardioGpsIfNeeded(recordGps, timerAppContext)
-                    scope.launch {
-                        val durationMinutes = max(1, (elapsedSeconds + 59) / 60)
-                        val end = nowEpochSeconds()
-                        val raw = draft.toSession(
-                            durationMinutes = durationMinutes,
-                            endEpoch = end,
-                            elapsedSecondsForDistance = elapsedSeconds,
-                            gpsPoints = gpsPoints
-                        )
-                        val session = CardioMetEstimator.applyEstimatedKcal(raw, repository.currentState(), weightKg)
-                        activeTimer = null
-                        completedWorkoutSummary = CardioTimerCompletionResult(session, elapsedSeconds)
-                        repository.addSession(today, session)
-                        repository.currentState().logFor(today)?.let { syncDailyLog(it) }
-                    }
-                },
-                onCancel = {
-                    drainCardioGpsIfNeeded(recordGps, timerAppContext)
-                    activeTimer = null
-                }
-            )
-            return
-        }
-        is CardioActiveTimerSession.Multi -> {
-            val multiKey = timer.state.currentLegIndex to timer.state.completedSegments.size
-            CardioMultiLegTimerFullScreen(
-                state = timer.state,
-                stateKey = multiKey,
-                dark = therapyRedDark,
-                mid = therapyRedMid,
-                glow = therapyRedGlow,
-                onFinishLeg = { elapsedSeconds ->
-                    scope.launch {
-                        val durationMinutes = max(1, (elapsedSeconds + 59) / 60)
-                        val end = nowEpochSeconds()
-                        val (next, session) = CardioMetEstimator.advanceMultiLegTimer(
-                            timer.state,
-                            durationMinutes,
-                            end,
-                            repository.currentState(),
-                            weightKg
-                        )
-                        if (session != null) {
-                            activeTimer = null
-                            completedWorkoutSummary = CardioTimerCompletionResult(session, null)
-                            repository.addSession(today, session)
-                            repository.currentState().logFor(today)?.let { syncDailyLog(it) }
-                        } else if (next != null) {
-                            activeTimer = CardioActiveTimerSession.Multi(next)
-                            snackbarHostState.showSnackbar("Leg saved — start next when ready")
-                        }
-                    }
-                },
-                onCancel = { activeTimer = null }
-            )
-            return
-        }
-        null -> Unit
-    }
-
+    Box(modifier = Modifier.fillMaxSize()) {
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         floatingActionButton = {
@@ -407,6 +357,13 @@ fun CardioCategoryScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
+            if (activeTimer != null && !cardioLiveUiExpanded) {
+                LiveWorkoutInProgressBanner(
+                    onClick = { cardioLiveWorkoutViewModel.setCardioLiveUiExpanded(true) },
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    text = stringResource(R.string.live_cardio_in_progress_banner)
+                )
+            }
             TabRow(
                 selectedTabIndex = activeTab,
                 containerColor = therapyRedDark,
@@ -433,7 +390,7 @@ fun CardioCategoryScreen(
                         }
                     },
                     onStartWorkout = { d ->
-                        activeTimer = CardioActiveTimerSession.Single(d)
+                        startOrQueueCardio(CardioActiveTimerSession.Single(d))
                     },
                     onLogFromSnapshot = { snap ->
                         workoutBuilder = WorkoutBuilderMode.FromActivitySnapshot(snap)
@@ -467,9 +424,9 @@ fun CardioCategoryScreen(
                     },
                     onStartTimerFromRoutine = { routine ->
                         CardioTimerSessionDraft.fromRoutine(routine)?.let { d ->
-                            activeTimer = CardioActiveTimerSession.Single(d)
+                            startOrQueueCardio(CardioActiveTimerSession.Single(d))
                         } ?: CardioMultiLegTimerState.fromRoutine(routine)?.let { m ->
-                            activeTimer = CardioActiveTimerSession.Multi(m)
+                            startOrQueueCardio(CardioActiveTimerSession.Multi(m))
                         }
                     },
                     onEditQuickLaunch = { quickLaunchEditor = it; creatingQuickLaunch = false },
@@ -484,8 +441,10 @@ fun CardioCategoryScreen(
                         if (ql.needsOutdoorRuckWeightPrompt()) {
                             pendingQuickLaunchRuck = ql
                         } else {
-                            activeTimer = CardioActiveTimerSession.Single(
-                                CardioTimerSessionDraft.fromQuickLaunch(ql)
+                            startOrQueueCardio(
+                                CardioActiveTimerSession.Single(
+                                    CardioTimerSessionDraft.fromQuickLaunch(ql)
+                                )
                             )
                         }
                     }
@@ -493,6 +452,119 @@ fun CardioCategoryScreen(
             }
         }
     }
+
+        when (val timer = activeTimer) {
+            is CardioActiveTimerSession.Single -> {
+                if (cardioLiveUiExpanded) {
+                    val draft = timer.draft
+                    val paceOnlyTimer = draft.timerStyle is CardioTimerStyle.CountDownDistance
+                    val recordGps =
+                        draft.eligibleForPhoneGps() && cardioGpsPreferred && locationFineGranted && !paceOnlyTimer
+                    val showGpsPermissionHint =
+                        draft.eligibleForPhoneGps() && cardioGpsPreferred && !locationFineGranted && !paceOnlyTimer
+                    CardioElapsedTimerFullScreen(
+                        draft = draft,
+                        distanceUnit = distanceUnit,
+                        dark = therapyRedDark,
+                        mid = therapyRedMid,
+                        glow = therapyRedGlow,
+                        gpsRecordingActive = recordGps,
+                        showGpsPermissionHint = showGpsPermissionHint,
+                        onRequestLocationPermission = {
+                            requestCardioLocationPermission.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+                        },
+                        onLeaveTimerUi = { cardioLiveWorkoutViewModel.setCardioLiveUiExpanded(false) },
+                        onStop = { elapsedSeconds ->
+                            val gpsPoints = drainCardioGpsIfNeeded(recordGps, timerAppContext)
+                            scope.launch {
+                                val durationMinutes = max(1, (elapsedSeconds + 59) / 60)
+                                val end = nowEpochSeconds()
+                                val raw = draft.toSession(
+                                    durationMinutes = durationMinutes,
+                                    endEpoch = end,
+                                    elapsedSecondsForDistance = elapsedSeconds,
+                                    gpsPoints = gpsPoints
+                                )
+                                val session = CardioMetEstimator.applyEstimatedKcal(
+                                    raw,
+                                    repository.currentState(),
+                                    weightKg
+                                )
+                                cardioLiveWorkoutViewModel.clearSession()
+                                completedWorkoutSummary = CardioTimerCompletionResult(session, elapsedSeconds)
+                                repository.addSession(today, session)
+                                repository.currentState().logFor(today)?.let { syncDailyLog(it) }
+                            }
+                        },
+                        onCancel = {
+                            drainCardioGpsIfNeeded(recordGps, timerAppContext)
+                            cardioLiveWorkoutViewModel.clearSession()
+                        }
+                    )
+                }
+            }
+            is CardioActiveTimerSession.Multi -> {
+                if (cardioLiveUiExpanded) {
+                    val multiKey = timer.state.currentLegIndex to timer.state.completedSegments.size
+                    CardioMultiLegTimerFullScreen(
+                        state = timer.state,
+                        stateKey = multiKey,
+                        dark = therapyRedDark,
+                        mid = therapyRedMid,
+                        glow = therapyRedGlow,
+                        onLeaveWorkoutUi = { cardioLiveWorkoutViewModel.setCardioLiveUiExpanded(false) },
+                        onFinishLeg = { elapsedSeconds ->
+                            scope.launch {
+                                val durationMinutes = max(1, (elapsedSeconds + 59) / 60)
+                                val end = nowEpochSeconds()
+                                val (next, session) = CardioMetEstimator.advanceMultiLegTimer(
+                                    timer.state,
+                                    durationMinutes,
+                                    end,
+                                    repository.currentState(),
+                                    weightKg
+                                )
+                                if (session != null) {
+                                    cardioLiveWorkoutViewModel.clearSession()
+                                    completedWorkoutSummary = CardioTimerCompletionResult(session, null)
+                                    repository.addSession(today, session)
+                                    repository.currentState().logFor(today)?.let { syncDailyLog(it) }
+                                } else if (next != null) {
+                                    cardioLiveWorkoutViewModel.replaceSession(CardioActiveTimerSession.Multi(next))
+                                    snackbarHostState.showSnackbar("Leg saved — start next when ready")
+                                }
+                            }
+                        },
+                        onCancel = { cardioLiveWorkoutViewModel.clearSession() }
+                    )
+                }
+            }
+            null -> Unit
+        }
+    }
+
+    WeightLiveWorkoutFgsDisclosureDialog(
+        visible = showCardioFgsDialog,
+        onDismiss = {
+            showCardioFgsDialog = false
+            pendingCardioSession = null
+        },
+        onContinue = {
+            scope.launch {
+                userPreferences.setWeightLiveWorkoutFgsDisclosureSeen(true)
+                showCardioFgsDialog = false
+                val pending = pendingCardioSession
+                pendingCardioSession = null
+                if (pending != null) {
+                    if (weightLiveWorkoutViewModel.hasLiveSession) {
+                        snackbarHostState.showSnackbar("Finish or cancel your live weight workout first.")
+                    } else if (!cardioLiveWorkoutViewModel.tryStartSession(pending)) {
+                        snackbarHostState.showSnackbar("Finish or cancel your cardio timer first.")
+                    }
+                }
+            }
+        }
+    )
 
     workoutBuilder?.let { mode ->
         WorkoutBuilderBottomSheet(
@@ -515,7 +587,7 @@ fun CardioCategoryScreen(
                 workoutBuilder = null
             },
             onStartTimer = { draft: CardioTimerSessionDraft ->
-                activeTimer = CardioActiveTimerSession.Single(draft)
+                startOrQueueCardio(CardioActiveTimerSession.Single(draft))
                 workoutBuilder = null
             }
         )
@@ -628,8 +700,10 @@ fun CardioCategoryScreen(
             defaultRuckLoadKg = ql.defaultRuckLoadKg,
             onDismiss = { pendingQuickLaunchRuck = null },
             onStart = { kg ->
-                activeTimer = CardioActiveTimerSession.Single(
-                    CardioTimerSessionDraft.fromQuickLaunch(ql, ruckLoadKg = kg)
+                startOrQueueCardio(
+                    CardioActiveTimerSession.Single(
+                        CardioTimerSessionDraft.fromQuickLaunch(ql, ruckLoadKg = kg)
+                    )
                 )
                 pendingQuickLaunchRuck = null
             }
@@ -881,7 +955,11 @@ private fun WorkoutBuilderBottomSheet(
                 }
                 if (!logOnlyMode && snapForPace?.supportsOutdoorPaceEstimate() == true) {
                     Text(
-                        "Optional avg speed — live estimated distance on the timer (no GPS).",
+                        if (snapForPace.supportsPhoneGpsTracking()) {
+                            "Optional avg speed — pace × time on the timer. GPS route recording is optional (Settings → Cardio GPS, with location permission)."
+                        } else {
+                            "Optional avg speed — pace × time on the timer."
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -1450,7 +1528,7 @@ private fun CardioTimerStartOptionsDialog(
                         sprintIndoor ->
                             "Sprint indoors always uses a time countdown. A default belt speed is used only for estimates on the timer; adjust the logged session if needed."
                         sprintOutdoor ->
-                            "Sprint outdoors: count down to a target time, or to a target distance (estimated from your average pace — not GPS)."
+                            "Sprint outdoors: count down to a target time, or to a target distance estimated from your average pace."
                         else ->
                             "Choose whether the main clock counts up or down. On a treadmill, distance updates from speed × time when you did not enter a fixed distance."
                     },
@@ -1537,7 +1615,11 @@ private fun CardioTimerStartOptionsDialog(
                 }
                 if (showOptionalOutdoorPace) {
                     Text(
-                        "Optional average speed estimates distance during the workout (no GPS). Leave blank if you prefer not to.",
+                        if (activity.supportsPhoneGpsTracking()) {
+                            "Optional average speed — pace × time on the timer. GPS route recording is optional (Settings → Cardio GPS, with location permission). Leave blank if you prefer not to."
+                        } else {
+                            "Optional average speed — pace × time on the timer. Leave blank if you prefer not to."
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -1721,16 +1803,6 @@ private fun ActivitiesTab(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            item {
-                Text(
-                    "Pick an activity. Tap + to add a custom type (name and optional MET). Combine several into one saved routine on the Routines tab.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            item {
-                Text("Built-in", style = MaterialTheme.typography.labelLarge)
-            }
             items(builtins, key = { it.second.displayLabel }) { (_, snap) ->
                 ElevatedCard(
                     modifier = Modifier
@@ -1745,13 +1817,17 @@ private fun ActivitiesTab(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(snap.displayLabel, style = MaterialTheme.typography.titleSmall)
-                        Icon(Icons.Default.DirectionsRun, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Icon(
+                            cardioActivityListIcon(snap),
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
                     }
                 }
             }
             item {
                 Spacer(Modifier.height(4.dp))
-                Text("Your custom types", style = MaterialTheme.typography.labelLarge)
+                Text("Custom", style = MaterialTheme.typography.labelLarge)
             }
             if (customs.isEmpty()) {
                 item {
@@ -1780,6 +1856,11 @@ private fun ActivitiesTab(
                                         Text("MET ~$it", style = MaterialTheme.typography.bodySmall)
                                     }
                                 }
+                                Icon(
+                                    cardioActivityListIcon(state.resolveSnapshot(null, t.id)),
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
                             }
                             Spacer(Modifier.height(8.dp))
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -2037,6 +2118,8 @@ fun CardioElapsedTimerFullScreen(
     gpsRecordingActive: Boolean = false,
     showGpsPermissionHint: Boolean = false,
     onRequestLocationPermission: () -> Unit = {},
+    /** Back arrow: leave full-screen UI; timer and optional GPS keep running (like weight training). */
+    onLeaveTimerUi: (() -> Unit)? = null,
     onStop: (elapsedSeconds: Int) -> Unit,
     onCancel: () -> Unit
 ) {
@@ -2044,6 +2127,7 @@ fun CardioElapsedTimerFullScreen(
     val timeCountdownCap = (draft.timerStyle as? CardioTimerStyle.CountDown)?.totalSeconds
     val distanceCountdownTarget = (draft.timerStyle as? CardioTimerStyle.CountDownDistance)?.targetMeters
     val tickKey = draft.startEpoch
+    var showMediaSheet by remember(tickKey) { mutableStateOf(false) }
     var running by remember(tickKey) { mutableStateOf(true) }
     var workoutElapsedSeconds by remember(tickKey) { mutableIntStateOf(0) }
     var finished by remember(tickKey) { mutableStateOf(false) }
@@ -2057,7 +2141,7 @@ fun CardioElapsedTimerFullScreen(
 
     LaunchedEffect(gpsRecordingActive, tickKey) {
         if (gpsRecordingActive) {
-            CardioGpsForegroundService.start(context.applicationContext, draft.title)
+            CardioGpsForegroundService.start(context.applicationContext, draft.title, draft.startEpoch)
         }
     }
 
@@ -2096,6 +2180,11 @@ fun CardioElapsedTimerFullScreen(
         else workoutElapsedSeconds
     val distM = draft.liveDistanceMeters(workoutElapsedSeconds)
 
+    WorkoutMediaControlSheet(
+        visible = showMediaSheet,
+        onDismiss = { showMediaSheet = false }
+    )
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -2108,19 +2197,49 @@ fun CardioElapsedTimerFullScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            Text(
-                "Session in progress",
-                style = MaterialTheme.typography.titleLarge,
-                color = Color.White.copy(alpha = 0.9f)
-            )
-            if (showGpsPermissionHint) {
-                Spacer(Modifier.height(8.dp))
-                OutlinedButton(
-                    onClick = onRequestLocationPermission,
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
-                    border = ButtonDefaults.outlinedButtonBorder.copy(brush = SolidColor(Color.White))
-                ) {
-                    Text(stringResource(R.string.cardio_timer_gps_allow_location))
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                if (onLeaveTimerUi != null) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(onClick = onLeaveTimerUi) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Leave timer",
+                                tint = Color.White
+                            )
+                        }
+                        Text(
+                            "Session in progress",
+                            style = MaterialTheme.typography.titleLarge,
+                            color = Color.White.copy(alpha = 0.9f),
+                            modifier = Modifier.weight(1f)
+                        )
+                        IconButton(onClick = { showMediaSheet = true }) {
+                            Icon(
+                                Icons.Filled.MusicNote,
+                                contentDescription = stringResource(R.string.media_control_cd_music),
+                                tint = Color.White
+                            )
+                        }
+                    }
+                } else {
+                    Text(
+                        "Session in progress",
+                        style = MaterialTheme.typography.titleLarge,
+                        color = Color.White.copy(alpha = 0.9f)
+                    )
+                }
+                if (showGpsPermissionHint) {
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = onRequestLocationPermission,
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                        border = ButtonDefaults.outlinedButtonBorder.copy(brush = SolidColor(Color.White))
+                    ) {
+                        Text(stringResource(R.string.cardio_timer_gps_allow_location))
+                    }
                 }
             }
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -2637,10 +2756,12 @@ fun CardioMultiLegTimerFullScreen(
     dark: Color,
     mid: Color,
     glow: Color,
+    onLeaveWorkoutUi: (() -> Unit)? = null,
     onFinishLeg: (elapsedSeconds: Int) -> Unit,
     onCancel: () -> Unit
 ) {
     key(stateKey) {
+        var showMediaSheet by remember { mutableStateOf(false) }
         var running by remember { mutableStateOf(true) }
         var elapsed by remember { mutableIntStateOf(0) }
         LaunchedEffect(stateKey, running) {
@@ -2651,6 +2772,10 @@ fun CardioMultiLegTimerFullScreen(
             }
         }
         val isLast = state.currentLegIndex >= state.legs.lastIndex
+        WorkoutMediaControlSheet(
+            visible = showMediaSheet,
+            onDismiss = { showMediaSheet = false }
+        )
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -2664,11 +2789,40 @@ fun CardioMultiLegTimerFullScreen(
                 verticalArrangement = Arrangement.SpaceBetween
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        "Multi-activity workout",
-                        style = MaterialTheme.typography.titleLarge,
-                        color = Color.White.copy(alpha = 0.9f)
-                    )
+                    if (onLeaveWorkoutUi != null) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            IconButton(onClick = onLeaveWorkoutUi) {
+                                Icon(
+                                    Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = "Leave timer",
+                                    tint = Color.White
+                                )
+                            }
+                            Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    "Multi-activity workout",
+                                    style = MaterialTheme.typography.titleLarge,
+                                    color = Color.White.copy(alpha = 0.9f)
+                                )
+                            }
+                            IconButton(onClick = { showMediaSheet = true }) {
+                                Icon(
+                                    Icons.Filled.MusicNote,
+                                    contentDescription = stringResource(R.string.media_control_cd_music),
+                                    tint = Color.White
+                                )
+                            }
+                        }
+                    } else {
+                        Text(
+                            "Multi-activity workout",
+                            style = MaterialTheme.typography.titleLarge,
+                            color = Color.White.copy(alpha = 0.9f)
+                        )
+                    }
                     Spacer(Modifier.height(8.dp))
                     Text(
                         state.routineName ?: "Routine",

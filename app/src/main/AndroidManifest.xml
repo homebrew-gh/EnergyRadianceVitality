@@ -49,9 +49,20 @@
         <activity
             android:name=".ui.weighttraining.WeightWorkoutBubbleActivity"
             android:exported="false"
+            android:launchMode="singleTask"
             android:theme="@style/Theme.ERV.Bubble"
             android:resizeableActivity="true"
-            android:allowEmbedded="true" />
+            android:allowEmbedded="true"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode" />
+
+        <activity
+            android:name=".ui.cardio.CardioWorkoutBubbleActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:theme="@style/Theme.ERV.Bubble"
+            android:resizeableActivity="true"
+            android:allowEmbedded="true"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode" />
 
         <service
             android:name=".weighttraining.WeightLiveWorkoutForegroundService"
@@ -62,12 +73,29 @@
                 android:value="Ongoing weight-training session: timer, notification, and optional bubble to return to the live workout screen." />
         </service>
         <service
+            android:name=".cardio.CardioLiveWorkoutForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Ongoing cardio timer session: notification and optional bubble to return to the live cardio timer." />
+        </service>
+        <service
             android:name=".cardio.CardioGpsForegroundService"
             android:exported="false"
             android:foregroundServiceType="location" />
         <receiver
             android:name=".reminders.RoutineReminderReceiver"
             android:exported="false" />
+        <service
+            android:name=".media.ErvMediaNotificationListenerService"
+            android:exported="true"
+            android:label="@string/media_notification_listener_name"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
         <receiver
             android:name=".reminders.RoutineReminderBootReceiver"
             android:exported="true">

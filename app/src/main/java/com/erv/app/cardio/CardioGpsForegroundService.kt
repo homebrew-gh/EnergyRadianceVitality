@@ -27,12 +27,16 @@ private const val MIN_TIME_MS = 2_000L
 private const val MIN_DISTANCE_M = 5f
 private const val ACTION_START = "com.erv.app.cardio.GPS_START"
 private const val EXTRA_TITLE = "title"
+/** When restarting the service for the same timer [startEpoch], do not clear [CardioGpsRecordingHub]. */
+private const val EXTRA_SESSION_START_EPOCH = "sessionStartEpoch"
 
 /**
  * Foreground service that records GPS fixes into [CardioGpsRecordingHub] during an outdoor cardio timer.
  * Uses [LocationManager] only (no Play Services).
  */
 class CardioGpsForegroundService : Service() {
+
+    private var lastSessionStartEpoch: Long = Long.MIN_VALUE
 
     private var locationManager: LocationManager? = null
     private val listener = object : LocationListener {
@@ -61,7 +65,17 @@ class CardioGpsForegroundService : Service() {
             return START_NOT_STICKY
         }
         val title = intent.getStringExtra(EXTRA_TITLE).orEmpty().ifBlank { getString(R.string.cardio_gps_notification_title) }
-        CardioGpsRecordingHub.clear()
+        val sessionEpoch = intent.getLongExtra(EXTRA_SESSION_START_EPOCH, -1L)
+        val sameSession = sessionEpoch >= 0L && sessionEpoch == lastSessionStartEpoch
+        if (!sameSession) {
+            CardioGpsRecordingHub.clear()
+            lastSessionStartEpoch = sessionEpoch
+        }
+        try {
+            locationManager?.removeUpdates(listener)
+        } catch (_: Exception) {
+        }
+        locationManager = null
         postForeground(buildNotification(title))
         registerUpdates()
         return START_NOT_STICKY
@@ -73,6 +87,7 @@ class CardioGpsForegroundService : Service() {
         } catch (_: Exception) {
         }
         locationManager = null
+        lastSessionStartEpoch = Long.MIN_VALUE
         stopForeground(STOP_FOREGROUND_REMOVE)
         super.onDestroy()
     }
@@ -196,12 +211,13 @@ class CardioGpsForegroundService : Service() {
     }
 
     companion object {
-        fun start(context: Context, sessionTitle: String) {
+        fun start(context: Context, sessionTitle: String, sessionStartEpoch: Long) {
             ContextCompat.startForegroundService(
                 context.applicationContext,
                 Intent(context.applicationContext, CardioGpsForegroundService::class.java).apply {
                     action = ACTION_START
                     putExtra(EXTRA_TITLE, sessionTitle)
+                    putExtra(EXTRA_SESSION_START_EPOCH, sessionStartEpoch)
                 }
             )
         }

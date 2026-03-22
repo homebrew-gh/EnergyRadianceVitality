@@ -41,8 +41,8 @@ fun CardioBuiltinActivity.displayName(): String = when (this) {
     CardioBuiltinActivity.SWIM -> "Swimming"
     CardioBuiltinActivity.ELLIPTICAL -> "Elliptical"
     CardioBuiltinActivity.ROWING -> "Rowing"
-    CardioBuiltinActivity.STATIONARY_BIKE -> "Stationary bike"
-    CardioBuiltinActivity.JUMP_ROPE -> "Jump rope"
+    CardioBuiltinActivity.STATIONARY_BIKE -> "Stationary Bike"
+    CardioBuiltinActivity.JUMP_ROPE -> "Jump Rope"
     CardioBuiltinActivity.OTHER -> "Other"
 }
 
@@ -229,7 +229,10 @@ data class CardioSession(
     val heartRate: CardioHrScaffolding? = null,
     /** Non-empty = multi-activity workout (brick, tri prep, etc.); top-level fields are rollups. */
     val segments: List<CardioSessionSegment> = emptyList(),
-    /** Local-only detailed path; omitted when publishing daily logs to Nostr. */
+    /**
+     * Local-only detailed path; omitted when publishing daily logs to Nostr.
+     * May be cleared on save when the user turns off “Keep detailed GPS track” in Settings.
+     */
     val gpsTrack: CardioGpsTrack? = null,
     /** Public URL of the route map image (same upload as “Share Workout” / Blossom or NIP-96). */
     val routeImageUrl: String? = null,
@@ -487,7 +490,7 @@ data class CardioTimerSessionDraft(
     val routineId: String?,
     val routineName: String?,
     val timerStyle: CardioTimerStyle = CardioTimerStyle.CountUp,
-    /** Optional outdoor average speed for a live distance estimate (not GPS). */
+    /** Optional outdoor average speed for a live pace × time distance estimate (separate from optional GPS route). */
     val outdoorPaceSpeed: Double? = null,
     val outdoorPaceSpeedUnit: CardioSpeedUnit? = null,
     /** Outdoor ruck pack (kg); indoor ruck uses [treadmill].loadKg. */
@@ -643,6 +646,12 @@ data class CardioMultiLegTimerState(
 sealed class CardioActiveTimerSession {
     data class Single(val draft: CardioTimerSessionDraft) : CardioActiveTimerSession()
     data class Multi(val state: CardioMultiLegTimerState) : CardioActiveTimerSession()
+}
+
+/** Epoch seconds when the overall cardio timer session began (notification chronometer / bubble). */
+fun CardioActiveTimerSession.timerStartEpochSeconds(): Long = when (this) {
+    is CardioActiveTimerSession.Single -> draft.startEpoch
+    is CardioActiveTimerSession.Multi -> state.workoutStartEpoch
 }
 
 /** Shown after Stop & log; [elapsedSeconds] is exact timer time when from a single-leg timer, else null. */

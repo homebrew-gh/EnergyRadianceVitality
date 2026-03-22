@@ -32,7 +32,10 @@ import com.erv.app.R
 fun LiveWorkoutInProgressBanner(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    /** Defaults to weight copy; pass e.g. [R.string.live_cardio_in_progress_banner] via [stringResource]. */
+    text: String? = null,
 ) {
+    val label = text ?: stringResource(R.string.live_workout_in_progress_banner)
     val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val goldBright = if (isDark) Color(0xFFFFD600) else Color(0xFFE6C200)
     val goldDim = if (isDark) Color(0xFF8A6A00) else Color(0xFF8B6914)
@@ -59,7 +62,7 @@ fun LiveWorkoutInProgressBanner(
         shadowElevation = 2.dp
     ) {
         Text(
-            text = stringResource(R.string.live_workout_in_progress_banner),
+            text = label,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
             style = MaterialTheme.typography.titleSmall,
             color = MaterialTheme.colorScheme.onSurface

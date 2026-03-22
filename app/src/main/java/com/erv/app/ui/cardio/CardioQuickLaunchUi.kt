@@ -40,6 +40,7 @@ import com.erv.app.cardio.distanceFieldLabelOptional
 import com.erv.app.cardio.parseCardioDistanceInputToMeters
 import com.erv.app.cardio.resolveSnapshot
 import com.erv.app.cardio.supportsOutdoorPaceEstimate
+import com.erv.app.cardio.supportsPhoneGpsTracking
 import com.erv.app.cardio.supportsTreadmillModality
 import com.erv.app.cardio.displayName
 import com.erv.app.cardio.label
@@ -355,7 +356,11 @@ fun CardioQuickLaunchEditorDialog(
 
                 if (modality == CardioModality.OUTDOOR && snap?.supportsOutdoorPaceEstimate() == true) {
                     Text(
-                        "Optional average speed (distance estimate without GPS).",
+                        if (snap.supportsPhoneGpsTracking()) {
+                            "Optional average speed — pace × time on the timer. GPS route recording is optional (Settings → Cardio GPS, with location permission)."
+                        } else {
+                            "Optional average speed — pace × time on the timer."
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
