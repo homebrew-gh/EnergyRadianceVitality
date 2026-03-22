@@ -136,7 +136,8 @@ fun formatMuscleGroupHeader(key: String): String =
 
 fun weightNowEpochSeconds(): Long = System.currentTimeMillis() / 1000
 
-/** In-memory live workout draft (not serialized to Nostr). */
+/** Live workout draft (local only; not synced to Nostr). Persisted while a session is active. */
+@Serializable
 data class WeightWorkoutDraft(
     val startedAtEpochSeconds: Long,
     val exerciseOrder: List<String>,

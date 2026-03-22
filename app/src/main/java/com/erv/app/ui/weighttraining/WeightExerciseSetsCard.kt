@@ -1,5 +1,6 @@
 package com.erv.app.ui.weighttraining
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -14,7 +15,6 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.AlertDialog
@@ -34,6 +34,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -95,6 +97,7 @@ fun WeightExerciseInlineSetsCard(
     var showAddedLoadInfo by remember { mutableStateOf(false) }
     val canCollapseSets = onCollapseSets != null && onExpandSets != null
     val collapsedSummary = canCollapseSets && setsCollapsed
+    val expandCardCd = stringResource(R.string.weight_exercise_card_expand_cd)
     Card(
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceVariant
@@ -107,6 +110,15 @@ fun WeightExerciseInlineSetsCard(
                 .padding(
                     horizontal = 12.dp,
                     vertical = if (collapsedSummary) 8.dp else 12.dp
+                )
+                .then(
+                    if (collapsedSummary) {
+                        Modifier
+                            .semantics { contentDescription = expandCardCd }
+                            .clickable { onExpandSets!!() }
+                    } else {
+                        Modifier
+                    }
                 ),
             verticalArrangement = Arrangement.spacedBy(if (collapsedSummary) 4.dp else 10.dp)
         ) {
@@ -137,18 +149,6 @@ fun WeightExerciseInlineSetsCard(
                             style = MaterialTheme.typography.titleMedium,
                             modifier = Modifier.weight(1f)
                         )
-                        if (collapsedSummary) {
-                            IconButton(
-                                onClick = { onExpandSets!!() },
-                                modifier = Modifier.size(40.dp)
-                            ) {
-                                Icon(
-                                    Icons.Default.Edit,
-                                    contentDescription = "Edit sets",
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                        }
                     }
                     equipmentLabel?.let {
                         Text(
@@ -170,7 +170,7 @@ fun WeightExerciseInlineSetsCard(
                     }
                 }
             }
-            // Hide while collapsed to summary; "Edit" expands and brings this back.
+            // Hide while collapsed to summary; tap the card to expand (see Column clickable above).
             if (onRecentWorkouts != null && !setsCollapsed) {
                 TextButton(onClick = onRecentWorkouts) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -321,11 +321,8 @@ fun WeightExerciseInlineSetsCard(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.End
                     ) {
-                        TextButton(
-                            onClick = { onCollapseSets!!() },
-                            enabled = sets.any { it.reps > 0 }
-                        ) {
-                            Text("Finish")
+                        TextButton(onClick = { onCollapseSets!!() }) {
+                            Text(stringResource(R.string.weight_exercise_sets_save))
                         }
                     }
                 }

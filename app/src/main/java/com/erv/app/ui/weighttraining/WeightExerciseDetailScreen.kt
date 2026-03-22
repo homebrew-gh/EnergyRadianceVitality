@@ -4,6 +4,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -33,7 +34,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.erv.app.data.BodyWeightUnit
@@ -53,6 +56,7 @@ import com.erv.app.weighttraining.formatMuscleGroupHeader
 import com.erv.app.weighttraining.formatSetSummaryLine
 import com.erv.app.weighttraining.formatWeightLoadNumber
 import com.erv.app.weighttraining.historyForExercise
+import com.erv.app.weighttraining.maxWeightByRepBucketKg
 import com.erv.app.weighttraining.kgToPounds
 import com.erv.app.weighttraining.totalVolumeLoadTimesReps
 import com.erv.app.weighttraining.weightLoadUnitSuffix
@@ -195,6 +199,51 @@ fun WeightExerciseDetailScreen(
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
+                        }
+                    }
+                }
+            }
+            item {
+                val repBuckets = remember(exerciseId, library.logs) {
+                    library.maxWeightByRepBucketKg(exerciseId)
+                }
+                val hasAny = repBuckets.any { it.second != null }
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                ) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("Best weight by rep count", style = MaterialTheme.typography.titleSmall)
+                        if (!hasAny) {
+                            Text(
+                                "No sets with weight logged yet.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        } else {
+                            repBuckets.forEach { (label, kg) ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        label,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    Text(
+                                        if (kg != null) {
+                                            formatWeightLoadNumber(kg, loadUnit) + " $loadSuffix"
+                                        } else {
+                                            "—"
+                                        },
+                                        style = MaterialTheme.typography.bodySmall,
+                                        textAlign = TextAlign.End,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+                            }
                         }
                     }
                 }

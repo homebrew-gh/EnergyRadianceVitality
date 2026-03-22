@@ -1,6 +1,7 @@
 package com.erv.app.ui.cardio
 
 import android.app.Application
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import com.erv.app.cardio.CardioActiveTimerSession
 import com.erv.app.cardio.CardioLiveWorkoutForegroundService
@@ -10,6 +11,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 class CardioLiveWorkoutViewModel(application: Application) : AndroidViewModel(application) {
+
+    private companion object {
+        private const val TAG = "CardioLiveWorkoutVm"
+    }
 
     private val _activeTimer = MutableStateFlow<CardioActiveTimerSession?>(null)
     val activeTimer: StateFlow<CardioActiveTimerSession?> = _activeTimer.asStateFlow()
@@ -30,10 +35,15 @@ class CardioLiveWorkoutViewModel(application: Application) : AndroidViewModel(ap
      */
     fun tryStartSession(session: CardioActiveTimerSession): Boolean {
         if (_activeTimer.value != null) return false
-        _activeTimer.value = session
-        _cardioLiveUiExpanded.value = true
-        CardioLiveWorkoutForegroundService.start(getApplication(), session.timerStartEpochSeconds())
-        return true
+        return try {
+            CardioLiveWorkoutForegroundService.start(getApplication(), session.timerStartEpochSeconds())
+            _activeTimer.value = session
+            _cardioLiveUiExpanded.value = true
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start cardio live timer foreground service", e)
+            false
+        }
     }
 
     fun replaceSession(session: CardioActiveTimerSession) {

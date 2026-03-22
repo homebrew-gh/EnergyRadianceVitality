@@ -81,8 +81,9 @@ fun WeightLiveWorkoutScreen(
     var showPickExercise by remember { mutableStateOf(false) }
     var showDiscardConfirm by remember { mutableStateOf(false) }
     var showFinishBlocked by remember { mutableStateOf(false) }
+    // Start every exercise collapsed (e.g. routine load) so the list is compact until the user expands.
     var setsCollapsedIds by remember(draft.startedAtEpochSeconds) {
-        mutableStateOf(emptySet<String>())
+        mutableStateOf(draft.exerciseOrder.toSet())
     }
     var recentWorkoutsExerciseId by remember { mutableStateOf<String?>(null) }
     var showMediaSheet by remember { mutableStateOf(false) }
@@ -153,7 +154,7 @@ fun WeightLiveWorkoutScreen(
         Scaffold(
             topBar = {
                 TopAppBar(
-                    title = { Text("Live workout") },
+                    title = { Text(stringResource(R.string.weight_live_screen_title)) },
                     navigationIcon = {
                         IconButton(onClick = onLeaveWorkoutUi) {
                             Icon(
@@ -164,13 +165,13 @@ fun WeightLiveWorkoutScreen(
                     },
                     actions = {
                         IconButton(
-                            onClick = { showMediaSheet = true },
+                            onClick = { showMediaSheet = !showMediaSheet },
                             modifier = Modifier.padding(end = 4.dp)
                         ) {
                             Icon(
                                 Icons.Filled.MusicNote,
                                 contentDescription = stringResource(R.string.media_control_cd_music),
-                                tint = Color.White
+                                tint = Color.White.copy(alpha = if (showMediaSheet) 1f else 0.88f)
                             )
                         }
                         TextButton(

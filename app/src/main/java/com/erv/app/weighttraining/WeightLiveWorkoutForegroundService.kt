@@ -29,7 +29,10 @@ import kotlinx.coroutines.withContext
 
 /**
  * Foreground service for an active live weight workout: ongoing notification (required on Android)
- * and optional bubble (API 30+) when [UserPreferences.workoutBubbleEnabled] is true.
+ * and optional bubble (API 30–34) when [UserPreferences.workoutBubbleEnabled] is true.
+ *
+ * On API 35+ (incl. Android 16), bubble metadata on FGS notifications is rejected asynchronously
+ * ([CannotPostForegroundServiceNotificationException]); we omit bubbles there. Ongoing notification remains.
  *
  * Elapsed time uses a notification [chronometer] ([setUsesChronometer]) so we do not call
  * [NotificationManager.notify] every second — frequent updates prevent bubble promotion on many devices.
@@ -69,14 +72,14 @@ class WeightLiveWorkoutForegroundService : Service() {
             return START_NOT_STICKY
         }
         startedAtEpochSeconds = intent!!.getLongExtra(EXTRA_STARTED_AT_EPOCH_SEC, weightNowEpochSeconds())
-        postForeground(buildNotification())
+        postForeground()
         serviceScope.launch {
             val enabled = withContext(Dispatchers.IO) {
                 userPreferences.workoutBubbleEnabled.first()
             }
             if (enabled != bubbleEnabled) {
                 bubbleEnabled = enabled
-                postForeground(buildNotification())
+                postForeground()
             }
         }
         return START_NOT_STICKY
@@ -92,7 +95,15 @@ class WeightLiveWorkoutForegroundService : Service() {
         stopForeground(STOP_FOREGROUND_REMOVE)
     }
 
-    private fun postForeground(notification: android.app.Notification) {
+    /**
+     * API 35+ validates FGS notifications on the main thread and throws
+     * [android.app.RemoteServiceException] for bubble metadata we cannot catch around [startForeground].
+     */
+    private fun bubbleMetadataAllowedOnThisApi(): Boolean =
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Build.VERSION.SDK_INT < 35
+
+    private fun postForeground() {
+        val notification = buildNotification()
         if (Build.VERSION.SDK_INT >= 34) {
             ServiceCompat.startForeground(
                 this,
@@ -134,7 +145,7 @@ class WeightLiveWorkoutForegroundService : Service() {
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .addAction(0, getString(R.string.weight_live_notification_action_open), openApp)
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && bubbleEnabled) {
+        if (bubbleMetadataAllowedOnThisApi() && bubbleEnabled) {
             try {
                 val bubbleLaunch = bubbleActivityIntent(this, startedAtEpochSeconds).apply {
                     action = Intent.ACTION_VIEW
@@ -146,10 +157,12 @@ class WeightLiveWorkoutForegroundService : Service() {
                     immutable
                 )
                 val bubbleIcon = bubbleMetadataIconCompat(this)
-                val bubbleMeta = NotificationCompat.BubbleMetadata.Builder(bubblePi, bubbleIcon)
-                    .setDesiredHeight(220)
-                    .build()
-                builder.setBubbleMetadata(bubbleMeta)
+                if (bubbleIcon != null) {
+                    val bubbleMeta = NotificationCompat.BubbleMetadata.Builder(bubblePi, bubbleIcon)
+                        .setDesiredHeight(220)
+                        .build()
+                    builder.setBubbleMetadata(bubbleMeta)
+                }
             } catch (t: Throwable) {
                 Log.w(TAG, "Omitting bubble metadata", t)
             }

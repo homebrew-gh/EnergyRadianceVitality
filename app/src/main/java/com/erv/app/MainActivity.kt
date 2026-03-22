@@ -50,6 +50,7 @@ import com.erv.app.supplements.SupplementSync
 import com.erv.app.reminders.RoutineReminderRepository
 import com.erv.app.reminders.RoutineReminderScheduler
 import com.erv.app.ui.navigation.ErvNavHost
+import com.erv.app.ui.navigation.LocalRelayDataSyncInProgress
 import com.erv.app.ui.dashboard.DashboardViewModel
 import com.erv.app.ui.weighttraining.WeightLiveWorkoutViewModel
 import com.erv.app.ui.cardio.CardioLiveWorkoutViewModel
@@ -328,7 +329,7 @@ private fun MainAppShell(
     }
     val relayPool = remember(signer) { signer?.let { RelayPool(it) } }
     var relayUrlsVersion by remember { mutableIntStateOf(0) }
-    var initialSyncDone by remember { mutableStateOf(false) }
+    var relayDataSyncInProgress by remember { mutableStateOf(false) }
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { }
@@ -360,46 +361,49 @@ private fun MainAppShell(
         stretchingRepository
     ) {
         if (relayPool == null || signer == null) {
-            initialSyncDone = true
             return@LaunchedEffect
         }
-        delay(1500)
-        val pubkey = signer.publicKey
-        kotlinx.coroutines.coroutineScope {
-            awaitAll(
-                async {
-                    SupplementSync.fetchFromNetwork(relayPool, signer, pubkey, timeoutMs = 8000)
-                        ?.let { supplementRepository.replaceAll(it) }
-                },
-                async {
-                    LightSync.fetchFromNetwork(relayPool, signer, pubkey, timeoutMs = 8000)
-                        ?.let { lightTherapyRepository.replaceAll(it) }
-                },
-                async {
-                    CardioSync.fetchFromNetwork(relayPool, signer, pubkey, timeoutMs = 8000)
-                        ?.let { cardioRepository.replaceAll(it) }
-                },
-                async {
-                    WeightSync.fetchFromNetwork(relayPool, signer, pubkey, timeoutMs = 8000)
-                        ?.let { weightRepository.replaceAll(it) }
-                },
-                async {
-                    HeatColdSync.fetchFromNetwork(relayPool, signer, pubkey, timeoutMs = 8000)
-                        ?.let { heatColdRepository.replaceAll(it) }
-                },
-                async {
-                    StretchingSync.fetchFromNetwork(relayPool, signer, pubkey, timeoutMs = 8000)
-                        ?.let { stretchingRepository.replaceAll(it) }
-                },
-                async {
-                    FitnessEquipmentSync.fetchFromNetwork(relayPool, signer, pubkey, timeoutMs = 8000)?.let { remote ->
-                        userPreferences.setGymMembership(remote.gymMembership)
-                        userPreferences.setOwnedEquipment(remote.equipment)
+        relayDataSyncInProgress = true
+        try {
+            delay(1500)
+            val pubkey = signer.publicKey
+            kotlinx.coroutines.coroutineScope {
+                awaitAll(
+                    async {
+                        SupplementSync.fetchFromNetwork(relayPool, signer, pubkey, timeoutMs = 8000)
+                            ?.let { supplementRepository.replaceAll(it) }
+                    },
+                    async {
+                        LightSync.fetchFromNetwork(relayPool, signer, pubkey, timeoutMs = 8000)
+                            ?.let { lightTherapyRepository.replaceAll(it) }
+                    },
+                    async {
+                        CardioSync.fetchFromNetwork(relayPool, signer, pubkey, timeoutMs = 8000)
+                            ?.let { cardioRepository.replaceAll(it) }
+                    },
+                    async {
+                        WeightSync.fetchFromNetwork(relayPool, signer, pubkey, timeoutMs = 8000)
+                            ?.let { weightRepository.replaceAll(it) }
+                    },
+                    async {
+                        HeatColdSync.fetchFromNetwork(relayPool, signer, pubkey, timeoutMs = 8000)
+                            ?.let { heatColdRepository.replaceAll(it) }
+                    },
+                    async {
+                        StretchingSync.fetchFromNetwork(relayPool, signer, pubkey, timeoutMs = 8000)
+                            ?.let { stretchingRepository.replaceAll(it) }
+                    },
+                    async {
+                        FitnessEquipmentSync.fetchFromNetwork(relayPool, signer, pubkey, timeoutMs = 8000)?.let { remote ->
+                            userPreferences.setGymMembership(remote.gymMembership)
+                            userPreferences.setOwnedEquipment(remote.equipment)
+                        }
                     }
-                }
-            )
+                )
+            }
+        } finally {
+            relayDataSyncInProgress = false
         }
-        initialSyncDone = true
     }
     LaunchedEffect(reminderRepository) {
         reminderRepository.restoreAllSchedules()
@@ -420,45 +424,30 @@ private fun MainAppShell(
             viewModel<WeightLiveWorkoutViewModel>(viewModelStoreOwner = activityForLifecycle)
         val cardioLiveWorkoutViewModel =
             viewModel<CardioLiveWorkoutViewModel>(viewModelStoreOwner = activityForLifecycle)
-        ErvNavHost(
-        navController = navController,
-        keyManager = keyManager,
-        amberHost = amberHost,
-        userPreferences = userPreferences,
-        dashboardViewModel = dashboardViewModel,
-        supplementRepository = supplementRepository,
-        lightTherapyRepository = lightTherapyRepository,
-        cardioRepository = cardioRepository,
-        weightRepository = weightRepository,
-        heatColdRepository = heatColdRepository,
-        stretchingRepository = stretchingRepository,
-        weightLiveWorkoutViewModel = weightLiveWorkoutViewModel,
-        cardioLiveWorkoutViewModel = cardioLiveWorkoutViewModel,
-        relayPool = relayPool,
-        signer = signer,
-        pendingReminderRoutineId = pendingReminderRoutineId,
-        consumePendingReminderRoutineId = consumePendingReminderRoutineId,
-        navigateToWeightLiveWorkout = navigateToWeightLiveWorkout,
-        navigateToCardioLiveWorkout = navigateToCardioLiveWorkout,
-        onRelaysChanged = { relayUrlsVersion++ },
-        onLogout = onLogout
-        )
-        if (!initialSyncDone) {
-            Surface(
-                modifier = Modifier.fillMaxSize(),
-                color = MaterialTheme.colorScheme.surface
-            ) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        CircularProgressIndicator()
-                        Spacer(Modifier.height(16.dp))
-                        Text(
-                            "Restoring your data…",
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                    }
-                }
-            }
+        CompositionLocalProvider(LocalRelayDataSyncInProgress provides relayDataSyncInProgress) {
+            ErvNavHost(
+                navController = navController,
+                keyManager = keyManager,
+                amberHost = amberHost,
+                userPreferences = userPreferences,
+                dashboardViewModel = dashboardViewModel,
+                supplementRepository = supplementRepository,
+                lightTherapyRepository = lightTherapyRepository,
+                cardioRepository = cardioRepository,
+                weightRepository = weightRepository,
+                heatColdRepository = heatColdRepository,
+                stretchingRepository = stretchingRepository,
+                weightLiveWorkoutViewModel = weightLiveWorkoutViewModel,
+                cardioLiveWorkoutViewModel = cardioLiveWorkoutViewModel,
+                relayPool = relayPool,
+                signer = signer,
+                pendingReminderRoutineId = pendingReminderRoutineId,
+                consumePendingReminderRoutineId = consumePendingReminderRoutineId,
+                navigateToWeightLiveWorkout = navigateToWeightLiveWorkout,
+                navigateToCardioLiveWorkout = navigateToCardioLiveWorkout,
+                onRelaysChanged = { relayUrlsVersion++ },
+                onLogout = onLogout
+            )
         }
     }
 }

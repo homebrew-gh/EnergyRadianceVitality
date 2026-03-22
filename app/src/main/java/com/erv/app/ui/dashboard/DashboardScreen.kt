@@ -52,6 +52,7 @@ import com.erv.app.nostr.RelayPool
 import com.erv.app.ui.navigation.Category
 import com.erv.app.ui.navigation.CategorySheet
 import com.erv.app.ui.navigation.HotColdDualIcons
+import com.erv.app.ui.navigation.RelayDataSyncTopBarIcon
 import com.erv.app.ui.navigation.categories
 import com.erv.app.ui.weighttraining.LiveWorkoutInProgressBanner
 import com.erv.app.ui.weighttraining.WeightLiveWorkoutFgsDisclosureDialog
@@ -302,8 +303,13 @@ fun DashboardScreen(
         )
     )
 
-    LaunchedEffect(Unit) {
-        scaffoldState.bottomSheetState.partialExpand()
+    val hideDashboardChrome =
+        (cardioActiveTimer != null && cardioLiveUiExpanded) || cardioWorkoutSummary != null
+
+    LaunchedEffect(hideDashboardChrome) {
+        if (!hideDashboardChrome) {
+            scaffoldState.bottomSheetState.partialExpand()
+        }
     }
 
     suspend fun syncMaster() {
@@ -349,7 +355,13 @@ fun DashboardScreen(
         }
         if (!cardioLiveWorkoutViewModel.tryStartSession(session)) {
             scope.launch {
-                snackbarHostState.showSnackbar("Finish or cancel your cardio timer first.")
+                snackbarHostState.showSnackbar(
+                    if (cardioLiveWorkoutViewModel.hasActiveTimer) {
+                        "Finish or cancel your cardio timer first."
+                    } else {
+                        "Could not start the cardio timer. Check notification permission and try again."
+                    }
+                )
             }
         }
     }
@@ -369,23 +381,30 @@ fun DashboardScreen(
         onConsumePendingReminderRoutineId()
     }
 
-    BottomSheetScaffold(
+    Box(modifier = modifier.fillMaxSize()) {
+        BottomSheetScaffold(
         scaffoldState = scaffoldState,
         snackbarHost = { SnackbarHost(snackbarHostState) },
+        // Always use a normal peek height. Do not gate topBar/sheetDragHandle/sheetPeekHeight on
+        // hideDashboardChrome: Material3 BottomSheetScaffoldLayout can crash (IndexOutOfBoundsException,
+        // empty subcompose slot list on Android 16) when any of those slots compose to nothing or 0.dp.
+        // The live cardio / summary overlay is drawn above this scaffold and covers the chrome.
         sheetPeekHeight = 48.dp,
         sheetContainerColor = if (darkTheme) ErvDarkCategoryMenuMutedGold else ErvCategoryMenuMutedGold,
         sheetTonalElevation = 0.dp,
         sheetShadowElevation = 4.dp,
         sheetContent = {
-            CategorySheet(
-                onCategoryClick = { category ->
-                    scope.launch {
-                        scaffoldState.bottomSheetState.partialExpand()
-                        onNavigateToCategory(category)
-                    }
-                },
-                modifier = Modifier.wrapContentHeight()
-            )
+            Box(modifier = Modifier.heightIn(min = 48.dp)) {
+                CategorySheet(
+                    onCategoryClick = { category ->
+                        scope.launch {
+                            scaffoldState.bottomSheetState.partialExpand()
+                            onNavigateToCategory(category)
+                        }
+                    },
+                    modifier = Modifier.wrapContentHeight()
+                )
+            }
         },
         sheetDragHandle = {
             Column(modifier = Modifier.fillMaxWidth()) {
@@ -450,6 +469,7 @@ fun DashboardScreen(
                     }
                 },
                 actions = {
+                    RelayDataSyncTopBarIcon(contentColor = Color.White)
                     Box(modifier = Modifier.size(48.dp)) {
                         IconButton(
                             onClick = { showGoalsSheet = true },
@@ -485,7 +505,7 @@ fun DashboardScreen(
                 )
             )
         },
-        modifier = modifier
+        modifier = Modifier.fillMaxSize()
     ) { padding ->
         Box(modifier = Modifier.fillMaxSize().padding(padding)) {
             // The dashboard keeps routines lightweight: select, preview, then log or edit.
@@ -762,7 +782,13 @@ fun DashboardScreen(
                             if (weightLiveWorkoutViewModel.hasLiveSession) {
                                 snackbarHostState.showSnackbar("Finish or cancel your live weight workout first.")
                             } else if (!cardioLiveWorkoutViewModel.tryStartSession(pending)) {
-                                snackbarHostState.showSnackbar("Finish or cancel your cardio timer first.")
+                                snackbarHostState.showSnackbar(
+                                    if (cardioLiveWorkoutViewModel.hasActiveTimer) {
+                                        "Finish or cancel your cardio timer first."
+                                    } else {
+                                        "Could not start the cardio timer. Check notification permission and try again."
+                                    }
+                                )
                             }
                         }
                     }
@@ -787,11 +813,12 @@ fun DashboardScreen(
                     supplements = supplementState.supplements,
                     onDismiss = { routinePreview = null },
                     onLogAsIs = {
+                    val r = routine
+                    routinePreview = null
                     scope.launch {
-                        supplementRepository.logRoutineRun(today, routine.id, routine.name, routine.steps)
+                        supplementRepository.logRoutineRun(today, r.id, r.name, r.steps)
                         syncDailyLog()
-                        snackbarHostState.showSnackbar("Logged ${routine.name}")
-                        routinePreview = null
+                        snackbarHostState.showSnackbar("Logged ${r.name}")
                     }
                 },
                     onModify = {
@@ -807,21 +834,23 @@ fun DashboardScreen(
                     supplements = supplementState.supplements,
                     onDismiss = { routineEditor = null },
                     onSave = { updatedName, steps, notes, savePermanently ->
+                    val base = routine
+                    routineEditor = null
                     scope.launch {
-                        val updatedRoutine = routine.copy(
+                        val updatedRoutine = base.copy(
                             name = updatedName,
                             steps = steps,
                             notes = notes
                         )
                         if (savePermanently) {
                             supplementRepository.renameRoutine(
-                                routineId = routine.id,
+                                routineId = base.id,
                                 name = updatedRoutine.name,
                                 timeOfDay = updatedRoutine.timeOfDay,
                                 steps = updatedRoutine.steps,
                                 notes = updatedRoutine.notes
                             )
-                            reminderRepository.updateRoutineName(routine.id, updatedRoutine.name)
+                            reminderRepository.updateRoutineName(base.id, updatedRoutine.name)
                             syncMaster()
                         }
                         supplementRepository.logRoutineRun(
@@ -838,7 +867,6 @@ fun DashboardScreen(
                                 "Logged edited ${updatedRoutine.name}"
                             }
                         )
-                        routineEditor = null
                     }
                 }
                 )
@@ -850,23 +878,24 @@ fun DashboardScreen(
                     deviceName = routine.deviceId?.let { lightState.deviceById(it)?.name },
                     onDismiss = { lightRoutinePreview = null },
                     onLogSession = {
+                    val r = routine
+                    lightRoutinePreview = null
                     scope.launch {
-                        val device = routine.deviceId?.let { lightState.deviceById(it) }
+                        val device = r.deviceId?.let { lightState.deviceById(it) }
                         lightTherapyRepository.logSession(
                             date = today,
-                            minutes = routine.durationMinutes,
-                            deviceId = routine.deviceId,
+                            minutes = r.durationMinutes,
+                            deviceId = r.deviceId,
                             deviceName = device?.name,
-                            routineId = routine.id,
-                            routineName = routine.name
+                            routineId = r.id,
+                            routineName = r.name
                         )
                         lightTherapyRepository.currentState().logFor(today)?.let { log ->
                             if (relayPool != null && signer != null) {
                                 LightSync.publishDailyLog(relayPool, signer, log)
                             }
                         }
-                        snackbarHostState.showSnackbar("Logged ${routine.name} • ${routine.durationMinutes} min")
-                        lightRoutinePreview = null
+                        snackbarHostState.showSnackbar("Logged ${r.name} • ${r.durationMinutes} min")
                     }
                 },
                     onStartTimer = { r ->
@@ -891,22 +920,23 @@ fun DashboardScreen(
                     redMid = therapyRedMid,
                     redGlow = therapyRedGlow,
                     onComplete = {
+                    val s = session
+                    lightTimerSession = null
                     scope.launch {
                         lightTherapyRepository.logSession(
                             date = today,
-                            minutes = session.minutes,
-                            deviceId = session.deviceId,
-                            deviceName = session.deviceName,
-                            routineId = session.routineId,
-                            routineName = session.routineName
+                            minutes = s.minutes,
+                            deviceId = s.deviceId,
+                            deviceName = s.deviceName,
+                            routineId = s.routineId,
+                            routineName = s.routineName
                         )
                         lightTherapyRepository.currentState().logFor(today)?.let { log ->
                             if (relayPool != null && signer != null) {
                                 LightSync.publishDailyLog(relayPool, signer, log)
                             }
                         }
-                        snackbarHostState.showSnackbar("Logged ${session.routineName ?: "Light therapy"} • ${session.minutes} min")
-                        lightTimerSession = null
+                        snackbarHostState.showSnackbar("Logged ${s.routineName ?: "Light therapy"} • ${s.minutes} min")
                     }
                 },
                     onCancel = { lightTimerSession = null }
@@ -934,10 +964,12 @@ fun DashboardScreen(
                     routine = routine,
                     onDismiss = { cardioRoutinePreview = null },
                     onLogSession = {
+                        val r = routine
+                        cardioRoutinePreview = null
                         scope.launch {
-                            val mins = routine.targetDurationMinutes ?: 30
+                            val mins = r.targetDurationMinutes ?: 30
                             val session = CardioMetEstimator.buildSessionFromRoutine(
-                                routine = routine,
+                                routine = r,
                                 durationMinutes = mins,
                                 source = CardioSessionSource.MANUAL,
                                 weightKg = weightKg,
@@ -949,133 +981,141 @@ fun DashboardScreen(
                                     CardioSync.publishDailyLog(relayPool, signer, log)
                                 }
                             }
-                            snackbarHostState.showSnackbar("Logged ${routine.name}")
-                            cardioRoutinePreview = null
+                            snackbarHostState.showSnackbar("Logged ${r.name}")
                         }
                     },
                     onStartTimer = { r ->
-                        CardioTimerSessionDraft.fromRoutine(r)?.let { d ->
-                            dashboardStartOrQueueCardio(CardioActiveTimerSession.Single(d))
-                        } ?: CardioMultiLegTimerState.fromRoutine(r)?.let { m ->
-                            dashboardStartOrQueueCardio(CardioActiveTimerSession.Multi(m))
-                        }
+                        // Dismiss the sheet first; starting the full-screen timer + FGS while the modal is
+                        // still composed can crash (same-frame overlap with ModalBottomSheet).
                         cardioRoutinePreview = null
+                        scope.launch {
+                            delay(120L)
+                            val draft = CardioTimerSessionDraft.fromRoutine(r)
+                            if (draft != null) {
+                                dashboardStartOrQueueCardio(CardioActiveTimerSession.Single(draft))
+                            } else {
+                                CardioMultiLegTimerState.fromRoutine(r)?.let { m ->
+                                    dashboardStartOrQueueCardio(CardioActiveTimerSession.Multi(m))
+                                }
+                            }
+                        }
                     }
                 )
             }
+        }
+    }
 
-            val cSummary = cardioWorkoutSummary
-            if (cSummary != null) {
-                CardioWorkoutSummaryFullScreen(
-                    session = cSummary.session,
-                    logDate = selectedDate,
-                    repository = cardioRepository,
-                    elapsedSeconds = cSummary.elapsedSeconds,
-                    distanceUnit = cardioDistanceUnit,
-                    dark = therapyRedDark,
-                    mid = therapyRedMid,
-                    glow = therapyRedGlow,
-                    relayPool = relayPool,
-                    signer = signer,
-                    userPreferences = userPreferences,
-                    onDone = { cardioWorkoutSummary = null }
-                )
-            } else when (val ct = cardioActiveTimer) {
-                is CardioActiveTimerSession.Single -> {
-                    if (cardioLiveUiExpanded) {
-                        val draft = ct.draft
-                        val paceOnlyTimer = draft.timerStyle is CardioTimerStyle.CountDownDistance
-                        val recordGps =
-                            draft.eligibleForPhoneGps() && cardioGpsPreferred && dashboardLocationFineGranted && !paceOnlyTimer
-                        val showGpsPermissionHint =
-                            draft.eligibleForPhoneGps() && cardioGpsPreferred && !dashboardLocationFineGranted && !paceOnlyTimer
-                        CardioElapsedTimerFullScreen(
-                            draft = draft,
-                            distanceUnit = cardioDistanceUnit,
-                            dark = therapyRedDark,
-                            mid = therapyRedMid,
-                            glow = therapyRedGlow,
-                            gpsRecordingActive = recordGps,
-                            showGpsPermissionHint = showGpsPermissionHint,
-                            onRequestLocationPermission = {
-                                requestDashboardCardioLocation.launch(Manifest.permission.ACCESS_FINE_LOCATION)
-                            },
-                            onLeaveTimerUi = { cardioLiveWorkoutViewModel.setCardioLiveUiExpanded(false) },
-                            onStop = { elapsedSeconds ->
-                                val gpsPoints = drainCardioGpsIfNeeded(recordGps, context.applicationContext)
-                                scope.launch {
-                                    val durationMinutes = max(1, (elapsedSeconds + 59) / 60)
-                                    val end = nowEpochSeconds()
-                                    val raw = draft.toSession(
-                                        durationMinutes = durationMinutes,
-                                        endEpoch = end,
-                                        elapsedSecondsForDistance = elapsedSeconds,
-                                        gpsPoints = gpsPoints
-                                    )
-                                    val session = CardioMetEstimator.applyEstimatedKcal(
-                                        raw,
-                                        cardioRepository.currentState(),
-                                        weightKg
-                                    )
+        val cSummary = cardioWorkoutSummary
+        if (cSummary != null) {
+            CardioWorkoutSummaryFullScreen(
+                session = cSummary.session,
+                logDate = selectedDate,
+                repository = cardioRepository,
+                elapsedSeconds = cSummary.elapsedSeconds,
+                distanceUnit = cardioDistanceUnit,
+                dark = therapyRedDark,
+                mid = therapyRedMid,
+                glow = therapyRedGlow,
+                relayPool = relayPool,
+                signer = signer,
+                userPreferences = userPreferences,
+                onDone = { cardioWorkoutSummary = null }
+            )
+        } else when (val ct = cardioActiveTimer) {
+            is CardioActiveTimerSession.Single -> {
+                if (cardioLiveUiExpanded) {
+                    val draft = ct.draft
+                    val paceOnlyTimer = draft.timerStyle is CardioTimerStyle.CountDownDistance
+                    val recordGps =
+                        draft.eligibleForPhoneGps() && cardioGpsPreferred && dashboardLocationFineGranted && !paceOnlyTimer
+                    val showGpsPermissionHint =
+                        draft.eligibleForPhoneGps() && cardioGpsPreferred && !dashboardLocationFineGranted && !paceOnlyTimer
+                    CardioElapsedTimerFullScreen(
+                        draft = draft,
+                        distanceUnit = cardioDistanceUnit,
+                        dark = therapyRedDark,
+                        mid = therapyRedMid,
+                        glow = therapyRedGlow,
+                        gpsRecordingActive = recordGps,
+                        showGpsPermissionHint = showGpsPermissionHint,
+                        onRequestLocationPermission = {
+                            requestDashboardCardioLocation.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+                        },
+                        onLeaveTimerUi = { cardioLiveWorkoutViewModel.setCardioLiveUiExpanded(false) },
+                        onStop = { elapsedSeconds ->
+                            val gpsPoints = drainCardioGpsIfNeeded(recordGps, context.applicationContext)
+                            scope.launch {
+                                val durationMinutes = max(1, (elapsedSeconds + 59) / 60)
+                                val end = nowEpochSeconds()
+                                val raw = draft.toSession(
+                                    durationMinutes = durationMinutes,
+                                    endEpoch = end,
+                                    elapsedSecondsForDistance = elapsedSeconds,
+                                    gpsPoints = gpsPoints
+                                )
+                                val session = CardioMetEstimator.applyEstimatedKcal(
+                                    raw,
+                                    cardioRepository.currentState(),
+                                    weightKg
+                                )
+                                cardioLiveWorkoutViewModel.clearSession()
+                                cardioWorkoutSummary = CardioTimerCompletionResult(session, elapsedSeconds)
+                                cardioRepository.addSession(selectedDate, session)
+                                cardioRepository.currentState().logFor(selectedDate)?.let { log ->
+                                    if (relayPool != null && signer != null) {
+                                        CardioSync.publishDailyLog(relayPool, signer, log)
+                                    }
+                                }
+                            }
+                        },
+                        onCancel = {
+                            drainCardioGpsIfNeeded(recordGps, context.applicationContext)
+                            cardioLiveWorkoutViewModel.clearSession()
+                        }
+                    )
+                }
+            }
+            is CardioActiveTimerSession.Multi -> {
+                if (cardioLiveUiExpanded) {
+                    val multiKey = ct.state.currentLegIndex to ct.state.completedSegments.size
+                    CardioMultiLegTimerFullScreen(
+                        state = ct.state,
+                        stateKey = multiKey,
+                        dark = therapyRedDark,
+                        mid = therapyRedMid,
+                        glow = therapyRedGlow,
+                        onLeaveWorkoutUi = { cardioLiveWorkoutViewModel.setCardioLiveUiExpanded(false) },
+                        onFinishLeg = { elapsedSeconds ->
+                            scope.launch {
+                                val durationMinutes = max(1, (elapsedSeconds + 59) / 60)
+                                val end = nowEpochSeconds()
+                                val (next, session) = CardioMetEstimator.advanceMultiLegTimer(
+                                    ct.state,
+                                    durationMinutes,
+                                    end,
+                                    cardioRepository.currentState(),
+                                    weightKg
+                                )
+                                if (session != null) {
                                     cardioLiveWorkoutViewModel.clearSession()
-                                    cardioWorkoutSummary = CardioTimerCompletionResult(session, elapsedSeconds)
+                                    cardioWorkoutSummary = CardioTimerCompletionResult(session, null)
                                     cardioRepository.addSession(selectedDate, session)
                                     cardioRepository.currentState().logFor(selectedDate)?.let { log ->
                                         if (relayPool != null && signer != null) {
                                             CardioSync.publishDailyLog(relayPool, signer, log)
                                         }
                                     }
+                                } else if (next != null) {
+                                    cardioLiveWorkoutViewModel.replaceSession(CardioActiveTimerSession.Multi(next))
+                                    snackbarHostState.showSnackbar("Leg saved — start next when ready")
                                 }
-                            },
-                            onCancel = {
-                                drainCardioGpsIfNeeded(recordGps, context.applicationContext)
-                                cardioLiveWorkoutViewModel.clearSession()
                             }
-                        )
-                    }
+                        },
+                        onCancel = { cardioLiveWorkoutViewModel.clearSession() }
+                    )
                 }
-                is CardioActiveTimerSession.Multi -> {
-                    if (cardioLiveUiExpanded) {
-                        val multiKey = ct.state.currentLegIndex to ct.state.completedSegments.size
-                        CardioMultiLegTimerFullScreen(
-                            state = ct.state,
-                            stateKey = multiKey,
-                            dark = therapyRedDark,
-                            mid = therapyRedMid,
-                            glow = therapyRedGlow,
-                            onLeaveWorkoutUi = { cardioLiveWorkoutViewModel.setCardioLiveUiExpanded(false) },
-                            onFinishLeg = { elapsedSeconds ->
-                                scope.launch {
-                                    val durationMinutes = max(1, (elapsedSeconds + 59) / 60)
-                                    val end = nowEpochSeconds()
-                                    val (next, session) = CardioMetEstimator.advanceMultiLegTimer(
-                                        ct.state,
-                                        durationMinutes,
-                                        end,
-                                        cardioRepository.currentState(),
-                                        weightKg
-                                    )
-                                    if (session != null) {
-                                        cardioLiveWorkoutViewModel.clearSession()
-                                        cardioWorkoutSummary = CardioTimerCompletionResult(session, null)
-                                        cardioRepository.addSession(selectedDate, session)
-                                        cardioRepository.currentState().logFor(selectedDate)?.let { log ->
-                                            if (relayPool != null && signer != null) {
-                                                CardioSync.publishDailyLog(relayPool, signer, log)
-                                            }
-                                        }
-                                    } else if (next != null) {
-                                        cardioLiveWorkoutViewModel.replaceSession(CardioActiveTimerSession.Multi(next))
-                                        snackbarHostState.showSnackbar("Leg saved — start next when ready")
-                                    }
-                                }
-                            },
-                            onCancel = { cardioLiveWorkoutViewModel.clearSession() }
-                        )
-                    }
-                }
-                null -> Unit
             }
+            null -> Unit
         }
     }
 }
@@ -1468,8 +1508,8 @@ private fun RoutinesSection(
             routines = supplementRoutines,
             onDismiss = { showSupplementPicker = false },
             onSelect = { routine ->
-                onSupplementRoutineSelected(routine)
                 showSupplementPicker = false
+                onSupplementRoutineSelected(routine)
             }
         )
     }

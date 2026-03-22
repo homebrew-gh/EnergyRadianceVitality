@@ -13,7 +13,6 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
-import androidx.core.graphics.drawable.IconCompat
 import com.erv.app.MainActivity
 import com.erv.app.R
 import com.erv.app.data.UserPreferences
@@ -30,9 +29,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * Foreground service during an active cardio timer (session clock). Optional bubble (API 30+)
+ * Foreground service during an active cardio timer (session clock). Optional bubble (API 30–34)
  * when [UserPreferences.workoutBubbleEnabled] is true — same preference as weight training.
- * Bubble metadata uses a [PendingIntent] and [R.drawable.ic_stat_erv] (sun icon), not shortcuts.
+ *
+ * On API 35+ (incl. Android 16), the system posts [android.app.RemoteServiceException]
+ * [CannotPostForegroundServiceNotificationException] asynchronously for many FGS notifications
+ * that include bubble metadata, so we omit bubbles there. The ongoing notification still appears.
  */
 class CardioLiveWorkoutForegroundService : Service() {
 
@@ -64,14 +66,14 @@ class CardioLiveWorkoutForegroundService : Service() {
             return START_NOT_STICKY
         }
         startedAtEpochSeconds = intent.getLongExtra(EXTRA_STARTED_AT_EPOCH_SEC, nowEpochSeconds())
-        postForeground(buildNotification())
+        postForeground()
         serviceScope.launch {
             val enabled = withContext(Dispatchers.IO) {
                 userPreferences.workoutBubbleEnabled.first()
             }
             if (enabled != bubbleEnabled) {
                 bubbleEnabled = enabled
-                postForeground(buildNotification())
+                postForeground()
             }
         }
         return START_NOT_STICKY
@@ -87,7 +89,15 @@ class CardioLiveWorkoutForegroundService : Service() {
         stopForeground(STOP_FOREGROUND_REMOVE)
     }
 
-    private fun postForeground(notification: android.app.Notification) {
+    /**
+     * API 35+ validates FGS notifications on the main thread and throws
+     * [android.app.RemoteServiceException] for bubble metadata we cannot catch around [startForeground].
+     */
+    private fun bubbleMetadataAllowedOnThisApi(): Boolean =
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Build.VERSION.SDK_INT < 35
+
+    private fun postForeground() {
+        val notification = buildNotification()
         if (Build.VERSION.SDK_INT >= 34) {
             ServiceCompat.startForeground(
                 this,
@@ -127,7 +137,7 @@ class CardioLiveWorkoutForegroundService : Service() {
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .addAction(0, getString(R.string.cardio_live_notification_action_open), openApp)
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && bubbleEnabled) {
+        if (bubbleMetadataAllowedOnThisApi() && bubbleEnabled) {
             try {
                 val bubbleLaunch = bubbleActivityIntent(this, startedAtEpochSeconds).apply {
                     action = Intent.ACTION_VIEW
@@ -139,10 +149,12 @@ class CardioLiveWorkoutForegroundService : Service() {
                     immutable
                 )
                 val bubbleIcon = bubbleMetadataIconCompat(this)
-                val bubbleMeta = NotificationCompat.BubbleMetadata.Builder(bubblePi, bubbleIcon)
-                    .setDesiredHeight(220)
-                    .build()
-                builder.setBubbleMetadata(bubbleMeta)
+                if (bubbleIcon != null) {
+                    val bubbleMeta = NotificationCompat.BubbleMetadata.Builder(bubblePi, bubbleIcon)
+                        .setDesiredHeight(220)
+                        .build()
+                    builder.setBubbleMetadata(bubbleMeta)
+                }
             } catch (t: Throwable) {
                 Log.w(TAG, "Omitting cardio bubble metadata", t)
             }

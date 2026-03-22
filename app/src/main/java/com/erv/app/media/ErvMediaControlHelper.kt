@@ -3,6 +3,7 @@ package com.erv.app.media
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.media.AudioManager
 import android.media.session.MediaController
 import android.media.session.MediaSessionManager
@@ -56,6 +57,15 @@ object ErvMediaControlHelper {
         val max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
         val clamped = index.coerceIn(0, max)
         am.setStreamVolume(AudioManager.STREAM_MUSIC, clamped, 0)
+    }
+
+    /** App info screen (restricted settings live under the ⋮ menu on many devices). */
+    fun openAppDetailsSettings(context: Context) {
+        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+            data = Uri.parse("package:${context.packageName}")
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(intent)
     }
 
     fun openNotificationListenerSettings(context: Context) {

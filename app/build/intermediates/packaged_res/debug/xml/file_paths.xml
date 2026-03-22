@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
     <cache-path name="erv_share" path="share/" />
+    <cache-path name="bubble_icons" path="bubble_icons/" />
 </paths>

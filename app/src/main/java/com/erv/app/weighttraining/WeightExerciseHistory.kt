@@ -41,3 +41,29 @@ fun WeightLibraryState.historyForExercise(exerciseId: String): List<WeightExerci
             .thenByDescending { it.workout.startedAtEpochSeconds ?: it.workout.finishedAtEpochSeconds ?: 0L }
     )
 }
+
+private val repBucketLabels: List<String> =
+    (1..10).map { n -> if (n == 1) "1 rep" else "$n reps" } + "10+ reps"
+
+/**
+ * For reps 1–10 and 11+ ("10+"), the maximum [WeightSet.weightKg] ever logged for [exerciseId]
+ * among sets with positive reps and weight. Buckets use exact rep count for 1–10; sets with 11+
+ * reps contribute only to the last bucket.
+ */
+fun WeightLibraryState.maxWeightByRepBucketKg(exerciseId: String): List<Pair<String, Double?>> {
+    val max = arrayOfNulls<Double>(11)
+    for (dayLog in logs) {
+        for (workout in dayLog.workouts) {
+            val entry = workout.entries.firstOrNull { it.exerciseId == exerciseId } ?: continue
+            for (set in entry.sets) {
+                val reps = set.reps
+                val w = set.weightKg ?: continue
+                if (reps <= 0 || w <= 0.0) continue
+                val idx = if (reps <= 10) reps - 1 else 10
+                val prev = max[idx]
+                if (prev == null || w > prev) max[idx] = w
+            }
+        }
+    }
+    return repBucketLabels.zip(max.toList())
+}

@@ -13,6 +13,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -65,6 +66,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Tab
@@ -137,6 +139,7 @@ import com.erv.app.cardio.effectiveSteps
 import com.erv.app.cardio.stepsSummaryLabel
 import com.erv.app.cardio.derivedTreadmillDistanceMeters
 import com.erv.app.cardio.distanceFieldLabelOptional
+import com.erv.app.cardio.formatCardioAveragePace
 import com.erv.app.cardio.formatCardioAveragePaceForSession
 import com.erv.app.cardio.formatCardioElevationGainLoss
 import com.erv.app.cardio.resolvedElevationMeters
@@ -164,7 +167,7 @@ import com.erv.app.ui.dashboard.CalendarPopup
 import com.erv.app.ui.dashboard.DateNavigator
 import com.erv.app.ui.dashboard.datesWithCardioActivity
 import com.erv.app.ui.weighttraining.LiveWorkoutInProgressBanner
-import com.erv.app.ui.media.WorkoutMediaControlSheet
+import com.erv.app.ui.media.WorkoutMediaControlPanel
 import com.erv.app.ui.weighttraining.WeightLiveWorkoutFgsDisclosureDialog
 import com.erv.app.ui.weighttraining.WeightLiveWorkoutViewModel
 import com.erv.app.ui.theme.ErvDarkTherapyRedDark
@@ -270,7 +273,13 @@ fun CardioCategoryScreen(
         }
         if (!cardioLiveWorkoutViewModel.tryStartSession(session)) {
             scope.launch {
-                snackbarHostState.showSnackbar("Finish or cancel your cardio timer first.")
+                snackbarHostState.showSnackbar(
+                    if (cardioLiveWorkoutViewModel.hasActiveTimer) {
+                        "Finish or cancel your cardio timer first."
+                    } else {
+                        "Could not start the cardio timer. Check notification permission and try again."
+                    }
+                )
             }
         }
     }
@@ -559,7 +568,13 @@ fun CardioCategoryScreen(
                     if (weightLiveWorkoutViewModel.hasLiveSession) {
                         snackbarHostState.showSnackbar("Finish or cancel your live weight workout first.")
                     } else if (!cardioLiveWorkoutViewModel.tryStartSession(pending)) {
-                        snackbarHostState.showSnackbar("Finish or cancel your cardio timer first.")
+                        snackbarHostState.showSnackbar(
+                            if (cardioLiveWorkoutViewModel.hasActiveTimer) {
+                                "Finish or cancel your cardio timer first."
+                            } else {
+                                "Could not start the cardio timer. Check notification permission and try again."
+                            }
+                        )
                     }
                 }
             }
@@ -2109,6 +2124,28 @@ private fun formatCardioLogTime(epochSeconds: Long): String {
 }
 
 @Composable
+private fun CardioLiveAveragePaceBlock(
+    label: String,
+    elapsedSeconds: Int,
+    distanceMeters: Double,
+    distanceUnit: CardioDistanceUnit
+) {
+    val pace = formatCardioAveragePace(elapsedSeconds, distanceMeters, distanceUnit) ?: return
+    Spacer(Modifier.height(8.dp))
+    Text(
+        text = label,
+        style = MaterialTheme.typography.labelSmall,
+        color = Color.White.copy(alpha = 0.7f)
+    )
+    Spacer(Modifier.height(2.dp))
+    Text(
+        text = pace,
+        style = MaterialTheme.typography.titleMedium,
+        color = Color.White.copy(alpha = 0.92f)
+    )
+}
+
+@Composable
 fun CardioElapsedTimerFullScreen(
     draft: CardioTimerSessionDraft,
     distanceUnit: CardioDistanceUnit,
@@ -2129,8 +2166,12 @@ fun CardioElapsedTimerFullScreen(
     val tickKey = draft.startEpoch
     var showMediaSheet by remember(tickKey) { mutableStateOf(false) }
     var running by remember(tickKey) { mutableStateOf(true) }
-    var workoutElapsedSeconds by remember(tickKey) { mutableIntStateOf(0) }
     var finished by remember(tickKey) { mutableStateOf(false) }
+    var tick by remember(tickKey) { mutableIntStateOf(0) }
+
+    val workoutElapsedSeconds = remember(tick, draft.startEpoch) {
+        (nowEpochSeconds() - draft.startEpoch).coerceAtLeast(0).toInt()
+    }
 
     fun complete(elapsed: Int) {
         if (finished) return
@@ -2141,7 +2182,11 @@ fun CardioElapsedTimerFullScreen(
 
     LaunchedEffect(gpsRecordingActive, tickKey) {
         if (gpsRecordingActive) {
-            CardioGpsForegroundService.start(context.applicationContext, draft.title, draft.startEpoch)
+            try {
+                CardioGpsForegroundService.start(context.applicationContext, draft.title, draft.startEpoch)
+            } catch (_: Exception) {
+                // Avoid crashing the app if FGS start is disallowed or fails (e.g. API 31+ restrictions).
+            }
         }
     }
 
@@ -2150,22 +2195,22 @@ fun CardioElapsedTimerFullScreen(
         if (gpsPoints.size >= 2) CardioGpsMath.pathLengthMeters(gpsPoints) else null
     }
 
-    LaunchedEffect(tickKey) {
+    LaunchedEffect(tickKey, running, finished) {
         while (true) {
             if (!running || finished) break
             delay(1000)
-            if (!running || finished) break
-            workoutElapsedSeconds++
+            tick++
+            val elapsed = (nowEpochSeconds() - draft.startEpoch).coerceAtLeast(0).toInt()
             val tCap = timeCountdownCap
-            if (tCap != null && workoutElapsedSeconds >= tCap) {
+            if (tCap != null && elapsed >= tCap) {
                 complete(tCap)
                 break
             }
             val dTarget = distanceCountdownTarget
             if (dTarget != null) {
-                val covered = draft.liveDistanceMeters(workoutElapsedSeconds) ?: 0.0
+                val covered = draft.liveDistanceMeters(elapsed) ?: 0.0
                 if (covered >= dTarget) {
-                    complete(workoutElapsedSeconds)
+                    complete(elapsed)
                     break
                 }
             }
@@ -2179,11 +2224,6 @@ fun CardioElapsedTimerFullScreen(
         if (timeCountdownCap != null) max(0, timeCountdownCap - workoutElapsedSeconds)
         else workoutElapsedSeconds
     val distM = draft.liveDistanceMeters(workoutElapsedSeconds)
-
-    WorkoutMediaControlSheet(
-        visible = showMediaSheet,
-        onDismiss = { showMediaSheet = false }
-    )
 
     Box(
         modifier = Modifier
@@ -2216,11 +2256,11 @@ fun CardioElapsedTimerFullScreen(
                             color = Color.White.copy(alpha = 0.9f),
                             modifier = Modifier.weight(1f)
                         )
-                        IconButton(onClick = { showMediaSheet = true }) {
+                        IconButton(onClick = { showMediaSheet = !showMediaSheet }) {
                             Icon(
                                 Icons.Filled.MusicNote,
                                 contentDescription = stringResource(R.string.media_control_cd_music),
-                                tint = Color.White
+                                tint = Color.White.copy(alpha = if (showMediaSheet) 1f else 0.88f)
                             )
                         }
                     }
@@ -2242,7 +2282,13 @@ fun CardioElapsedTimerFullScreen(
                     }
                 }
             }
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
                 Text(
                     when {
                         remainingDistance != null -> "Remaining (est.)"
@@ -2266,6 +2312,12 @@ fun CardioElapsedTimerFullScreen(
                         "Elapsed %d:%02d".format(em, es),
                         style = MaterialTheme.typography.titleMedium,
                         color = Color.White.copy(alpha = 0.85f)
+                    )
+                    CardioLiveAveragePaceBlock(
+                        label = stringResource(R.string.cardio_timer_avg_pace),
+                        elapsedSeconds = workoutElapsedSeconds,
+                        distanceMeters = coveredM,
+                        distanceUnit = distanceUnit
                     )
                 } else {
                     val mins = mainClockSeconds / 60
@@ -2302,6 +2354,12 @@ fun CardioElapsedTimerFullScreen(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = Color.White.copy(alpha = 0.7f)
                             )
+                            CardioLiveAveragePaceBlock(
+                                label = stringResource(R.string.cardio_timer_avg_pace_gps),
+                                elapsedSeconds = workoutElapsedSeconds,
+                                distanceMeters = liveGpsMeters,
+                                distanceUnit = distanceUnit
+                            )
                         } else {
                             Text(
                                 stringResource(R.string.cardio_timer_gps_recording),
@@ -2326,35 +2384,62 @@ fun CardioElapsedTimerFullScreen(
                             style = MaterialTheme.typography.bodySmall,
                             color = Color.White.copy(alpha = 0.65f)
                         )
+                        CardioLiveAveragePaceBlock(
+                            label = stringResource(R.string.cardio_timer_avg_pace_est),
+                            elapsedSeconds = workoutElapsedSeconds,
+                            distanceMeters = d,
+                            distanceUnit = distanceUnit
+                        )
                     }
                 }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedButton(
-                    onClick = {
-                        if (running && !finished) {
-                            complete(workoutElapsedSeconds)
-                        }
-                    },
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
-                    border = ButtonDefaults.outlinedButtonBorder.copy(brush = SolidColor(Color.White))
-                ) {
-                    Icon(Icons.Default.Stop, contentDescription = null)
-                    Spacer(Modifier.width(8.dp))
-                    Text("Stop & log")
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                if (showMediaSheet) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color.White.copy(alpha = 0.12f)
+                    ) {
+                        WorkoutMediaControlPanel(
+                            useLightOnDarkBackground = true,
+                            showHeaderTitle = false,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp)
+                        )
+                    }
                 }
-                OutlinedButton(
-                    onClick = {
-                        if (running && !finished) {
-                            running = false
-                            onCancel()
-                        }
-                    },
-                    enabled = running && !finished,
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
-                    border = ButtonDefaults.outlinedButtonBorder.copy(brush = SolidColor(Color.White))
-                ) {
-                    Text("Cancel")
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedButton(
+                        onClick = {
+                            if (running && !finished) {
+                                complete(workoutElapsedSeconds)
+                            }
+                        },
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                        border = ButtonDefaults.outlinedButtonBorder.copy(brush = SolidColor(Color.White))
+                    ) {
+                        Icon(Icons.Default.Stop, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Stop & log")
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            if (running && !finished) {
+                                running = false
+                                onCancel()
+                            }
+                        },
+                        enabled = running && !finished,
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                        border = ButtonDefaults.outlinedButtonBorder.copy(brush = SolidColor(Color.White))
+                    ) {
+                        Text("Cancel")
+                    }
                 }
             }
         }
@@ -2386,7 +2471,14 @@ fun CardioWorkoutSummaryFullScreen(
     val workoutMediaBackend by userPreferences.workoutMediaUploadBackend.collectAsState(
         initial = WorkoutMediaUploadBackend.NIP96
     )
-    val attachRouteImage by userPreferences.attachRouteImageToWorkoutNostrShare.collectAsState(initial = false)
+    val attachRouteImage by userPreferences.attachRouteImageToWorkoutNostrShare.collectAsState(initial = true)
+    val normalizedShareMediaOrigin = remember(nip96Origin, blossomPublicOrigin, workoutMediaBackend) {
+        when (workoutMediaBackend) {
+            WorkoutMediaUploadBackend.NIP96 -> Nip96Uploader.normalizeMediaServerOrigin(nip96Origin)
+            WorkoutMediaUploadBackend.BLOSSOM -> Nip96Uploader.normalizeMediaServerOrigin(blossomPublicOrigin)
+        }
+    }
+    val hasGpsForShare = session.gpsTrack?.points?.isNotEmpty() == true
 
     Box(
         modifier = Modifier
@@ -2561,6 +2653,14 @@ fun CardioWorkoutSummaryFullScreen(
             )
             Spacer(Modifier.height(16.dp))
             if (relayPool != null && signer != null) {
+                if (attachRouteImage && hasGpsForShare && normalizedShareMediaOrigin.isEmpty()) {
+                    Text(
+                        stringResource(R.string.cardio_share_route_image_need_server),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.White.copy(alpha = 0.72f),
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                }
                 OutlinedButton(
                     onClick = {
                         if (sharing || shared) return@OutlinedButton
@@ -2763,19 +2863,17 @@ fun CardioMultiLegTimerFullScreen(
     key(stateKey) {
         var showMediaSheet by remember { mutableStateOf(false) }
         var running by remember { mutableStateOf(true) }
-        var elapsed by remember { mutableIntStateOf(0) }
+        var tick by remember(stateKey) { mutableIntStateOf(0) }
         LaunchedEffect(stateKey, running) {
-            if (!running) return@LaunchedEffect
-            while (true) {
+            while (running) {
                 delay(1000)
-                elapsed++
+                tick++
             }
         }
+        val elapsed = remember(tick, state.legStartedEpoch) {
+            (nowEpochSeconds() - state.legStartedEpoch).coerceAtLeast(0).toInt()
+        }
         val isLast = state.currentLegIndex >= state.legs.lastIndex
-        WorkoutMediaControlSheet(
-            visible = showMediaSheet,
-            onDismiss = { showMediaSheet = false }
-        )
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -2808,11 +2906,11 @@ fun CardioMultiLegTimerFullScreen(
                                     color = Color.White.copy(alpha = 0.9f)
                                 )
                             }
-                            IconButton(onClick = { showMediaSheet = true }) {
+                            IconButton(onClick = { showMediaSheet = !showMediaSheet }) {
                                 Icon(
                                     Icons.Filled.MusicNote,
                                     contentDescription = stringResource(R.string.media_control_cd_music),
-                                    tint = Color.White
+                                    tint = Color.White.copy(alpha = if (showMediaSheet) 1f else 0.88f)
                                 )
                             }
                         }
@@ -2835,7 +2933,13 @@ fun CardioMultiLegTimerFullScreen(
                         color = Color.White.copy(alpha = 0.8f)
                     )
                 }
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
                     val mins = elapsed / 60
                     val secs = elapsed % 60
                     Text(
@@ -2850,7 +2954,25 @@ fun CardioMultiLegTimerFullScreen(
                         color = Color.White.copy(alpha = 0.75f)
                     )
                 }
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    if (showMediaSheet) {
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            color = Color.White.copy(alpha = 0.12f)
+                        ) {
+                            WorkoutMediaControlPanel(
+                                useLightOnDarkBackground = true,
+                                showHeaderTitle = false,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp)
+                            )
+                        }
+                    }
                     OutlinedButton(
                         onClick = {
                             if (running) {

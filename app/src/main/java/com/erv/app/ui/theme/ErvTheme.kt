@@ -87,13 +87,21 @@ fun ErvTheme(
     val hostContext = LocalContext.current
     // view.context is often ContextThemeWrapper, not Activity — casting caused ClassCastException
     // in bubble activities and other embedded windows.
+    // Bubbles may not attach the ComposeView to a window before the first SideEffect; insets
+    // controllers can throw if the view is not attached.
     if (!view.isInEditMode) {
         SideEffect {
             val activity = hostContext.findActivity() ?: return@SideEffect
-            val window = activity.window
-            window.statusBarColor = colorScheme.surface.toArgb()
-            WindowCompat.getInsetsController(window, view)
-                .isAppearanceLightStatusBars = !darkTheme
+            if (!view.isAttachedToWindow) return@SideEffect
+            try {
+                val window = activity.window
+                window.statusBarColor = colorScheme.surface.toArgb()
+                WindowCompat.getInsetsController(window, view)?.let { c ->
+                    c.isAppearanceLightStatusBars = !darkTheme
+                }
+            } catch (_: Throwable) {
+                // Ignore: bubble / embedded / transient window states
+            }
         }
     }
 
