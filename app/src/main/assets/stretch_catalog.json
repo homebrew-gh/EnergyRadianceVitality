@@ -1,0 +1,64 @@
+{
+  "stretches": [
+    {
+      "id": "builtin_neck_side",
+      "name": "Neck side stretch",
+      "targetBodyParts": ["neck"],
+      "procedure": "Gently tilt your head toward one shoulder until you feel a mild stretch. Hold, then switch sides. Keep shoulders relaxed."
+    },
+    {
+      "id": "builtin_shoulder_cross",
+      "name": "Cross-body shoulder stretch",
+      "targetBodyParts": ["shoulders"],
+      "procedure": "Bring one arm across your chest. Use the other arm to hug it closer. Hold, then switch arms."
+    },
+    {
+      "id": "builtin_triceps_overhead",
+      "name": "Overhead triceps stretch",
+      "targetBodyParts": ["arms", "shoulders"],
+      "procedure": "Raise one arm overhead, bend the elbow so your hand reaches toward the opposite shoulder blade. Gently press with the other hand. Switch sides."
+    },
+    {
+      "id": "builtin_cat_cow",
+      "name": "Cat–cow (spine mobility)",
+      "targetBodyParts": ["back", "core"],
+      "procedure": "On hands and knees, alternate rounding your spine toward the ceiling (cat) and arching gently (cow) with slow breaths."
+    },
+    {
+      "id": "builtin_childs_pose",
+      "name": "Child's pose",
+      "targetBodyParts": ["back", "hips"],
+      "procedure": "Kneel and sit back toward your heels, arms extended forward or alongside your body. Breathe and relax the lower back."
+    },
+    {
+      "id": "builtin_standing_hamstring",
+      "name": "Standing hamstring stretch",
+      "targetBodyParts": ["hamstrings"],
+      "procedure": "Hinge at the hips with a flat back, resting hands on thighs or a support. Feel a gentle stretch along the backs of the legs."
+    },
+    {
+      "id": "builtin_quad_standing",
+      "name": "Standing quad stretch",
+      "targetBodyParts": ["quads", "hips"],
+      "procedure": "Stand on one leg (use a wall for balance if needed). Bend the other knee and bring heel toward glute. Keep knees together. Switch legs."
+    },
+    {
+      "id": "builtin_calf_wall",
+      "name": "Calf stretch (wall)",
+      "targetBodyParts": ["calves"],
+      "procedure": "Place hands on a wall, step one foot back with the leg straight and heel down. Lean gently forward. Switch legs."
+    },
+    {
+      "id": "builtin_hip_flexor_lunge",
+      "name": "Hip flexor lunge stretch",
+      "targetBodyParts": ["hips"],
+      "procedure": "Step into a low lunge, back leg straight or knee down. Shift weight forward slightly to open the front of the hip. Switch sides."
+    },
+    {
+      "id": "builtin_figure_four",
+      "name": "Figure-four (glute) stretch",
+      "targetBodyParts": ["glutes", "hips"],
+      "procedure": "Lie on your back, cross one ankle over the opposite knee, gently pull the thigh toward you. Switch sides."
+    }
+  ]
+}

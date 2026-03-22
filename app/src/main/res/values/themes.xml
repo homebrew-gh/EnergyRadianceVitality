@@ -7,7 +7,8 @@
         <item name="colorOnSurface">@color/erv_on_surface</item>
     </style>
 
-    <style name="Theme.ERV.Bubble" parent="Theme.MaterialComponents.DayNight.Dialog">
-        <item name="android:windowIsFloating">true</item>
+    <!-- No floating dialog window: bubbles embed the activity; windowIsFloating caused crashes on some OEMs. -->
+    <style name="Theme.ERV.Bubble" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="android:windowBackground">@android:color/transparent</item>
     </style>
 </resources>

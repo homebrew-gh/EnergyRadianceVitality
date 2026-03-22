@@ -12,6 +12,7 @@ import com.erv.app.supplements.SupplementIntake
 import com.erv.app.supplements.SupplementLibraryState
 import com.erv.app.supplements.SupplementRoutineRun
 import com.erv.app.weighttraining.WeightDayLog
+import com.erv.app.stretching.StretchLibraryState
 import com.erv.app.weighttraining.WeightLibraryState
 import com.erv.app.weighttraining.WeightWorkoutSession
 import com.erv.app.weighttraining.WeightWorkoutSource
@@ -57,6 +58,7 @@ class GoalWeeklyProgressTest {
             lightState = LightLibraryState(),
             cardioState = CardioLibraryState(),
             weightState = WeightLibraryState(),
+            stretchState = StretchLibraryState(),
             defaults = WeeklyGoalDefaults(supplementActiveDays = 2),
         )
         assertEquals(1, rows.size)
@@ -79,6 +81,7 @@ class GoalWeeklyProgressTest {
             lightState = LightLibraryState(),
             cardioState = state,
             weightState = WeightLibraryState(),
+            stretchState = StretchLibraryState(),
             defaults = WeeklyGoalDefaults(cardioSessions = 3),
         )
         assertEquals(3, rows.single().current)
@@ -100,6 +103,7 @@ class GoalWeeklyProgressTest {
             lightState = state,
             cardioState = CardioLibraryState(),
             weightState = WeightLibraryState(),
+            stretchState = StretchLibraryState(),
             defaults = WeeklyGoalDefaults(lightMinutesTotal = 60),
         )
         assertEquals(65, rows.single().current)
@@ -119,6 +123,7 @@ class GoalWeeklyProgressTest {
             lightState = LightLibraryState(),
             cardioState = CardioLibraryState(),
             weightState = state,
+            stretchState = StretchLibraryState(),
             defaults = WeeklyGoalDefaults(weightWorkouts = 2),
         )
         assertEquals(2, rows.single().current)

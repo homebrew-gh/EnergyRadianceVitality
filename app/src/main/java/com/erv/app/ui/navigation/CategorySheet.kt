@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
@@ -25,6 +26,21 @@ data class Category(
     /** Optional second icon for combined tiles (e.g. hot + cold). */
     val iconSecondary: ImageVector? = null
 )
+
+/**
+ * Categories with real screens in [ErvNavHost]. Others use Coming Soon.
+ * When a feature ships, add its [Category.id] here and the menu tile returns to full color.
+ */
+val implementedCategoryIds: Set<String> = setOf(
+    "supplements",
+    "light_therapy",
+    "cardio",
+    "weight_training",
+    "heat_cold",
+    "stretching",
+)
+
+fun Category.isImplemented(): Boolean = id in implementedCategoryIds
 
 val categories = listOf(
     Category("stretching", "Stretching", Icons.Default.FavoriteBorder, "category/stretching"),
@@ -51,6 +67,12 @@ fun CategorySheet(
     onCategoryClick: (Category) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val displayCategories = remember(categories) {
+        categories.sortedWith(
+            compareByDescending<Category> { it.isImplemented() }
+                .thenBy { it.label }
+        )
+    }
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -58,7 +80,7 @@ fun CategorySheet(
             .padding(top = 8.dp, bottom = 16.dp)
     ) {
         val columns = 4
-        val rowCount = (categories.size + columns - 1) / columns
+        val rowCount = (displayCategories.size + columns - 1) / columns
         // 4 columns; rows grow with category count
         for (row in 0 until rowCount) {
             Row(
@@ -72,14 +94,15 @@ fun CategorySheet(
                             .weight(1f)
                             .aspectRatio(1f)
                     ) {
-                        if (index < categories.size) {
-                            val cat = categories[index]
+                        if (index < displayCategories.size) {
+                            val cat = displayCategories[index]
                             CategoryTile(
                                 icon = cat.icon,
                                 label = cat.label,
                                 onClick = { onCategoryClick(cat) },
                                 modifier = Modifier.fillMaxSize(),
-                                secondaryIcon = cat.iconSecondary
+                                secondaryIcon = cat.iconSecondary,
+                                implemented = cat.isImplemented()
                             )
                         }
                     }

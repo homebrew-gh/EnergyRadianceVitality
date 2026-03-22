@@ -3,6 +3,7 @@ package com.erv.app.ui.dashboard
 import com.erv.app.cardio.CardioLibraryState
 import com.erv.app.heatcold.HeatColdLibraryState
 import com.erv.app.lighttherapy.LightLibraryState
+import com.erv.app.stretching.StretchLibraryState
 import com.erv.app.supplements.SupplementLibraryState
 import com.erv.app.weighttraining.WeightLibraryState
 import java.time.LocalDate
@@ -15,7 +16,8 @@ fun datesWithActivityLogged(
     lightState: LightLibraryState,
     cardioState: CardioLibraryState,
     weightState: WeightLibraryState,
-    heatColdState: HeatColdLibraryState
+    heatColdState: HeatColdLibraryState,
+    stretchState: StretchLibraryState
 ): Set<LocalDate> = buildSet {
     supplementState.logs.forEach { log ->
         if (log.routineRuns.isNotEmpty() || log.adHocIntakes.isNotEmpty()) {
@@ -35,6 +37,9 @@ fun datesWithActivityLogged(
         if (log.sessions.isNotEmpty()) runCatching { add(LocalDate.parse(log.date)) }
     }
     heatColdState.coldLogs.forEach { log ->
+        if (log.sessions.isNotEmpty()) runCatching { add(LocalDate.parse(log.date)) }
+    }
+    stretchState.logs.forEach { log ->
         if (log.sessions.isNotEmpty()) runCatching { add(LocalDate.parse(log.date)) }
     }
 }
@@ -75,6 +80,13 @@ fun datesWithHeatColdActivity(state: HeatColdLibraryState): Set<LocalDate> = bui
         if (log.sessions.isNotEmpty()) runCatching { add(LocalDate.parse(log.date)) }
     }
     state.coldLogs.forEach { log ->
+        if (log.sessions.isNotEmpty()) runCatching { add(LocalDate.parse(log.date)) }
+    }
+}
+
+/** Dates with at least one stretching session logged. */
+fun datesWithStretchActivity(state: StretchLibraryState): Set<LocalDate> = buildSet {
+    state.logs.forEach { log ->
         if (log.sessions.isNotEmpty()) runCatching { add(LocalDate.parse(log.date)) }
     }
 }

@@ -1,6 +1,8 @@
 package com.erv.app.ui.theme
 
 import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
@@ -8,6 +10,7 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
@@ -81,9 +84,13 @@ fun ErvTheme(
     val colorScheme = if (darkTheme) ErvDarkColorScheme else ErvLightColorScheme
 
     val view = LocalView.current
+    val hostContext = LocalContext.current
+    // view.context is often ContextThemeWrapper, not Activity — casting caused ClassCastException
+    // in bubble activities and other embedded windows.
     if (!view.isInEditMode) {
         SideEffect {
-            val window = (view.context as Activity).window
+            val activity = hostContext.findActivity() ?: return@SideEffect
+            val window = activity.window
             window.statusBarColor = colorScheme.surface.toArgb()
             WindowCompat.getInsetsController(window, view)
                 .isAppearanceLightStatusBars = !darkTheme
@@ -95,4 +102,13 @@ fun ErvTheme(
         typography = ErvTypography,
         content = content
     )
+}
+
+private fun Context.findActivity(): Activity? {
+    var ctx: Context = this
+    while (ctx is ContextWrapper) {
+        if (ctx is Activity) return ctx
+        ctx = ctx.baseContext
+    }
+    return null
 }

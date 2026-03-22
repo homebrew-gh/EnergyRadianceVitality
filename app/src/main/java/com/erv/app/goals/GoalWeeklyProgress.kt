@@ -3,6 +3,7 @@ package com.erv.app.goals
 import com.erv.app.cardio.CardioLibraryState
 import com.erv.app.data.AllUserGoalOptions
 import com.erv.app.lighttherapy.LightLibraryState
+import com.erv.app.stretching.StretchLibraryState
 import com.erv.app.supplements.SupplementLibraryState
 import com.erv.app.weighttraining.WeightLibraryState
 import java.time.LocalDate
@@ -15,6 +16,7 @@ data class WeeklyGoalDefaults(
     val lightMinutesTotal: Int = 60,
     val cardioSessions: Int = 2,
     val weightWorkouts: Int = 2,
+    val stretchSessions: Int = 3,
 )
 
 data class GoalProgressRow(
@@ -42,6 +44,7 @@ fun computeWeeklyGoalProgress(
     lightState: LightLibraryState,
     cardioState: CardioLibraryState,
     weightState: WeightLibraryState,
+    stretchState: StretchLibraryState,
     defaults: WeeklyGoalDefaults = WeeklyGoalDefaults(),
 ): List<GoalProgressRow> {
     if (selectedGoalIds.isEmpty()) return emptyList()
@@ -62,6 +65,10 @@ fun computeWeeklyGoalProgress(
 
     val weightWorkouts = weekDays.sumOf { d ->
         weightState.logFor(d)?.workouts?.size ?: 0
+    }
+
+    val stretchSessions = weekDays.sumOf { d ->
+        stretchState.logFor(d)?.sessions?.size ?: 0
     }
 
     val byId = mapOf(
@@ -97,6 +104,14 @@ fun computeWeeklyGoalProgress(
             target = defaults.weightWorkouts,
             met = weightWorkouts >= defaults.weightWorkouts,
         ),
+        "stretching_sessions" to GoalProgressRow(
+            goalId = "stretching_sessions",
+            title = "Stretching",
+            detail = "Sessions logged this week",
+            current = stretchSessions,
+            target = defaults.stretchSessions,
+            met = stretchSessions >= defaults.stretchSessions,
+        ),
     )
 
     return AllUserGoalOptions
@@ -109,5 +124,6 @@ fun GoalProgressRow.summaryLine(): String = when (goalId) {
     "supplements_adherence" -> "$current / $target days"
     "light_therapy_time" -> "$current / $target min"
     "weight_training" -> "$current / $target workouts"
+    "stretching_sessions" -> "$current / $target sessions"
     else -> "$current / $target sessions"
 }

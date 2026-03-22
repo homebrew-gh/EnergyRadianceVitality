@@ -8,6 +8,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AcUnit
 import androidx.compose.material.icons.filled.Thermostat
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -31,8 +32,13 @@ fun HotColdDualIcons(
     coldIcon: ImageVector = Icons.Default.AcUnit,
     /** Warm accent; matches Light therapy / hot session reds. */
     heatTint: Color = if (isSystemInDarkTheme()) ErvDarkTherapyRedMid else ErvLightTherapyRedMid,
-    coldTint: Color = if (isSystemInDarkTheme()) ErvDarkColdMid else ErvColdMid
+    coldTint: Color = if (isSystemInDarkTheme()) ErvDarkColdMid else ErvColdMid,
+    /** Muted grey for both icons (Coming-soon category tiles). */
+    muted: Boolean = false,
 ) {
+    val mutedTint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
+    val heat = if (muted) mutedTint else heatTint
+    val cold = if (muted) mutedTint else coldTint
     Row(
         modifier = modifier,
         horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -42,13 +48,13 @@ fun HotColdDualIcons(
             imageVector = heatIcon,
             contentDescription = null,
             modifier = Modifier.size(iconSize),
-            tint = heatTint
+            tint = heat
         )
         Icon(
             imageVector = coldIcon,
             contentDescription = null,
             modifier = Modifier.size(iconSize),
-            tint = coldTint
+            tint = cold
         )
     }
 }

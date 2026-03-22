@@ -41,6 +41,8 @@ A [GitHub Actions](.github/workflows/android-build.yml) workflow runs on every p
 ## Documentation
 
 - [Plan of action](docs/PLAN_OF_ACTION.md) — Data model, Nostr event design, and implementation roadmap. **Phase 1 (scaffold and docs)** is complete: Kotlin + Compose + Gradle, README/CONTRIBUTING/CODE_OF_CONDUCT/SECURITY/LICENSE, GitHub Action (build + unit tests), and `UserFeedback` toast helper for publish/sync.
+- [Protocol graph (WOT + sharing)](docs/PROTOCOL_GRAPH.md) — Trust-filtered routine discovery, forking, and why a full website may complement the app.
+- [Companion web: community benefits & pitfalls](docs/COMPANION_WEB_COMMUNITY_PITFALLS_BENEFITS.md) — Tradeoffs for fitness promotion and community if a companion site imports routines into user profiles.
 
 ## Contributing
 

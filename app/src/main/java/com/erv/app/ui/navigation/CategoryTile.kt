@@ -5,6 +5,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -18,16 +19,30 @@ fun CategoryTile(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     /** When set, shows a heat + cold pair instead of a single [icon]. */
-    secondaryIcon: ImageVector? = null
+    secondaryIcon: ImageVector? = null,
+    /** False = Coming-soon tile: muted card and glyphs (still tappable). */
+    implemented: Boolean = true,
 ) {
-    // Match dashboard [RoutineTile]: default elevated card + primary icon (theme surface colors).
+    val scheme = MaterialTheme.colorScheme
+    val cardColors = if (implemented) {
+        CardDefaults.elevatedCardColors()
+    } else {
+        CardDefaults.elevatedCardColors(
+            containerColor = scheme.surfaceVariant.copy(alpha = 0.42f),
+            contentColor = scheme.onSurfaceVariant.copy(alpha = 0.72f),
+        )
+    }
+    val iconTint = if (implemented) scheme.primary else scheme.onSurfaceVariant.copy(alpha = 0.55f)
+    val labelColor = if (implemented) Color.Unspecified else scheme.onSurfaceVariant.copy(alpha = 0.65f)
+
     ElevatedCard(
         onClick = onClick,
         modifier = modifier.aspectRatio(1f),
         elevation = CardDefaults.elevatedCardElevation(
-            defaultElevation = 4.dp
+            defaultElevation = if (implemented) 4.dp else 1.dp
         ),
-        shape = MaterialTheme.shapes.medium
+        shape = MaterialTheme.shapes.medium,
+        colors = cardColors,
     ) {
         Column(
             modifier = Modifier
@@ -40,13 +55,14 @@ fun CategoryTile(
                 HotColdDualIcons(
                     iconSize = 24.dp,
                     heatIcon = icon,
-                    coldIcon = secondaryIcon
+                    coldIcon = secondaryIcon,
+                    muted = !implemented,
                 )
             } else {
                 Icon(
                     imageVector = icon,
                     contentDescription = label,
-                    tint = MaterialTheme.colorScheme.primary,
+                    tint = iconTint,
                     modifier = Modifier.size(28.dp)
                 )
             }
@@ -58,6 +74,7 @@ fun CategoryTile(
                     lineHeight = 13.sp,
                     letterSpacing = 0.sp
                 ),
+                color = labelColor,
                 textAlign = TextAlign.Center,
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis,

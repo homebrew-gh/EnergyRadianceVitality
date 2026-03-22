@@ -28,6 +28,11 @@ val AllUserGoalOptions: List<UserGoalOption> = listOf(
         title = "Strength training",
         description = "Weekly resistance sessions",
     ),
+    UserGoalOption(
+        id = "stretching_sessions",
+        title = "Stretching",
+        description = "Weekly guided or logged stretch sessions",
+    ),
 )
 
 private val validGoalIds: Set<String> = AllUserGoalOptions.map { it.id }.toSet()
