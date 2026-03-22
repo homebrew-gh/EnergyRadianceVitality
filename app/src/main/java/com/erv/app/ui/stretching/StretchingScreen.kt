@@ -658,7 +658,6 @@ private fun StretchesCatalogTab(repository: StretchingRepository) {
                             color = MaterialTheme.colorScheme.primary,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .background(MaterialTheme.colorScheme.surface)
                                 .padding(vertical = 8.dp)
                         )
                     }
