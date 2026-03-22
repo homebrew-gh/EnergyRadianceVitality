@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.SettingsBrightness
 import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.semantics.contentDescription
@@ -48,6 +49,7 @@ import com.erv.app.R
 import com.erv.app.cardio.CardioDistanceUnit
 import com.erv.app.data.BodyWeightUnit
 import com.erv.app.data.OwnedEquipmentItem
+import com.erv.app.data.StretchGuidedTtsVoice
 import com.erv.app.data.ThemeMode
 import com.erv.app.data.UserPreferences
 import com.erv.app.data.WorkoutMediaUploadBackend
@@ -61,6 +63,7 @@ import com.erv.app.nostr.Nip96Uploader
 import com.erv.app.nostr.NipB7
 import com.erv.app.nostr.RelayPool
 import com.erv.app.nostr.SettingsSync
+import com.erv.app.ui.navigation.RelayDataSyncTopBarIcon
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import java.io.File
@@ -76,6 +79,7 @@ private object SettingsRoutes {
     const val ACCOUNT = "settings_account"
     const val RELAYS = "settings_relays"
     const val EQUIPMENT = "settings_equipment"
+    const val STRETCHING = "settings_stretching"
 }
 
 @Composable
@@ -101,7 +105,7 @@ fun SettingsScreen(
     val workoutMediaBackend by userPreferences.workoutMediaUploadBackend.collectAsState(
         initial = WorkoutMediaUploadBackend.NIP96
     )
-    val attachRouteToNostr by userPreferences.attachRouteImageToWorkoutNostrShare.collectAsState(initial = false)
+    val attachRouteToNostr by userPreferences.attachRouteImageToWorkoutNostrShare.collectAsState(initial = true)
     var nip96Draft by remember { mutableStateOf("") }
     var blossomPublicDraft by remember { mutableStateOf("") }
     var blossomPrivateDraft by remember { mutableStateOf("") }
@@ -112,6 +116,9 @@ fun SettingsScreen(
     val workoutBubbleEnabled by userPreferences.workoutBubbleEnabled.collectAsState(initial = true)
     val gymMembership by userPreferences.gymMembership.collectAsState(initial = false)
     val ownedEquipment by userPreferences.ownedEquipment.collectAsState(initial = emptyList())
+    val stretchGuidedTtsVoice by userPreferences.stretchGuidedTtsVoice.collectAsState(
+        initial = StretchGuidedTtsVoice.SYSTEM_DEFAULT
+    )
 
     val signer = remember(keyManager, amberHost) {
         keyManager.createLocalSigner()
@@ -165,15 +172,9 @@ fun SettingsScreen(
                 .padding(padding)
         ) {
             composable(SettingsRoutes.HOME) {
-                val homeContext = LocalContext.current
                 SettingsHomeScreen(
                     onBack = onBack,
-                    onOpenSection = { nestedNav.navigate(it) },
-                    workoutBubbleEnabled = workoutBubbleEnabled,
-                    notificationsEnabled = NotificationManagerCompat.from(homeContext).areNotificationsEnabled(),
-                    onBubbleChange = { enabled ->
-                        scope.launch { userPreferences.setWorkoutBubbleEnabled(enabled) }
-                    }
+                    onOpenSection = { nestedNav.navigate(it) }
                 )
             }
             composable(SettingsRoutes.APPEARANCE) {
@@ -275,6 +276,19 @@ fun SettingsScreen(
                         notificationsEnabled = NotificationManagerCompat.from(context).areNotificationsEnabled(),
                         onBubbleChange = { enabled ->
                             scope.launch { userPreferences.setWorkoutBubbleEnabled(enabled) }
+                        }
+                    )
+                }
+            }
+            composable(SettingsRoutes.STRETCHING) {
+                SettingsSubScreenScaffold(
+                    title = stringResource(R.string.settings_stretch_guided_voice_hub_title),
+                    onBack = { nestedNav.popBackStack() }
+                ) {
+                    StretchGuidedTtsVoiceSection(
+                        voice = stretchGuidedTtsVoice,
+                        onVoiceChange = { v ->
+                            scope.launch { userPreferences.setStretchGuidedTtsVoice(v) }
                         }
                     )
                 }
@@ -418,9 +432,6 @@ fun SettingsScreen(
 private fun SettingsHomeScreen(
     onBack: () -> Unit,
     onOpenSection: (String) -> Unit,
-    workoutBubbleEnabled: Boolean,
-    notificationsEnabled: Boolean,
-    onBubbleChange: (Boolean) -> Unit,
 ) {
     Scaffold(
         topBar = {
@@ -430,6 +441,9 @@ private fun SettingsHomeScreen(
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
+                },
+                actions = {
+                    RelayDataSyncTopBarIcon()
                 }
             )
         }
@@ -443,18 +457,6 @@ private fun SettingsHomeScreen(
                 .padding(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            LiveWeightWorkoutSettingsSection(
-                workoutBubbleEnabled = workoutBubbleEnabled,
-                notificationsEnabled = notificationsEnabled,
-                onBubbleChange = onBubbleChange
-            )
-            Spacer(Modifier.height(16.dp))
-            Text(
-                "More settings",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(bottom = 4.dp)
-            )
             SettingsHubRow(
                 title = "Appearance",
                 subtitle = "Light, dark, or system theme",
@@ -475,9 +477,15 @@ private fun SettingsHomeScreen(
             )
             SettingsHubRow(
                 title = "Strength Training",
-                subtitle = "Live workout bubble (same controls as above)",
+                subtitle = "Live workouts: ongoing notification, optional bubble",
                 icon = Icons.Default.FitnessCenter,
                 onClick = { onOpenSection(SettingsRoutes.STRENGTH) }
+            )
+            SettingsHubRow(
+                title = stringResource(R.string.settings_stretch_guided_voice_hub_title),
+                subtitle = stringResource(R.string.settings_stretch_guided_voice_hub_subtitle),
+                icon = Icons.Default.Timer,
+                onClick = { onOpenSection(SettingsRoutes.STRETCHING) }
             )
             SettingsHubRow(
                 title = "Equipment & Gym",
@@ -1112,6 +1120,73 @@ private fun CardioNostrRouteShareSection(
                 }
             }
         )
+    }
+}
+
+@Composable
+private fun StretchGuidedTtsVoiceSection(
+    voice: StretchGuidedTtsVoice,
+    onVoiceChange: (StretchGuidedTtsVoice) -> Unit
+) {
+    Text(
+        stringResource(R.string.settings_stretch_guided_voice_title),
+        style = MaterialTheme.typography.labelLarge,
+        modifier = Modifier.padding(bottom = 4.dp)
+    )
+    Text(
+        stringResource(R.string.settings_stretch_guided_voice_helper),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(bottom = 8.dp)
+    )
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Default.Timer,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = when (voice) {
+                        StretchGuidedTtsVoice.SYSTEM_DEFAULT ->
+                            stringResource(R.string.settings_stretch_guided_voice_default)
+                        StretchGuidedTtsVoice.PREFER_FEMALE ->
+                            stringResource(R.string.settings_stretch_guided_voice_female)
+                        StretchGuidedTtsVoice.PREFER_MALE ->
+                            stringResource(R.string.settings_stretch_guided_voice_male)
+                    },
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                SegmentedButton(
+                    selected = voice == StretchGuidedTtsVoice.SYSTEM_DEFAULT,
+                    onClick = { onVoiceChange(StretchGuidedTtsVoice.SYSTEM_DEFAULT) },
+                    shape = SegmentedButtonDefaults.itemShape(0, 3)
+                ) {
+                    Text(stringResource(R.string.settings_stretch_guided_voice_default))
+                }
+                SegmentedButton(
+                    selected = voice == StretchGuidedTtsVoice.PREFER_FEMALE,
+                    onClick = { onVoiceChange(StretchGuidedTtsVoice.PREFER_FEMALE) },
+                    shape = SegmentedButtonDefaults.itemShape(1, 3)
+                ) {
+                    Text(stringResource(R.string.settings_stretch_guided_voice_female))
+                }
+                SegmentedButton(
+                    selected = voice == StretchGuidedTtsVoice.PREFER_MALE,
+                    onClick = { onVoiceChange(StretchGuidedTtsVoice.PREFER_MALE) },
+                    shape = SegmentedButtonDefaults.itemShape(2, 3)
+                ) {
+                    Text(stringResource(R.string.settings_stretch_guided_voice_male))
+                }
+            }
+        }
     }
 }
 

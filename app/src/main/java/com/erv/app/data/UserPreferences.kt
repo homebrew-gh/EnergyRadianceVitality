@@ -24,6 +24,18 @@ enum class TemperatureUnit {
     FAHRENHEIT, CELSIUS
 }
 
+/** Guided stretching “Next stretch” TTS voice; actual voices depend on the device TTS engine. */
+enum class StretchGuidedTtsVoice {
+    /** Follow the engine default for the current language. */
+    SYSTEM_DEFAULT,
+
+    /** Prefer a voice the engine labels as female, when available. */
+    PREFER_FEMALE,
+
+    /** Prefer a voice the engine labels as male, when available. */
+    PREFER_MALE
+}
+
 /** How “Share Workout” uploads the route PNG when a media server URL is set. */
 enum class WorkoutMediaUploadBackend {
     /** NIP-96 multipart + NIP-98 (kind 27235). */
@@ -55,6 +67,8 @@ class UserPreferences(private val context: Context) {
         val WORKOUT_MEDIA_UPLOAD_BACKEND = stringPreferencesKey("workout_media_upload_backend")
         val GYM_MEMBERSHIP = booleanPreferencesKey("gym_membership")
         val OWNED_EQUIPMENT_JSON_V1 = stringPreferencesKey("owned_equipment_json_v1")
+        val LIVE_WEIGHT_WORKOUT_DRAFT_JSON_V1 = stringPreferencesKey("live_weight_workout_draft_json_v1")
+        val STRETCH_GUIDED_TTS_VOICE = stringPreferencesKey("stretch_guided_tts_voice")
     }
 
     val themeMode: Flow<ThemeMode> = context.dataStore.data.map { prefs ->
@@ -285,9 +299,12 @@ class UserPreferences(private val context: Context) {
     suspend fun peekBlossomPublicServerOrigin(): String =
         context.dataStore.data.map { prefs -> prefs[Keys.BLOSSOM_PUBLIC_SERVER_ORIGIN].orEmpty() }.first()
 
-    /** When true and a media server URL is set, “Share Workout” uploads the route PNG and appends the URL to the note. */
+    /**
+     * When true (default), “Share Workout” uploads the watermarked route PNG (if GPS was recorded) and adds
+     * [imeta] + URL to the kind 1 note. Set false in Settings for text-only shares.
+     */
     val attachRouteImageToWorkoutNostrShare: Flow<Boolean> = context.dataStore.data.map { prefs ->
-        prefs[Keys.ATTACH_ROUTE_IMAGE_WORKOUT_NOSTR] == true
+        prefs[Keys.ATTACH_ROUTE_IMAGE_WORKOUT_NOSTR] ?: true
     }
 
     suspend fun setAttachRouteImageToWorkoutNostrShare(enabled: Boolean) {
@@ -315,6 +332,35 @@ class UserPreferences(private val context: Context) {
     suspend fun setOwnedEquipment(items: List<OwnedEquipmentItem>) {
         context.dataStore.edit { prefs ->
             prefs[Keys.OWNED_EQUIPMENT_JSON_V1] = encodeOwnedEquipmentList(items)
+        }
+    }
+
+    /** JSON snapshot of the in-progress weight live workout; null when none. */
+    val liveWeightWorkoutDraftJson: Flow<String?> = context.dataStore.data.map { prefs ->
+        prefs[Keys.LIVE_WEIGHT_WORKOUT_DRAFT_JSON_V1]
+    }
+
+    suspend fun setLiveWeightWorkoutDraftJson(json: String?) {
+        context.dataStore.edit { prefs ->
+            if (json.isNullOrBlank()) {
+                prefs.remove(Keys.LIVE_WEIGHT_WORKOUT_DRAFT_JSON_V1)
+            } else {
+                prefs[Keys.LIVE_WEIGHT_WORKOUT_DRAFT_JSON_V1] = json
+            }
+        }
+    }
+
+    val stretchGuidedTtsVoice: Flow<StretchGuidedTtsVoice> = context.dataStore.data.map { prefs ->
+        when (prefs[Keys.STRETCH_GUIDED_TTS_VOICE]?.uppercase()) {
+            "PREFER_FEMALE" -> StretchGuidedTtsVoice.PREFER_FEMALE
+            "PREFER_MALE" -> StretchGuidedTtsVoice.PREFER_MALE
+            else -> StretchGuidedTtsVoice.SYSTEM_DEFAULT
+        }
+    }
+
+    suspend fun setStretchGuidedTtsVoice(voice: StretchGuidedTtsVoice) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.STRETCH_GUIDED_TTS_VOICE] = voice.name
         }
     }
 }

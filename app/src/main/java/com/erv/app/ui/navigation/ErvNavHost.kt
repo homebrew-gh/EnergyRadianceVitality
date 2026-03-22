@@ -405,6 +405,7 @@ fun ErvNavHost(
         composable(Routes.category("stretching")) {
             StretchingCategoryScreen(
                 repository = stretchingRepository,
+                userPreferences = userPreferences,
                 relayPool = relayPool,
                 signer = signer,
                 onBack = { navController.popBackStack() },
