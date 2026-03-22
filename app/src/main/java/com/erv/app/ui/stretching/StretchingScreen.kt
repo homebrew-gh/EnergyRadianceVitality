@@ -1,4 +1,4 @@
-@file:OptIn(ExperimentalMaterial3Api::class)
+@file:OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 
 package com.erv.app.ui.stretching
 
@@ -15,6 +15,7 @@ import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.util.Log
 import android.view.WindowManager
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -30,7 +31,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.stickyHeader
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -53,6 +56,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -102,6 +106,9 @@ import com.erv.app.data.UserPreferences
 import com.erv.app.nostr.EventSigner
 import com.erv.app.nostr.RelayPool
 import com.erv.app.stretching.StretchCatalogEntry
+import com.erv.app.stretching.groupedByCategory
+import com.erv.app.stretching.stretchCategoryDisplayLabel
+import com.erv.app.stretching.stretchCategorySortIndex
 import com.erv.app.stretching.StretchDayLog
 import com.erv.app.stretching.StretchLibraryState
 import com.erv.app.stretching.StretchRoutine
@@ -345,6 +352,7 @@ private fun resolveStretchEntries(
             ?: StretchCatalogEntry(
                 id = id,
                 name = "Unknown stretch",
+                category = "other",
                 procedure = "This stretch is no longer in the catalog."
             )
     }
@@ -525,13 +533,31 @@ fun StretchingCategoryScreen(
 @Composable
 private fun StretchesCatalogTab(repository: StretchingRepository) {
     var filter by remember { mutableStateOf("") }
+    var selectedCategoryKey by remember { mutableStateOf<String?>(null) }
     val q = filter.trim().lowercase(Locale.getDefault())
-    val filtered = remember(repository.catalog, q) {
-        if (q.isEmpty()) repository.catalog
-        else repository.catalog.filter { entry ->
-            entry.name.lowercase(Locale.getDefault()).contains(q) ||
-                entry.targetBodyParts.any { it.lowercase(Locale.getDefault()).contains(q) }
+    val locale = Locale.getDefault()
+    fun entryCategoryNorm(e: StretchCatalogEntry) =
+        e.category.trim().lowercase(locale).ifBlank { "other" }
+    fun entryMatchesSearch(entry: StretchCatalogEntry): Boolean {
+        if (q.isEmpty()) return true
+        if (entry.name.lowercase(locale).contains(q)) return true
+        if (entry.targetBodyParts.any { it.lowercase(locale).contains(q) }) return true
+        if (entry.category.lowercase(locale).contains(q)) return true
+        if (stretchCategoryDisplayLabel(entry.category).lowercase(locale).contains(q)) return true
+        return false
+    }
+    val filtered = remember(repository.catalog, q, selectedCategoryKey) {
+        repository.catalog.filter { entry ->
+            val catOk = selectedCategoryKey == null || entryCategoryNorm(entry) == selectedCategoryKey
+            catOk && entryMatchesSearch(entry)
         }
+    }
+    val grouped = remember(filtered) { filtered.groupedByCategory() }
+    val categoriesForChips = remember(repository.catalog) {
+        repository.catalog
+            .map { entryCategoryNorm(it) }
+            .distinct()
+            .sortedBy { stretchCategorySortIndex(it) }
     }
     var detailEntry by remember { mutableStateOf<StretchCatalogEntry?>(null) }
 
@@ -548,7 +574,29 @@ private fun StretchesCatalogTab(repository: StretchingRepository) {
             leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
             singleLine = true
         )
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(8.dp))
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding = PaddingValues(vertical = 4.dp)
+        ) {
+            item {
+                FilterChip(
+                    selected = selectedCategoryKey == null,
+                    onClick = { selectedCategoryKey = null },
+                    label = { Text("All") }
+                )
+            }
+            items(categoriesForChips, key = { it }) { cat ->
+                FilterChip(
+                    selected = selectedCategoryKey == cat,
+                    onClick = {
+                        selectedCategoryKey = if (selectedCategoryKey == cat) null else cat
+                    },
+                    label = { Text(stretchCategoryDisplayLabel(cat)) }
+                )
+            }
+        }
+        Spacer(Modifier.height(8.dp))
         if (filtered.isEmpty()) {
             Text(
                 "No stretches match your search.",
@@ -560,20 +608,33 @@ private fun StretchesCatalogTab(repository: StretchingRepository) {
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 contentPadding = PaddingValues(bottom = 24.dp)
             ) {
-                items(filtered, key = { it.id }) { entry ->
-                    ElevatedCard(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { detailEntry = entry }
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Text(titleCaseStretchLabel(entry.name), style = MaterialTheme.typography.titleMedium)
-                            if (entry.targetBodyParts.isNotEmpty()) {
-                                Text(
-                                    entry.targetBodyParts.joinToString(", "),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
+                grouped.forEach { (categoryKey, entries) ->
+                    stickyHeader {
+                        Text(
+                            stretchCategoryDisplayLabel(categoryKey),
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(MaterialTheme.colorScheme.surface)
+                                .padding(vertical = 8.dp)
+                        )
+                    }
+                    items(entries, key = { it.id }) { entry ->
+                        ElevatedCard(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { detailEntry = entry }
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Text(titleCaseStretchLabel(entry.name), style = MaterialTheme.typography.titleMedium)
+                                if (entry.targetBodyParts.isNotEmpty()) {
+                                    Text(
+                                        entry.targetBodyParts.joinToString(", "),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
                             }
                         }
                     }
@@ -592,6 +653,12 @@ private fun StretchesCatalogTab(repository: StretchingRepository) {
             ) {
                 Text(titleCaseStretchLabel(entry.name), style = MaterialTheme.typography.headlineSmall)
                 Spacer(Modifier.height(8.dp))
+                Text(
+                    stretchCategoryDisplayLabel(entry.category),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(Modifier.height(4.dp))
                 if (entry.targetBodyParts.isNotEmpty()) {
                     Text(
                         entry.targetBodyParts.joinToString(" · "),
@@ -948,6 +1015,10 @@ private fun StretchRoutineEditorDialog(
         mutableStateListOf<String>().apply { addAll(routine?.stretchIds.orEmpty()) }
     }
     var showPicker by remember { mutableStateOf(false) }
+    var selectedStretchCategory by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(showPicker) {
+        if (showPicker) selectedStretchCategory = null
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -1049,6 +1120,12 @@ private fun StretchRoutineEditorDialog(
     if (showPicker) {
         // Use a platform Dialog so the picker stacks above the routine AlertDialog.
         // ModalBottomSheet nested under AlertDialog renders behind and is not tappable.
+        val excludeIds = orderedIds.toSet()
+        val stretchChoices = remember(catalog, excludeIds) {
+            catalog.filter { it.id !in excludeIds }
+        }
+        val groupedChoices = remember(stretchChoices) { stretchChoices.groupedByCategory() }
+        val pickerScroll = rememberScrollState()
         Dialog(
             onDismissRequest = { showPicker = false },
             properties = DialogProperties(usePlatformDefaultWidth = false)
@@ -1078,10 +1155,27 @@ private fun StretchRoutineEditorDialog(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                "Add a stretch",
-                                style = MaterialTheme.typography.titleLarge
-                            )
+                            when (val cat = selectedStretchCategory) {
+                                null -> Text(
+                                    "Muscle group",
+                                    style = MaterialTheme.typography.titleLarge
+                                )
+                                else -> Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    IconButton(onClick = { selectedStretchCategory = null }) {
+                                        Icon(
+                                            Icons.AutoMirrored.Filled.ArrowBack,
+                                            contentDescription = "Change muscle group"
+                                        )
+                                    }
+                                    Text(
+                                        text = stretchCategoryDisplayLabel(cat),
+                                        style = MaterialTheme.typography.titleLarge
+                                    )
+                                }
+                            }
                             TextButton(onClick = { showPicker = false }) {
                                 Text("Close")
                             }
@@ -1089,19 +1183,71 @@ private fun StretchRoutineEditorDialog(
                         Spacer(Modifier.height(8.dp))
                         HorizontalDivider()
                         Spacer(Modifier.height(8.dp))
-                        LazyColumn(
-                            modifier = Modifier.weight(1f),
-                            contentPadding = PaddingValues(bottom = 8.dp)
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .verticalScroll(pickerScroll)
+                                .padding(vertical = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            items(catalog, key = { it.id }) { entry ->
-                                TextButton(
-                                    onClick = {
-                                        if (!orderedIds.contains(entry.id)) orderedIds.add(entry.id)
-                                        showPicker = false
-                                    },
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Text(titleCaseStretchLabel(entry.name), modifier = Modifier.fillMaxWidth())
+                            when {
+                                stretchChoices.isEmpty() -> {
+                                    Text(
+                                        "No more stretches to add.",
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                }
+                                groupedChoices.isEmpty() -> {
+                                    Text(
+                                        "No more stretches to add.",
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                }
+                                selectedStretchCategory == null -> {
+                                    Text(
+                                        "Choose a muscle group, then select a stretch.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(bottom = 8.dp)
+                                    )
+                                    groupedChoices.forEach { (categoryKey, list) ->
+                                        TextButton(
+                                            onClick = { selectedStretchCategory = categoryKey },
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Text(
+                                                "${stretchCategoryDisplayLabel(categoryKey)} (${list.size})",
+                                                modifier = Modifier.fillMaxWidth()
+                                            )
+                                        }
+                                    }
+                                }
+                                else -> {
+                                    val inGroup = groupedChoices
+                                        .firstOrNull { it.first == selectedStretchCategory }
+                                        ?.second
+                                        .orEmpty()
+                                    if (inGroup.isEmpty()) {
+                                        Text(
+                                            "No stretches in this group.",
+                                            style = MaterialTheme.typography.bodyMedium
+                                        )
+                                    } else {
+                                        inGroup.forEach { entry ->
+                                            TextButton(
+                                                onClick = {
+                                                    orderedIds.add(entry.id)
+                                                    showPicker = false
+                                                },
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Text(
+                                                    titleCaseStretchLabel(entry.name),
+                                                    modifier = Modifier.fillMaxWidth()
+                                                )
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
