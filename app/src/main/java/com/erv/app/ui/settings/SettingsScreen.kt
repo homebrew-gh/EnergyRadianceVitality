@@ -454,7 +454,7 @@ private fun SettingsHomeScreen(
                 .padding(innerPadding)
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp)
-                .padding(bottom = 24.dp),
+                .padding(top = 12.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             SettingsHubRow(
@@ -533,7 +533,7 @@ private fun SettingsSubScreenScaffold(
                 .padding(innerPadding)
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp)
-                .padding(bottom = 32.dp),
+                .padding(top = 12.dp, bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(0.dp)
         ) {
             content()
