@@ -60,9 +60,46 @@ data class StretchCatalogEntry(
     val name: String,
     /** Broad area for catalog grouping (e.g. legs, neck). */
     val category: String = "other",
+    /**
+     * If true, the guided player runs **two** holds ([StretchSide.RIGHT] then [StretchSide.LEFT]),
+     * each for [StretchRoutine.holdSecondsPerStretch].
+     */
+    val requiresBothSides: Boolean = false,
     val targetBodyParts: List<String> = emptyList(),
     val procedure: String = ""
 )
+
+/** Hold segments for one catalog slot (1 = single timer; 2 = left + right each for full hold). */
+fun StretchCatalogEntry.holdSideSegments(): Int = if (requiresBothSides) 2 else 1
+
+fun routineHoldSegments(stretchIds: List<String>, catalog: List<StretchCatalogEntry>): Int {
+    val byId = catalog.associateBy { it.id }
+    return stretchIds.sumOf { id -> byId[id]?.holdSideSegments() ?: 1 }
+}
+
+enum class StretchSide {
+    RIGHT,
+    LEFT
+}
+
+data class GuidedStretchStep(
+    val entry: StretchCatalogEntry,
+    /** Null for single-phase stretches; [StretchSide.RIGHT] then [StretchSide.LEFT] for bilateral. */
+    val side: StretchSide?
+)
+
+/** Expands bilateral catalog entries into two timed steps (right, then left). */
+fun List<StretchCatalogEntry>.toGuidedSessionSteps(): List<GuidedStretchStep> =
+    flatMap { entry ->
+        if (entry.requiresBothSides) {
+            listOf(
+                GuidedStretchStep(entry, StretchSide.RIGHT),
+                GuidedStretchStep(entry, StretchSide.LEFT)
+            )
+        } else {
+            listOf(GuidedStretchStep(entry, null))
+        }
+    }
 
 @Serializable
 data class StretchCatalogRoot(

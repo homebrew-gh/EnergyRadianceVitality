@@ -1,4 +1,4 @@
-@file:OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@file:OptIn(ExperimentalMaterial3Api::class)
 
 package com.erv.app.ui.stretching
 
@@ -15,7 +15,6 @@ import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.util.Log
 import android.view.WindowManager
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -33,7 +32,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.stickyHeader
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -105,7 +103,11 @@ import com.erv.app.data.StretchGuidedTtsVoice
 import com.erv.app.data.UserPreferences
 import com.erv.app.nostr.EventSigner
 import com.erv.app.nostr.RelayPool
+import com.erv.app.stretching.GuidedStretchStep
 import com.erv.app.stretching.StretchCatalogEntry
+import com.erv.app.stretching.StretchSide
+import com.erv.app.stretching.routineHoldSegments
+import com.erv.app.stretching.toGuidedSessionSteps
 import com.erv.app.stretching.groupedByCategory
 import com.erv.app.stretching.stretchCategoryDisplayLabel
 import com.erv.app.stretching.stretchCategorySortIndex
@@ -136,6 +138,25 @@ import kotlin.math.max
 private enum class StretchTab { Stretches, Routines }
 
 /** Title case each whitespace-separated word for display (catalog JSON may be lowercase). */
+/** Line for routine cards / editor when bilateral stretches need two holds per slot. */
+private fun routineHoldSummaryLine(
+    stretchIds: List<String>,
+    catalog: List<StretchCatalogEntry>,
+    holdSeconds: Int
+): String {
+    if (stretchIds.isEmpty()) return "0 stretches"
+    val segments = routineHoldSegments(stretchIds, catalog)
+    val totalSec = segments * holdSeconds
+    val min = totalSec / 60
+    val sec = totalSec % 60
+    val totalLabel = if (sec == 0) "${min} min" else "${min}m ${sec}s"
+    return if (segments == stretchIds.size) {
+        "${stretchIds.size} stretches · ${holdSeconds}s hold each"
+    } else {
+        "${stretchIds.size} stretches · $segments hold segments × ${holdSeconds}s ($totalLabel) — left & right where marked"
+    }
+}
+
 private fun titleCaseStretchLabel(raw: String): String {
     val s = raw.trim()
     if (s.isEmpty()) return s
@@ -243,21 +264,38 @@ private fun requestTtsAudioFocusForPlayback(context: Context): AudioManager.OnAu
     return listener
 }
 
-private fun speakNextStretchName(
+private fun speakNextGuidedStep(
     context: Context,
     tts: TextToSpeech?,
-    name: String,
+    step: GuidedStretchStep,
     enabled: Boolean,
     engineReady: Boolean
 ) {
-    if (!enabled || name.isBlank() || tts == null || !engineReady) return
+    if (!enabled || tts == null || !engineReady) return
+    val name = titleCaseStretchLabel(step.entry.name)
+    val label = when (step.side) {
+        null -> name
+        StretchSide.RIGHT -> "$name, right side"
+        StretchSide.LEFT -> "$name, left side"
+    }
     requestTtsAudioFocusForPlayback(context)
-    runStretchTtsSpeak(tts, "Next: $name", "stretchNext", engineReady)
+    runStretchTtsSpeak(tts, "Next: $label", "stretchNext", engineReady)
+}
+
+private fun guidedSideLabel(side: StretchSide?): String? = when (side) {
+    null -> null
+    StretchSide.RIGHT -> "Right side"
+    StretchSide.LEFT -> "Left side"
 }
 
 private fun buildFirstStretchIntroSpeech(entry: StretchCatalogEntry): String {
     val name = entry.name.trim().ifBlank { "this stretch" }
-    return "Welcome to your routine. Your first stretch is the $name. The hold begins after this countdown."
+    val bilateralNote = if (entry.requiresBothSides) {
+        " We will do the right side first, then the left."
+    } else {
+        ""
+    }
+    return "Welcome to your routine. Your first stretch is the $name.$bilateralNote The hold begins after this countdown."
 }
 
 private const val FIRST_INTRO_UTTERANCE_ID = "stretchFirst"
@@ -353,6 +391,7 @@ private fun resolveStretchEntries(
                 id = id,
                 name = "Unknown stretch",
                 category = "other",
+                requiresBothSides = false,
                 procedure = "This stretch is no longer in the catalog."
             )
     }
@@ -609,7 +648,10 @@ private fun StretchesCatalogTab(repository: StretchingRepository) {
                 contentPadding = PaddingValues(bottom = 24.dp)
             ) {
                 grouped.forEach { (categoryKey, entries) ->
-                    stickyHeader {
+                    items(
+                        listOf(categoryKey),
+                        key = { "stretch_section_$it" }
+                    ) {
                         Text(
                             stretchCategoryDisplayLabel(categoryKey),
                             style = MaterialTheme.typography.titleSmall,
@@ -628,6 +670,13 @@ private fun StretchesCatalogTab(repository: StretchingRepository) {
                         ) {
                             Column(modifier = Modifier.padding(16.dp)) {
                                 Text(titleCaseStretchLabel(entry.name), style = MaterialTheme.typography.titleMedium)
+                                if (entry.requiresBothSides) {
+                                    Text(
+                                        "Left & right (2× hold time)",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.tertiary
+                                    )
+                                }
                                 if (entry.targetBodyParts.isNotEmpty()) {
                                     Text(
                                         entry.targetBodyParts.joinToString(", "),
@@ -659,6 +708,14 @@ private fun StretchesCatalogTab(repository: StretchingRepository) {
                     color = MaterialTheme.colorScheme.primary
                 )
                 Spacer(Modifier.height(4.dp))
+                if (entry.requiresBothSides) {
+                    Text(
+                        "Left & right: the guided player runs two timed holds (right, then left), each for your hold duration.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.tertiary
+                    )
+                    Spacer(Modifier.height(12.dp))
+                }
                 if (entry.targetBodyParts.isNotEmpty()) {
                     Text(
                         entry.targetBodyParts.joinToString(" · "),
@@ -714,7 +771,11 @@ private fun StretchRoutinesTab(
                             Text(routine.name, style = MaterialTheme.typography.titleMedium)
                             Spacer(Modifier.height(4.dp))
                             Text(
-                                "${routine.stretchIds.size} stretches · ${routine.holdSecondsPerStretch}s hold each",
+                                routineHoldSummaryLine(
+                                    routine.stretchIds,
+                                    repository.catalog,
+                                    routine.holdSecondsPerStretch
+                                ),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -813,18 +874,17 @@ private fun StretchGuidedSessionOverlay(
     var index by remember { mutableIntStateOf(0) }
     /** Negative while waiting for first intro TTS to finish; then [FIRST_STRETCH_PREP_SECONDS] countdown. */
     var secondsLeft by remember { mutableIntStateOf(-1) }
-    val totalMinutes = remember(stretchEntries.size, holdSeconds) {
-        guidedSessionTotalMinutes(stretchEntries.size, holdSeconds)
-    }
+    val steps = remember(stretchEntries) { stretchEntries.toGuidedSessionSteps() }
 
-    val current = stretchEntries.getOrNull(index)
-    val next = stretchEntries.getOrNull(index + 1)
-    val firstStretch = stretchEntries.firstOrNull()
+    val currentStep = steps.getOrNull(index)
+    val nextStep = steps.getOrNull(index + 1)
+    val firstStep = steps.firstOrNull()
 
     LaunchedEffect(stretchEntries, holdSeconds, tts, ttsInitSettled, context) {
         if (!ttsInitSettled) return@LaunchedEffect
-        if (stretchEntries.isEmpty()) {
-            onFinished(totalMinutes)
+        val sessionSteps = stretchEntries.toGuidedSessionSteps()
+        if (stretchEntries.isEmpty() || sessionSteps.isEmpty()) {
+            onFinished(guidedSessionTotalMinutes(sessionSteps.size, holdSeconds))
             return@LaunchedEffect
         }
         if (ttsEngineOkState.value) {
@@ -851,7 +911,7 @@ private fun StretchGuidedSessionOverlay(
         firstPrepActive = false
 
         var i = 0
-        while (i < stretchEntries.size) {
+        while (i < sessionSteps.size) {
             phaseHold = true
             index = i
             secondsLeft = holdSeconds
@@ -864,11 +924,16 @@ private fun StretchGuidedSessionOverlay(
                 secondsLeft--
             }
             playStretchEndTone()
-            if (i == stretchEntries.lastIndex) break
+            if (i == sessionSteps.lastIndex) break
             phaseHold = false
             secondsLeft = TRANSITION_SECONDS
-            val nextName = stretchEntries.getOrNull(i + 1)?.name.orEmpty()
-            speakNextStretchName(context, tts, nextName, voiceEnabledState.value, ttsEngineOkState.value)
+            speakNextGuidedStep(
+                context,
+                tts,
+                sessionSteps[i + 1],
+                voiceEnabledState.value,
+                ttsEngineOkState.value
+            )
             while (secondsLeft > 0) {
                 delay(1000)
                 secondsLeft--
@@ -876,7 +941,7 @@ private fun StretchGuidedSessionOverlay(
             i++
             index = i
         }
-        onFinished(totalMinutes)
+        onFinished(guidedSessionTotalMinutes(sessionSteps.size, holdSeconds))
     }
 
     val gradientBottom = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f)
@@ -907,24 +972,35 @@ private fun StretchGuidedSessionOverlay(
                     .weight(1f)
                     .verticalScroll(rememberScrollState())
             ) {
-                if (phaseHold && current != null) {
+                if (phaseHold && currentStep != null) {
                     Text(
-                        titleCaseStretchLabel(current.name),
+                        titleCaseStretchLabel(currentStep.entry.name),
                         style = MaterialTheme.typography.headlineMedium,
                         color = Color.White,
                         textAlign = TextAlign.Center,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(bottom = 12.dp)
+                            .padding(bottom = 8.dp)
                     )
+                    guidedSideLabel(currentStep.side)?.let { sideLabel ->
+                        Text(
+                            sideLabel,
+                            style = MaterialTheme.typography.headlineSmall,
+                            color = Color.White.copy(alpha = 0.92f),
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 12.dp)
+                        )
+                    }
                     Text(
-                        current.procedure.ifBlank { "Breathe and hold the position." },
+                        currentStep.entry.procedure.ifBlank { "Breathe and hold the position." },
                         style = MaterialTheme.typography.bodyLarge,
                         color = Color.White.copy(alpha = 0.9f),
                         textAlign = TextAlign.Center,
                         modifier = Modifier.fillMaxWidth()
                     )
-                } else if (!phaseHold && firstPrepActive && firstStretch != null) {
+                } else if (!phaseHold && firstPrepActive && firstStep != null) {
                     Text(
                         "First stretch",
                         style = MaterialTheme.typography.titleMedium,
@@ -932,15 +1008,25 @@ private fun StretchGuidedSessionOverlay(
                     )
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        titleCaseStretchLabel(firstStretch.name),
+                        titleCaseStretchLabel(firstStep.entry.name),
                         style = MaterialTheme.typography.headlineSmall,
                         color = Color.White,
                         textAlign = TextAlign.Center,
                         modifier = Modifier.fillMaxWidth()
                     )
+                    guidedSideLabel(firstStep.side)?.let { sideLabel ->
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            sideLabel,
+                            style = MaterialTheme.typography.titleMedium,
+                            color = Color.White.copy(alpha = 0.9f),
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
                     Spacer(Modifier.height(12.dp))
                     Text(
-                        firstStretch.procedure.ifBlank { "Get into position; the hold starts when the timer switches to Hold." },
+                        firstStep.entry.procedure.ifBlank { "Get into position; the hold starts when the timer switches to Hold." },
                         style = MaterialTheme.typography.bodyLarge,
                         color = Color.White.copy(alpha = 0.9f),
                         textAlign = TextAlign.Center,
@@ -953,13 +1039,25 @@ private fun StretchGuidedSessionOverlay(
                         color = Color.White.copy(alpha = 0.85f)
                     )
                     Spacer(Modifier.height(8.dp))
-                    Text(
-                        titleCaseStretchLabel(next?.name.orEmpty()),
-                        style = MaterialTheme.typography.headlineSmall,
-                        color = Color.White,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                    if (nextStep != null) {
+                        Text(
+                            titleCaseStretchLabel(nextStep.entry.name),
+                            style = MaterialTheme.typography.headlineSmall,
+                            color = Color.White,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        guidedSideLabel(nextStep.side)?.let { sideLabel ->
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                sideLabel,
+                                style = MaterialTheme.typography.titleMedium,
+                                color = Color.White.copy(alpha = 0.9f),
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    }
                 }
             }
             Text(
@@ -1045,6 +1143,15 @@ private fun StretchRoutineEditorDialog(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
+                val holdForPlan = holdSecText.toIntOrNull()?.coerceIn(5, 300) ?: 30
+                val planIds = orderedIds.toList()
+                if (planIds.isNotEmpty()) {
+                    Text(
+                        routineHoldSummaryLine(planIds, catalog, holdForPlan),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
                 Text("Stretches (in order)", style = MaterialTheme.typography.labelLarge)
                 if (orderedIds.isEmpty()) {
                     Text(
@@ -1064,6 +1171,13 @@ private fun StretchRoutineEditorDialog(
                                     titleCaseStretchLabel(entry?.name ?: id),
                                     style = MaterialTheme.typography.bodyMedium
                                 )
+                                if (entry?.requiresBothSides == true) {
+                                    Text(
+                                        "Left & right — 2× hold",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.tertiary
+                                    )
+                                }
                             }
                             IconButton(
                                 onClick = {
@@ -1241,10 +1355,19 @@ private fun StretchRoutineEditorDialog(
                                                 },
                                                 modifier = Modifier.fillMaxWidth()
                                             ) {
-                                                Text(
-                                                    titleCaseStretchLabel(entry.name),
-                                                    modifier = Modifier.fillMaxWidth()
-                                                )
+                                                Column(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalAlignment = Alignment.Start
+                                                ) {
+                                                    Text(titleCaseStretchLabel(entry.name))
+                                                    if (entry.requiresBothSides) {
+                                                        Text(
+                                                            "Left & right (2× hold)",
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                        )
+                                                    }
+                                                }
                                             }
                                         }
                                     }
