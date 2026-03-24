@@ -159,7 +159,7 @@ private fun CardioSessionDetailBody(
             session.treadmill?.let { t ->
                 item {
                     Column {
-                        DetailLine("Treadmill", "${t.speed} ${t.speedUnit.name}")
+                        DetailLine("Indoor", "${t.speed} ${t.speedUnit.name}")
                         if (t.inclinePercent > 0.01) {
                             Text(
                                 "${t.inclinePercent.toInt()}% incline",

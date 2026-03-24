@@ -2,11 +2,18 @@
 
 package com.erv.app.ui.settings
 
+import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -19,6 +26,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.NavigateNext
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CardDefaults
@@ -43,6 +53,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
@@ -71,7 +82,9 @@ import com.erv.app.weighttraining.WeightWorkoutSession
 import com.erv.app.weighttraining.formatHiitBlockSummaryLine
 import com.erv.app.weighttraining.formatSetSummaryLine
 import com.erv.app.weighttraining.weightLoadUnitSuffix
+import androidx.core.content.FileProvider
 import java.io.BufferedReader
+import java.io.File
 import java.io.InputStreamReader
 import java.nio.charset.StandardCharsets
 import java.time.LocalDate
@@ -129,6 +142,58 @@ internal object ImportExportDocAssets {
         KEY_CARDIO_NOSTR -> "Cardio Training Nostr Events Reference"
         else -> "Reference"
     }
+
+    val weightReferenceKeys: List<String> = listOf(KEY_WEIGHT_AI, KEY_WEIGHT_CSV, KEY_WEIGHT_BUILTIN)
+
+    val cardioReferenceKeys: List<String> = listOf(KEY_CARDIO_AI, KEY_CARDIO_CSV, KEY_CARDIO_NOSTR)
+}
+
+private fun readAssetUtf8(context: Context, assetPath: String): String =
+    context.assets.open(assetPath).use { stream ->
+        BufferedReader(InputStreamReader(stream, StandardCharsets.UTF_8)).readText()
+    }
+
+/** One markdown file: all bundled docs with headings, for AI assistants or saving elsewhere. */
+private fun buildCombinedImportReferenceMarkdown(
+    context: Context,
+    keys: List<String>,
+    bundleTitle: String,
+): String = buildString {
+    appendLine("# $bundleTitle")
+    appendLine()
+    appendLine(
+        "This file combines every in-app import reference for this training type. " +
+            "Share or save it and attach it to your AI assistant when building import files."
+    )
+    for (key in keys) {
+        val path = ImportExportDocAssets.pathForKey(key) ?: continue
+        val docTitle = ImportExportDocAssets.titleForKey(key)
+        appendLine()
+        appendLine("---")
+        appendLine()
+        appendLine("# $docTitle")
+        appendLine()
+        val body = readAssetUtf8(context, path).trimEnd()
+        appendLine(body)
+        appendLine()
+    }
+}
+
+private fun shareMarkdownFromCache(context: Context, file: File): Boolean = try {
+    val uri = FileProvider.getUriForFile(
+        context,
+        "${context.packageName}.fileprovider",
+        file,
+    )
+    val send = Intent(Intent.ACTION_SEND).apply {
+        type = "text/markdown"
+        putExtra(Intent.EXTRA_STREAM, uri)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    context.startActivity(Intent.createChooser(send, "Save Or Share Reference Bundle"))
+    true
+} catch (_: Exception) {
+    false
 }
 
 private fun sessionPreviewBlocks(
@@ -182,6 +247,8 @@ fun SettingsDataImportExportScreen(
     var pendingWeightImport by remember { mutableStateOf<PendingWeightImport?>(null) }
     var pendingCardioImport by remember { mutableStateOf<PendingCardioImport?>(null) }
     var parseErrorMessages by remember { mutableStateOf<List<String>?>(null) }
+    var weightReferenceExpanded by remember { mutableStateOf(false) }
+    var cardioReferenceExpanded by remember { mutableStateOf(false) }
 
     val pickLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
@@ -376,26 +443,53 @@ fun SettingsDataImportExportScreen(
                 Icon(Icons.Default.Upload, contentDescription = null)
                 Text("Import Weight Training File", modifier = Modifier.padding(start = 8.dp))
             }
-            Text(
-                "Reference Files (Weight Training Upload)",
-                style = MaterialTheme.typography.titleSmall,
-                modifier = Modifier.padding(top = 14.dp, bottom = 4.dp)
-            )
-            DocLinkRow(
-                title = ImportExportDocAssets.titleForKey(ImportExportDocAssets.KEY_WEIGHT_AI),
-                subtitle = "AI Prompt Rules For Weight Training JSON",
-                onClick = { onOpenDoc(ImportExportDocAssets.KEY_WEIGHT_AI) }
-            )
-            DocLinkRow(
-                title = ImportExportDocAssets.titleForKey(ImportExportDocAssets.KEY_WEIGHT_CSV),
-                subtitle = "Spreadsheet Columns For Weight Training CSV",
-                onClick = { onOpenDoc(ImportExportDocAssets.KEY_WEIGHT_CSV) }
-            )
-            DocLinkRow(
-                title = ImportExportDocAssets.titleForKey(ImportExportDocAssets.KEY_WEIGHT_BUILTIN),
-                subtitle = "Official Names And IDs For Lift Mapping",
-                onClick = { onOpenDoc(ImportExportDocAssets.KEY_WEIGHT_BUILTIN) }
-            )
+            ImportReferenceCollapsibleSection(
+                sectionTitle = "Reference Files (Weight Training Upload)",
+                summaryWhenCollapsed = "Tap To Open Guides, Exercise IDs, And A Combined File For Your AI.",
+                expanded = weightReferenceExpanded,
+                onExpandedChange = { weightReferenceExpanded = it },
+                modifier = Modifier.padding(top = 14.dp),
+                onShareBundle = {
+                    scope.launch {
+                        try {
+                            val text = withContext(Dispatchers.IO) {
+                                buildCombinedImportReferenceMarkdown(
+                                    context,
+                                    ImportExportDocAssets.weightReferenceKeys,
+                                    "Weight Training — Combined Import Reference",
+                                )
+                            }
+                            val file = withContext(Dispatchers.IO) {
+                                val dir = File(context.cacheDir, "share").apply { mkdirs() }
+                                val out = File(dir, "weight_training_import_reference_for_ai.md")
+                                out.writeText(text, StandardCharsets.UTF_8)
+                                out
+                            }
+                            if (!shareMarkdownFromCache(context, file)) {
+                                snackbarHostState.showSnackbar("Could Not Open Save Or Share")
+                            }
+                        } catch (_: Exception) {
+                            snackbarHostState.showSnackbar("Could Not Prepare Reference Bundle")
+                        }
+                    }
+                },
+            ) {
+                DocLinkRow(
+                    title = ImportExportDocAssets.titleForKey(ImportExportDocAssets.KEY_WEIGHT_AI),
+                    subtitle = "AI Prompt Rules For Weight Training JSON",
+                    onClick = { onOpenDoc(ImportExportDocAssets.KEY_WEIGHT_AI) }
+                )
+                DocLinkRow(
+                    title = ImportExportDocAssets.titleForKey(ImportExportDocAssets.KEY_WEIGHT_CSV),
+                    subtitle = "Spreadsheet Columns For Weight Training CSV",
+                    onClick = { onOpenDoc(ImportExportDocAssets.KEY_WEIGHT_CSV) }
+                )
+                DocLinkRow(
+                    title = ImportExportDocAssets.titleForKey(ImportExportDocAssets.KEY_WEIGHT_BUILTIN),
+                    subtitle = "Official Names And IDs For Lift Mapping",
+                    onClick = { onOpenDoc(ImportExportDocAssets.KEY_WEIGHT_BUILTIN) }
+                )
+            }
 
             Spacer(Modifier.height(8.dp))
             HorizontalDivider()
@@ -416,26 +510,53 @@ fun SettingsDataImportExportScreen(
                 Icon(Icons.Default.Upload, contentDescription = null)
                 Text("Import Cardio Training File", modifier = Modifier.padding(start = 8.dp))
             }
-            Text(
-                "Reference Files (Cardio Training Upload)",
-                style = MaterialTheme.typography.titleSmall,
-                modifier = Modifier.padding(top = 14.dp, bottom = 4.dp)
-            )
-            DocLinkRow(
-                title = ImportExportDocAssets.titleForKey(ImportExportDocAssets.KEY_CARDIO_AI),
-                subtitle = "AI Prompt Rules For Cardio JSON",
-                onClick = { onOpenDoc(ImportExportDocAssets.KEY_CARDIO_AI) }
-            )
-            DocLinkRow(
-                title = ImportExportDocAssets.titleForKey(ImportExportDocAssets.KEY_CARDIO_CSV),
-                subtitle = "Spreadsheet Columns For Cardio CSV",
-                onClick = { onOpenDoc(ImportExportDocAssets.KEY_CARDIO_CSV) }
-            )
-            DocLinkRow(
+            ImportReferenceCollapsibleSection(
+                sectionTitle = "Reference Files (Cardio Training Upload)",
+                summaryWhenCollapsed = "Tap To Open Guides, Nostr Reference, And A Combined File For Your AI.",
+                expanded = cardioReferenceExpanded,
+                onExpandedChange = { cardioReferenceExpanded = it },
+                modifier = Modifier.padding(top = 14.dp),
+                onShareBundle = {
+                    scope.launch {
+                        try {
+                            val text = withContext(Dispatchers.IO) {
+                                buildCombinedImportReferenceMarkdown(
+                                    context,
+                                    ImportExportDocAssets.cardioReferenceKeys,
+                                    "Cardio Training — Combined Import Reference",
+                                )
+                            }
+                            val file = withContext(Dispatchers.IO) {
+                                val dir = File(context.cacheDir, "share").apply { mkdirs() }
+                                val out = File(dir, "cardio_training_import_reference_for_ai.md")
+                                out.writeText(text, StandardCharsets.UTF_8)
+                                out
+                            }
+                            if (!shareMarkdownFromCache(context, file)) {
+                                snackbarHostState.showSnackbar("Could Not Open Save Or Share")
+                            }
+                        } catch (_: Exception) {
+                            snackbarHostState.showSnackbar("Could Not Prepare Reference Bundle")
+                        }
+                    }
+                },
+            ) {
+                DocLinkRow(
+                    title = ImportExportDocAssets.titleForKey(ImportExportDocAssets.KEY_CARDIO_AI),
+                    subtitle = "AI Prompt Rules For Cardio JSON",
+                    onClick = { onOpenDoc(ImportExportDocAssets.KEY_CARDIO_AI) }
+                )
+                DocLinkRow(
+                    title = ImportExportDocAssets.titleForKey(ImportExportDocAssets.KEY_CARDIO_CSV),
+                    subtitle = "Spreadsheet Columns For Cardio CSV",
+                    onClick = { onOpenDoc(ImportExportDocAssets.KEY_CARDIO_CSV) }
+                )
+                DocLinkRow(
                 title = ImportExportDocAssets.titleForKey(ImportExportDocAssets.KEY_CARDIO_NOSTR),
-                subtitle = "Kind 30078 And ERV Cardio D-Tags On Relays",
-                onClick = { onOpenDoc(ImportExportDocAssets.KEY_CARDIO_NOSTR) }
-            )
+                subtitle = "Optional: Relay Kind 30078 And Cardio D-Tags When Sync Is On",
+                    onClick = { onOpenDoc(ImportExportDocAssets.KEY_CARDIO_NOSTR) }
+                )
+            }
 
             Spacer(Modifier.height(16.dp))
             HorizontalDivider()
@@ -445,6 +566,64 @@ fun SettingsDataImportExportScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 14.dp)
             )
+        }
+    }
+}
+
+@Composable
+private fun ImportReferenceCollapsibleSection(
+    sectionTitle: String,
+    summaryWhenCollapsed: String,
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+    onShareBundle: () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    Column(modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onExpandedChange(!expanded) }
+                .padding(vertical = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(sectionTitle, style = MaterialTheme.typography.titleSmall)
+                if (!expanded) {
+                    Text(
+                        summaryWhenCollapsed,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 2.dp)
+                    )
+                }
+            }
+            Icon(
+                imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                contentDescription = if (expanded) "Collapse" else "Expand",
+                tint = MaterialTheme.colorScheme.primary
+            )
+        }
+        AnimatedVisibility(
+            visible = expanded,
+            enter = expandVertically(),
+            exit = shrinkVertically(),
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = onShareBundle,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.Share, contentDescription = null)
+                    Text(
+                        "Save Or Share All Reference Docs For AI",
+                        modifier = Modifier.padding(start = 8.dp)
+                    )
+                }
+                content()
+            }
         }
     }
 }

@@ -202,10 +202,12 @@ Phases can overlap; **A + B** deliver most of the “data ownership” story; **
 
 ## 11. Shipped references (import docs)
 
-- **Weight training (implemented import):** **`docs/weight_training_import_ai_guide.md`**, **`docs/weight_training_import_csv_guide.md`**, **`docs/weight_training_builtin_exercise_ids.md`**. Nostr uses kind **30078** with `erv/weight/...` d-tags (see **PLAN_OF_ACTION.md** / **PROTOCOL_GRAPH.md**). Bundled under **Settings → Import And Export**.
+These files are **copied into the app bundle** under **Settings → Import And Export**. They are written so **users and AI assistants** can map foreign exports → ERV import JSON/CSV **without** reading internal planning docs. (Repository-only **PLAN_OF_ACTION.md** remains for engineers.)
+
+- **Weight training (implemented import):** **`docs/weight_training_import_ai_guide.md`** (JSON contract + optional §9 Nostr overview), **`docs/weight_training_import_csv_guide.md`**, **`docs/weight_training_builtin_exercise_ids.md`** (authoritative lift ids). Relay encoding uses kind **30078** and `erv/weight/...` d-tags—see **PLAN_OF_ACTION.md** / **PROTOCOL_GRAPH.md** if you need more than the short note in the AI guide.
 - Sessions created from weight file import use `source`: **`IMPORTED`** in encrypted day payloads (`erv/weight/<date>`).
 - **Relay uploads (weight + cardio import):** After local merge, payloads go through a durable **`RelayPublishOutbox`** (DataStore): enqueue **master + per-day** JSON, then **`kickDrain`** sends sequentially with **~150 ms** spacing and **exponential backoff** on failure. **`MainActivity`** also drains the outbox when relays/signer are available (e.g. after relay URL changes). **Local DataStore remains canonical**; failed sends stay queued and retry.
-- **Cardio (implemented import):** **`docs/cardio_training_import_ai_guide.md`**, **`docs/cardio_training_import_csv_guide.md`**, **`docs/cardio_training_nostr_events_reference.md`** (kind **30078**, `erv/cardio/...` d-tags). JSON (primary) and ERV cardio CSV under **Settings → Import And Export**, with the same preview/merge pattern as weight. Sessions use `source`: **`IMPORTED`**. The AI guide also documents **Strava** export paths for conversion workflows.
+- **Cardio (implemented import):** **`docs/cardio_training_import_ai_guide.md`** (JSON, **built-in activity enum table**, Strava → ERV hints), **`docs/cardio_training_import_csv_guide.md`**, and **`docs/cardio_training_nostr_events_reference.md`** (*optional*—`d` tags / kind **30078** for relay sync, **not** required to author imports). JSON (primary) and ERV cardio CSV ship under **Import And Export** with the same preview/merge pattern as weight. Sessions use `source`: **`IMPORTED`**.
 
 ## 12. Open decisions
 

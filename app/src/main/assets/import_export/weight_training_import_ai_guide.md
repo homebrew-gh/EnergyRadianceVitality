@@ -4,6 +4,16 @@ Use this document when you (or your user) want an **LLM or script** to turn arbi
 
 **Privacy:** Sending years of training logs to a **cloud** model exposes health data. Prefer **local/offline** models, **redacted** samples, or manual editing when sensitivity matters.
 
+### Which reference document to use (same idea as cardio)
+
+| Document | Purpose |
+| --- | --- |
+| **This guide** | **JSON** import: `ervWeightHistoryImportVersion`, optional `exercises`, required `dayLogs` / sessions / sets. |
+| **Weight Training Import CSV Guide** | Same sessions as a **flat CSV** (one row per set). |
+| **Weight Training Built-In Exercise IDs** | Authoritative **`erv-weight-exercise-*`** strings and display names—your “vocabulary” when mapping the user’s lifts to ERV. |
+
+Everything above is about **files the user imports**. Nostr relay layout is optional app behavior after sync, not something you put in the JSON file (see §9).
+
 ---
 
 ## 1. Output contract
@@ -138,4 +148,12 @@ Each **entry** (`entries[]`):
 
 ## 8. Built-in exercise names and ids
 
-The full table of **127** built-in lifts ships in the app as **Weight Training Built-In Exercise IDs** (same screen as this guide in Settings). Use those rows as the only authoritative list of `erv-weight-exercise-*` strings.
+The full table of **127** built-in lifts ships in the app as **Weight Training Built-In Exercise IDs** (same screen as this guide in **Settings → Import And Export**). Use those rows as the only authoritative list of `erv-weight-exercise-*` strings.
+
+---
+
+## 9. Nostr sync (optional — not part of the import file)
+
+Import JSON has **no** Nostr tags, kinds, or ciphertext. It is only the merge contract in §§1–4.
+
+If the user has **relay sync** enabled, the app may later publish encrypted **kind `30078`** replaceable events that carry the same logical **per-day** weight data (conceptually one document per calendar day, e.g. d-tag `erv/weight/YYYY-MM-DD`). You do **not** need relay details to build a valid import; treat that as background for power users only.

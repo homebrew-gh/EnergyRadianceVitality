@@ -1,10 +1,19 @@
 # ERV — AI assistant guide: cardio history → import JSON
 
-Use this document when you (or your user) want an **LLM or script** to turn cardio exports (Strava archive, GPX/TCX, CSV, spreadsheets, notes) into JSON shaped like **ERV’s cardio day logs**. This matches the Kotlin models in the app (`CardioDayLog`, `CardioSession`, etc.) for **Settings → Import / export → Import → Cardio** (JSON tried first; ERV cardio CSV is the fallback).
+Use this document when you (or your user) want an **LLM or script** to turn cardio exports (Strava archive, GPX/TCX, CSV, spreadsheets, notes) into JSON shaped like **ERV’s cardio day logs**. This matches the Kotlin models in the app (`CardioDayLog`, `CardioSession`, etc.). The user imports the file from **Settings → Import And Export** (JSON is tried first; ERV cardio CSV is the fallback).
 
-**Status:** Cardio **JSON and CSV** import is implemented in the app with preview and merge. Sessions are stored with `source`: **`IMPORTED`**. For spreadsheet-only workflows, see **Cardio CSV import format** in the same settings screen.
+**Status:** Cardio **JSON and CSV** import is implemented with preview and merge. Sessions are stored with `source`: **`IMPORTED`**. For spreadsheet-only workflows, see **Cardio Training Import CSV Guide** on the same screen.
 
 **Privacy:** Full Strava archives and GPX files contain **where and when** the user moved. Cloud models see that if the user pastes or uploads there. Prefer **local/offline** models, **redacted** samples, or **aggregate** fields only (date, duration, distance) when sensitivity matters.
+
+### Which reference document to use (same idea as weight training)
+
+| Document | Purpose |
+| --- | --- |
+| **This guide** | **JSON** import: `ervCardioHistoryImportVersion`, optional `customActivityTypes`, required `dayLogs` / `sessions` / `activity` fields. Includes **Strava → ERV** mapping hints. |
+| **Cardio Training Import CSV Guide** | Same sessions as a **flat CSV** (one row per session). |
+| **Cardio Training Built-In Activity Reference** | Shipped **inside this guide** (§3 table): fixed enum strings for `activity.builtin`—the cardio analogue of the weight **built-in exercise id** list. |
+| **Cardio Training Nostr Events Reference** | *Optional only.* How cardio is labeled on **Nostr** when sync is on. **Not** required to produce import files. |
 
 ---
 
@@ -18,7 +27,7 @@ Strava does **not** ship a single “standard fitness JSON” everyone else read
 | **Single activity** | From an activity page: **Export GPX** (menu). **TCX**: append `/export_tcx` to the activity URL (see [Strava help — Exporting your data](https://support.strava.com/hc/en-us/articles/216918437-Exporting-your-Data-and-Bulk-Export)). **Original file** (often **FIT** from a watch) when the user uploaded from a device. | GPX/TCX give **trackpoints, time, distance**; good for **outdoor** duration + distance + optional HR in extensions. **Indoor treadmill** activities may have **little or no GPS** — rely on Strava’s **elapsed time** and **distance** fields from metadata when present. |
 | **Strava API** (developer apps) | OAuth apps can read **activity** resources and **streams** (latlng, time, distance, heartrate, etc.). | Powerful but **not** something ERV implements as a built-in sync; users would use a **separate script** that outputs this guide’s JSON. |
 
-**Why not a dedicated “Strava importer” in ERV?** Same rationale as [DATA_IMPORT_EXPORT.md](DATA_IMPORT_EXPORT.md): vendor export layouts and API fields evolve. A **canonical ERV JSON** plus **AI/script translation** keeps maintenance bounded.
+**Why not a dedicated “Strava importer” in ERV?** Vendor export layouts and API fields change often. ERV defines one **canonical import JSON** (and CSV); you map Strava or any other source into that contract with a script or LLM. That keeps the app maintainable.
 
 ---
 
@@ -31,11 +40,11 @@ Strava does **not** ship a single “standard fitness JSON” everyone else read
 | --- | --- | --- |
 | `ervCardioHistoryImportVersion` | **Yes** | Integer `1` |
 | `customActivityTypes` | No | Array of `{ id, name, optionalMet? }` for any `customTypeId` you reference under `sessions[].activity`. Omit if every session uses a **built-in** enum only. |
-| `dayLogs` | **Yes** | Array of per-day logs (see §4). |
+| `dayLogs` | **Yes** | Array of per-day logs (see §5). |
 
 Unknown top-level keys should be omitted.
 
-**In the app:** Import **merges** into existing cardio logs (sessions are **appended** per day). **`gpsTrack`** and **`routeImageUrl`** from files are **not** kept (imports are summary-safe). If Nostr sync is enabled, the app publishes updated **cardio master** (when custom types change) and **per-day** `erv/cardio/<date>` events after you confirm import.
+**In the app:** Import **merges** into existing cardio logs (sessions are **appended** per day). **`gpsTrack`** and **`routeImageUrl`** from files are **not** kept (imports are summary-safe). Optional relay sync after import uses the same logical day logs (see §9)—nothing extra belongs in the file you build here.
 
 ---
 
@@ -44,9 +53,24 @@ Unknown top-level keys should be omitted.
 - **Distance:** always **`distanceMeters`** on sessions/segments (double). Strava often gives **meters** or **km** in exports — convert to meters (`km × 1000`, `mi × 1609.344`).
 - **Dates:** `date` on each day log is **`YYYY-MM-DD`** (calendar day in the user’s intended timezone for that activity’s **start**).
 - **Duration:** `durationMinutes` is **integer** minutes (round sensibly from seconds: `(seconds + 30) / 60` or floor, but **be consistent** and state your rule in a side note if the user cares).
-- **`CardioBuiltinActivity` string** (field `activity.builtin`): one of  
-  `WALK`, `RUN`, `SPRINT`, `RUCK`, `HIKE`, `BIKE`, `SWIM`, `ELLIPTICAL`, `ROWING`, `STATIONARY_BIKE`, `JUMP_ROPE`, `OTHER`  
-  Use `OTHER` + custom type when Strava’s sport does not map cleanly (see §6).
+
+**`activity.builtin` (fixed vocabulary — like weight’s built-in exercise ids):** use **exactly** one of these strings, or omit `builtin` and use a **custom** activity type instead (`customTypeId` / `customActivityTypes`). If Strava’s sport does not map cleanly, prefer `OTHER` plus a custom type (see §6).
+
+| `builtin` value | Typical use |
+| --- | --- |
+| `WALK` | Walking |
+| `RUN` | Running, trail run, virtual run |
+| `SPRINT` | Sprint / interval-style run work |
+| `RUCK` | Rucking (pack load: `ruckLoadKg` outdoor, treadmill pack fields indoor) |
+| `HIKE` | Hiking (slower than run; user preference if borderline) |
+| `BIKE` | Cycling (road, MTB, gravel, e-bike unless user wants `OTHER`) |
+| `SWIM` | Swimming |
+| `ELLIPTICAL` | Elliptical machine |
+| `ROWING` | Rowing (machine or boat—user context) |
+| `STATIONARY_BIKE` | Indoor spin / stationary bike |
+| `JUMP_ROPE` | Jump rope |
+| `OTHER` | Anything else; pair with **custom** type name/id when possible |
+
 - **`CardioModality`** (`modality`): `OUTDOOR` or `INDOOR_TREADMILL`. Treadmill modality in ERV is only meaningful for **walk, run, sprint, ruck**; for other built-ins, use **`OUTDOOR`** (non-treadmill indoor bike/rower is still `OUTDOOR` in the app model).
 - **`CardioSessionSource`** (`source`): Omit or use `MANUAL` in the file; the importer **always** stores merged sessions as **`IMPORTED`**. (`DURATION_TIMER` is for in-app timers only.)
 - **`CardioSpeedUnit`** (inside `treadmill`): `MPH` or `KMH`.
@@ -169,6 +193,8 @@ Strava’s **sport type** / activity name strings vary (and change). Use this as
 
 ---
 
-## 9. Relationship to Nostr / `erv/cardio/...`
+## 9. Nostr sync (optional — not part of the import file)
 
-Encrypted relay payloads for cardio are expected to use the **same conceptual** `date` + `sessions[]` shapes as `CardioDayLog` (see [PLAN_OF_ACTION.md](PLAN_OF_ACTION.md)). This import bundle is the **file** representation of that slice of state for migration and tooling.
+The JSON you produce for import is **only** the structure in §§2–5. It does **not** include relay kinds, `d` tags, or ciphertext.
+
+If the user has **Nostr sync** enabled, the app may publish the same logical **`CardioDayLog`** data as encrypted **kind `30078`** events (replaceable identifiers such as `erv/cardio/YYYY-MM-DD` per day). That layout is documented for curiosity or tooling in **Cardio Training Nostr Events Reference** on **Settings → Import And Export**. **You do not need that document** to build a valid import file.

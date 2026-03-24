@@ -1,6 +1,8 @@
 # ERV — Cardio CSV import (human / spreadsheet)
 
-The app accepts a **UTF-8 CSV** with a **header row** followed by **one row per cardio session**. Import merges into existing logs; each generated session is stored as **Imported**. JSON import is preferred for AI or Strava pipelines; CSV is for quick edits in Excel or Sheets.
+The app accepts a **UTF-8 CSV** with a **header row** followed by **one row per cardio session**. Import merges into existing logs; each generated session is stored as **Imported**.
+
+**Reference set (same screen in Settings → Import And Export):** **Cardio Training Import AI Guide** for the full JSON model, built-in activity enums, and Strava mapping; **this file** for spreadsheets; **Cardio Training Nostr Events Reference** only if you need relay/`d` tag background (not required for imports).
 
 ---
 

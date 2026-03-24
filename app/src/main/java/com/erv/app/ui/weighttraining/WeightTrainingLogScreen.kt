@@ -189,10 +189,10 @@ fun WeightTrainingLogScreen(
             WeightLogTabContent(
                 datedWorkouts = datedWorkouts,
                 showLogDateOnCards = showLogDateOnCards,
-                emptyRangeLabel = when (dateFilter) {
+                emptyRangeLabel = when (val f = dateFilter) {
                     SectionLogDateFilter.AllHistory -> "No workouts logged yet."
                     is SectionLogDateFilter.SingleDay ->
-                        "No workouts for ${dateFilter.day.format(DateTimeFormatter.ISO_LOCAL_DATE)}"
+                        "No workouts for ${f.day.format(DateTimeFormatter.ISO_LOCAL_DATE)}"
                     is SectionLogDateFilter.DateRange -> "No workouts in this date range."
                 },
                 library = state,

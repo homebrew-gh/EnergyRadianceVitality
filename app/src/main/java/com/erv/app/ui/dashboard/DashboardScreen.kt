@@ -45,6 +45,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.erv.app.R
@@ -1357,6 +1358,107 @@ private fun HeatColdQuickSheet(
     }
 }
 
+private data class QuickLogTileSpec(
+    val icon: ImageVector,
+    val label: String,
+    val subtitle: String,
+    val onClick: () -> Unit,
+    val secondaryIcon: ImageVector? = null,
+)
+
+@Composable
+private fun QuickLogTilesLayout(
+    tiles: List<QuickLogTileSpec>,
+    tileRowSpacing: Dp,
+) {
+    if (tiles.isEmpty()) return
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+        val tileWidth = (maxWidth - tileRowSpacing) / 2
+        val tileModifier = Modifier.width(tileWidth)
+        when (tiles.size) {
+            1 -> {
+                Box(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    val t = tiles[0]
+                    RoutineTile(
+                        icon = t.icon,
+                        label = t.label,
+                        subtitle = t.subtitle,
+                        onClick = t.onClick,
+                        modifier = tileModifier,
+                        secondaryIcon = t.secondaryIcon,
+                    )
+                }
+            }
+            2 -> {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val t0 = tiles[0]
+                    RoutineTile(
+                        icon = t0.icon,
+                        label = t0.label,
+                        subtitle = t0.subtitle,
+                        onClick = t0.onClick,
+                        modifier = tileModifier,
+                        secondaryIcon = t0.secondaryIcon,
+                    )
+                    Spacer(Modifier.width(tileRowSpacing))
+                    val t1 = tiles[1]
+                    RoutineTile(
+                        icon = t1.icon,
+                        label = t1.label,
+                        subtitle = t1.subtitle,
+                        onClick = t1.onClick,
+                        modifier = tileModifier,
+                        secondaryIcon = t1.secondaryIcon,
+                    )
+                }
+            }
+            else -> {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(tileRowSpacing)
+                ) {
+                    val rowCount = (tiles.size + 1) / 2
+                    for (row in 0 until rowCount) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(tileRowSpacing)
+                        ) {
+                            val i = row * 2
+                            val t0 = tiles[i]
+                            RoutineTile(
+                                icon = t0.icon,
+                                label = t0.label,
+                                subtitle = t0.subtitle,
+                                onClick = t0.onClick,
+                                modifier = tileModifier,
+                                secondaryIcon = t0.secondaryIcon,
+                            )
+                            if (i + 1 < tiles.size) {
+                                val t1 = tiles[i + 1]
+                                RoutineTile(
+                                    icon = t1.icon,
+                                    label = t1.label,
+                                    subtitle = t1.subtitle,
+                                    onClick = t1.onClick,
+                                    modifier = tileModifier,
+                                    secondaryIcon = t1.secondaryIcon,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 private fun cardioRoutineShortcutsSubtitle(
     routines: List<CardioRoutine>,
     quickLaunches: List<CardioQuickLaunch>
@@ -1427,13 +1529,11 @@ private fun RoutinesSection(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            if (supplementRoutines.isNotEmpty() || lightRoutines.isNotEmpty()) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    if (supplementRoutines.isNotEmpty()) {
-                        RoutineTile(
+            val quickLogTileRowSpacing = 12.dp
+            val quickLogTiles = buildList {
+                if (supplementRoutines.isNotEmpty()) {
+                    add(
+                        QuickLogTileSpec(
                             icon = Icons.Default.Medication,
                             label = "Supplements",
                             subtitle = if (supplementRoutines.size == 1) "1 routine" else "${supplementRoutines.size} routines",
@@ -1444,11 +1544,12 @@ private fun RoutinesSection(
                                     showSupplementPicker = true
                                 }
                             },
-                            modifier = Modifier.weight(1f)
                         )
-                    }
-                    if (lightRoutines.isNotEmpty()) {
-                        RoutineTile(
+                    )
+                }
+                if (lightRoutines.isNotEmpty()) {
+                    add(
+                        QuickLogTileSpec(
                             icon = Icons.Default.WbSunny,
                             label = "Light Therapy",
                             subtitle = if (lightRoutines.size == 1) "1 routine" else "${lightRoutines.size} routines",
@@ -1459,50 +1560,51 @@ private fun RoutinesSection(
                                     showLightPicker = true
                                 }
                             },
-                            modifier = Modifier.weight(1f)
                         )
-                    }
+                    )
                 }
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                RoutineTile(
-                    icon = Icons.Default.DirectionsRun,
-                    label = "Cardio",
-                    subtitle = cardioRoutineShortcutsSubtitle(cardioRoutines, cardioQuickLaunches),
-                    onClick = { showCardioPicker = true },
-                    modifier = Modifier.weight(1f)
+                add(
+                    QuickLogTileSpec(
+                        icon = Icons.Default.DirectionsRun,
+                        label = "Cardio",
+                        subtitle = cardioRoutineShortcutsSubtitle(cardioRoutines, cardioQuickLaunches),
+                        onClick = { showCardioPicker = true },
+                    )
                 )
-                RoutineTile(
-                    icon = Icons.Default.FitnessCenter,
-                    label = "Weight Training",
-                    subtitle = if (weightRoutines.isEmpty()) "New workout" else "${weightRoutines.size} routines",
-                    onClick = { showWeightPicker = true },
-                    modifier = Modifier.weight(1f)
+                add(
+                    QuickLogTileSpec(
+                        icon = Icons.Default.FitnessCenter,
+                        label = "Weight Training",
+                        subtitle = if (weightRoutines.isEmpty()) "New workout" else "${weightRoutines.size} routines",
+                        onClick = { showWeightPicker = true },
+                    )
                 )
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                RoutineTile(
-                    icon = Icons.Default.Thermostat,
-                    secondaryIcon = Icons.Default.AcUnit,
-                    label = "Hot + Cold",
-                    subtitle = "Timer · pick session type",
-                    onClick = { showHeatColdSheet = true },
-                    modifier = Modifier.weight(1f)
+                add(
+                    QuickLogTileSpec(
+                        icon = Icons.Default.Thermostat,
+                        label = "Hot + Cold",
+                        subtitle = "Timer · pick session type",
+                        onClick = { showHeatColdSheet = true },
+                        secondaryIcon = Icons.Default.AcUnit,
+                    )
                 )
-                RoutineTile(
-                    icon = Icons.Default.FavoriteBorder,
-                    label = "Stretching",
-                    subtitle = if (stretchRoutineCount == 0) "Browse & routines" else if (stretchRoutineCount == 1) "1 routine" else "$stretchRoutineCount routines",
-                    onClick = onOpenStretchingCategory,
-                    modifier = Modifier.weight(1f)
+                add(
+                    QuickLogTileSpec(
+                        icon = Icons.Default.FavoriteBorder,
+                        label = "Stretching",
+                        subtitle = when {
+                            stretchRoutineCount == 0 -> "Browse & routines"
+                            stretchRoutineCount == 1 -> "1 routine"
+                            else -> "$stretchRoutineCount routines"
+                        },
+                        onClick = onOpenStretchingCategory,
+                    )
                 )
             }
+            QuickLogTilesLayout(
+                tiles = quickLogTiles,
+                tileRowSpacing = quickLogTileRowSpacing,
+            )
         }
     }
 

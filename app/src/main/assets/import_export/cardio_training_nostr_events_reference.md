@@ -1,45 +1,41 @@
 # Cardio Training Nostr Events Reference
 
-This document describes how **cardio** data is represented on **Nostr** in Energy Radiance Vitality (ERV). It mirrors the contract the Android app implements in `CardioSync` and the **relay publish outbox** after import.
+**Read this only if you care about Nostr relays.** It does **not** define the import file format.
+
+For **turning user history into something ERV can import**, use **Cardio Training Import AI Guide** and **Cardio Training Import CSV Guide** in **Settings → Import And Export**. Those documents describe the **same JSON and CSV shapes** the app stores locally (`CardioDayLog`, `CardioSession`, etc.). This page explains how that data is **labeled and encrypted on relays** when the user has sync enabled.
 
 ---
 
-## Event Kind
+## Event kind
 
-ERV publishes cardio silo data as Nostr **kind `30078`** — the same **application-specific replaceable** pattern used for other encrypted ERV categories in this app (see weight training and `PLAN_OF_ACTION.md`).
+ERV publishes cardio silo data as Nostr **kind `30078`** (application-specific replaceable events), **encrypted** so relay operators see ciphertext, not plaintext. **Weight training** uses the same kind for its silo; only the **`d` tag** prefix and the decrypted JSON payload type differ.
 
 ---
 
 ## Encryption
 
-The event **`content`** field holds a **ciphertext** produced by encrypting the JSON payload **to the user’s own key** (self-encryption). Relays store opaque blobs; readers need the user’s decryption path to recover plaintext.
+The event **`content`** field is **ciphertext** (self-encrypted to the user’s key). Recovering plaintext requires the user’s normal app decryption path.
 
 ---
 
-## D-Tags (Replaceable Identifiers)
+## `d` tags (replaceable identifiers)
 
 | `d` tag | Role |
 | --- | --- |
-| `erv/cardio/routines` | **Master** document: routines, custom activity types, and quick launches. Serialized as `CardioMasterPayload` in the app. |
-| `erv/cardio/YYYY-MM-DD` | **Daily log** for that calendar date: `CardioDayLog` JSON. **Multiple sessions on the same day** are stored **inside one event** for that date (in the `sessions` array). |
+| `erv/cardio/routines` | **Master** document: routines, custom activity types, and quick launches (`CardioMasterPayload`). |
+| `erv/cardio/YYYY-MM-DD` | **One daily log** for that calendar date: `CardioDayLog` JSON. Multiple sessions on the same day live in the **`sessions` array** inside that single document. |
 
-There is **no separate per-session UUID d-tag** for routine day logs in the shipped design—session identity is inside the JSON.
-
----
-
-## Field Names
-
-Encrypted JSON field names match the Kotlin models shipped in the app (`CardioDayLog`, `CardioSession`, etc.). For **import** file formats, see **Cardio Training Import AI Guide** and **Cardio Training Import CSV Guide**.
+There is **no** separate per-session `d` tag for day logs in this design—session identity is inside the JSON.
 
 ---
 
-## Import And Relay Upload
+## Import and relay upload
 
-After a **successful file import**, the app updates **local storage first**, then enqueues **Nostr publishes** (master + each affected day) in **`RelayPublishOutbox`**, with retries and backoff if relays fail. This is the same reliability pattern as **weight training import**.
+After a **successful file import**, the app updates **local storage** first, then may enqueue **Nostr publishes** (master + each affected day) in **`RelayPublishOutbox`**, with retries if relays fail—same reliability idea as weight training import.
 
 ---
 
-## See Also
+## See also (in-app, same settings screen)
 
-- [PLAN_OF_ACTION.md](PLAN_OF_ACTION.md) — product and Nostr overview  
-- [DATA_IMPORT_EXPORT.md](DATA_IMPORT_EXPORT.md) — import/export phasing and privacy notes  
+- **Cardio Training Import AI Guide** — JSON contract and Strava → ERV hints  
+- **Cardio Training Import CSV Guide** — spreadsheet columns  

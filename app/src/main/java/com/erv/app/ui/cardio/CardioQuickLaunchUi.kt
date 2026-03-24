@@ -221,7 +221,7 @@ fun CardioQuickLaunchEditorDialog(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
-                    "One-tap timer: activity, modality, and clock are saved. Outdoor vs indoor treadmill appears only for walk, run, sprint, and ruck. Multi-leg workouts stay in routines.",
+                    "One-tap timer: activity, modality, and clock are saved. Outdoor vs Indoor appears only for walk, run, sprint, and ruck. Multi-leg workouts stay in routines.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

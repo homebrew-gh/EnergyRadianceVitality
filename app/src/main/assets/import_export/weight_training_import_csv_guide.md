@@ -2,6 +2,8 @@
 
 The app accepts a **UTF-8 CSV** with a **header row** followed by **one row per set**. Import merges into existing logs; each generated workout session is stored as **Imported**.
 
+**Reference set (same screen in Settings → Import And Export):** **Weight Training Import AI Guide** for JSON, optional `exercises`, and HIIT blocks; **this file** for flat set rows; **Weight Training Built-In Exercise IDs** for every `erv-weight-exercise-*` string.
+
 ---
 
 ## 1. Column reference
