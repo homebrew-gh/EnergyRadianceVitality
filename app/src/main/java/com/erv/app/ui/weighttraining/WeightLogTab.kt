@@ -21,11 +21,11 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.erv.app.data.BodyWeightUnit
+import com.erv.app.weighttraining.DatedWeightWorkout
 import com.erv.app.weighttraining.WeightLibraryState
 import com.erv.app.weighttraining.WeightWorkoutSession
 import com.erv.app.weighttraining.WeightWorkoutSource
@@ -40,20 +40,19 @@ import java.time.format.DateTimeFormatter
 
 @Composable
 fun WeightLogTabContent(
-    selectedDate: LocalDate,
-    workouts: List<WeightWorkoutSession>,
+    datedWorkouts: List<DatedWeightWorkout>,
+    showLogDateOnCards: Boolean,
+    emptyRangeLabel: String,
     library: WeightLibraryState,
     loadUnit: BodyWeightUnit,
-    onEdit: (WeightWorkoutSession) -> Unit,
-    onDelete: (WeightWorkoutSession) -> Unit,
-    onShare: (WeightWorkoutSession) -> Unit,
+    onEdit: (logDate: LocalDate, session: WeightWorkoutSession) -> Unit,
+    onDelete: (logDate: LocalDate, session: WeightWorkoutSession) -> Unit,
+    onShare: (logDate: LocalDate, session: WeightWorkoutSession) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val sorted = rememberSortedWorkouts(workouts)
-    val dateLabel = selectedDate.format(DateTimeFormatter.ISO_LOCAL_DATE)
     val sfx = weightLoadUnitSuffix(loadUnit)
 
-    if (sorted.isEmpty()) {
+    if (datedWorkouts.isEmpty()) {
         Column(
             modifier = modifier
                 .fillMaxSize()
@@ -62,13 +61,13 @@ fun WeightLogTabContent(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
-                "No workouts for $dateLabel",
+                emptyRangeLabel,
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Spacer(Modifier.padding(8.dp))
             Text(
-                "Tap Add workout to log training for this day.",
+                "Tap Add workout to log training for today.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -81,7 +80,16 @@ fun WeightLogTabContent(
         verticalArrangement = Arrangement.spacedBy(10.dp),
         contentPadding = PaddingValues(vertical = 8.dp)
     ) {
-        items(sorted, key = { it.id }) { session ->
+        item {
+            Text(
+                "Newest first.",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(8.dp))
+        }
+        items(datedWorkouts, key = { "${it.logDate}-${it.workout.id}" }) { dated ->
+            val session = dated.workout
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(
@@ -95,6 +103,13 @@ fun WeightLogTabContent(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
+                            if (showLogDateOnCards) {
+                                Text(
+                                    dated.logDate.format(DateTimeFormatter.ISO_LOCAL_DATE),
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -103,6 +118,7 @@ fun WeightLogTabContent(
                                     when (session.source) {
                                         WeightWorkoutSource.LIVE -> "Live"
                                         WeightWorkoutSource.MANUAL -> "Manual"
+                                        WeightWorkoutSource.IMPORTED -> "Imported"
                                     },
                                     style = MaterialTheme.typography.labelLarge,
                                     color = MaterialTheme.colorScheme.primary
@@ -132,13 +148,13 @@ fun WeightLogTabContent(
                             )
                         }
                         Row {
-                            IconButton(onClick = { onShare(session) }) {
+                            IconButton(onClick = { onShare(dated.logDate, session) }) {
                                 Icon(Icons.Default.Share, contentDescription = "Share")
                             }
-                            IconButton(onClick = { onEdit(session) }) {
+                            IconButton(onClick = { onEdit(dated.logDate, session) }) {
                                 Icon(Icons.Default.Edit, contentDescription = "Edit")
                             }
-                            IconButton(onClick = { onDelete(session) }) {
+                            IconButton(onClick = { onDelete(dated.logDate, session) }) {
                                 Icon(Icons.Default.Delete, contentDescription = "Delete")
                             }
                         }
@@ -146,15 +162,6 @@ fun WeightLogTabContent(
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun rememberSortedWorkouts(workouts: List<WeightWorkoutSession>): List<WeightWorkoutSession> {
-    return androidx.compose.runtime.remember(workouts) {
-        workouts.sortedWith(
-            compareBy<WeightWorkoutSession> { it.startedAtEpochSeconds ?: it.finishedAtEpochSeconds ?: 0L }
-        )
     }
 }
 
@@ -167,5 +174,6 @@ private fun sessionTimeLabel(session: WeightWorkoutSession): String? {
 private fun sessionExerciseSummary(session: WeightWorkoutSession, library: WeightLibraryState): String =
     session.entries.take(4).joinToString(" · ") { e ->
         val name = library.exerciseById(e.exerciseId)?.name ?: e.exerciseId
-        "$name (${e.sets.size})"
+        val count = e.hiitBlock?.intervals ?: e.sets.size
+        "$name ($count)"
     } + if (session.entries.size > 4) "…" else ""

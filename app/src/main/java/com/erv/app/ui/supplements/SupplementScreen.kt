@@ -1,6 +1,10 @@
 @file:OptIn(ExperimentalLayoutApi::class)
 package com.erv.app.ui.supplements
 
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -26,6 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.erv.app.nostr.EventSigner
@@ -57,13 +62,16 @@ import com.erv.app.supplements.activityStyleSummary
 import com.erv.app.supplements.label
 import com.erv.app.supplements.shortLabel
 import com.erv.app.supplements.SupplementSync
-import com.erv.app.supplements.chronologicalSupplementLogFor
-import com.erv.app.ui.dashboard.CalendarPopup
-import com.erv.app.ui.dashboard.DateNavigator
+import com.erv.app.supplements.DatedSupplementLogEntry
+import com.erv.app.SectionLogDateFilter
+import com.erv.app.supplements.datedSupplementEntriesForSectionLog
+import com.erv.app.ui.dashboard.SectionLogCalendarSheet
+import com.erv.app.ui.dashboard.SectionLogFilterBar
 import com.erv.app.ui.dashboard.datesWithSupplementActivity
 import com.erv.app.ui.theme.ErvDarkTherapyRedMid
 import com.erv.app.ui.theme.ErvLightTherapyRedMid
 import kotlinx.coroutines.launch
+import java.util.UUID
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -93,6 +101,17 @@ private data class SupplementDraft(
     val notes: String = ""
 )
 
+private data class CreateSupplementBootstrap(
+    val sessionKey: String,
+    val initialDraft: SupplementDraft,
+    val pendingNih: SupplementApiResult? = null
+)
+
+private data class BarcodeLookupState(
+    val rawCode: String,
+    val results: List<SupplementApiResult>
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SupplementCategoryScreen(
@@ -118,6 +137,25 @@ fun SupplementCategoryScreen(
     var showRoutineTimePicker by remember { mutableStateOf(false) }
     var initialTimeForNewRoutine by remember { mutableStateOf<SupplementTimeOfDay?>(null) }
     val singleTimeSlots = remember { listOf(SupplementTimeOfDay.MORNING, SupplementTimeOfDay.MIDDAY, SupplementTimeOfDay.NIGHT) }
+
+    val supplementApiClient = remember { SupplementApiClient() }
+    var showAddSupplementChooser by remember { mutableStateOf(false) }
+    var showBarcodeScanner by remember { mutableStateOf(false) }
+    var barcodeLookup by remember { mutableStateOf<BarcodeLookupState?>(null) }
+    var createBootstrap by remember { mutableStateOf<CreateSupplementBootstrap?>(null) }
+    var barcodeSearchBusy by remember { mutableStateOf(false) }
+
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            showBarcodeScanner = true
+        } else {
+            scope.launch {
+                snackbarHostState.showSnackbar("Camera permission denied — use manual entry or try again.")
+            }
+        }
+    }
 
     suspend fun syncMaster() {
         if (relayPool != null && signer != null) {
@@ -177,62 +215,65 @@ fun SupplementCategoryScreen(
             )
         }
     ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-        ) {
-            TabRow(
-                selectedTabIndex = activeTab,
-                containerColor = SupplementRedDark,
-                contentColor = Color.White
+        Box(modifier = Modifier.fillMaxSize()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
             ) {
-                SupplementsTab.entries.forEachIndexed { index, tab ->
-                    Tab(
-                        selected = activeTab == index,
-                        onClick = { activeTab = index },
-                        text = { Text(tab.name.lowercase().replaceFirstChar { it.uppercase() }) }
-                    )
-                }
-            }
-
-            when (SupplementsTab.entries[activeTab]) {
-                SupplementsTab.Supplements -> SupplementsTabContent(
-                    state = state,
-                    onAddSupplement = {
-                        creatingSupplement = true
-                        supplementEditor = null
-                    },
-                    onOpenDetail = onOpenSupplementDetail,
-                    onTakeNow = { supplement ->
-                        scope.launch {
-                            repository.logAdHocIntake(today, supplement.id)
-                            repository.currentState().logFor(today)?.let { syncDailyLog(it) }
-                            snackbarHostState.showSnackbar("Logged ${supplement.name}")
-                        }
-                    },
-                    supplementEditor = supplementEditor,
-                    creatingSupplement = creatingSupplement,
-                    onDismissSupplementEditor = {
-                        supplementEditor = null
-                        creatingSupplement = false
-                    },
-                    onResetSupplementEditorMode = { creatingSupplement = false },
-                    onCreateSupplement = { name, brand, dosagePlan, notes ->
-                        scope.launch {
-                            repository.addSupplement(name, brand, dosagePlan, notes)
-                            syncMaster()
-                            snackbarHostState.showSnackbar("Supplement saved")
-                        }
-                    },
-                    onUpdateSupplement = { id, name, brand, dosagePlan, notes ->
-                        scope.launch {
-                            repository.renameSupplement(id, name, brand, dosagePlan, notes)
-                            syncMaster()
-                            snackbarHostState.showSnackbar("Supplement updated")
-                        }
+                TabRow(
+                    selectedTabIndex = activeTab,
+                    containerColor = SupplementRedDark,
+                    contentColor = Color.White
+                ) {
+                    SupplementsTab.entries.forEachIndexed { index, tab ->
+                        Tab(
+                            selected = activeTab == index,
+                            onClick = { activeTab = index },
+                            text = { Text(tab.name.lowercase().replaceFirstChar { it.uppercase() }) }
+                        )
                     }
-                )
+                }
+
+                when (SupplementsTab.entries[activeTab]) {
+                    SupplementsTab.Supplements -> SupplementsTabContent(
+                        state = state,
+                        onRequestAddSupplementChooser = { showAddSupplementChooser = true },
+                        onOpenDetail = onOpenSupplementDetail,
+                        onTakeNow = { supplement ->
+                            scope.launch {
+                                repository.logAdHocIntake(today, supplement.id)
+                                repository.currentState().logFor(today)?.let { syncDailyLog(it) }
+                                snackbarHostState.showSnackbar("Logged ${supplement.name}")
+                            }
+                        },
+                        supplementEditor = supplementEditor,
+                        creatingSupplement = creatingSupplement,
+                        createBootstrap = createBootstrap,
+                        onDismissSupplementEditor = {
+                            supplementEditor = null
+                            creatingSupplement = false
+                            createBootstrap = null
+                        },
+                        onResetSupplementEditorMode = { creatingSupplement = false },
+                        onCreateSupplement = { name, brand, dosagePlan, notes, nih ->
+                            scope.launch {
+                                val created = repository.addSupplement(name, brand, dosagePlan, notes)
+                                if (nih != null) {
+                                    repository.attachInfo(created.id, nih.info, nih.productId)
+                                }
+                                syncMaster()
+                                snackbarHostState.showSnackbar("Supplement saved")
+                            }
+                        },
+                        onUpdateSupplement = { id, name, brand, dosagePlan, notes ->
+                            scope.launch {
+                                repository.renameSupplement(id, name, brand, dosagePlan, notes)
+                                syncMaster()
+                                snackbarHostState.showSnackbar("Supplement updated")
+                            }
+                        }
+                    )
 
                 SupplementsTab.Routines -> RoutinesTab(
                     state = state,
@@ -301,8 +342,170 @@ fun SupplementCategoryScreen(
                     initialTimeForNewRoutine = initialTimeForNewRoutine,
                     supplements = state.supplements,
                 )
+                }
+            }
+
+            if (barcodeSearchBusy) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.35f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(color = Color.White)
+                }
+            }
+            if (showBarcodeScanner) {
+                SupplementBarcodeScannerScreen(
+                    headerColor = SupplementRedMid,
+                    onBarcode = { code ->
+                        showBarcodeScanner = false
+                        scope.launch {
+                            barcodeSearchBusy = true
+                            val results = supplementApiClient.searchByProductCode(code)
+                            barcodeSearchBusy = false
+                            if (results.isEmpty()) {
+                                snackbarHostState.showSnackbar("No NIH label match for this barcode")
+                                createBootstrap = CreateSupplementBootstrap(
+                                    sessionKey = UUID.randomUUID().toString(),
+                                    initialDraft = SupplementDraft(
+                                        notes = "Barcode $code — no NIH DSLD match."
+                                    ),
+                                    pendingNih = null
+                                )
+                                creatingSupplement = true
+                                supplementEditor = null
+                            } else {
+                                barcodeLookup = BarcodeLookupState(code, results)
+                            }
+                        }
+                    },
+                    onClose = { showBarcodeScanner = false }
+                )
             }
         }
+    }
+
+    if (showAddSupplementChooser) {
+        AlertDialog(
+            onDismissRequest = { showAddSupplementChooser = false },
+            title = { Text("Add supplement") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "Look up a label from the NIH database by scanning the bottle barcode, or enter details yourself.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    FilledTonalButton(
+                        onClick = {
+                            showAddSupplementChooser = false
+                            if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
+                                PackageManager.PERMISSION_GRANTED
+                            ) {
+                                showBarcodeScanner = true
+                            } else {
+                                cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Scan barcode")
+                    }
+                    FilledTonalButton(
+                        onClick = {
+                            showAddSupplementChooser = false
+                            createBootstrap = CreateSupplementBootstrap(
+                                sessionKey = UUID.randomUUID().toString(),
+                                initialDraft = SupplementDraft(),
+                                pendingNih = null
+                            )
+                            creatingSupplement = true
+                            supplementEditor = null
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Enter manually")
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showAddSupplementChooser = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    barcodeLookup?.let { lookup ->
+        AlertDialog(
+            onDismissRequest = { barcodeLookup = null },
+            title = { Text("NIH results") },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .heightIn(max = 360.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        "Barcode ${lookup.rawCode}. Choose a product or enter details manually.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    lookup.results.forEach { result ->
+                        ElevatedCard(
+                            onClick = {
+                                createBootstrap = CreateSupplementBootstrap(
+                                    sessionKey = UUID.randomUUID().toString(),
+                                    initialDraft = SupplementDraft(
+                                        name = result.productName,
+                                        brand = result.brand?.trim().orEmpty()
+                                    ),
+                                    pendingNih = result
+                                )
+                                creatingSupplement = true
+                                supplementEditor = null
+                                barcodeLookup = null
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Text(result.productName, style = MaterialTheme.typography.titleSmall)
+                                if (!result.brand.isNullOrBlank()) {
+                                    Spacer(Modifier.height(4.dp))
+                                    Text(
+                                        result.brand,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        createBootstrap = CreateSupplementBootstrap(
+                            sessionKey = UUID.randomUUID().toString(),
+                            initialDraft = SupplementDraft(
+                                notes = "Barcode ${lookup.rawCode} — none of the NIH results matched this bottle."
+                            ),
+                            pendingNih = null
+                        )
+                        creatingSupplement = true
+                        supplementEditor = null
+                        barcodeLookup = null
+                    }
+                ) {
+                    Text("None of these — manual")
+                }
+            }
+        )
     }
 }
 
@@ -446,14 +649,15 @@ private fun RoutinesTab(
 @Composable
 private fun SupplementsTabContent(
     state: SupplementLibraryState,
-    onAddSupplement: () -> Unit,
+    onRequestAddSupplementChooser: () -> Unit,
     onOpenDetail: (String) -> Unit,
     onTakeNow: (SupplementEntry) -> Unit,
     supplementEditor: SupplementEntry?,
     creatingSupplement: Boolean,
+    createBootstrap: CreateSupplementBootstrap?,
     onDismissSupplementEditor: () -> Unit,
     onResetSupplementEditorMode: () -> Unit,
-    onCreateSupplement: (String, String, SupplementDosagePlan, String) -> Unit,
+    onCreateSupplement: (String, String, SupplementDosagePlan, String, SupplementApiResult?) -> Unit,
     onUpdateSupplement: (String, String, String, SupplementDosagePlan, String) -> Unit
 ) {
     Box(modifier = Modifier.fillMaxSize()) {
@@ -516,7 +720,7 @@ private fun SupplementsTabContent(
         }
 
         FloatingActionButton(
-            onClick = onAddSupplement,
+            onClick = onRequestAddSupplementChooser,
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(16.dp)
@@ -529,10 +733,11 @@ private fun SupplementsTabContent(
         SupplementEditorDialog(
             supplement = supplementEditor,
             creating = creatingSupplement,
+            createBootstrap = if (creatingSupplement && supplementEditor == null) createBootstrap else null,
             onDismiss = onDismissSupplementEditor,
             onDismissReset = onResetSupplementEditorMode,
-            onSave = { id, name, brand, plan, notes ->
-                if (id == null) onCreateSupplement(name, brand, plan, notes)
+            onSave = { id, name, brand, plan, notes, nih ->
+                if (id == null) onCreateSupplement(name, brand, plan, notes, nih)
                 else onUpdateSupplement(id, name, brand, plan, notes)
                 onResetSupplementEditorMode()
                 onDismissSupplementEditor()
@@ -550,20 +755,23 @@ fun SupplementLogScreen(
     signer: EventSigner?,
     onBack: () -> Unit
 ) {
-    var selectedDate by remember { mutableStateOf(LocalDate.now()) }
+    var dateFilter by remember { mutableStateOf<SectionLogDateFilter>(SectionLogDateFilter.AllHistory) }
     var showCalendar by remember { mutableStateOf(false) }
-    val entries = remember(state, selectedDate) { state.chronologicalSupplementLogFor(selectedDate) }
+    val datedEntries = remember(state, dateFilter) {
+        state.datedSupplementEntriesForSectionLog(dateFilter)
+    }
+    val showLogDateOnCards = dateFilter !is SectionLogDateFilter.SingleDay
     val datesWithActivity = remember(state) { datesWithSupplementActivity(state) }
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     val darkTheme = isSystemInDarkTheme()
     val headerMid = if (darkTheme) ErvDarkTherapyRedMid else ErvLightTherapyRedMid
 
-    suspend fun syncDailyLog() {
+    suspend fun syncDailyLogForDate(date: LocalDate) {
         if (relayPool != null && signer != null) {
-            repository.currentState().logFor(selectedDate)?.let { log ->
+            repository.currentState().logFor(date)?.let { log ->
                 SupplementSync.publishDailyLog(relayPool, signer, log)
-                repository.markLogPublished(selectedDate.toString())
+                repository.markLogPublished(date.toString())
             }
         }
     }
@@ -592,20 +800,13 @@ fun SupplementLogScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            DateNavigator(
-                selectedDate = selectedDate,
-                onPreviousDay = { selectedDate = selectedDate.minusDays(1) },
-                onNextDay = { selectedDate = selectedDate.plusDays(1) },
-                onPreviousWeek = { selectedDate = selectedDate.minusWeeks(1) },
-                onNextWeek = { selectedDate = selectedDate.plusWeeks(1) },
-                onTodayClick = { selectedDate = LocalDate.now() },
-                onCalendarClick = { showCalendar = true },
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+            SectionLogFilterBar(
+                filter = dateFilter,
+                onOpenCalendar = { showCalendar = true },
+                onClearFilter = { dateFilter = SectionLogDateFilter.AllHistory }
             )
 
-            HorizontalDivider()
-
-            if (entries.isEmpty()) {
+            if (datedEntries.isEmpty()) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -614,7 +815,11 @@ fun SupplementLogScreen(
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
-                            text = "No supplements logged for this date.",
+                            text = when (dateFilter) {
+                                SectionLogDateFilter.AllHistory -> "No supplements logged yet."
+                                is SectionLogDateFilter.SingleDay -> "No supplements logged for this date."
+                                is SectionLogDateFilter.DateRange -> "No supplements logged in this date range."
+                            },
                             style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -634,31 +839,38 @@ fun SupplementLogScreen(
                 ) {
                     item {
                         Text(
-                            text = "Tap delete on an entry to remove it from this day.",
+                            text = "Newest first. Tap delete to remove from that day.",
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Spacer(Modifier.height(8.dp))
                     }
                     itemsIndexed(
-                        items = entries,
-                        key = { index, entry -> entry.intakeId ?: "$index-${entry.takenAtEpochSeconds}-${entry.supplementId}-${entry.sourceLabel}" }
-                    ) { _, entry ->
+                        items = datedEntries,
+                        key = { index, dated ->
+                            val entry = dated.entry
+                            "${dated.logDate}-${entry.intakeId ?: "$index-${entry.takenAtEpochSeconds}-${entry.supplementId}-${entry.sourceLabel}"}"
+                        }
+                    ) { _, dated ->
+                        val entry = dated.entry
                         SupplementLogEntryCard(
                             entry = entry,
+                            showLogDate = showLogDateOnCards,
+                            logDate = dated.logDate,
                             onDelete = {
                                 scope.launch {
+                                    val logDate = dated.logDate
                                     if (entry.intakeId != null) {
-                                        repository.removeIntake(selectedDate, entry.intakeId!!)
+                                        repository.removeIntake(logDate, entry.intakeId!!)
                                     } else {
                                         repository.removeIntakeByMatch(
-                                            selectedDate,
+                                            logDate,
                                             entry.supplementId,
                                             entry.takenAtEpochSeconds,
                                             entry.sourceLabel
                                         )
                                     }
-                                    syncDailyLog()
+                                    syncDailyLogForDate(logDate)
                                     snackbarHostState.showSnackbar("Entry removed")
                                 }
                             }
@@ -670,14 +882,11 @@ fun SupplementLogScreen(
     }
 
     if (showCalendar) {
-        CalendarPopup(
-            selectedDate = selectedDate,
-            onDateSelected = {
-                selectedDate = it
-                showCalendar = false
-            },
+        SectionLogCalendarSheet(
+            filter = dateFilter,
             onDismiss = { showCalendar = false },
-            datesWithActivity = datesWithActivity
+            datesWithActivity = datesWithActivity,
+            onApplyFilter = { dateFilter = it }
         )
     }
 }
@@ -685,6 +894,8 @@ fun SupplementLogScreen(
 @Composable
 private fun SupplementLogEntryCard(
     entry: SupplementLogEntry,
+    showLogDate: Boolean,
+    logDate: LocalDate,
     onDelete: () -> Unit
 ) {
     ElevatedCard(modifier = Modifier.fillMaxWidth()) {
@@ -696,6 +907,13 @@ private fun SupplementLogEntryCard(
             verticalAlignment = Alignment.Top
         ) {
             Column(modifier = Modifier.weight(1f)) {
+                if (showLogDate) {
+                    Text(
+                        text = logDate.format(DateTimeFormatter.ISO_LOCAL_DATE),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
                 Text(
                     text = entry.supplementName,
                     style = MaterialTheme.typography.titleMedium
@@ -761,12 +979,19 @@ private fun EmptyState(title: String, subtitle: String) {
 private fun SupplementEditorDialog(
     supplement: SupplementEntry?,
     creating: Boolean,
+    createBootstrap: CreateSupplementBootstrap?,
     onDismiss: () -> Unit,
     onDismissReset: () -> Unit,
-    onSave: (String?, String, String, SupplementDosagePlan, String) -> Unit
+    onSave: (String?, String, String, SupplementDosagePlan, String, SupplementApiResult?) -> Unit
 ) {
-    var draft by remember(supplement?.id, creating) {
-        mutableStateOf(supplement?.toSupplementDraft() ?: SupplementDraft())
+    var draft by remember(supplement?.id, creating, createBootstrap?.sessionKey) {
+        mutableStateOf(
+            when {
+                supplement != null -> supplement.toSupplementDraft()
+                createBootstrap != null -> createBootstrap.initialDraft
+                else -> SupplementDraft()
+            }
+        )
     }
     val plan = remember(draft) { draft.toDosagePlan() }
     val isValid = remember(draft) { draft.isValid() }
@@ -790,13 +1015,6 @@ private fun SupplementEditorDialog(
                     value = draft.brand,
                     onValueChange = { draft = draft.copy(brand = it) },
                     label = { Text("Brand") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
-                    value = draft.servingSize,
-                    onValueChange = { draft = draft.copy(servingSize = it) },
-                    label = { Text("Serving size") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -875,7 +1093,8 @@ private fun SupplementEditorDialog(
         confirmButton = {
             TextButton(
                 onClick = {
-                    onSave(supplement?.id, draft.name.trim(), draft.brand.trim(), plan, draft.notes.trim())
+                    val nih = if (creating) createBootstrap?.pendingNih else null
+                    onSave(supplement?.id, draft.name.trim(), draft.brand.trim(), plan, draft.notes.trim(), nih)
                 },
                 enabled = isValid
             ) {
@@ -1519,9 +1738,10 @@ fun SupplementDetailScreen(
         SupplementEditorDialog(
             supplement = supplement,
             creating = false,
+            createBootstrap = null,
             onDismiss = { showEditor = false },
             onDismissReset = { },
-            onSave = { id, name, brand, plan, notes ->
+            onSave = { id, name, brand, plan, notes, _ ->
                 if (id != null) {
                     scope.launch {
                         repository.renameSupplement(id, name, brand, plan, notes)
@@ -1607,7 +1827,7 @@ private fun SupplementDraft.toDosagePlan(): SupplementDosagePlan = SupplementDos
 
 private fun SupplementDraft.isValid(): Boolean {
     if (name.isBlank()) return false
-    return brand.isNotBlank() && servingSize.isNotBlank() && servingAmount.toDoubleOrNull() != null
+    return brand.isNotBlank() && servingAmount.toDoubleOrNull() != null
 }
 
 private fun Double.toDisplayNumber(): String =

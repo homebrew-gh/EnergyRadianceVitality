@@ -134,7 +134,9 @@ import com.erv.app.cardio.eligibleForPhoneGps
 import com.erv.app.cardio.supportsPhoneGpsTracking
 import com.erv.app.cardio.liveDistanceMeters
 import com.erv.app.cardio.supportsOutdoorPaceEstimate
-import com.erv.app.cardio.chronologicalCardioLogFor
+import com.erv.app.SectionLogDateFilter
+import com.erv.app.cardio.DatedCardioSession
+import com.erv.app.cardio.datedCardioSessionsForSectionLog
 import com.erv.app.cardio.effectiveSteps
 import com.erv.app.cardio.stepsSummaryLabel
 import com.erv.app.cardio.derivedTreadmillDistanceMeters
@@ -163,8 +165,8 @@ import com.erv.app.nostr.EventSigner
 import com.erv.app.nostr.Nip96Uploader
 import com.erv.app.nostr.UnsignedEvent
 import com.erv.app.nostr.RelayPool
-import com.erv.app.ui.dashboard.CalendarPopup
-import com.erv.app.ui.dashboard.DateNavigator
+import com.erv.app.ui.dashboard.SectionLogCalendarSheet
+import com.erv.app.ui.dashboard.SectionLogFilterBar
 import com.erv.app.ui.dashboard.datesWithCardioActivity
 import com.erv.app.ui.weighttraining.LiveWorkoutInProgressBanner
 import com.erv.app.ui.media.WorkoutMediaControlPanel
@@ -899,7 +901,7 @@ private fun WorkoutBuilderBottomSheet(
             }
 
             if (modality == CardioModality.INDOOR_TREADMILL && treadmillApplicable) {
-                Text("Treadmill", style = MaterialTheme.typography.labelLarge)
+                Text("Belt speed & incline", style = MaterialTheme.typography.labelLarge)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(
                         selected = speedUnit == CardioSpeedUnit.MPH,
@@ -1339,9 +1341,9 @@ private fun StartCardioModalityForTimerDialog(
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
                         if (builtin == CardioBuiltinActivity.SPRINT) {
-                            "Sprinting: pick outdoor or treadmill next. Treadmill skips belt details and uses a default speed only for on-screen estimates."
+                            "Sprinting: pick outdoor or indoor next. Indoor skips belt details and uses a default speed for on-screen estimates (motorized treadmills; manual belts may differ)."
                         } else {
-                            "Choose outdoor or treadmill before the timer starts."
+                            "Choose outdoor or indoor treadmill before the timer starts."
                         },
                         style = MaterialTheme.typography.bodyMedium
                     )
@@ -1365,7 +1367,7 @@ private fun StartCardioModalityForTimerDialog(
                             }
                         },
                         modifier = Modifier.fillMaxWidth()
-                    ) { Text("Treadmill") }
+                    ) { Text("Indoor treadmill") }
                 }
             },
             confirmButton = {
@@ -1383,7 +1385,7 @@ private fun StartCardioModalityForTimerDialog(
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Text(
-                        "Enter speed and incline for your treadmill session.",
+                        "Enter belt speed and incline for this indoor treadmill session.",
                         style = MaterialTheme.typography.bodyMedium
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1541,11 +1543,15 @@ private fun CardioTimerStartOptionsDialog(
                 Text(
                     when {
                         sprintIndoor ->
-                            "Sprint indoors always uses a time countdown. A default belt speed is used only for estimates on the timer; adjust the logged session if needed."
+                            "Sprint indoors always uses a time countdown. A default belt speed is for on-screen estimates (suited to a motorized treadmill; manual or self-powered belts may not match—edit the saved session if needed)."
                         sprintOutdoor ->
                             "Sprint outdoors: count down to a target time, or to a target distance estimated from your average pace."
                         else ->
-                            "Choose whether the main clock counts up or down. On a treadmill, distance updates from speed × time when you did not enter a fixed distance."
+                            if (modality == CardioModality.INDOOR_TREADMILL) {
+                                "Choose whether the main clock counts up or down. On a treadmill, distance updates from speed × time when you did not enter a fixed distance."
+                            } else {
+                                "Choose whether the main clock counts up or down."
+                            }
                     },
                     style = MaterialTheme.typography.bodyMedium
                 )
@@ -1777,11 +1783,7 @@ private fun ActivitiesTab(
             onDismissRequest = { pendingPick = null },
             title = { Text(pick.displayLabel) },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(
-                        "Start a live timer, or log a session you already finished. Walking, running, sprinting, and rucking will ask outdoor vs treadmill first.",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Button(
                         onClick = {
                             if (pick.builtin?.supportsTreadmillModality() == true) {
@@ -1865,12 +1867,11 @@ private fun ActivitiesTab(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Column(Modifier.weight(1f)) {
-                                    Text(t.name, style = MaterialTheme.typography.titleSmall)
-                                    t.optionalMet?.let {
-                                        Text("MET ~$it", style = MaterialTheme.typography.bodySmall)
-                                    }
-                                }
+                                Text(
+                                    t.name,
+                                    style = MaterialTheme.typography.titleSmall,
+                                    modifier = Modifier.weight(1f)
+                                )
                                 Icon(
                                     cardioActivityListIcon(state.resolveSnapshot(null, t.id)),
                                     contentDescription = null,
@@ -1904,32 +1905,39 @@ fun CardioLogScreen(
     /** When true, calendar opens immediately (e.g. backfill flow from dashboard). */
     openCalendarInitially: Boolean = false
 ) {
-    var selectedDate by remember(initialSelectedDate) {
-        mutableStateOf(initialSelectedDate ?: LocalDate.now())
+    var dateFilter by remember(initialSelectedDate) {
+        mutableStateOf<SectionLogDateFilter>(
+            if (initialSelectedDate != null) SectionLogDateFilter.SingleDay(initialSelectedDate)
+            else SectionLogDateFilter.AllHistory
+        )
     }
     var showCal by remember(openCalendarInitially) {
         mutableStateOf(openCalendarInitially)
     }
     var showManualLog by remember { mutableStateOf(false) }
-    var pendingDelete by remember { mutableStateOf<CardioSession?>(null) }
+    var pendingDelete by remember { mutableStateOf<DatedCardioSession?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val distanceUnit by userPreferences.cardioDistanceUnit.collectAsState(initial = CardioDistanceUnit.MILES)
     val weightKg by userPreferences.fallbackBodyWeightKg.collectAsState(initial = null)
-    val entries = remember(state, selectedDate) { state.chronologicalCardioLogFor(selectedDate) }
+    val datedEntries = remember(state, dateFilter) {
+        state.datedCardioSessionsForSectionLog(dateFilter)
+    }
+    val showLogDateOnCards = dateFilter !is SectionLogDateFilter.SingleDay
     val datesWithActivity = remember(state) { datesWithCardioActivity(state) }
     val darkTheme = isSystemInDarkTheme()
     val therapyRedMid = if (darkTheme) ErvDarkTherapyRedMid else ErvLightTherapyRedMid
 
-    suspend fun syncDailyLogForSelected() {
+    suspend fun syncDailyLogForDate(date: LocalDate) {
         if (relayPool != null && signer != null) {
-            repository.currentState().logFor(selectedDate)?.let { log ->
+            repository.currentState().logFor(date)?.let { log ->
                 CardioSync.publishDailyLog(relayPool, signer, log)
             }
         }
     }
 
-    pendingDelete?.let { toRemove ->
+    pendingDelete?.let { dated ->
+        val toRemove = dated.session
         AlertDialog(
             onDismissRequest = { pendingDelete = null },
             title = { Text("Remove workout?") },
@@ -1943,10 +1951,11 @@ fun CardioLogScreen(
                 TextButton(
                     onClick = {
                         val id = toRemove.id
+                        val logDate = dated.logDate
                         pendingDelete = null
                         scope.launch {
-                            repository.deleteSession(selectedDate, id)
-                            syncDailyLogForSelected()
+                            repository.deleteSession(logDate, id)
+                            syncDailyLogForDate(logDate)
                             snackbarHostState.showSnackbar("Workout removed")
                         }
                     }
@@ -1984,28 +1993,26 @@ fun CardioLogScreen(
         }
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
-            DateNavigator(
-                selectedDate = selectedDate,
-                onPreviousDay = { selectedDate = selectedDate.minusDays(1) },
-                onNextDay = { selectedDate = selectedDate.plusDays(1) },
-                onPreviousWeek = { selectedDate = selectedDate.minusWeeks(1) },
-                onNextWeek = { selectedDate = selectedDate.plusWeeks(1) },
-                onTodayClick = { selectedDate = LocalDate.now() },
-                onCalendarClick = { showCal = true },
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+            SectionLogFilterBar(
+                filter = dateFilter,
+                onOpenCalendar = { showCal = true },
+                onClearFilter = { dateFilter = SectionLogDateFilter.AllHistory }
             )
-            HorizontalDivider()
-            if (entries.isEmpty()) {
+            if (datedEntries.isEmpty()) {
                 Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
-                            "No cardio logged for this date.",
+                            when (dateFilter) {
+                                SectionLogDateFilter.AllHistory -> "No cardio logged yet."
+                                is SectionLogDateFilter.SingleDay -> "No cardio logged for this date."
+                                is SectionLogDateFilter.DateRange -> "No cardio logged in this date range."
+                            },
                             style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Spacer(Modifier.height(8.dp))
                         Text(
-                            "Tap Add workout to log a session for this day.",
+                            "Tap Add workout to log a session for today.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -2018,17 +2025,18 @@ fun CardioLogScreen(
                 ) {
                     item {
                         Text(
-                            "Tap an entry for full details. Delete removes it from this day.",
+                            "Newest first. Tap an entry for full details.",
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Spacer(Modifier.height(8.dp))
                     }
-                    items(entries, key = { it.id }) { s ->
+                    items(datedEntries, key = { "${it.logDate}-${it.session.id}" }) { dated ->
+                        val s = dated.session
                         ElevatedCard(
                             Modifier
                                 .fillMaxWidth()
-                                .clickable { onOpenSessionDetail(selectedDate, s.id) }
+                                .clickable { onOpenSessionDetail(dated.logDate, s.id) }
                         ) {
                             Row(
                                 modifier = Modifier
@@ -2038,6 +2046,13 @@ fun CardioLogScreen(
                                 verticalAlignment = Alignment.Top
                             ) {
                                 Column(Modifier.weight(1f)) {
+                                    if (showLogDateOnCards) {
+                                        Text(
+                                            dated.logDate.format(DateTimeFormatter.ISO_LOCAL_DATE),
+                                            style = MaterialTheme.typography.labelLarge,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -2059,7 +2074,7 @@ fun CardioLogScreen(
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
-                                IconButton(onClick = { pendingDelete = s }) {
+                                IconButton(onClick = { pendingDelete = dated }) {
                                     Icon(Icons.Default.Delete, contentDescription = "Delete workout")
                                 }
                             }
@@ -2070,11 +2085,11 @@ fun CardioLogScreen(
         }
     }
     if (showCal) {
-        CalendarPopup(
-            selectedDate = selectedDate,
-            onDateSelected = { selectedDate = it; showCal = false },
+        SectionLogCalendarSheet(
+            filter = dateFilter,
             onDismiss = { showCal = false },
-            datesWithActivity = datesWithActivity
+            datesWithActivity = datesWithActivity,
+            onApplyFilter = { dateFilter = it }
         )
     }
 
@@ -2084,7 +2099,7 @@ fun CardioLogScreen(
             state = state,
             weightKg = weightKg,
             distanceUnit = distanceUnit,
-            targetLogDate = selectedDate,
+            targetLogDate = LocalDate.now(),
             logOnlyMode = true,
             onDismiss = { showManualLog = false },
             onLog = { date, session ->
@@ -3191,7 +3206,7 @@ private fun RoutineEditorDialog(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Text(
-                    "Add one activity for a simple workout, or several for bricks / tri training. Each leg can use outdoor or treadmill where supported.",
+                    "Add one activity for a simple workout, or several for bricks / tri training. Treadmill (belt) settings apply only to legs that are walk, run, sprint, or ruck when you pick Treadmill.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -3308,7 +3323,7 @@ private fun RoutineEditorDialog(
                                     FilterChip(
                                         selected = draft.modality == CardioModality.INDOOR_TREADMILL,
                                         onClick = { updateStep(index) { it.copy(modality = CardioModality.INDOOR_TREADMILL) } },
-                                        label = { Text("Treadmill") }
+                                        label = { Text(CardioModality.INDOOR_TREADMILL.label()) }
                                     )
                                 }
                             }

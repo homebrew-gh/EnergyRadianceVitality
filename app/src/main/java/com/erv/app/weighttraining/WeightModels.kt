@@ -1,5 +1,6 @@
 package com.erv.app.weighttraining
 
+import com.erv.app.SectionLogDateFilter
 import kotlinx.serialization.EncodeDefault
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -31,6 +32,11 @@ data class WeightExercise(
     val pushOrPull: WeightPushPull,
     val equipment: WeightEquipment,
     /**
+     * When true, live workout can run a guided interval timer for this movement (built-ins set from
+     * catalog rules; custom exercises opt in via the exercise editor).
+     */
+    val hiitCapable: Boolean = false,
+    /**
      * Per-workout rollup for this exercise only (date + workout id, volume, est. 1RM).
      * Rebuilt from [WeightLibraryState.logs] on save; omitted when syncing the shared exercise list.
      */
@@ -43,7 +49,12 @@ data class WeightRoutine(
     val id: String = UUID.randomUUID().toString(),
     val name: String,
     val exerciseIds: List<String> = emptyList(),
-    val notes: String? = null
+    val notes: String? = null,
+    /**
+     * Unix epoch seconds; bumped on each local save so a relay fetch with stale routine data
+     * does not overwrite a just-edited name or exercise list.
+     */
+    val lastModifiedEpochSeconds: Long = 0
 )
 
 @Serializable
@@ -53,16 +64,38 @@ data class WeightSet(
     val rpe: Double? = null
 )
 
+/** Logged result of completing a guided interval block for one exercise in a session. */
+@Serializable
+data class WeightHiitBlockLog(
+    val intervals: Int,
+    val workSeconds: Int,
+    val restSeconds: Int,
+    val weightKg: Double? = null,
+    val rpe: Double? = null,
+)
+
+/** Parameters when starting the full-screen interval timer (not persisted until completed). */
+data class WeightHiitIntervalPlan(
+    val intervals: Int,
+    val workSeconds: Int,
+    val restSeconds: Int,
+    val weightKg: Double?,
+)
+
 @Serializable
 data class WeightWorkoutEntry(
     val exerciseId: String,
-    val sets: List<WeightSet> = emptyList()
+    val sets: List<WeightSet> = emptyList(),
+    /** When present, this exercise was logged via the interval timer (mutually exclusive with reps/sets). */
+    val hiitBlock: WeightHiitBlockLog? = null,
 )
 
 @Serializable
 enum class WeightWorkoutSource {
     @SerialName("LIVE") LIVE,
-    @SerialName("MANUAL") MANUAL
+    @SerialName("MANUAL") MANUAL,
+    /** Session created from file import (JSON or CSV); shown as "Imported" in the UI. */
+    @SerialName("IMPORTED") IMPORTED,
 }
 
 @Serializable
@@ -93,6 +126,51 @@ data class WeightLibraryState(
 
     fun exerciseById(id: String): WeightExercise? = exercises.firstOrNull { it.id == id }
 }
+
+data class DatedWeightWorkout(val logDate: LocalDate, val workout: WeightWorkoutSession)
+
+fun WeightLibraryState.chronologicalWeightWorkoutsForPeriod(start: LocalDate, end: LocalDate): List<DatedWeightWorkout> {
+    val from = if (start <= end) start else end
+    val to = if (start <= end) end else start
+    val rows = mutableListOf<DatedWeightWorkout>()
+    var d = from
+    while (!d.isAfter(to)) {
+        logFor(d)?.workouts?.forEach { w -> rows.add(DatedWeightWorkout(d, w)) }
+        d = d.plusDays(1)
+    }
+    return rows.sortedWith(
+        compareBy<DatedWeightWorkout> { it.logDate }
+            .thenBy { it.workout.startedAtEpochSeconds ?: it.workout.finishedAtEpochSeconds ?: 0L }
+            .thenBy { it.workout.id }
+    )
+}
+
+private fun weightWorkoutEpoch(w: WeightWorkoutSession): Long =
+    w.startedAtEpochSeconds ?: w.finishedAtEpochSeconds ?: 0L
+
+private fun List<DatedWeightWorkout>.sortedWeightNewestFirst(): List<DatedWeightWorkout> =
+    sortedWith(
+        compareByDescending<DatedWeightWorkout> { weightWorkoutEpoch(it.workout) }
+            .thenByDescending { it.logDate }
+            .thenBy { it.workout.id }
+    )
+
+fun WeightLibraryState.datedWeightWorkoutsForSectionLog(filter: SectionLogDateFilter): List<DatedWeightWorkout> =
+    when (filter) {
+        SectionLogDateFilter.AllHistory -> {
+            val rows = mutableListOf<DatedWeightWorkout>()
+            for (dl in logs) {
+                val d = LocalDate.parse(dl.date)
+                dl.workouts.forEach { w -> rows.add(DatedWeightWorkout(d, w)) }
+            }
+            rows.sortedWeightNewestFirst()
+        }
+        is SectionLogDateFilter.SingleDay ->
+            (logFor(filter.day)?.workouts ?: emptyList()).map { DatedWeightWorkout(filter.day, it) }
+                .sortedWeightNewestFirst()
+        is SectionLogDateFilter.DateRange ->
+            chronologicalWeightWorkoutsForPeriod(filter.startInclusive, filter.endInclusive).sortedWeightNewestFirst()
+    }
 
 private val muscleGroupDisplayOrder: List<String> =
     listOf("chest", "back", "legs", "shoulders", "biceps", "triceps", "core")
@@ -142,16 +220,24 @@ data class WeightWorkoutDraft(
     val startedAtEpochSeconds: Long,
     val exerciseOrder: List<String>,
     val setsByExerciseId: Map<String, List<WeightSet>> = emptyMap(),
+    val hiitBlocksByExerciseId: Map<String, WeightHiitBlockLog> = emptyMap(),
     val routineId: String? = null,
     val routineName: String? = null
 )
 
+private fun WeightWorkoutDraft.entryForOrderedExercise(id: String): WeightWorkoutEntry? {
+    val hiit = hiitBlocksByExerciseId[id]
+    if (hiit != null) {
+        return WeightWorkoutEntry(exerciseId = id, sets = emptyList(), hiitBlock = hiit)
+    }
+    val s = setsByExerciseId[id].orEmpty().filter { it.reps > 0 }
+    if (s.isEmpty()) return null
+    return WeightWorkoutEntry(exerciseId = id, sets = s)
+}
+
 /** Build a finished LIVE session or `null` if nothing was logged. */
 fun WeightWorkoutDraft.toFinishedLiveSession(): WeightWorkoutSession? {
-    val entries = exerciseOrder.mapNotNull { id ->
-        val s = setsByExerciseId[id].orEmpty().filter { it.reps > 0 }
-        if (s.isEmpty()) null else WeightWorkoutEntry(exerciseId = id, sets = s)
-    }
+    val entries = exerciseOrder.mapNotNull { id -> entryForOrderedExercise(id) }
     if (entries.isEmpty()) return null
     return WeightWorkoutSession(
         source = WeightWorkoutSource.LIVE,
@@ -170,11 +256,17 @@ fun WeightWorkoutDraft.toFinishedLiveSession(): WeightWorkoutSession? {
 fun buildSessionFromLogEditor(
     existing: WeightWorkoutSession?,
     exerciseOrder: List<String>,
-    setsByExerciseId: Map<String, List<WeightSet>>
+    setsByExerciseId: Map<String, List<WeightSet>>,
+    hiitBlocksByExerciseId: Map<String, WeightHiitBlockLog> = emptyMap()
 ): WeightWorkoutSession? {
     val entries = exerciseOrder.mapNotNull { id ->
-        val s = setsByExerciseId[id].orEmpty().filter { it.reps > 0 }
-        if (s.isEmpty()) null else WeightWorkoutEntry(exerciseId = id, sets = s)
+        val hiit = hiitBlocksByExerciseId[id]
+        if (hiit != null) {
+            WeightWorkoutEntry(exerciseId = id, sets = emptyList(), hiitBlock = hiit)
+        } else {
+            val s = setsByExerciseId[id].orEmpty().filter { it.reps > 0 }
+            if (s.isEmpty()) null else WeightWorkoutEntry(exerciseId = id, sets = s)
+        }
     }
     if (entries.isEmpty()) return null
     return if (existing == null) {

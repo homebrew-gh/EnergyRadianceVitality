@@ -1,5 +1,6 @@
 package com.erv.app.cardio
 
+import com.erv.app.SectionLogDateFilter
 import kotlinx.serialization.Serializable
 import java.time.LocalDate
 import java.util.UUID
@@ -53,7 +54,7 @@ enum class CardioModality {
 
 fun CardioModality.label(): String = when (this) {
     CardioModality.OUTDOOR -> "Outdoor"
-    CardioModality.INDOOR_TREADMILL -> "Treadmill"
+    CardioModality.INDOOR_TREADMILL -> "Indoor treadmill"
 }
 
 /** Display / entry for distance fields and summaries (stored values remain meters). */
@@ -144,7 +145,10 @@ data class CardioTreadmillParams(
 
 @Serializable
 enum class CardioSessionSource {
-    MANUAL, DURATION_TIMER
+    MANUAL,
+    DURATION_TIMER,
+    /** Merged from JSON/CSV file import (Settings → Import / export). */
+    IMPORTED,
 }
 
 /** Placeholder for future BLE HR (Phase 10). */
@@ -401,8 +405,51 @@ data class CardioActivityRow(val summaryLine: String)
 
 fun CardioLibraryState.chronologicalCardioLogFor(date: LocalDate): List<CardioSession> {
     val log = logFor(date) ?: return emptyList()
-    return log.sessions.sortedByDescending { it.loggedAtEpochSeconds }
+    return log.sessions.sortedWith(
+        compareBy<CardioSession> { it.loggedAtEpochSeconds }.thenBy { it.id }
+    )
 }
+
+data class DatedCardioSession(val logDate: LocalDate, val session: CardioSession)
+
+fun CardioLibraryState.chronologicalCardioLogForRange(start: LocalDate, end: LocalDate): List<DatedCardioSession> {
+    val from = if (start <= end) start else end
+    val to = if (start <= end) end else start
+    val rows = mutableListOf<DatedCardioSession>()
+    var d = from
+    while (!d.isAfter(to)) {
+        chronologicalCardioLogFor(d).forEach { rows.add(DatedCardioSession(d, it)) }
+        d = d.plusDays(1)
+    }
+    return rows.sortedWith(
+        compareBy<DatedCardioSession> { it.logDate }
+            .thenBy { it.session.loggedAtEpochSeconds }
+            .thenBy { it.session.id }
+    )
+}
+
+private fun List<DatedCardioSession>.sortedCardioNewestFirst(): List<DatedCardioSession> =
+    sortedWith(
+        compareByDescending<DatedCardioSession> { it.session.loggedAtEpochSeconds }
+            .thenByDescending { it.logDate }
+            .thenBy { it.session.id }
+    )
+
+fun CardioLibraryState.datedCardioSessionsForSectionLog(filter: SectionLogDateFilter): List<DatedCardioSession> =
+    when (filter) {
+        SectionLogDateFilter.AllHistory -> {
+            val rows = mutableListOf<DatedCardioSession>()
+            for (dl in logs) {
+                val d = LocalDate.parse(dl.date)
+                dl.sessions.forEach { rows.add(DatedCardioSession(d, it)) }
+            }
+            rows.sortedCardioNewestFirst()
+        }
+        is SectionLogDateFilter.SingleDay ->
+            chronologicalCardioLogFor(filter.day).map { DatedCardioSession(filter.day, it) }.sortedCardioNewestFirst()
+        is SectionLogDateFilter.DateRange ->
+            chronologicalCardioLogForRange(filter.startInclusive, filter.endInclusive).sortedCardioNewestFirst()
+    }
 
 fun CardioLibraryState.cardioActivityRowsFor(
     date: LocalDate,
