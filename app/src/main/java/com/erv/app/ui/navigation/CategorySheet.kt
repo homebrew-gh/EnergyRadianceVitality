@@ -58,7 +58,6 @@ val categories = listOf(
     Category("sleep", "Sleep", Icons.Default.Bedtime, "category/sleep"),
     Category("protocols", "Protocols", Icons.Default.Rule, "category/protocols"),
     Category("body_tracker", "Body tracker", Icons.Default.MonitorWeight, "category/body_tracker"),
-    Category("hiit", "HIIT", Icons.Default.Timer, "category/hiit"),
     Category("programs", "Programs", Icons.Default.CalendarMonth, "category/programs")
 )
 

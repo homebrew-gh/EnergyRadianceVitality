@@ -1,10 +1,11 @@
 package com.erv.app.cardio
 
+import com.erv.app.nostr.EncryptedKind30078Publish
 import com.erv.app.nostr.EventSigner
 import com.erv.app.nostr.NostrEvent
 import com.erv.app.nostr.NostrFilter
 import com.erv.app.nostr.RelayPool
-import com.erv.app.nostr.UnsignedEvent
+import java.time.LocalDate
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -50,6 +51,31 @@ object CardioSync {
     ): Boolean {
         val content = json.encodeToString(CardioDayLog.serializer(), log.withoutGpsTracks())
         return publishEvent(relayPool, signer, dailyTag(log.date), content)
+    }
+
+    /** Master + day logs for [com.erv.app.nostr.RelayPublishOutbox] after cardio import. */
+    fun cardioImportOutboxEntries(
+        state: CardioLibraryState,
+        affectedDates: List<String>,
+    ): List<Pair<String, String>> {
+        val masterPayload = CardioMasterPayload(
+            routines = state.routines,
+            customActivityTypes = state.customActivityTypes,
+            quickLaunches = state.quickLaunches
+        )
+        val pairs = mutableListOf<Pair<String, String>>()
+        pairs += CARDIO_MASTER_D_TAG to json.encodeToString(
+            CardioMasterPayload.serializer(),
+            masterPayload
+        )
+        for (dateIso in affectedDates.distinct().sorted()) {
+            val log = state.logFor(LocalDate.parse(dateIso)) ?: continue
+            pairs += dailyTag(dateIso) to json.encodeToString(
+                CardioDayLog.serializer(),
+                log.withoutGpsTracks()
+            )
+        }
+        return pairs
     }
 
     suspend fun fetchFromNetwork(
@@ -111,18 +137,8 @@ object CardioSync {
         signer: EventSigner,
         dTag: String,
         plaintext: String
-    ): Boolean {
-        val encrypted = signer.encryptToSelf(plaintext)
-        val unsigned = UnsignedEvent(
-            pubkey = signer.publicKey,
-            createdAt = nowEpochSeconds(),
-            kind = 30078,
-            tags = listOf(listOf("d", dTag)),
-            content = encrypted
-        )
-        val signed = signer.sign(unsigned)
-        return relayPool.publish(signed)
-    }
+    ): Boolean =
+        EncryptedKind30078Publish.publish(relayPool, signer, dTag, plaintext)
 
     private fun decodeMaster(raw: String): CardioMasterPayload? =
         try {

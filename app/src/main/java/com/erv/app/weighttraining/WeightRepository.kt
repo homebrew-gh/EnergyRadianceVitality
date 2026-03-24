@@ -49,7 +49,22 @@ class WeightRepository(context: Context) {
     }
 
     suspend fun upsertRoutine(routine: WeightRoutine) {
-        updateState { it.copy(routines = it.routines.upsertById(routine) { r -> r.id }) }
+        val stamped = routine.copy(lastModifiedEpochSeconds = System.currentTimeMillis() / 1000)
+        updateState { it.copy(routines = it.routines.upsertById(stamped) { r -> r.id }) }
+    }
+
+    /**
+     * Applies a relay snapshot like [replaceAll] for exercises and logs, but merges [WeightLibraryState.routines]
+     * so a fetch that returns data older than a just-saved local edit cannot revert routine names or lists.
+     */
+    suspend fun mergeRemoteFetch(remote: WeightLibraryState) {
+        updateState { local ->
+            local.copy(
+                exercises = remote.exercises,
+                routines = mergeRoutinesPreservingNewerEdits(local.routines, remote.routines),
+                logs = remote.logs
+            )
+        }
     }
 
     suspend fun deleteRoutine(routineId: String) {
@@ -86,6 +101,40 @@ class WeightRepository(context: Context) {
         }
     }
 
+    private fun parseImportEnvelope(text: String): Pair<ErvWeightHistoryImportEnvelope?, List<String>> {
+        val trimmed = text.trim()
+        val (jsonEnv, jsonErr) = WeightHistoryImport.parseJsonEnvelope(trimmed)
+        if (jsonEnv != null) return jsonEnv to emptyList()
+        val (csvEnv, csvErr) = WeightCsvHistoryImport.parse(trimmed)
+        if (csvEnv != null) return csvEnv to csvErr
+        return null to (jsonErr + csvErr).distinct().ifEmpty { listOf("Unrecognized import format") }
+    }
+
+    /**
+     * Parses JSON or CSV and computes the merged state **without** persisting.
+     * On success, show a preview then call [commitImportedMerge].
+     */
+    suspend fun previewImportedWeightText(text: String): WeightImportOutcome {
+        val (envelope, parseErr) = parseImportEnvelope(text)
+        if (envelope == null) return WeightImportOutcome.Failure(parseErr)
+        return WeightHistoryImport.merge(currentState(), envelope)
+    }
+
+    /** Persists a successful preview from [previewImportedWeightText]. */
+    suspend fun commitImportedMerge(outcome: WeightImportOutcome.Success) {
+        replaceAll(outcome.newState)
+    }
+
+    /**
+     * Parses **JSON** ([ErvWeightHistoryImportEnvelope]) or **ERV CSV** (see in-app CSV guide),
+     * then merges into local state (new sessions use [WeightWorkoutSource.IMPORTED]).
+     */
+    suspend fun mergeImportedWeightText(text: String): WeightImportOutcome {
+        val o = previewImportedWeightText(text)
+        if (o is WeightImportOutcome.Success) commitImportedMerge(o)
+        return o
+    }
+
     private suspend fun updateState(transform: (WeightLibraryState) -> WeightLibraryState) {
         appContext.weightTrainingDataStore.edit { prefs ->
             val current = decodeState(prefs[Keys.STATE])
@@ -110,8 +159,15 @@ class WeightRepository(context: Context) {
             base.exercises.isEmpty() -> base.copy(exercises = defaultCatalogExercises())
             else -> base.mergeMissingCatalogExercises()
         }
+        val catalogById = defaultCatalogExercises().associateBy { it.id }
         return merged
-            .copy(exercises = merged.exercises.map { it.withMigratedArmsMuscleGroup() })
+            .copy(
+                exercises = merged.exercises.map { ex ->
+                    val fromCatalog = catalogById[ex.id]
+                    val migrated = ex.withMigratedArmsMuscleGroup()
+                    fromCatalog?.let { migrated.copy(hiitCapable = it.hiitCapable) } ?: migrated
+                }
+            )
             .withRebuiltExerciseSessionSummaries()
     }
 }
@@ -120,6 +176,24 @@ private fun WeightLibraryState.mergeMissingCatalogExercises(): WeightLibraryStat
     val existingIds = exercises.map { it.id }.toSet()
     val toAdd = defaultCatalogExercises().filter { it.id !in existingIds }
     return if (toAdd.isEmpty()) this else copy(exercises = exercises + toAdd)
+}
+
+private fun mergeRoutinesPreservingNewerEdits(
+    local: List<WeightRoutine>,
+    remote: List<WeightRoutine>
+): List<WeightRoutine> {
+    val ids = (local.map { it.id } + remote.map { it.id }).toSet()
+    return ids.map { id ->
+        val l = local.firstOrNull { it.id == id }
+        val r = remote.firstOrNull { it.id == id }
+        when {
+            l == null -> r!!
+            r == null -> l
+            l.lastModifiedEpochSeconds > r.lastModifiedEpochSeconds -> l
+            r.lastModifiedEpochSeconds > l.lastModifiedEpochSeconds -> r
+            else -> r
+        }
+    }
 }
 
 private fun <T : Any> List<T>.upsertById(entry: T, idSelector: (T) -> String): List<T> {

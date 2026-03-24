@@ -239,6 +239,6 @@ The Android app encrypts category JSON and publishes **kind 30078** events with 
 |---------|--------------------------------|
 | `erv/weight/exercises` | `{ "exercises": [ { "id", "name", "muscleGroup", "pushOrPull", "equipment" } ] }` — exercise library (replaceable). |
 | `erv/weight/routines` | `{ "routines": [ { "id", "name", "exerciseIds", "notes?" } ] }` — templates (replaceable). |
-| `erv/weight/<YYYY-MM-DD>` | `{ "date", "workouts": [ { "id", "source", timestamps?, "routineId?", "routineName?", "entries": [ { "exerciseId", "sets": [ { "reps", "weightKg?", "rpe?" } ] } ] } ] }` — **one replaceable event per calendar day**; multiple sessions that day are elements of `workouts[]`. |
+| `erv/weight/<YYYY-MM-DD>` | `{ "date", "workouts": [ { "id", "source" (LIVE \| MANUAL \| IMPORTED), timestamps?, "routineId?", "routineName?", "entries": [ { "exerciseId", "sets": [ { "reps", "weightKg?", "rpe?" } ] } ] } ] }` — **one replaceable event per calendar day**; multiple sessions that day are elements of `workouts[]`. |
 
 Per-exercise **history** in the app is derived by scanning stored day logs + `entries` (not a separate Nostr document). Merge/sync for v1 follows **last published event wins** per `d` tag after fetch, consistent with other categories (see WEIGHT_TRAINING_SPEC multi-device note).

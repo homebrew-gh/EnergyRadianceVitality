@@ -1,7 +1,7 @@
 {
     "logs": [
         {
-            "outputFile": "com.erv.app-mergeDebugResources-60:/values-en-rCA/values-en-rCA.xml",
+            "outputFile": "com.erv.app-mergeDebugResources-67:/values-en-rCA/values-en-rCA.xml",
             "map": [
                 {
                     "source": "/home/samcornwell/.gradle/caches/transforms-3/3a7a9d814b7b82b6f9bbbf606dd203ea/transformed/ui-release/res/values-en-rCA/values-en-rCA.xml",

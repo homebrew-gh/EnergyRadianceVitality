@@ -25,17 +25,25 @@ fun estimatedOneRmKg(weightKg: Double, reps: Int): Double? {
     return if (brzycki != null) max(epley, brzycki) else epley
 }
 
-fun WeightWorkoutEntry.volumeKgForEntry(): Double =
-    sets.sumOf { s -> (s.weightKg ?: 0.0) * s.reps }
+fun WeightWorkoutEntry.volumeKgForEntry(): Double {
+    hiitBlock?.let { b ->
+        return (b.weightKg ?: 0.0) * b.intervals.coerceAtLeast(0)
+    }
+    return sets.sumOf { s -> (s.weightKg ?: 0.0) * s.reps }
+}
 
-fun WeightWorkoutEntry.bestEstOneRmKgForEntry(): Double? =
-    sets.mapNotNull { s ->
+fun WeightWorkoutEntry.bestEstOneRmKgForEntry(): Double? {
+    if (hiitBlock != null) return null
+    return sets.mapNotNull { s ->
         val w = s.weightKg ?: return@mapNotNull null
         estimatedOneRmKg(w, s.reps)
     }.maxOrNull()
+}
 
-fun WeightWorkoutEntry.workingSetCount(): Int =
-    sets.count { it.reps > 0 }
+fun WeightWorkoutEntry.workingSetCount(): Int {
+    hiitBlock?.let { return it.intervals.coerceAtLeast(0) }
+    return sets.count { it.reps > 0 }
+}
 
 /**
  * Recomputes [WeightExercise.sessionSummaries] for every exercise in the library from [logs].

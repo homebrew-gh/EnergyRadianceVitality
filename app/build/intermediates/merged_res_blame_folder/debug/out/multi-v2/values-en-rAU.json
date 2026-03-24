@@ -1,7 +1,7 @@
 {
     "logs": [
         {
-            "outputFile": "com.erv.app-mergeDebugResources-60:/values-en-rAU/values-en-rAU.xml",
+            "outputFile": "com.erv.app-mergeDebugResources-67:/values-en-rAU/values-en-rAU.xml",
             "map": [
                 {
                     "source": "/home/samcornwell/.gradle/caches/transforms-3/f25327c9de0e779b8543d04358e65f9b/transformed/foundation-release/res/values-en-rAU/values-en-rAU.xml",

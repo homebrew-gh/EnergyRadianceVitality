@@ -196,6 +196,7 @@ private fun CardioSessionDetailBody(
                 when (session.source) {
                     CardioSessionSource.MANUAL -> "Manual"
                     CardioSessionSource.DURATION_TIMER -> "Timer"
+                    CardioSessionSource.IMPORTED -> "Imported"
                 }
             )
         }

@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.erv.app.data.UserPreferences
 import com.erv.app.weighttraining.WeightLibraryState
 import com.erv.app.weighttraining.WeightLiveWorkoutForegroundService
+import com.erv.app.weighttraining.WeightHiitBlockLog
 import com.erv.app.weighttraining.WeightRoutine
 import com.erv.app.weighttraining.WeightSet
 import com.erv.app.weighttraining.WeightWorkoutDraft
@@ -69,7 +70,8 @@ class WeightLiveWorkoutViewModel(application: Application) : AndroidViewModel(ap
         if (_activeDraft.value != null) return false
         val draft = WeightWorkoutDraft(
             startedAtEpochSeconds = weightNowEpochSeconds(),
-            exerciseOrder = emptyList()
+            exerciseOrder = emptyList(),
+            hiitBlocksByExerciseId = emptyMap()
         )
         _activeDraft.value = draft
         _liveWorkoutUiExpanded.value = true
@@ -86,9 +88,10 @@ class WeightLiveWorkoutViewModel(application: Application) : AndroidViewModel(ap
         val draft = WeightWorkoutDraft(
             startedAtEpochSeconds = weightNowEpochSeconds(),
             exerciseOrder = ids,
+            setsByExerciseId = setsSeed,
+            hiitBlocksByExerciseId = emptyMap(),
             routineId = routine.id,
-            routineName = routine.name,
-            setsByExerciseId = setsSeed
+            routineName = routine.name
         )
         _activeDraft.value = draft
         _liveWorkoutUiExpanded.value = true
@@ -123,7 +126,12 @@ class WeightLiveWorkoutViewModel(application: Application) : AndroidViewModel(ap
         val id = d.exerciseOrder[index]
         val newOrder = d.exerciseOrder.toMutableList().also { it.removeAt(index) }
         val newSets = d.setsByExerciseId - id
-        _activeDraft.value = d.copy(exerciseOrder = newOrder, setsByExerciseId = newSets)
+        val newHiit = d.hiitBlocksByExerciseId - id
+        _activeDraft.value = d.copy(
+            exerciseOrder = newOrder,
+            setsByExerciseId = newSets,
+            hiitBlocksByExerciseId = newHiit
+        )
         persistDraft()
     }
 
@@ -151,7 +159,27 @@ class WeightLiveWorkoutViewModel(application: Application) : AndroidViewModel(ap
 
     fun setSetsForExercise(exerciseId: String, sets: List<WeightSet>) {
         val d = _activeDraft.value ?: return
-        _activeDraft.value = d.copy(setsByExerciseId = d.setsByExerciseId + (exerciseId to sets))
+        _activeDraft.value = d.copy(
+            setsByExerciseId = d.setsByExerciseId + (exerciseId to sets),
+            hiitBlocksByExerciseId = d.hiitBlocksByExerciseId - exerciseId
+        )
+        persistDraft()
+    }
+
+    fun setHiitBlockForExercise(exerciseId: String, block: WeightHiitBlockLog) {
+        val d = _activeDraft.value ?: return
+        val blankRow = listOf(WeightSet(reps = 0, weightKg = null, rpe = null))
+        _activeDraft.value = d.copy(
+            hiitBlocksByExerciseId = d.hiitBlocksByExerciseId + (exerciseId to block),
+            setsByExerciseId = d.setsByExerciseId + (exerciseId to blankRow)
+        )
+        persistDraft()
+    }
+
+    fun clearHiitBlockForExercise(exerciseId: String) {
+        val d = _activeDraft.value ?: return
+        if (exerciseId !in d.hiitBlocksByExerciseId) return
+        _activeDraft.value = d.copy(hiitBlocksByExerciseId = d.hiitBlocksByExerciseId - exerciseId)
         persistDraft()
     }
 }

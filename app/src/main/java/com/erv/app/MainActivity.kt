@@ -65,6 +65,8 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -384,7 +386,7 @@ private fun MainAppShell(
                     },
                     async {
                         WeightSync.fetchFromNetwork(relayPool, signer, pubkey, timeoutMs = 8000)
-                            ?.let { weightRepository.replaceAll(it) }
+                            ?.let { weightRepository.mergeRemoteFetch(it) }
                     },
                     async {
                         HeatColdSync.fetchFromNetwork(relayPool, signer, pubkey, timeoutMs = 8000)
@@ -418,6 +420,15 @@ private fun MainAppShell(
     }
     DisposableEffect(relayPool) {
         onDispose { relayPool?.disconnect() }
+    }
+
+    LaunchedEffect(relayPool, signer, relayUrlsVersion) {
+        val pool = relayPool ?: return@LaunchedEffect
+        val sig = signer ?: return@LaunchedEffect
+        delay(800)
+        withContext(Dispatchers.IO) {
+            RelayPublishOutbox.get(context.applicationContext).kickDrain(pool, sig)
+        }
     }
 
     Box(Modifier.fillMaxSize()) {

@@ -68,6 +68,13 @@ fun WeightManualWorkoutEditorScreen(
             existingSession?.entries?.associate { it.exerciseId to it.sets }.orEmpty()
         )
     }
+    var hiitBlocksByExerciseId by remember(sessionKey) {
+        mutableStateOf(
+            existingSession?.entries?.mapNotNull { e ->
+                e.hiitBlock?.let { e.exerciseId to it }
+            }?.toMap().orEmpty()
+        )
+    }
     var showPickExercise by remember { mutableStateOf(false) }
     var showNothingLogged by remember { mutableStateOf(false) }
     var setsCollapsedIds by remember(sessionKey) { mutableStateOf(emptySet<String>()) }
@@ -94,7 +101,7 @@ fun WeightManualWorkoutEditorScreen(
         AlertDialog(
             onDismissRequest = { showNothingLogged = false },
             title = { Text("Nothing to save") },
-            text = { Text("Add at least one exercise with reps logged for one or more sets.") },
+            text = { Text("Add at least one exercise with reps for a set, or a saved interval block from a live workout.") },
             confirmButton = {
                 TextButton(onClick = { showNothingLogged = false }) { Text("OK") }
             }
@@ -145,10 +152,19 @@ fun WeightManualWorkoutEditorScreen(
                             Spacer(Modifier.width(8.dp))
                             TextButton(
                                 onClick = {
+                                    val hasAny = exerciseOrder.any { id ->
+                                        hiitBlocksByExerciseId[id] != null ||
+                                            setsByExerciseId[id].orEmpty().any { it.reps > 0 }
+                                    }
+                                    if (!hasAny) {
+                                        showNothingLogged = true
+                                        return@TextButton
+                                    }
                                     val built = buildSessionFromLogEditor(
                                         existingSession,
                                         exerciseOrder,
-                                        setsByExerciseId
+                                        setsByExerciseId,
+                                        hiitBlocksByExerciseId
                                     )
                                     if (built == null) showNothingLogged = true
                                     else onSave(built)
@@ -234,6 +250,7 @@ fun WeightManualWorkoutEditorScreen(
                                 onRemoveExercise = {
                                     exerciseOrder = exerciseOrder.filterIndexed { i, _ -> i != index }
                                     setsByExerciseId = setsByExerciseId - exerciseId
+                                    hiitBlocksByExerciseId = hiitBlocksByExerciseId - exerciseId
                                     setsCollapsedIds = setsCollapsedIds - exerciseId
                                 },
                                 setsCollapsed = exerciseId in setsCollapsedIds,
@@ -243,7 +260,13 @@ fun WeightManualWorkoutEditorScreen(
                                 onExpandSets = {
                                     setsCollapsedIds = setsCollapsedIds - exerciseId
                                 },
-                                onRecentWorkouts = { recentWorkoutsExerciseId = exerciseId }
+                                onRecentWorkouts = { recentWorkoutsExerciseId = exerciseId },
+                                hiitCapable = ex?.hiitCapable == true,
+                                hiitBlock = hiitBlocksByExerciseId[exerciseId],
+                                onClearHiitBlock = {
+                                    hiitBlocksByExerciseId = hiitBlocksByExerciseId - exerciseId
+                                },
+                                onStartHiitTimer = null
                             )
                         }
                     }

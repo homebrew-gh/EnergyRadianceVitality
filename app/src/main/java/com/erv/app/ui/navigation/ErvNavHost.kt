@@ -195,6 +195,10 @@ fun ErvNavHost(
                 keyManager = keyManager,
                 amberHost = amberHost,
                 userPreferences = userPreferences,
+                weightRepository = weightRepository,
+                cardioRepository = cardioRepository,
+                relayPool = relayPool,
+                signer = signer,
                 onBack = { navController.popBackStack() },
                 onRelaysChanged = onRelaysChanged,
                 onLogout = onLogout

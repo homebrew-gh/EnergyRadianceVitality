@@ -51,6 +51,7 @@ import com.erv.app.weighttraining.WeightRoutine
 import com.erv.app.weighttraining.WeightWorkoutSession
 import com.erv.app.weighttraining.WeightWorkoutSource
 import com.erv.app.weighttraining.totalSetCount
+import com.erv.app.weighttraining.formatHiitBlockSummaryLine
 import com.erv.app.weighttraining.formatWeightLoadNumber
 import com.erv.app.weighttraining.totalVolumeLoadTimesReps
 import com.erv.app.weighttraining.weightLoadUnitSuffix
@@ -77,6 +78,7 @@ internal fun buildWeightWorkoutNoteContent(
     val headline = when (session.source) {
         WeightWorkoutSource.LIVE -> "\uD83C\uDFCB\uFE0F Weight workout (live)"
         WeightWorkoutSource.MANUAL -> "\uD83C\uDFCB\uFE0F Weight workout"
+        WeightWorkoutSource.IMPORTED -> "\uD83C\uDFCB\uFE0F Weight workout (imported)"
     }
     append("$headline\n")
     append("Date: ${logDate.format(DateTimeFormatter.ISO_LOCAL_DATE)}\n")
@@ -94,7 +96,9 @@ internal fun buildWeightWorkoutNoteContent(
     session.entries.forEach { e ->
         val name = library.exerciseById(e.exerciseId)?.name ?: e.exerciseId
         val addedLoad = library.exerciseById(e.exerciseId)?.equipment == WeightEquipment.OTHER
-        val setsLine = e.sets.joinToString(", ") { st ->
+        val detailLine = e.hiitBlock?.let { b ->
+            formatHiitBlockSummaryLine(b, displayUnit, unitSfx, addedLoad)
+        } ?: e.sets.joinToString(", ") { st ->
             buildString {
                 append("${st.reps} reps")
                 st.weightKg?.let { w ->
@@ -104,7 +108,7 @@ internal fun buildWeightWorkoutNoteContent(
                 }
             }
         }
-        append("• $name: $setsLine\n")
+        append("• $name: $detailLine\n")
     }
     append("\n#erv #workout #fitness")
 }
@@ -220,7 +224,9 @@ fun WeightWorkoutSummaryFullScreen(
             session.entries.forEach { e ->
                 val name = library.exerciseById(e.exerciseId)?.name ?: e.exerciseId
                 val addedLoad = library.exerciseById(e.exerciseId)?.equipment == WeightEquipment.OTHER
-                val line = e.sets.joinToString(" · ") { st ->
+                val line = e.hiitBlock?.let { b ->
+                    formatHiitBlockSummaryLine(b, loadUnit, sfx, addedLoad)
+                } ?: e.sets.joinToString(" · ") { st ->
                     buildString {
                         append(st.reps)
                         st.weightKg?.let { w ->

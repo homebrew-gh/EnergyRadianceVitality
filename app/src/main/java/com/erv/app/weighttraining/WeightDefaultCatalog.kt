@@ -139,9 +139,45 @@ internal fun builtinCatalogBeyondCompounds(): List<WeightExercise> = listOf(
     WeightExercise(id = "erv-weight-exercise-kb-overhead-squat-v1", name = "Kettlebell Overhead Squat", muscleGroup = "legs", pushOrPull = WeightPushPull.PUSH, equipment = WeightEquipment.KETTLEBELL),
 )
 
-/** Full built-in catalog: four compounds + [builtinCatalogBeyondCompounds]. */
+/** Built-ins where slow, skill-heavy patterns should not default to interval mode. */
+private val KettlebellHiitExcludedIds: Set<String> = setOf(
+    "erv-weight-exercise-kb-windmill-v1",
+    "erv-weight-exercise-kb-turkish-getup-v1",
+)
+
+/**
+ * Non-kettlebell built-ins commonly done as EMOM / timed intervals or conditioning finishers.
+ */
+private val NonKbBuiltinHiitCapableIds: Set<String> = setOf(
+    "erv-weight-exercise-db-swing-v1",
+    "erv-weight-exercise-db-farmers-carry-v1",
+    "erv-weight-exercise-db-renegade-row-v1",
+    "erv-weight-exercise-db-goblet-squat-v1",
+    "erv-weight-exercise-db-lunge-v1",
+    "erv-weight-exercise-db-reverse-lunge-v1",
+    "erv-weight-exercise-db-step-up-v1",
+    "erv-weight-exercise-db-bulgarian-split-v1",
+    "erv-weight-exercise-db-sumo-squat-v1",
+    "erv-weight-exercise-bb-push-press-v1",
+    "erv-weight-exercise-bb-lunge-walk-v1",
+    "erv-weight-exercise-bw-pullup-v1",
+    "erv-weight-exercise-bw-chinup-v1",
+    "erv-weight-exercise-bw-dip-v1",
+)
+
+/** Resolves [WeightExercise.hiitCapable] for stable built-in ids; custom UUID exercises use stored flag only. */
+internal fun builtinHiitCapableForId(id: String): Boolean {
+    if (!id.startsWith("erv-weight-exercise-")) return false
+    if (id.startsWith("erv-weight-exercise-kb-") && id !in KettlebellHiitExcludedIds) return true
+    return id in NonKbBuiltinHiitCapableIds
+}
+
+private fun WeightExercise.withResolvedBuiltinHiitFlag(): WeightExercise =
+    copy(hiitCapable = builtinHiitCapableForId(id))
+
+/** Full built-in catalog: four compounds + [builtinCatalogBeyondCompounds], with HIIT flags applied. */
 fun defaultCatalogExercises(): List<WeightExercise> =
-    defaultCompoundExercises() + builtinCatalogBeyondCompounds()
+    (defaultCompoundExercises() + builtinCatalogBeyondCompounds()).map { it.withResolvedBuiltinHiitFlag() }
 
 private object CatalogBicepsTricepsIds {
     val biceps: Set<String> by lazy {

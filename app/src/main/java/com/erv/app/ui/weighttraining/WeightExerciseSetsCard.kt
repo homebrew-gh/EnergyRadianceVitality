@@ -18,18 +18,21 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -42,8 +45,11 @@ import androidx.compose.ui.unit.dp
 import com.erv.app.R
 import com.erv.app.data.BodyWeightUnit
 import com.erv.app.weighttraining.WeightEquipment
+import com.erv.app.weighttraining.WeightHiitBlockLog
+import com.erv.app.weighttraining.WeightHiitIntervalPlan
 import com.erv.app.weighttraining.WeightSet
 import com.erv.app.weighttraining.WeightWorkoutDraft
+import com.erv.app.weighttraining.formatHiitBlockSummaryLine
 import com.erv.app.weighttraining.formatRpeFieldForSets
 import com.erv.app.weighttraining.formatSetSummaryLine
 import com.erv.app.weighttraining.formatWeightLoadNumber
@@ -90,11 +96,23 @@ fun WeightExerciseInlineSetsCard(
     onCollapseSets: (() -> Unit)? = null,
     onExpandSets: (() -> Unit)? = null,
     /** When set, shows a control to open recent logged sessions for this exercise (e.g. live workout reference). */
-    onRecentWorkouts: (() -> Unit)? = null
+    onRecentWorkouts: (() -> Unit)? = null,
+    hiitCapable: Boolean = false,
+    hiitBlock: WeightHiitBlockLog? = null,
+    onClearHiitBlock: (() -> Unit)? = null,
+    onStartHiitTimer: ((WeightHiitIntervalPlan) -> Unit)? = null,
 ) {
     val loadSuffix = weightLoadUnitSuffix(loadUnit)
     val weightIsAddedLoad = equipment == WeightEquipment.OTHER
     var showAddedLoadInfo by remember { mutableStateOf(false) }
+    var hiitUiMode by rememberSaveable(exerciseName) { mutableStateOf("standard") }
+    var hiitIntervals by remember(exerciseName) { mutableStateOf("8") }
+    var hiitWorkSec by remember(exerciseName) { mutableStateOf("30") }
+    var hiitRestSec by remember(exerciseName) { mutableStateOf("30") }
+    var hiitWeight by remember(exerciseName) { mutableStateOf("") }
+    val showHiitChooser = hiitCapable && onStartHiitTimer != null
+    val useIntervalsUi = showHiitChooser && hiitUiMode == "intervals" && hiitBlock == null
+    val showSetsTable = hiitBlock == null && (!useIntervalsUi || !showHiitChooser)
     val canCollapseSets = onCollapseSets != null && onExpandSets != null
     val collapsedSummary = canCollapseSets && setsCollapsed
     val expandCardCd = stringResource(R.string.weight_exercise_card_expand_cd)
@@ -184,32 +202,130 @@ fun WeightExerciseInlineSetsCard(
                     }
                 }
             }
-            if (canCollapseSets) {
-                if (!setsCollapsed) {
+            if (showHiitChooser && hiitBlock == null && !setsCollapsed) {
+                Text(
+                    "Log style",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = hiitUiMode == "standard",
+                        onClick = { hiitUiMode = "standard" },
+                        label = { Text("Standard sets") }
+                    )
+                    FilterChip(
+                        selected = hiitUiMode == "intervals",
+                        onClick = { hiitUiMode = "intervals" },
+                        label = { Text("Intervals") }
+                    )
+                }
+            }
+            if (hiitBlock != null && !setsCollapsed) {
+                Text(
+                    formatHiitBlockSummaryLine(hiitBlock, loadUnit, loadSuffix, weightIsAddedLoad),
+                    style = MaterialTheme.typography.bodyLarge
+                )
+                onClearHiitBlock?.let { clear ->
+                    TextButton(onClick = clear) { Text("Clear interval log") }
+                }
+            }
+            if (useIntervalsUi) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = hiitIntervals,
+                        onValueChange = { hiitIntervals = it.filter { c -> c.isDigit() } },
+                        label = { Text("Intervals") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedTextField(
+                        value = hiitWorkSec,
+                        onValueChange = { hiitWorkSec = it.filter { c -> c.isDigit() } },
+                        label = { Text("Work s") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedTextField(
+                        value = hiitRestSec,
+                        onValueChange = { hiitRestSec = it.filter { c -> c.isDigit() } },
+                        label = { Text("Rest s") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                OutlinedTextField(
+                    value = hiitWeight,
+                    onValueChange = { hiitWeight = it },
+                    label = { Text(loadSuffix) },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Button(
+                    onClick = {
+                        val n = hiitIntervals.toIntOrNull() ?: return@Button
+                        val wSec = hiitWorkSec.toIntOrNull() ?: return@Button
+                        val rSec = hiitRestSec.toIntOrNull() ?: return@Button
+                        if (n <= 0 || wSec <= 0 || rSec < 0) return@Button
+                        val wKg = parseWeightInputToKg(hiitWeight, loadUnit)
+                        onStartHiitTimer?.invoke(
+                            WeightHiitIntervalPlan(
+                                intervals = n,
+                                workSeconds = wSec,
+                                restSeconds = rSec,
+                                weightKg = wKg
+                            )
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = hiitIntervals.toIntOrNull()?.let { it > 0 } == true &&
+                        hiitWorkSec.toIntOrNull()?.let { it > 0 } == true &&
+                        hiitRestSec.toIntOrNull() != null
+                ) { Text("Start interval timer") }
+            }
+            if (showSetsTable) {
+                if (canCollapseSets) {
+                    if (!setsCollapsed) {
+                        Text(
+                            "Sets",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                } else {
                     Text(
                         "Sets",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-            } else {
-                Text(
-                    "Sets",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
             }
             if (canCollapseSets && setsCollapsed) {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    sets.forEachIndexed { idx, set ->
+                    if (hiitBlock != null) {
                         Text(
-                            formatSetSummaryLine(set, idx + 1, loadUnit, loadSuffix, weightIsAddedLoad),
+                            formatHiitBlockSummaryLine(hiitBlock, loadUnit, loadSuffix, weightIsAddedLoad),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurface
                         )
+                    } else {
+                        sets.forEachIndexed { idx, set ->
+                            Text(
+                                formatSetSummaryLine(set, idx + 1, loadUnit, loadSuffix, weightIsAddedLoad),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
                     }
                 }
-            } else if (!canCollapseSets || !setsCollapsed) {
+            } else if ((!canCollapseSets || !setsCollapsed) && showSetsTable) {
                 sets.forEachIndexed { idx, set ->
                     Row(
                         modifier = Modifier.fillMaxWidth(),

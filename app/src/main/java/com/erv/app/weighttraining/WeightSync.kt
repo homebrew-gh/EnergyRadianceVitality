@@ -1,10 +1,11 @@
 package com.erv.app.weighttraining
 
+import com.erv.app.nostr.EncryptedKind30078Publish
 import com.erv.app.nostr.EventSigner
 import com.erv.app.nostr.NostrEvent
 import com.erv.app.nostr.NostrFilter
 import com.erv.app.nostr.RelayPool
-import com.erv.app.nostr.UnsignedEvent
+import java.time.LocalDate
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -62,6 +63,28 @@ object WeightSync {
     ): Boolean {
         val content = json.encodeToString(WeightDayLog.serializer(), log)
         return publishEvent(relayPool, signer, dailyTag(log.date), content)
+    }
+
+    /**
+     * Ordered payloads for [com.erv.app.nostr.RelayPublishOutbox] after a weight import (exercises master, then each day).
+     */
+    fun weightImportOutboxEntries(
+        state: WeightLibraryState,
+        affectedDates: List<String>,
+    ): List<Pair<String, String>> {
+        val exercisesPayload = WeightExercisesPayload(
+            exercises = state.exercises.map { it.copy(sessionSummaries = emptyList()) }
+        )
+        val pairs = mutableListOf<Pair<String, String>>()
+        pairs += WEIGHT_EXERCISES_D_TAG to json.encodeToString(
+            WeightExercisesPayload.serializer(),
+            exercisesPayload
+        )
+        for (dateIso in affectedDates.distinct().sorted()) {
+            val log = state.logFor(LocalDate.parse(dateIso)) ?: continue
+            pairs += dailyTag(dateIso) to json.encodeToString(WeightDayLog.serializer(), log)
+        }
+        return pairs
     }
 
     suspend fun fetchFromNetwork(
@@ -132,18 +155,8 @@ object WeightSync {
         signer: EventSigner,
         dTag: String,
         plaintext: String
-    ): Boolean {
-        val encrypted = signer.encryptToSelf(plaintext)
-        val unsigned = UnsignedEvent(
-            pubkey = signer.publicKey,
-            createdAt = System.currentTimeMillis() / 1000,
-            kind = 30078,
-            tags = listOf(listOf("d", dTag)),
-            content = encrypted
-        )
-        val signed = signer.sign(unsigned)
-        return relayPool.publish(signed)
-    }
+    ): Boolean =
+        EncryptedKind30078Publish.publish(relayPool, signer, dTag, plaintext)
 
     private fun decodeExercises(raw: String): List<WeightExercise>? =
         try {

@@ -152,7 +152,7 @@ fun WeightTrainingCategoryScreen(
     LaunchedEffect(relayPool, signer?.publicKey) {
         if (relayPool != null && signer != null) {
             WeightSync.fetchFromNetwork(relayPool, signer, signer.publicKey)?.let { remote ->
-                repository.replaceAll(remote)
+                repository.mergeRemoteFetch(remote)
             }
         }
     }
@@ -333,7 +333,8 @@ fun WeightTrainingCategoryScreen(
                         val noLoggedSets = draft.setsByExerciseId.values.all { rows ->
                             rows.isEmpty() || rows.all { it.reps <= 0 }
                         }
-                        if (noExercises && noLoggedSets) {
+                        val noHiit = draft.hiitBlocksByExerciseId.isEmpty()
+                        if (noExercises && noLoggedSets && noHiit) {
                             liveWorkoutViewModel.clearDraft()
                         } else {
                             liveWorkoutViewModel.setLiveWorkoutUiExpanded(false)
@@ -355,7 +356,13 @@ fun WeightTrainingCategoryScreen(
                 onRemoveExerciseAt = { idx -> liveWorkoutViewModel.removeExerciseAt(idx) },
                 onMoveExerciseUp = { idx -> liveWorkoutViewModel.moveExerciseUp(idx) },
                 onMoveExerciseDown = { idx -> liveWorkoutViewModel.moveExerciseDown(idx) },
-                onSaveSets = { exerciseId, sets -> liveWorkoutViewModel.setSetsForExercise(exerciseId, sets) }
+                onSaveSets = { exerciseId, sets -> liveWorkoutViewModel.setSetsForExercise(exerciseId, sets) },
+                onSaveHiitBlock = { exerciseId, block ->
+                    liveWorkoutViewModel.setHiitBlockForExercise(exerciseId, block)
+                },
+                onClearHiitBlock = { exerciseId ->
+                    liveWorkoutViewModel.clearHiitBlockForExercise(exerciseId)
+                }
             )
         }
     }
@@ -452,11 +459,15 @@ fun WeightTrainingCategoryScreen(
                 onDismiss = { routineBeingEdited = null },
                 onSave = { routine ->
                     scope.launch {
-                        repository.upsertRoutine(routine)
-                        pushMasters()
-                        snackbarHostState.showSnackbar("Routine saved")
+                        try {
+                            repository.upsertRoutine(routine)
+                            pushMasters()
+                            snackbarHostState.showSnackbar("Routine saved")
+                            routineBeingEdited = null
+                        } catch (_: Exception) {
+                            snackbarHostState.showSnackbar("Could not save routine")
+                        }
                     }
-                    routineBeingEdited = null
                 }
             )
         }

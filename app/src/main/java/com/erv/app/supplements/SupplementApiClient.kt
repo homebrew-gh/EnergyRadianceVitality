@@ -48,6 +48,40 @@ class SupplementApiClient(
             .trim()
     }
 
+    /**
+     * Looks up a scanned product code (UPC/EAN) in DSLD via [search] (`/search-filter` `q`).
+     * Labels often store `upcSku` with **spaces**
+     * (e.g. `0 74312 02100 8`), while scanners return compact digits — we try several shapes.
+     * Many products are still missing from DSLD or have no barcode on file, so misses are common.
+     */
+    suspend fun searchByProductCode(code: String, size: Int = 20): List<SupplementApiResult> {
+        val trimmed = code.trim()
+        if (trimmed.isBlank()) return emptyList()
+        val digits = trimmed.filter { it.isDigit() }
+        val variants = LinkedHashSet<String>().apply {
+            add(trimmed)
+            if (digits.isNotEmpty()) add(digits)
+            if (digits.length == 12) {
+                add("0$digits")
+                // Matches common DSLD / label print style (see API example `upcSku`).
+                add("${digits[0]} ${digits.substring(1, 6)} ${digits.substring(6, 11)} ${digits[11]}")
+            }
+            if (digits.length == 13) {
+                if (digits.startsWith("0")) add(digits.drop(1))
+                add("${digits[0]} ${digits.substring(1, 6)} ${digits.substring(6, 11)} ${digits.substring(11, 13)}")
+                add("${digits[0]} ${digits.substring(1, 7)} ${digits.substring(7, 12)} ${digits[12]}")
+            }
+            if (digits.length == 8) {
+                add("${digits.substring(0, 4)} ${digits.substring(4, 8)}")
+            }
+        }
+        for (q in variants) {
+            val hits = search(q, size)
+            if (hits.isNotEmpty()) return hits
+        }
+        return emptyList()
+    }
+
     suspend fun search(query: String, size: Int = 20): List<SupplementApiResult> = withContext(Dispatchers.IO) {
         val normalized = normalizeSearchQuery(query)
         if (normalized.isBlank()) return@withContext emptyList()

@@ -28,11 +28,31 @@ fun formatSetSummaryLine(
     return "Set $setNumber: $repsPart$weightPart$rpePart"
 }
 
+/** One-line summary for a completed interval block (live or manual log). */
+fun formatHiitBlockSummaryLine(
+    block: WeightHiitBlockLog,
+    loadUnit: BodyWeightUnit,
+    loadSuffix: String,
+    weightIsAddedLoad: Boolean = false
+): String {
+    val w = block.weightKg?.let { kg ->
+        val num = formatWeightLoadNumber(kg, loadUnit)
+        if (weightIsAddedLoad) " @ +$num $loadSuffix" else " @ $num $loadSuffix"
+    }.orEmpty()
+    val rpePart = block.rpe?.let { " · RPE ${formatRpeFieldForSets(it)}" }.orEmpty()
+    return "${block.intervals}× ${block.workSeconds}s work / ${block.restSeconds}s rest$w$rpePart"
+}
+
 fun WeightWorkoutSession.totalSetCount(): Int =
-    entries.sumOf { it.sets.size }
+    entries.sumOf { e ->
+        e.hiitBlock?.intervals ?: e.sets.size
+    }
 
 fun WeightWorkoutSession.totalVolumeKg(): Double =
-    entries.sumOf { e -> e.sets.sumOf { s -> (s.weightKg ?: 0.0) * s.reps } }
+    entries.sumOf { e ->
+        e.hiitBlock?.let { b -> (b.weightKg ?: 0.0) * b.intervals }
+            ?: e.sets.sumOf { s -> (s.weightKg ?: 0.0) * s.reps }
+    }
 
 /** Matches [com.erv.app.data.UserPreferences] body-weight conversion. */
 const val KG_PER_POUND: Double = 0.453592
@@ -69,8 +89,16 @@ fun parseWeightInputToKg(raw: String, unit: BodyWeightUnit): Double? {
 fun WeightWorkoutSession.totalVolumeLoadTimesReps(unit: BodyWeightUnit): Double =
     entries.sumOf { e -> e.totalVolumeLoadTimesReps(unit) }
 
-fun WeightWorkoutEntry.totalVolumeLoadTimesReps(unit: BodyWeightUnit): Double =
-    sets.sumOf { s ->
+fun WeightWorkoutEntry.totalVolumeLoadTimesReps(unit: BodyWeightUnit): Double {
+    hiitBlock?.let { b ->
+        val kg = b.weightKg ?: 0.0
+        val per = when (unit) {
+            BodyWeightUnit.KG -> kg
+            BodyWeightUnit.LB -> kgToPounds(kg)
+        }
+        return per * b.intervals
+    }
+    return sets.sumOf { s ->
         val kg = s.weightKg ?: 0.0
         val perRep = when (unit) {
             BodyWeightUnit.KG -> kg
@@ -78,6 +106,7 @@ fun WeightWorkoutEntry.totalVolumeLoadTimesReps(unit: BodyWeightUnit): Double =
         }
         perRep * s.reps
     }
+}
 
 data class WeightActivityExerciseBlock(
     /** Exercise name and equipment, e.g. `Bench press · Barbell`. */
@@ -101,6 +130,7 @@ fun WeightWorkoutSession.activityHeaderLine(unit: BodyWeightUnit): String {
     val src = when (source) {
         WeightWorkoutSource.LIVE -> "Live"
         WeightWorkoutSource.MANUAL -> "Manual"
+        WeightWorkoutSource.IMPORTED -> "Imported"
     }
     val bits = mutableListOf(src)
     val elapsed = elapsedSecondsForSummary()
@@ -123,7 +153,9 @@ fun WeightWorkoutSession.buildActivityRow(library: WeightLibraryState, unit: Bod
         val equipSuffix = ex?.equipment?.displayLabel()?.let { " · $it" }.orEmpty()
         val titleLine = "$name$equipSuffix"
         val weightIsAddedLoad = ex?.equipment == WeightEquipment.OTHER
-        val setLines = entry.sets.mapIndexed { idx, set ->
+        val setLines = entry.hiitBlock?.let { b ->
+            listOf(formatHiitBlockSummaryLine(b, unit, loadSuffix, weightIsAddedLoad))
+        } ?: entry.sets.mapIndexed { idx, set ->
             formatSetSummaryLine(set, idx + 1, unit, loadSuffix, weightIsAddedLoad)
         }
         WeightActivityExerciseBlock(titleLine = titleLine, setLines = setLines)

@@ -200,7 +200,14 @@ Phases can overlap; **A + B** deliver most of the “data ownership” story; **
 
 ---
 
-## 11. Open decisions
+## 11. Shipped references (import docs)
+
+- **Weight training (implemented import):** **`docs/WEIGHT_IMPORT_AI_GUIDE.md`**, **`docs/WEIGHT_IMPORT_CSV.md`**, **`docs/WEIGHT_IMPORT_BUILTIN_EXERCISES.md`**. The same AI and CSV guides (plus the exercise table) are bundled under **Settings → Import / export** for on-device reading.
+- Sessions created from weight file import use `source`: **`IMPORTED`** in encrypted day payloads (`erv/weight/<date>`).
+- **Relay uploads (weight + cardio import):** After local merge, payloads go through a durable **`RelayPublishOutbox`** (DataStore): enqueue **master + per-day** JSON, then **`kickDrain`** sends sequentially with **~150 ms** spacing and **exponential backoff** on failure. **`MainActivity`** also drains the outbox when relays/signer are available (e.g. after relay URL changes). **Local DataStore remains canonical**; failed sends stay queued and retry.
+- **Cardio (implemented import):** **`docs/CARDIO_IMPORT_AI_GUIDE.md`**, **`docs/CARDIO_IMPORT_CSV.md`** — JSON (primary) and ERV cardio CSV (Excel-friendly) under **Settings → Import / export → Import → Cardio**, with the same preview/merge pattern as weight. Sessions use `source`: **`IMPORTED`**. The AI guide also documents **Strava** export paths for conversion workflows.
+
+## 12. Open decisions
 
 These are product/engineering choices to settle when implementing:
 

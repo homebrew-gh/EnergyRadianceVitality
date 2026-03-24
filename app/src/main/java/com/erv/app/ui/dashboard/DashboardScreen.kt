@@ -6,6 +6,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -284,6 +285,7 @@ fun DashboardScreen(
         ActivityResultContracts.RequestPermission()
     ) { ok -> dashboardLocationFineGranted = ok }
     var showGoalsSheet by remember { mutableStateOf(false) }
+    var showErvSummarySheet by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val fgsDisclosureSeen by userPreferences.weightLiveWorkoutFgsDisclosureSeen.collectAsState(initial = false)
     var showWeightFgsDialog by remember { mutableStateOf(false) }
@@ -453,7 +455,13 @@ fun DashboardScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.clickable(
+                            onClick = { showErvSummarySheet = true },
+                            onClickLabel = "About ERV",
+                        ),
+                    ) {
                         Icon(
                             painter = painterResource(R.drawable.ic_sun),
                             contentDescription = null,
@@ -805,6 +813,10 @@ fun DashboardScreen(
                         onNavigateToEditGoals()
                     },
                 )
+            }
+
+            if (showErvSummarySheet) {
+                ErvSummarySheet(onDismiss = { showErvSummarySheet = false })
             }
 
             routinePreview?.let { routine ->

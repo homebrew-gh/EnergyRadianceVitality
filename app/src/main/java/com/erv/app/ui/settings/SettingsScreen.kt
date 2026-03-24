@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.SettingsBrightness
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.semantics.contentDescription
@@ -42,9 +43,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.core.app.NotificationManagerCompat
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.erv.app.R
 import com.erv.app.cardio.CardioDistanceUnit
 import com.erv.app.data.BodyWeightUnit
@@ -63,6 +66,8 @@ import com.erv.app.nostr.Nip96Uploader
 import com.erv.app.nostr.NipB7
 import com.erv.app.nostr.RelayPool
 import com.erv.app.nostr.SettingsSync
+import com.erv.app.cardio.CardioRepository
+import com.erv.app.weighttraining.WeightRepository
 import com.erv.app.ui.navigation.RelayDataSyncTopBarIcon
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -80,6 +85,10 @@ private object SettingsRoutes {
     const val RELAYS = "settings_relays"
     const val EQUIPMENT = "settings_equipment"
     const val STRETCHING = "settings_stretching"
+    const val DATA_IMPORT_EXPORT = "settings_data_import_export"
+    const val IMPORT_DOC = "settings_import_doc/{docKey}"
+
+    fun importDocRoute(docKey: String) = "settings_import_doc/$docKey"
 }
 
 @Composable
@@ -87,6 +96,10 @@ fun SettingsScreen(
     keyManager: KeyManager,
     amberHost: AmberLauncherHost,
     userPreferences: UserPreferences,
+    weightRepository: WeightRepository,
+    cardioRepository: CardioRepository,
+    relayPool: RelayPool?,
+    signer: EventSigner?,
     onBack: () -> Unit,
     onRelaysChanged: () -> Unit = {},
     onLogout: () -> Unit
@@ -175,6 +188,27 @@ fun SettingsScreen(
                 SettingsHomeScreen(
                     onBack = onBack,
                     onOpenSection = { nestedNav.navigate(it) }
+                )
+            }
+            composable(SettingsRoutes.DATA_IMPORT_EXPORT) {
+                SettingsDataImportExportScreen(
+                    onBack = { nestedNav.popBackStack() },
+                    onOpenDoc = { nestedNav.navigate(SettingsRoutes.importDocRoute(it)) },
+                    userPreferences = userPreferences,
+                    weightRepository = weightRepository,
+                    cardioRepository = cardioRepository,
+                    relayPool = relayPool,
+                    signer = signer
+                )
+            }
+            composable(
+                route = SettingsRoutes.IMPORT_DOC,
+                arguments = listOf(navArgument("docKey") { type = NavType.StringType })
+            ) { entry ->
+                val docKey = entry.arguments?.getString("docKey").orEmpty()
+                SettingsImportDocViewerScreen(
+                    docKey = docKey,
+                    onBack = { nestedNav.popBackStack() }
                 )
             }
             composable(SettingsRoutes.APPEARANCE) {
@@ -504,6 +538,12 @@ private fun SettingsHomeScreen(
                 subtitle = "Nostr data and social sync",
                 icon = Icons.Default.Cloud,
                 onClick = { onOpenSection(SettingsRoutes.RELAYS) }
+            )
+            SettingsHubRow(
+                title = "Import / export",
+                subtitle = "Weight history: guides and file import",
+                icon = Icons.Default.Upload,
+                onClick = { onOpenSection(SettingsRoutes.DATA_IMPORT_EXPORT) }
             )
         }
     }

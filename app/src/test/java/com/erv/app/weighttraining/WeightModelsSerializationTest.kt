@@ -2,6 +2,7 @@ package com.erv.app.weighttraining
 
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -221,6 +222,46 @@ class WeightModelsSerializationTest {
         assertEquals(WeightWorkoutSource.LIVE, session!!.source)
         assertEquals("r1", session.routineId)
         assertEquals(1, session.entries.size)
+    }
+
+    @Test
+    fun toFinishedLiveSession_acceptsHiitBlockWithoutSets() {
+        val kbId = "erv-weight-exercise-kb-swing-v1"
+        val draft = WeightWorkoutDraft(
+            startedAtEpochSeconds = 2000L,
+            exerciseOrder = listOf(kbId),
+            setsByExerciseId = mapOf(kbId to listOf(WeightSet(reps = 0, weightKg = null))),
+            hiitBlocksByExerciseId = mapOf(
+                kbId to WeightHiitBlockLog(intervals = 8, workSeconds = 30, restSeconds = 30, weightKg = 24.0)
+            )
+        )
+        val session = draft.toFinishedLiveSession()
+        assertNotNull(session)
+        assertEquals(1, session!!.entries.size)
+        assertEquals(8, session.entries.first().hiitBlock!!.intervals)
+    }
+
+    @Test
+    fun defaultCatalog_hiitFlags_kbSwingAndWindmill() {
+        val catalog = defaultCatalogExercises()
+        val swing = catalog.first { it.id == "erv-weight-exercise-kb-swing-v1" }
+        val windmill = catalog.first { it.id == "erv-weight-exercise-kb-windmill-v1" }
+        assertTrue(swing.hiitCapable)
+        assertFalse(windmill.hiitCapable)
+    }
+
+    @Test
+    fun buildSessionFromLogEditor_withHiitBlock() {
+        val e = "e-kb"
+        val block = WeightHiitBlockLog(5, 20, 10, weightKg = 16.0)
+        val manual = buildSessionFromLogEditor(
+            existing = null,
+            exerciseOrder = listOf(e),
+            setsByExerciseId = mapOf(e to listOf(WeightSet(reps = 0, weightKg = null))),
+            hiitBlocksByExerciseId = mapOf(e to block)
+        )
+        assertNotNull(manual)
+        assertEquals(block, manual!!.entries.first().hiitBlock)
     }
 
     @Test

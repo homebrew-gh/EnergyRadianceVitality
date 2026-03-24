@@ -1,7 +1,7 @@
 {
     "logs": [
         {
-            "outputFile": "com.erv.app-mergeDebugResources-60:/values-pt/values-pt.xml",
+            "outputFile": "com.erv.app-mergeDebugResources-67:/values-pt/values-pt.xml",
             "map": [
                 {
                     "source": "/home/samcornwell/.gradle/caches/transforms-3/f23e95a0fb0ac81f840512f02915cc80/transformed/core-1.12.0/res/values-pt/values-pt.xml",

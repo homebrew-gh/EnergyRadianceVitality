@@ -1,7 +1,7 @@
 {
     "logs": [
         {
-            "outputFile": "com.erv.app-mergeDebugResources-60:/values-en-rXC/values-en-rXC.xml",
+            "outputFile": "com.erv.app-mergeDebugResources-67:/values-en-rXC/values-en-rXC.xml",
             "map": [
                 {
                     "source": "/home/samcornwell/.gradle/caches/transforms-3/d79492621c9c4fb68a98a28ecf380467/transformed/material3-release/res/values-en-rXC/values-en-rXC.xml",

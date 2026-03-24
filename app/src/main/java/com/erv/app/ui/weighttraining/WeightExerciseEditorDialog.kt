@@ -4,8 +4,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -16,7 +18,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import com.erv.app.weighttraining.WeightEquipment
 import com.erv.app.weighttraining.WeightExercise
@@ -35,6 +39,7 @@ fun WeightExerciseEditorDialog(
     var muscleGroup by remember(initial?.id) { mutableStateOf(initial?.muscleGroup.orEmpty()) }
     var pushOrPull by remember(initial?.id) { mutableStateOf(initial?.pushOrPull ?: WeightPushPull.PUSH) }
     var equipment by remember(initial?.id) { mutableStateOf(initial?.equipment ?: WeightEquipment.BARBELL) }
+    var hiitCapable by remember(initial?.id) { mutableStateOf(initial?.hiitCapable == true) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -85,6 +90,29 @@ fun WeightExerciseEditorDialog(
                         }
                     }
                 }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .toggleable(
+                            value = hiitCapable,
+                            role = Role.Checkbox,
+                            onValueChange = { hiitCapable = it }
+                        ),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Checkbox(checked = hiitCapable, onCheckedChange = null)
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            "Allow interval (HIIT) timer",
+                            style = MaterialTheme.typography.bodyLarge
+                        )
+                        Text(
+                            "Live workouts can use guided work/rest intervals for this exercise.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
             }
         },
         confirmButton = {
@@ -99,6 +127,7 @@ fun WeightExerciseEditorDialog(
                             muscleGroup = muscleGroup.trim().lowercase(),
                             pushOrPull = pushOrPull,
                             equipment = equipment,
+                            hiitCapable = hiitCapable,
                             sessionSummaries = initial?.sessionSummaries.orEmpty()
                         )
                     )

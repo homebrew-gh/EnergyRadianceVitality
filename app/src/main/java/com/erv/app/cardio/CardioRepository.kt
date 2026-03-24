@@ -40,6 +40,33 @@ class CardioRepository(
     suspend fun currentState(): CardioLibraryState =
         decodeState(appContext.cardioDataStore.data.first()[Keys.STATE])
 
+    private fun parseImportEnvelope(
+        text: String,
+        existingCustomTypes: List<CardioCustomActivityType>,
+    ): Pair<ErvCardioHistoryImportEnvelope?, List<String>> {
+        val trimmed = text.trim()
+        val (jsonEnv, jsonErr) = CardioHistoryImport.parseJsonEnvelope(trimmed)
+        if (jsonEnv != null) return jsonEnv to emptyList()
+        val (csvEnv, csvErr) = CardioCsvHistoryImport.parse(trimmed, existingCustomTypes)
+        if (csvEnv != null) return csvEnv to csvErr
+        return null to (jsonErr + csvErr).distinct().ifEmpty { listOf("Unrecognized import format") }
+    }
+
+    /**
+     * Parses JSON ([ErvCardioHistoryImportEnvelope]) or ERV cardio CSV, then computes merged state **without** persisting.
+     */
+    suspend fun previewImportedCardioText(text: String): CardioImportOutcome {
+        val current = currentState()
+        val (envelope, parseErr) = parseImportEnvelope(text, current.customActivityTypes)
+        if (envelope == null) return CardioImportOutcome.Failure(parseErr)
+        return CardioHistoryImport.merge(current, envelope)
+    }
+
+    /** Persists a successful preview from [previewImportedCardioText]. */
+    suspend fun commitImportedCardioMerge(outcome: CardioImportOutcome.Success) {
+        replaceAll(outcome.newState)
+    }
+
     suspend fun replaceAll(state: CardioLibraryState) {
         updateState { state }
     }

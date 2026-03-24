@@ -25,6 +25,7 @@ import com.erv.app.weighttraining.WeightExerciseHistoryRow
 import com.erv.app.weighttraining.WeightLibraryState
 import com.erv.app.weighttraining.WeightWorkoutSession
 import com.erv.app.weighttraining.WeightWorkoutSource
+import com.erv.app.weighttraining.formatHiitBlockSummaryLine
 import com.erv.app.weighttraining.formatSetSummaryLine
 import com.erv.app.weighttraining.historyForExercise
 import com.erv.app.weighttraining.totalVolumeLoadTimesReps
@@ -126,6 +127,7 @@ private fun RecentSessionBlock(
     val src = when (row.workout.source) {
         WeightWorkoutSource.LIVE -> "Live"
         WeightWorkoutSource.MANUAL -> "Manual"
+        WeightWorkoutSource.IMPORTED -> "Imported"
     }
     val timeStr = historySessionTimeLabel(row.workout)
     val routine = row.workout.routineName?.takeIf { it.isNotBlank() }
@@ -147,12 +149,22 @@ private fun RecentSessionBlock(
                     append(src)
                     timeStr?.let { append(" · $it") }
                     routine?.let { append(" · $it") }
-                    append(" · ${row.entry.sets.size} sets$volPart")
+                    val block = row.entry.hiitBlock
+                    if (block != null) {
+                        append(" · ${block.intervals} intervals$volPart")
+                    } else {
+                        append(" · ${row.entry.sets.size} sets$volPart")
+                    }
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            row.entry.sets.forEachIndexed { idx, set ->
+            row.entry.hiitBlock?.let { b ->
+                Text(
+                    formatHiitBlockSummaryLine(b, loadUnit, loadSuffix, weightIsAddedLoad),
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            } ?: row.entry.sets.forEachIndexed { idx, set ->
                 Text(
                     formatSetSummaryLine(set, idx + 1, loadUnit, loadSuffix, weightIsAddedLoad),
                     style = MaterialTheme.typography.bodyMedium

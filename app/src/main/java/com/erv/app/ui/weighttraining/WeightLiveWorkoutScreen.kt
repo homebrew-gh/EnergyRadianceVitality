@@ -45,6 +45,8 @@ import com.erv.app.ui.theme.ErvDarkTherapyRedDark
 import com.erv.app.ui.theme.ErvDarkTherapyRedMid
 import com.erv.app.ui.theme.ErvLightTherapyRedDark
 import com.erv.app.ui.theme.ErvLightTherapyRedMid
+import com.erv.app.weighttraining.WeightHiitBlockLog
+import com.erv.app.weighttraining.WeightHiitIntervalPlan
 import com.erv.app.weighttraining.WeightLibraryState
 import com.erv.app.weighttraining.WeightSet
 import com.erv.app.weighttraining.displayLabel
@@ -68,6 +70,8 @@ fun WeightLiveWorkoutScreen(
     onMoveExerciseUp: (Int) -> Unit,
     onMoveExerciseDown: (Int) -> Unit,
     onSaveSets: (String, List<WeightSet>) -> Unit,
+    onSaveHiitBlock: (String, WeightHiitBlockLog) -> Unit,
+    onClearHiitBlock: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var tick by remember { mutableIntStateOf(0) }
@@ -87,6 +91,7 @@ fun WeightLiveWorkoutScreen(
     }
     var recentWorkoutsExerciseId by remember { mutableStateOf<String?>(null) }
     var showMediaSheet by remember { mutableStateOf(false) }
+    var hiitTimerTarget by remember { mutableStateOf<Pair<String, WeightHiitIntervalPlan>?>(null) }
 
     val darkTheme = isSystemInDarkTheme()
     val headerMid = if (darkTheme) ErvDarkTherapyRedMid else ErvLightTherapyRedMid
@@ -134,11 +139,25 @@ fun WeightLiveWorkoutScreen(
         )
     }
 
+    hiitTimerTarget?.let { (exerciseId, plan) ->
+        val exName = library.exerciseById(exerciseId)?.name ?: exerciseId
+        WeightHiitIntervalTimerOverlay(
+            exerciseName = exName,
+            plan = plan,
+            onFinished = { block ->
+                onSaveHiitBlock(exerciseId, block)
+                hiitTimerTarget = null
+                setsCollapsedIds = setsCollapsedIds - exerciseId
+            },
+            onDismiss = { hiitTimerTarget = null }
+        )
+    }
+
     if (showFinishBlocked) {
         AlertDialog(
             onDismissRequest = { showFinishBlocked = false },
             title = { Text("Nothing to save") },
-            text = { Text("Log at least one set on an exercise before finishing.") },
+            text = { Text("Log at least one set or completed interval block before finishing.") },
             confirmButton = {
                 TextButton(onClick = { showFinishBlocked = false }) { Text("OK") }
             }
@@ -183,7 +202,8 @@ fun WeightLiveWorkoutScreen(
                         TextButton(
                             onClick = {
                                 val hasLogged = draft.exerciseOrder.any { id ->
-                                    draft.setsByExerciseId[id].orEmpty().any { it.reps > 0 }
+                                    draft.hiitBlocksByExerciseId[id] != null ||
+                                        draft.setsByExerciseId[id].orEmpty().any { it.reps > 0 }
                                 }
                                 if (!hasLogged) showFinishBlocked = true
                                 else onFinish()
@@ -276,7 +296,13 @@ fun WeightLiveWorkoutScreen(
                                 onExpandSets = {
                                     setsCollapsedIds = setsCollapsedIds - exerciseId
                                 },
-                                onRecentWorkouts = { recentWorkoutsExerciseId = exerciseId }
+                                onRecentWorkouts = { recentWorkoutsExerciseId = exerciseId },
+                                hiitCapable = ex?.hiitCapable == true,
+                                hiitBlock = draft.hiitBlocksByExerciseId[exerciseId],
+                                onClearHiitBlock = { onClearHiitBlock(exerciseId) },
+                                onStartHiitTimer = { plan ->
+                                    hiitTimerTarget = exerciseId to plan
+                                }
                             )
                         }
                     }

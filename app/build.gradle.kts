@@ -76,6 +76,14 @@ dependencies {
     // Navigation
     implementation("androidx.navigation:navigation-compose:2.7.7")
 
+    // Barcode scan (supplements): CameraX + ML Kit
+    val cameraVersion = "1.3.1"
+    implementation("androidx.camera:camera-core:$cameraVersion")
+    implementation("androidx.camera:camera-camera2:$cameraVersion")
+    implementation("androidx.camera:camera-lifecycle:$cameraVersion")
+    implementation("androidx.camera:camera-view:$cameraVersion")
+    implementation("com.google.mlkit:barcode-scanning:17.2.0")
+
     // DataStore (user preferences: theme, etc.)
     implementation("androidx.datastore:datastore-preferences:1.0.0")
 
