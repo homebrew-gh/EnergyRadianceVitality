@@ -118,9 +118,11 @@ import com.erv.app.stretching.StretchSession
 import com.erv.app.stretching.StretchingRepository
 import com.erv.app.stretching.StretchingSync
 import com.erv.app.stretching.applyStretchGuidedTtsVoice
-import com.erv.app.stretching.chronologicalStretchLogFor
-import com.erv.app.ui.dashboard.CalendarPopup
-import com.erv.app.ui.dashboard.DateNavigator
+import com.erv.app.stretching.DatedStretchSession
+import com.erv.app.SectionLogDateFilter
+import com.erv.app.stretching.datedStretchSessionsForSectionLog
+import com.erv.app.ui.dashboard.SectionLogCalendarSheet
+import com.erv.app.ui.dashboard.SectionLogFilterBar
 import com.erv.app.ui.dashboard.datesWithStretchActivity
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -1388,10 +1390,13 @@ fun StretchingLogScreen(
     signer: EventSigner?,
     onBack: () -> Unit
 ) {
-    var selectedDate by remember { mutableStateOf(LocalDate.now()) }
+    var dateFilter by remember { mutableStateOf<SectionLogDateFilter>(SectionLogDateFilter.AllHistory) }
     var showCalendar by remember { mutableStateOf(false) }
-    var pendingDelete by remember { mutableStateOf<StretchSession?>(null) }
-    val entries = remember(state, selectedDate) { state.chronologicalStretchLogFor(selectedDate) }
+    var pendingDelete by remember { mutableStateOf<DatedStretchSession?>(null) }
+    val datedEntries = remember(state, dateFilter) {
+        state.datedStretchSessionsForSectionLog(dateFilter)
+    }
+    val showLogDateOnCards = dateFilter !is SectionLogDateFilter.SingleDay
     val datesWithActivity = remember(state) { datesWithStretchActivity(state) }
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -1403,15 +1408,16 @@ fun StretchingLogScreen(
         if (darkTheme) MaterialTheme.colorScheme.onPrimaryContainer
         else MaterialTheme.colorScheme.onPrimary
 
-    suspend fun syncDailyLogForSelected() {
+    suspend fun syncDailyLogForDate(date: LocalDate) {
         if (relayPool != null && signer != null) {
-            repository.currentState().logFor(selectedDate)?.let { log ->
+            repository.currentState().logFor(date)?.let { log ->
                 StretchingSync.publishDailyLog(relayPool, signer, log)
             }
         }
     }
 
-    pendingDelete?.let { session ->
+    pendingDelete?.let { dated ->
+        val session = dated.session
         AlertDialog(
             onDismissRequest = { pendingDelete = null },
             title = { Text("Remove session?") },
@@ -1425,10 +1431,11 @@ fun StretchingLogScreen(
                 TextButton(
                     onClick = {
                         val id = session.id
+                        val logDate = dated.logDate
                         pendingDelete = null
                         scope.launch {
-                            repository.deleteSession(selectedDate, id)
-                            syncDailyLogForSelected()
+                            repository.deleteSession(logDate, id)
+                            syncDailyLogForDate(logDate)
                             snackbarHostState.showSnackbar("Session removed")
                         }
                     }
@@ -1460,18 +1467,12 @@ fun StretchingLogScreen(
         }
     ) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
-            DateNavigator(
-                selectedDate = selectedDate,
-                onPreviousDay = { selectedDate = selectedDate.minusDays(1) },
-                onNextDay = { selectedDate = selectedDate.plusDays(1) },
-                onPreviousWeek = { selectedDate = selectedDate.minusWeeks(1) },
-                onNextWeek = { selectedDate = selectedDate.plusWeeks(1) },
-                onTodayClick = { selectedDate = LocalDate.now() },
-                onCalendarClick = { showCalendar = true },
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+            SectionLogFilterBar(
+                filter = dateFilter,
+                onOpenCalendar = { showCalendar = true },
+                onClearFilter = { dateFilter = SectionLogDateFilter.AllHistory }
             )
-            HorizontalDivider()
-            if (entries.isEmpty()) {
+            if (datedEntries.isEmpty()) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -1480,7 +1481,11 @@ fun StretchingLogScreen(
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
-                            "No stretching logged for this date.",
+                            when (dateFilter) {
+                                SectionLogDateFilter.AllHistory -> "No stretching logged yet."
+                                is SectionLogDateFilter.SingleDay -> "No stretching logged for this date."
+                                is SectionLogDateFilter.DateRange -> "No stretching logged in this date range."
+                            },
                             style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -1498,7 +1503,16 @@ fun StretchingLogScreen(
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    items(entries, key = { it.id }) { session ->
+                    item {
+                        Text(
+                            "Newest first. Tap delete to remove from that day.",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(Modifier.height(8.dp))
+                    }
+                    items(datedEntries, key = { "${it.logDate}-${it.session.id}" }) { dated ->
+                        val session = dated.session
                         val title = session.routineName ?: "Stretch session"
                         ElevatedCard(modifier = Modifier.fillMaxWidth()) {
                             Row(
@@ -1509,6 +1523,13 @@ fun StretchingLogScreen(
                                 verticalAlignment = Alignment.Top
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
+                                    if (showLogDateOnCards) {
+                                        Text(
+                                            dated.logDate.format(DateTimeFormatter.ISO_LOCAL_DATE),
+                                            style = MaterialTheme.typography.labelLarge,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
                                     Text(title, style = MaterialTheme.typography.titleMedium)
                                     Text(
                                         "${session.totalMinutes} min · ${session.stretchIds.size} stretches",
@@ -1521,7 +1542,7 @@ fun StretchingLogScreen(
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
-                                IconButton(onClick = { pendingDelete = session }) {
+                                IconButton(onClick = { pendingDelete = dated }) {
                                     Icon(Icons.Default.Delete, contentDescription = "Delete session")
                                 }
                             }
@@ -1533,11 +1554,11 @@ fun StretchingLogScreen(
     }
 
     if (showCalendar) {
-        CalendarPopup(
-            selectedDate = selectedDate,
-            onDateSelected = { selectedDate = it; showCalendar = false },
+        SectionLogCalendarSheet(
+            filter = dateFilter,
             onDismiss = { showCalendar = false },
-            datesWithActivity = datesWithActivity
+            datesWithActivity = datesWithActivity,
+            onApplyFilter = { dateFilter = it }
         )
     }
 }

@@ -1,5 +1,6 @@
 package com.erv.app.lighttherapy
 
+import com.erv.app.SectionLogDateFilter
 import kotlinx.serialization.Serializable
 import java.nio.charset.StandardCharsets
 import java.time.LocalDate
@@ -127,8 +128,51 @@ fun LightLibraryState.lightActivityFor(date: LocalDate): List<LightActivityRow> 
 
 fun LightLibraryState.chronologicalLightLogFor(date: LocalDate): List<LightSession> {
     val log = logFor(date) ?: return emptyList()
-    return log.sessions.sortedByDescending { it.loggedAtEpochSeconds }
+    return log.sessions.sortedWith(
+        compareBy<LightSession> { it.loggedAtEpochSeconds }.thenBy { it.id }
+    )
 }
+
+data class DatedLightSession(val logDate: LocalDate, val session: LightSession)
+
+fun LightLibraryState.chronologicalLightLogForRange(start: LocalDate, end: LocalDate): List<DatedLightSession> {
+    val from = if (start <= end) start else end
+    val to = if (start <= end) end else start
+    val rows = mutableListOf<DatedLightSession>()
+    var d = from
+    while (!d.isAfter(to)) {
+        chronologicalLightLogFor(d).forEach { rows.add(DatedLightSession(d, it)) }
+        d = d.plusDays(1)
+    }
+    return rows.sortedWith(
+        compareBy<DatedLightSession> { it.logDate }
+            .thenBy { it.session.loggedAtEpochSeconds }
+            .thenBy { it.session.id }
+    )
+}
+
+private fun List<DatedLightSession>.sortedLightNewestFirst(): List<DatedLightSession> =
+    sortedWith(
+        compareByDescending<DatedLightSession> { it.session.loggedAtEpochSeconds }
+            .thenByDescending { it.logDate }
+            .thenBy { it.session.id }
+    )
+
+fun LightLibraryState.datedLightSessionsForSectionLog(filter: SectionLogDateFilter): List<DatedLightSession> =
+    when (filter) {
+        SectionLogDateFilter.AllHistory -> {
+            val rows = mutableListOf<DatedLightSession>()
+            for (dl in logs) {
+                val d = LocalDate.parse(dl.date)
+                dl.sessions.forEach { rows.add(DatedLightSession(d, it)) }
+            }
+            rows.sortedLightNewestFirst()
+        }
+        is SectionLogDateFilter.SingleDay ->
+            chronologicalLightLogFor(filter.day).map { DatedLightSession(filter.day, it) }.sortedLightNewestFirst()
+        is SectionLogDateFilter.DateRange ->
+            chronologicalLightLogForRange(filter.startInclusive, filter.endInclusive).sortedLightNewestFirst()
+    }
 
 fun nowEpochSeconds(): Long = System.currentTimeMillis() / 1000
 

@@ -53,8 +53,10 @@ import com.erv.app.reminders.isValid
 import com.erv.app.reminders.toDraft
 import com.erv.app.reminders.toReminder
 import com.erv.app.ui.reminders.RoutineReminderFormSection
-import com.erv.app.ui.dashboard.CalendarPopup
-import com.erv.app.ui.dashboard.DateNavigator
+import com.erv.app.SectionLogDateFilter
+import com.erv.app.lighttherapy.datedLightSessionsForSectionLog
+import com.erv.app.ui.dashboard.SectionLogCalendarSheet
+import com.erv.app.ui.dashboard.SectionLogFilterBar
 import com.erv.app.ui.dashboard.datesWithLightActivity
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -616,25 +618,29 @@ fun LightLogScreen(
     signer: EventSigner?,
     onBack: () -> Unit
 ) {
-    var selectedDate by remember { mutableStateOf(LocalDate.now()) }
+    var dateFilter by remember { mutableStateOf<SectionLogDateFilter>(SectionLogDateFilter.AllHistory) }
     var showCalendar by remember { mutableStateOf(false) }
-    var pendingDelete by remember { mutableStateOf<LightSession?>(null) }
-    val entries = remember(state, selectedDate) { state.chronologicalLightLogFor(selectedDate) }
+    var pendingDelete by remember { mutableStateOf<DatedLightSession?>(null) }
+    val datedEntries = remember(state, dateFilter) {
+        state.datedLightSessionsForSectionLog(dateFilter)
+    }
+    val showLogDateOnCards = dateFilter !is SectionLogDateFilter.SingleDay
     val datesWithActivity = remember(state) { datesWithLightActivity(state) }
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     val darkTheme = isSystemInDarkTheme()
     val headerMid = if (darkTheme) ErvDarkTherapyRedMid else ErvLightTherapyRedMid
 
-    suspend fun syncDailyLogForSelected() {
+    suspend fun syncDailyLogForDate(date: LocalDate) {
         if (relayPool != null && signer != null) {
-            repository.currentState().logFor(selectedDate)?.let { log ->
+            repository.currentState().logFor(date)?.let { log ->
                 LightSync.publishDailyLog(relayPool, signer, log)
             }
         }
     }
 
-    pendingDelete?.let { session ->
+    pendingDelete?.let { dated ->
+        val session = dated.session
         AlertDialog(
             onDismissRequest = { pendingDelete = null },
             title = { Text("Remove session?") },
@@ -648,10 +654,11 @@ fun LightLogScreen(
                 TextButton(
                     onClick = {
                         val id = session.id
+                        val logDate = dated.logDate
                         pendingDelete = null
                         scope.launch {
-                            repository.deleteSession(selectedDate, id)
-                            syncDailyLogForSelected()
+                            repository.deleteSession(logDate, id)
+                            syncDailyLogForDate(logDate)
                             snackbarHostState.showSnackbar("Session removed")
                         }
                     }
@@ -683,48 +690,42 @@ fun LightLogScreen(
         }
     ) { padding ->
         LightLogContent(
-            selectedDate = selectedDate,
-            onSelectedDateChange = { selectedDate = it },
-            showCalendar = showCalendar,
-            onShowCalendarChange = { showCalendar = it },
-            entries = entries,
+            dateFilter = dateFilter,
+            onOpenCalendar = { showCalendar = true },
+            onClearFilter = { dateFilter = SectionLogDateFilter.AllHistory },
+            datedEntries = datedEntries,
+            showLogDateOnCards = showLogDateOnCards,
             onRequestDelete = { pendingDelete = it },
             modifier = Modifier.padding(padding)
         )
     }
     if (showCalendar) {
-        CalendarPopup(
-            selectedDate = selectedDate,
-            onDateSelected = { selectedDate = it; showCalendar = false },
+        SectionLogCalendarSheet(
+            filter = dateFilter,
             onDismiss = { showCalendar = false },
-            datesWithActivity = datesWithActivity
+            datesWithActivity = datesWithActivity,
+            onApplyFilter = { dateFilter = it }
         )
     }
 }
 
 @Composable
 private fun LightLogContent(
-    selectedDate: LocalDate,
-    onSelectedDateChange: (LocalDate) -> Unit,
-    showCalendar: Boolean,
-    onShowCalendarChange: (Boolean) -> Unit,
-    entries: List<LightSession>,
-    onRequestDelete: (LightSession) -> Unit,
+    dateFilter: SectionLogDateFilter,
+    onOpenCalendar: () -> Unit,
+    onClearFilter: () -> Unit,
+    datedEntries: List<DatedLightSession>,
+    showLogDateOnCards: Boolean,
+    onRequestDelete: (DatedLightSession) -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(modifier = modifier.fillMaxSize()) {
-        DateNavigator(
-            selectedDate = selectedDate,
-            onPreviousDay = { onSelectedDateChange(selectedDate.minusDays(1)) },
-            onNextDay = { onSelectedDateChange(selectedDate.plusDays(1)) },
-            onPreviousWeek = { onSelectedDateChange(selectedDate.minusWeeks(1)) },
-            onNextWeek = { onSelectedDateChange(selectedDate.plusWeeks(1)) },
-            onTodayClick = { onSelectedDateChange(LocalDate.now()) },
-            onCalendarClick = { onShowCalendarChange(true) },
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+        SectionLogFilterBar(
+            filter = dateFilter,
+            onOpenCalendar = onOpenCalendar,
+            onClearFilter = onClearFilter
         )
-        HorizontalDivider()
-        if (entries.isEmpty()) {
+        if (datedEntries.isEmpty()) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -733,13 +734,17 @@ private fun LightLogContent(
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
-                        "No light therapy logged for this date.",
+                        when (dateFilter) {
+                            SectionLogDateFilter.AllHistory -> "No light therapy logged yet."
+                            is SectionLogDateFilter.SingleDay -> "No light therapy logged for this date."
+                            is SectionLogDateFilter.DateRange -> "No light therapy logged in this date range."
+                        },
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        "Start a session from the Light therapy tab to log time for this day.",
+                        "Start a session from the Light therapy tab to log time.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -753,13 +758,14 @@ private fun LightLogContent(
             ) {
                 item {
                     Text(
-                        "Tap delete on an entry to remove it from this day.",
+                        "Newest first. Tap delete to remove from that day.",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Spacer(Modifier.height(8.dp))
                 }
-                items(entries, key = { it.id }) { session ->
+                items(datedEntries, key = { "${it.logDate}-${it.session.id}" }) { dated ->
+                    val session = dated.session
                     val name = session.routineName ?: session.deviceName ?: "Light therapy"
                     ElevatedCard(modifier = Modifier.fillMaxWidth()) {
                         Row(
@@ -770,6 +776,13 @@ private fun LightLogContent(
                             verticalAlignment = Alignment.Top
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
+                                if (showLogDateOnCards) {
+                                    Text(
+                                        dated.logDate.format(DateTimeFormatter.ISO_LOCAL_DATE),
+                                        style = MaterialTheme.typography.labelLarge,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
                                 Text(name, style = MaterialTheme.typography.titleMedium)
                                 Text(
                                     "${session.minutes} min",
@@ -782,7 +795,7 @@ private fun LightLogContent(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
-                            IconButton(onClick = { onRequestDelete(session) }) {
+                            IconButton(onClick = { onRequestDelete(dated) }) {
                                 Icon(Icons.Default.Delete, contentDescription = "Delete session")
                             }
                         }

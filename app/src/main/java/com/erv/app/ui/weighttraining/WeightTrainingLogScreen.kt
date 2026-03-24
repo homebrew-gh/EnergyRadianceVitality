@@ -10,7 +10,6 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -36,8 +35,9 @@ import com.erv.app.data.BodyWeightUnit
 import com.erv.app.data.UserPreferences
 import com.erv.app.nostr.EventSigner
 import com.erv.app.nostr.RelayPool
-import com.erv.app.ui.dashboard.CalendarPopup
-import com.erv.app.ui.dashboard.DateNavigator
+import com.erv.app.SectionLogDateFilter
+import com.erv.app.ui.dashboard.SectionLogCalendarSheet
+import com.erv.app.ui.dashboard.SectionLogFilterBar
 import com.erv.app.ui.dashboard.datesWithWeightActivity
 import com.erv.app.ui.theme.ErvDarkTherapyRedMid
 import com.erv.app.ui.theme.ErvLightTherapyRedMid
@@ -45,6 +45,7 @@ import com.erv.app.weighttraining.WeightLibraryState
 import com.erv.app.weighttraining.WeightRepository
 import com.erv.app.weighttraining.WeightSync
 import com.erv.app.weighttraining.WeightWorkoutSession
+import com.erv.app.weighttraining.datedWeightWorkoutsForSectionLog
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.launch
@@ -52,7 +53,7 @@ import kotlinx.coroutines.launch
 private sealed class WeightLogEditorState {
     data object Hidden : WeightLogEditorState()
     data object NewWorkout : WeightLogEditorState()
-    data class Editing(val session: WeightWorkoutSession) : WeightLogEditorState()
+    data class Editing(val logDate: LocalDate, val session: WeightWorkoutSession) : WeightLogEditorState()
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -72,14 +73,17 @@ fun WeightTrainingLogScreen(
     val loadUnit by userPreferences.weightTrainingLoadUnit.collectAsState(initial = BodyWeightUnit.LB)
     val state by repository.state.collectAsState(initial = WeightLibraryState())
     val datesWithActivity = remember(state) { datesWithWeightActivity(state) }
-    var selectedDate by remember(initialSelectedDate) {
-        mutableStateOf(initialSelectedDate ?: LocalDate.now())
+    var dateFilter by remember(initialSelectedDate) {
+        mutableStateOf<SectionLogDateFilter>(
+            if (initialSelectedDate != null) SectionLogDateFilter.SingleDay(initialSelectedDate)
+            else SectionLogDateFilter.AllHistory
+        )
     }
     var showCal by remember(openCalendarInitially) {
         mutableStateOf(openCalendarInitially)
     }
     var manualLogEditor by remember { mutableStateOf<WeightLogEditorState>(WeightLogEditorState.Hidden) }
-    var workoutPendingDelete by remember { mutableStateOf<WeightWorkoutSession?>(null) }
+    var workoutPendingDelete by remember { mutableStateOf<Pair<LocalDate, WeightWorkoutSession>?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val darkTheme = isSystemInDarkTheme()
@@ -94,7 +98,7 @@ fun WeightTrainingLogScreen(
     LaunchedEffect(relayPool, signer?.publicKey) {
         if (relayPool != null && signer != null) {
             WeightSync.fetchFromNetwork(relayPool, signer, signer.publicKey)?.let { remote ->
-                repository.replaceAll(remote)
+                repository.mergeRemoteFetch(remote)
             }
         }
     }
@@ -110,8 +114,9 @@ fun WeightTrainingLogScreen(
                 onDismiss = { manualLogEditor = WeightLogEditorState.Hidden },
                 onSave = { session ->
                     scope.launch {
-                        repository.addWorkout(selectedDate, session)
-                        pushDayLog(selectedDate)
+                        val target = LocalDate.now()
+                        repository.addWorkout(target, session)
+                        pushDayLog(target)
                         manualLogEditor = WeightLogEditorState.Hidden
                         snackbarHostState.showSnackbar("Workout saved")
                     }
@@ -129,8 +134,8 @@ fun WeightTrainingLogScreen(
                 onDismiss = { manualLogEditor = WeightLogEditorState.Hidden },
                 onSave = { session ->
                     scope.launch {
-                        repository.updateWorkout(selectedDate, session)
-                        pushDayLog(selectedDate)
+                        repository.updateWorkout(logEditor.logDate, session)
+                        pushDayLog(logEditor.logDate)
                         manualLogEditor = WeightLogEditorState.Hidden
                         snackbarHostState.showSnackbar("Workout updated")
                     }
@@ -172,26 +177,29 @@ fun WeightTrainingLogScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            DateNavigator(
-                selectedDate = selectedDate,
-                onPreviousDay = { selectedDate = selectedDate.minusDays(1) },
-                onNextDay = { selectedDate = selectedDate.plusDays(1) },
-                onPreviousWeek = { selectedDate = selectedDate.minusWeeks(1) },
-                onNextWeek = { selectedDate = selectedDate.plusWeeks(1) },
-                onTodayClick = { selectedDate = LocalDate.now() },
-                onCalendarClick = { showCal = true },
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+            SectionLogFilterBar(
+                filter = dateFilter,
+                onOpenCalendar = { showCal = true },
+                onClearFilter = { dateFilter = SectionLogDateFilter.AllHistory }
             )
-            HorizontalDivider()
-            val dayWorkouts = state.logFor(selectedDate)?.workouts.orEmpty()
+            val datedWorkouts = remember(state, dateFilter) {
+                state.datedWeightWorkoutsForSectionLog(dateFilter)
+            }
+            val showLogDateOnCards = dateFilter !is SectionLogDateFilter.SingleDay
             WeightLogTabContent(
-                selectedDate = selectedDate,
-                workouts = dayWorkouts,
+                datedWorkouts = datedWorkouts,
+                showLogDateOnCards = showLogDateOnCards,
+                emptyRangeLabel = when (dateFilter) {
+                    SectionLogDateFilter.AllHistory -> "No workouts logged yet."
+                    is SectionLogDateFilter.SingleDay ->
+                        "No workouts for ${dateFilter.day.format(DateTimeFormatter.ISO_LOCAL_DATE)}"
+                    is SectionLogDateFilter.DateRange -> "No workouts in this date range."
+                },
                 library = state,
                 loadUnit = loadUnit,
-                onEdit = { manualLogEditor = WeightLogEditorState.Editing(it) },
-                onDelete = { workoutPendingDelete = it },
-                onShare = { session ->
+                onEdit = { logDate, w -> manualLogEditor = WeightLogEditorState.Editing(logDate, w) },
+                onDelete = { logDate, w -> workoutPendingDelete = logDate to w },
+                onShare = { logDate, session ->
                     scope.launch {
                         if (relayPool != null && signer != null) {
                             val ok = publishWeightWorkoutNote(
@@ -199,7 +207,7 @@ fun WeightTrainingLogScreen(
                                 signer,
                                 session,
                                 state,
-                                selectedDate,
+                                logDate,
                                 loadUnit
                             )
                             snackbarHostState.showSnackbar(
@@ -217,13 +225,13 @@ fun WeightTrainingLogScreen(
         }
     }
 
-    workoutPendingDelete?.let { w ->
+    workoutPendingDelete?.let { (deleteDate, w) ->
         AlertDialog(
             onDismissRequest = { workoutPendingDelete = null },
             title = { Text("Delete workout?") },
             text = {
                 Text(
-                    "Remove this session from ${selectedDate.format(DateTimeFormatter.ISO_LOCAL_DATE)}?",
+                    "Remove this session from ${deleteDate.format(DateTimeFormatter.ISO_LOCAL_DATE)}?",
                     style = MaterialTheme.typography.bodyMedium
                 )
             },
@@ -231,8 +239,8 @@ fun WeightTrainingLogScreen(
                 TextButton(
                     onClick = {
                         scope.launch {
-                            repository.deleteWorkout(selectedDate, w.id)
-                            pushDayLog(selectedDate)
+                            repository.deleteWorkout(deleteDate, w.id)
+                            pushDayLog(deleteDate)
                             snackbarHostState.showSnackbar("Workout removed")
                         }
                         workoutPendingDelete = null
@@ -246,11 +254,11 @@ fun WeightTrainingLogScreen(
     }
 
     if (showCal) {
-        CalendarPopup(
-            selectedDate = selectedDate,
-            onDateSelected = { selectedDate = it; showCal = false },
+        SectionLogCalendarSheet(
+            filter = dateFilter,
             onDismiss = { showCal = false },
-            datesWithActivity = datesWithActivity
+            datesWithActivity = datesWithActivity,
+            onApplyFilter = { dateFilter = it }
         )
     }
 }

@@ -1,5 +1,6 @@
 package com.erv.app.supplements
 
+import com.erv.app.SectionLogDateFilter
 import kotlinx.serialization.Serializable
 import java.time.LocalDate
 import java.util.UUID
@@ -272,10 +273,55 @@ fun SupplementLibraryState.chronologicalSupplementLogFor(date: LocalDate): List<
     }
 
     return entries.sortedWith(
-        compareByDescending<SupplementLogEntry> { it.takenAtEpochSeconds }
+        compareBy<SupplementLogEntry> { it.takenAtEpochSeconds }
             .thenBy { it.supplementName.lowercase() }
+            .thenBy { it.intakeId ?: "" }
     )
 }
+
+data class DatedSupplementLogEntry(val logDate: LocalDate, val entry: SupplementLogEntry)
+
+fun SupplementLibraryState.chronologicalSupplementLogForRange(start: LocalDate, end: LocalDate): List<DatedSupplementLogEntry> {
+    val from = if (start <= end) start else end
+    val to = if (start <= end) end else start
+    val rows = mutableListOf<DatedSupplementLogEntry>()
+    var d = from
+    while (!d.isAfter(to)) {
+        chronologicalSupplementLogFor(d).forEach { rows.add(DatedSupplementLogEntry(d, it)) }
+        d = d.plusDays(1)
+    }
+    return rows.sortedWith(
+        compareBy<DatedSupplementLogEntry> { it.logDate }
+            .thenBy { it.entry.takenAtEpochSeconds }
+            .thenBy { it.entry.supplementName.lowercase() }
+            .thenBy { it.entry.intakeId ?: "" }
+    )
+}
+
+private fun List<DatedSupplementLogEntry>.sortedSupplementNewestFirst(): List<DatedSupplementLogEntry> =
+    sortedWith(
+        compareByDescending<DatedSupplementLogEntry> { it.entry.takenAtEpochSeconds }
+            .thenByDescending { it.logDate }
+            .thenBy { it.entry.supplementName.lowercase() }
+            .thenBy { it.entry.intakeId ?: "" }
+    )
+
+fun SupplementLibraryState.datedSupplementEntriesForSectionLog(filter: SectionLogDateFilter): List<DatedSupplementLogEntry> =
+    when (filter) {
+        SectionLogDateFilter.AllHistory -> {
+            val rows = mutableListOf<DatedSupplementLogEntry>()
+            for (dl in logs) {
+                val d = LocalDate.parse(dl.date)
+                chronologicalSupplementLogFor(d).forEach { rows.add(DatedSupplementLogEntry(d, it)) }
+            }
+            rows.sortedSupplementNewestFirst()
+        }
+        is SectionLogDateFilter.SingleDay ->
+            chronologicalSupplementLogFor(filter.day).map { DatedSupplementLogEntry(filter.day, it) }
+                .sortedSupplementNewestFirst()
+        is SectionLogDateFilter.DateRange ->
+            chronologicalSupplementLogForRange(filter.startInclusive, filter.endInclusive).sortedSupplementNewestFirst()
+    }
 
 fun nowEpochSeconds(): Long = System.currentTimeMillis() / 1000
 

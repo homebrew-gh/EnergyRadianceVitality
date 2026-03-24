@@ -81,14 +81,17 @@ import com.erv.app.heatcold.HeatColdRepository
 import com.erv.app.heatcold.HeatColdSession
 import com.erv.app.heatcold.HeatColdSync
 import com.erv.app.heatcold.TemperatureUnit
-import com.erv.app.heatcold.chronologicalColdLogFor
-import com.erv.app.heatcold.chronologicalSaunaLogFor
+import com.erv.app.heatcold.HeatColdTimelineEntry
+import com.erv.app.heatcold.chronologicalHeatColdTimelineFor
+import com.erv.app.heatcold.chronologicalHeatColdTimelineForRange
 import com.erv.app.heatcold.formatDurationSeconds
 import com.erv.app.heatcold.formatTemp
 import com.erv.app.nostr.EventSigner
 import com.erv.app.nostr.RelayPool
-import com.erv.app.ui.dashboard.CalendarPopup
-import com.erv.app.ui.dashboard.DateNavigator
+import com.erv.app.SectionLogDateFilter
+import com.erv.app.heatcold.heatColdTimelineForSectionLog
+import com.erv.app.ui.dashboard.SectionLogCalendarSheet
+import com.erv.app.ui.dashboard.SectionLogFilterBar
 import com.erv.app.ui.dashboard.datesWithHeatColdActivity
 import com.erv.app.ui.theme.ErvColdDark
 import com.erv.app.ui.theme.ErvColdGlow
@@ -696,28 +699,31 @@ fun HeatColdLogScreen(
     signer: EventSigner?,
     onBack: () -> Unit
 ) {
-    var selectedDate by remember { mutableStateOf(LocalDate.now()) }
+    var dateFilter by remember { mutableStateOf<SectionLogDateFilter>(SectionLogDateFilter.AllHistory) }
     var showCalendar by remember { mutableStateOf(false) }
-    var pendingDelete by remember { mutableStateOf<Pair<HeatColdMode, HeatColdSession>?>(null) }
-    val saunaEntries = remember(state, selectedDate) { state.chronologicalSaunaLogFor(selectedDate) }
-    val coldEntries = remember(state, selectedDate) { state.chronologicalColdLogFor(selectedDate) }
+    var pendingDelete by remember { mutableStateOf<HeatColdTimelineEntry?>(null) }
+    val timeline = remember(state, dateFilter) {
+        state.heatColdTimelineForSectionLog(dateFilter)
+    }
+    val showLogDateOnCards = dateFilter !is SectionLogDateFilter.SingleDay
     val datesWithActivity = remember(state) { datesWithHeatColdActivity(state) }
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     val darkTheme = isSystemInDarkTheme()
     val headerMid = if (darkTheme) ErvDarkTherapyRedMid else ErvLightTherapyRedMid
 
-    suspend fun syncAfterDelete() {
+    suspend fun syncAfterDeleteForDate(date: LocalDate) {
         if (relayPool == null || signer == null) return
-        repository.currentState().saunaLogFor(selectedDate)?.let {
+        repository.currentState().saunaLogFor(date)?.let {
             HeatColdSync.publishSaunaDailyLog(relayPool, signer, it)
         }
-        repository.currentState().coldLogFor(selectedDate)?.let {
+        repository.currentState().coldLogFor(date)?.let {
             HeatColdSync.publishColdDailyLog(relayPool, signer, it)
         }
     }
 
-    pendingDelete?.let { (kind, session) ->
+    pendingDelete?.let { entry ->
+        val session = entry.session
         AlertDialog(
             onDismissRequest = { pendingDelete = null },
             title = { Text("Remove session?") },
@@ -731,13 +737,14 @@ fun HeatColdLogScreen(
                 TextButton(
                     onClick = {
                         val id = session.id
+                        val logDate = entry.logDate
                         pendingDelete = null
                         scope.launch {
-                            when (kind) {
-                                HeatColdMode.SAUNA -> repository.deleteSaunaSession(selectedDate, id)
-                                HeatColdMode.COLD_PLUNGE -> repository.deleteColdSession(selectedDate, id)
+                            when (entry.mode) {
+                                HeatColdMode.SAUNA -> repository.deleteSaunaSession(logDate, id)
+                                HeatColdMode.COLD_PLUNGE -> repository.deleteColdSession(logDate, id)
                             }
-                            syncAfterDelete()
+                            syncAfterDeleteForDate(logDate)
                             snackbarHostState.showSnackbar("Session removed")
                         }
                     }
@@ -769,18 +776,12 @@ fun HeatColdLogScreen(
         }
     ) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
-            DateNavigator(
-                selectedDate = selectedDate,
-                onPreviousDay = { selectedDate = selectedDate.minusDays(1) },
-                onNextDay = { selectedDate = selectedDate.plusDays(1) },
-                onPreviousWeek = { selectedDate = selectedDate.minusWeeks(1) },
-                onNextWeek = { selectedDate = selectedDate.plusWeeks(1) },
-                onTodayClick = { selectedDate = LocalDate.now() },
-                onCalendarClick = { showCalendar = true },
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+            SectionLogFilterBar(
+                filter = dateFilter,
+                onOpenCalendar = { showCalendar = true },
+                onClearFilter = { dateFilter = SectionLogDateFilter.AllHistory }
             )
-            HorizontalDivider()
-            if (saunaEntries.isEmpty() && coldEntries.isEmpty()) {
+            if (timeline.isEmpty()) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -788,7 +789,11 @@ fun HeatColdLogScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        "No hot or cold sessions logged for this date.",
+                        when (dateFilter) {
+                            SectionLogDateFilter.AllHistory -> "No hot or cold sessions logged yet."
+                            is SectionLogDateFilter.SingleDay -> "No hot or cold sessions logged for this date."
+                            is SectionLogDateFilter.DateRange -> "No hot or cold sessions logged in this date range."
+                        },
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -799,41 +804,37 @@ fun HeatColdLogScreen(
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    if (saunaEntries.isNotEmpty()) {
-                        item {
-                            Text("Sauna", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                        }
-                        items(saunaEntries, key = { "s-${it.id}" }) { session ->
-                            HeatColdLogEntryCard(
-                                title = "Sauna",
-                                session = session,
-                                onDelete = { pendingDelete = HeatColdMode.SAUNA to session }
-                            )
-                        }
+                    item {
+                        Text(
+                            "Newest first. Sauna and cold plunge are mixed by time. Tap delete to remove from that day.",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(Modifier.height(8.dp))
                     }
-                    if (coldEntries.isNotEmpty()) {
-                        item {
-                            if (saunaEntries.isNotEmpty()) Spacer(Modifier.height(8.dp))
-                            Text("Cold Plunge", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                    items(timeline, key = { "${it.logDate}-${it.mode}-${it.session.id}" }) { entry ->
+                        val title = when (entry.mode) {
+                            HeatColdMode.SAUNA -> "Sauna"
+                            HeatColdMode.COLD_PLUNGE -> "Cold Plunge"
                         }
-                        items(coldEntries, key = { "c-${it.id}" }) { session ->
-                            HeatColdLogEntryCard(
-                                title = "Cold Plunge",
-                                session = session,
-                                onDelete = { pendingDelete = HeatColdMode.COLD_PLUNGE to session }
-                            )
-                        }
+                        HeatColdLogEntryCard(
+                            title = title,
+                            showLogDate = showLogDateOnCards,
+                            logDate = entry.logDate,
+                            session = entry.session,
+                            onDelete = { pendingDelete = entry }
+                        )
                     }
                 }
             }
         }
     }
     if (showCalendar) {
-        CalendarPopup(
-            selectedDate = selectedDate,
-            onDateSelected = { selectedDate = it; showCalendar = false },
+        SectionLogCalendarSheet(
+            filter = dateFilter,
             onDismiss = { showCalendar = false },
-            datesWithActivity = datesWithActivity
+            datesWithActivity = datesWithActivity,
+            onApplyFilter = { dateFilter = it }
         )
     }
 }
@@ -841,6 +842,8 @@ fun HeatColdLogScreen(
 @Composable
 private fun HeatColdLogEntryCard(
     title: String,
+    showLogDate: Boolean,
+    logDate: LocalDate,
     session: HeatColdSession,
     onDelete: () -> Unit
 ) {
@@ -853,6 +856,13 @@ private fun HeatColdLogEntryCard(
             verticalAlignment = Alignment.Top
         ) {
             Column(modifier = Modifier.weight(1f)) {
+                if (showLogDate) {
+                    Text(
+                        logDate.format(DateTimeFormatter.ISO_LOCAL_DATE),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
                 Text(title, style = MaterialTheme.typography.titleMedium)
                 Text(
                     formatDurationSeconds(session.durationSeconds),

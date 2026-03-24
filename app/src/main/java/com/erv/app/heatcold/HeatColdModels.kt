@@ -1,5 +1,6 @@
 package com.erv.app.heatcold
 
+import com.erv.app.SectionLogDateFilter
 import kotlinx.serialization.Serializable
 import java.nio.charset.StandardCharsets
 import java.time.LocalDate
@@ -98,13 +99,78 @@ fun HeatColdLibraryState.coldActivityFor(date: LocalDate): List<HeatColdActivity
 
 fun HeatColdLibraryState.chronologicalSaunaLogFor(date: LocalDate): List<HeatColdSession> {
     val log = saunaLogFor(date) ?: return emptyList()
-    return log.sessions.sortedByDescending { it.loggedAtEpochSeconds }
+    return log.sessions.sortedWith(
+        compareBy<HeatColdSession> { it.loggedAtEpochSeconds }.thenBy { it.id }
+    )
 }
 
 fun HeatColdLibraryState.chronologicalColdLogFor(date: LocalDate): List<HeatColdSession> {
     val log = coldLogFor(date) ?: return emptyList()
-    return log.sessions.sortedByDescending { it.loggedAtEpochSeconds }
+    return log.sessions.sortedWith(
+        compareBy<HeatColdSession> { it.loggedAtEpochSeconds }.thenBy { it.id }
+    )
 }
+
+data class HeatColdTimelineEntry(
+    val logDate: LocalDate,
+    val mode: HeatColdMode,
+    val session: HeatColdSession
+)
+
+fun HeatColdLibraryState.chronologicalHeatColdTimelineFor(date: LocalDate): List<HeatColdTimelineEntry> {
+    val sauna = chronologicalSaunaLogFor(date).map { HeatColdTimelineEntry(date, HeatColdMode.SAUNA, it) }
+    val cold = chronologicalColdLogFor(date).map { HeatColdTimelineEntry(date, HeatColdMode.COLD_PLUNGE, it) }
+    return (sauna + cold).sortedWith(
+        compareBy<HeatColdTimelineEntry> { it.session.loggedAtEpochSeconds }
+            .thenBy { it.mode.ordinal }
+            .thenBy { it.session.id }
+    )
+}
+
+fun HeatColdLibraryState.chronologicalHeatColdTimelineForRange(start: LocalDate, end: LocalDate): List<HeatColdTimelineEntry> {
+    val from = if (start <= end) start else end
+    val to = if (start <= end) end else start
+    val rows = mutableListOf<HeatColdTimelineEntry>()
+    var d = from
+    while (!d.isAfter(to)) {
+        rows.addAll(chronologicalHeatColdTimelineFor(d))
+        d = d.plusDays(1)
+    }
+    return rows.sortedWith(
+        compareBy<HeatColdTimelineEntry> { it.logDate }
+            .thenBy { it.session.loggedAtEpochSeconds }
+            .thenBy { it.mode.ordinal }
+            .thenBy { it.session.id }
+    )
+}
+
+private fun List<HeatColdTimelineEntry>.sortedHeatColdNewestFirst(): List<HeatColdTimelineEntry> =
+    sortedWith(
+        compareByDescending<HeatColdTimelineEntry> { it.session.loggedAtEpochSeconds }
+            .thenByDescending { it.logDate }
+            .thenBy { it.mode.ordinal }
+            .thenBy { it.session.id }
+    )
+
+fun HeatColdLibraryState.heatColdTimelineForSectionLog(filter: SectionLogDateFilter): List<HeatColdTimelineEntry> =
+    when (filter) {
+        SectionLogDateFilter.AllHistory -> {
+            val rows = mutableListOf<HeatColdTimelineEntry>()
+            for (dl in saunaLogs) {
+                val d = LocalDate.parse(dl.date)
+                dl.sessions.forEach { rows.add(HeatColdTimelineEntry(d, HeatColdMode.SAUNA, it)) }
+            }
+            for (dl in coldLogs) {
+                val d = LocalDate.parse(dl.date)
+                dl.sessions.forEach { rows.add(HeatColdTimelineEntry(d, HeatColdMode.COLD_PLUNGE, it)) }
+            }
+            rows.sortedHeatColdNewestFirst()
+        }
+        is SectionLogDateFilter.SingleDay ->
+            chronologicalHeatColdTimelineFor(filter.day).sortedHeatColdNewestFirst()
+        is SectionLogDateFilter.DateRange ->
+            chronologicalHeatColdTimelineForRange(filter.startInclusive, filter.endInclusive).sortedHeatColdNewestFirst()
+    }
 
 fun HeatColdSession.formatTemp(): String? {
     val v = tempValue ?: return null

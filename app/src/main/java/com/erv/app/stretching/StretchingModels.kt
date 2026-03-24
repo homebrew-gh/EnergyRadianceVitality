@@ -1,5 +1,6 @@
 package com.erv.app.stretching
 
+import com.erv.app.SectionLogDateFilter
 import kotlinx.serialization.Serializable
 import java.nio.charset.StandardCharsets
 import java.time.LocalDate
@@ -165,8 +166,51 @@ data class StretchActivityRow(
 
 fun StretchLibraryState.chronologicalStretchLogFor(date: LocalDate): List<StretchSession> {
     val log = logFor(date) ?: return emptyList()
-    return log.sessions.sortedByDescending { it.loggedAtEpochSeconds }
+    return log.sessions.sortedWith(
+        compareBy<StretchSession> { it.loggedAtEpochSeconds }.thenBy { it.id }
+    )
 }
+
+data class DatedStretchSession(val logDate: LocalDate, val session: StretchSession)
+
+fun StretchLibraryState.chronologicalStretchLogForRange(start: LocalDate, end: LocalDate): List<DatedStretchSession> {
+    val from = if (start <= end) start else end
+    val to = if (start <= end) end else start
+    val rows = mutableListOf<DatedStretchSession>()
+    var d = from
+    while (!d.isAfter(to)) {
+        chronologicalStretchLogFor(d).forEach { rows.add(DatedStretchSession(d, it)) }
+        d = d.plusDays(1)
+    }
+    return rows.sortedWith(
+        compareBy<DatedStretchSession> { it.logDate }
+            .thenBy { it.session.loggedAtEpochSeconds }
+            .thenBy { it.session.id }
+    )
+}
+
+private fun List<DatedStretchSession>.sortedStretchNewestFirst(): List<DatedStretchSession> =
+    sortedWith(
+        compareByDescending<DatedStretchSession> { it.session.loggedAtEpochSeconds }
+            .thenByDescending { it.logDate }
+            .thenBy { it.session.id }
+    )
+
+fun StretchLibraryState.datedStretchSessionsForSectionLog(filter: SectionLogDateFilter): List<DatedStretchSession> =
+    when (filter) {
+        SectionLogDateFilter.AllHistory -> {
+            val rows = mutableListOf<DatedStretchSession>()
+            for (dl in logs) {
+                val d = LocalDate.parse(dl.date)
+                dl.sessions.forEach { rows.add(DatedStretchSession(d, it)) }
+            }
+            rows.sortedStretchNewestFirst()
+        }
+        is SectionLogDateFilter.SingleDay ->
+            chronologicalStretchLogFor(filter.day).map { DatedStretchSession(filter.day, it) }.sortedStretchNewestFirst()
+        is SectionLogDateFilter.DateRange ->
+            chronologicalStretchLogForRange(filter.startInclusive, filter.endInclusive).sortedStretchNewestFirst()
+    }
 
 fun StretchLibraryState.stretchActivityFor(date: LocalDate): List<StretchActivityRow> {
     val log = logFor(date) ?: return emptyList()
