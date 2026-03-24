@@ -403,9 +403,6 @@ fun CardioCategoryScreen(
                     onStartWorkout = { d ->
                         startOrQueueCardio(CardioActiveTimerSession.Single(d))
                     },
-                    onLogFromSnapshot = { snap ->
-                        workoutBuilder = WorkoutBuilderMode.FromActivitySnapshot(snap)
-                    }
                 )
                 CardioTab.Routines -> RoutinesTab(
                     state = state,
@@ -1343,7 +1340,7 @@ private fun StartCardioModalityForTimerDialog(
                         if (builtin == CardioBuiltinActivity.SPRINT) {
                             "Sprinting: pick outdoor or indoor next. Indoor skips belt details and uses a default speed for on-screen estimates (motorized treadmills; manual belts may differ)."
                         } else {
-                            "Choose outdoor or indoor treadmill before the timer starts."
+                            "Choose outdoor or indoor before the timer starts."
                         },
                         style = MaterialTheme.typography.bodyMedium
                     )
@@ -1367,7 +1364,7 @@ private fun StartCardioModalityForTimerDialog(
                             }
                         },
                         modifier = Modifier.fillMaxWidth()
-                    ) { Text("Indoor treadmill") }
+                    ) { Text(CardioModality.INDOOR_TREADMILL.label()) }
                 }
             },
             confirmButton = {
@@ -1385,7 +1382,7 @@ private fun StartCardioModalityForTimerDialog(
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Text(
-                        "Enter belt speed and incline for this indoor treadmill session.",
+                        "Enter belt speed and incline for this indoor session.",
                         style = MaterialTheme.typography.bodyMedium
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1548,7 +1545,7 @@ private fun CardioTimerStartOptionsDialog(
                             "Sprint outdoors: count down to a target time, or to a target distance estimated from your average pace."
                         else ->
                             if (modality == CardioModality.INDOOR_TREADMILL) {
-                                "Choose whether the main clock counts up or down. On a treadmill, distance updates from speed × time when you did not enter a fixed distance."
+                                "Choose whether the main clock counts up or down. Indoors, distance updates from speed × time when you did not enter a fixed distance."
                             } else {
                                 "Choose whether the main clock counts up or down."
                             }
@@ -1731,9 +1728,7 @@ private fun ActivitiesTab(
     onEditCustom: (CardioCustomActivityType) -> Unit,
     onDeleteCustom: (String) -> Unit,
     onStartWorkout: (CardioTimerSessionDraft) -> Unit,
-    onLogFromSnapshot: (CardioActivitySnapshot) -> Unit
 ) {
-    var pendingPick by remember { mutableStateOf<CardioActivitySnapshot?>(null) }
     var pendingModalityForStart by remember { mutableStateOf<CardioActivitySnapshot?>(null) }
     var pendingTimerOpts by remember { mutableStateOf<PendingCardioTimerOpts?>(null) }
     val builtins = remember(state) {
@@ -1778,40 +1773,16 @@ private fun ActivitiesTab(
         )
     }
 
-    pendingPick?.let { pick ->
-        AlertDialog(
-            onDismissRequest = { pendingPick = null },
-            title = { Text(pick.displayLabel) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Button(
-                        onClick = {
-                            if (pick.builtin?.supportsTreadmillModality() == true) {
-                                pendingModalityForStart = pick
-                            } else {
-                                pendingTimerOpts = PendingCardioTimerOpts(
-                                    pick,
-                                    CardioModality.OUTDOOR,
-                                    null
-                                )
-                            }
-                            pendingPick = null
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) { Text("Start workout") }
-                    OutlinedButton(
-                        onClick = {
-                            onLogFromSnapshot(pick)
-                            pendingPick = null
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) { Text("Log completed") }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { pendingPick = null }) { Text("Cancel") }
-            }
-        )
+    fun startWorkoutFromActivity(snap: CardioActivitySnapshot) {
+        if (snap.builtin?.supportsTreadmillModality() == true) {
+            pendingModalityForStart = snap
+        } else {
+            pendingTimerOpts = PendingCardioTimerOpts(
+                snap,
+                CardioModality.OUTDOOR,
+                null
+            )
+        }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -1824,7 +1795,7 @@ private fun ActivitiesTab(
                 ElevatedCard(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { pendingPick = snap }
+                        .clickable { startWorkoutFromActivity(snap) }
                 ) {
                     Row(
                         modifier = Modifier
@@ -1862,7 +1833,7 @@ private fun ActivitiesTab(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clickable {
-                                        pendingPick = state.resolveSnapshot(null, t.id)
+                                        startWorkoutFromActivity(state.resolveSnapshot(null, t.id))
                                     },
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
@@ -2751,7 +2722,7 @@ private fun buildWorkoutNoteContent(
     routeImageUrl: String? = null
 ): String = buildString {
     append("\uD83C\uDFC3 Completed: ${session.activity.displayLabel}")
-    if (session.modality == CardioModality.INDOOR_TREADMILL) append(" (treadmill)")
+    if (session.modality == CardioModality.INDOOR_TREADMILL) append(" (indoor)")
     append("\n")
     append("\u23F1 Duration: ${session.durationMinutes} min\n")
     if (session.activity.builtin == CardioBuiltinActivity.RUCK) {
@@ -3206,7 +3177,7 @@ private fun RoutineEditorDialog(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Text(
-                    "Add one activity for a simple workout, or several for bricks / tri training. Treadmill (belt) settings apply only to legs that are walk, run, sprint, or ruck when you pick Treadmill.",
+                    "Add one activity for a simple workout, or several for bricks / tri training. Belt speed and incline apply only to legs that are walk, run, sprint, or ruck when you pick Indoor.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

@@ -43,8 +43,10 @@ import com.erv.app.reminders.isValid
 import com.erv.app.reminders.toDraft
 import com.erv.app.reminders.toReminder
 import com.erv.app.ui.reminders.RoutineReminderFormSection
+import com.erv.app.supplements.OpenFoodFactsClient
 import com.erv.app.supplements.SupplementApiClient
 import com.erv.app.supplements.SupplementApiResult
+import com.erv.app.supplements.SupplementBarcodeLookup
 import com.erv.app.supplements.SupplementActivityRow
 import com.erv.app.supplements.SupplementDosagePlan
 import com.erv.app.supplements.SupplementDayLog
@@ -109,7 +111,8 @@ private data class CreateSupplementBootstrap(
 
 private data class BarcodeLookupState(
     val rawCode: String,
-    val results: List<SupplementApiResult>
+    val results: List<SupplementApiResult>,
+    val lookupSummary: String,
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -139,6 +142,7 @@ fun SupplementCategoryScreen(
     val singleTimeSlots = remember { listOf(SupplementTimeOfDay.MORNING, SupplementTimeOfDay.MIDDAY, SupplementTimeOfDay.NIGHT) }
 
     val supplementApiClient = remember { SupplementApiClient() }
+    val openFoodFactsClient = remember { OpenFoodFactsClient() }
     var showAddSupplementChooser by remember { mutableStateOf(false) }
     var showBarcodeScanner by remember { mutableStateOf(false) }
     var barcodeLookup by remember { mutableStateOf<BarcodeLookupState?>(null) }
@@ -362,21 +366,40 @@ fun SupplementCategoryScreen(
                         showBarcodeScanner = false
                         scope.launch {
                             barcodeSearchBusy = true
-                            val results = supplementApiClient.searchByProductCode(code)
+                            val resolution = SupplementBarcodeLookup.resolve(
+                                scannedCode = code,
+                                offClient = openFoodFactsClient,
+                                dsldClient = supplementApiClient
+                            )
                             barcodeSearchBusy = false
-                            if (results.isEmpty()) {
-                                snackbarHostState.showSnackbar("No NIH label match for this barcode")
+                            if (resolution.dsldResults.isEmpty()) {
+                                snackbarHostState.showSnackbar(
+                                    if (resolution.offFoundProduct) {
+                                        "No NIH DSLD match (Open Food Facts had a product name)"
+                                    } else {
+                                        "No NIH DSLD match for this barcode"
+                                    }
+                                )
                                 createBootstrap = CreateSupplementBootstrap(
                                     sessionKey = UUID.randomUUID().toString(),
                                     initialDraft = SupplementDraft(
-                                        notes = "Barcode $code — no NIH DSLD match."
+                                        name = resolution.suggestedNameFromOff.orEmpty(),
+                                        brand = resolution.suggestedBrandFromOff.orEmpty(),
+                                        notes = buildString {
+                                            append("Barcode $code. ")
+                                            append(resolution.userMessage)
+                                        }
                                     ),
                                     pendingNih = null
                                 )
                                 creatingSupplement = true
                                 supplementEditor = null
                             } else {
-                                barcodeLookup = BarcodeLookupState(code, results)
+                                barcodeLookup = BarcodeLookupState(
+                                    rawCode = code,
+                                    results = resolution.dsldResults,
+                                    lookupSummary = resolution.userMessage
+                                )
                             }
                         }
                     },
@@ -393,7 +416,8 @@ fun SupplementCategoryScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        "Look up a label from the NIH database by scanning the bottle barcode, or enter details yourself.",
+                        "Scan looks up the code on Open Food Facts (open data, ODbL), then searches NIH DSLD by product name for label details. " +
+                            "Either path can miss; you can always add manually and search NIH on the supplement screen.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -450,9 +474,19 @@ fun SupplementCategoryScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
-                        "Barcode ${lookup.rawCode}. Choose a product or enter details manually.",
+                        lookup.lookupSummary,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        "Barcode ${lookup.rawCode}. Tap a row to use that NIH label, or choose manual below.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        "Open Food Facts data is ODbL — see openfoodfacts.org.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline
                     )
                     lookup.results.forEach { result ->
                         ElevatedCard(

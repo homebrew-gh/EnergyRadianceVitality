@@ -54,7 +54,7 @@ enum class CardioModality {
 
 fun CardioModality.label(): String = when (this) {
     CardioModality.OUTDOOR -> "Outdoor"
-    CardioModality.INDOOR_TREADMILL -> "Indoor treadmill"
+    CardioModality.INDOOR_TREADMILL -> "Indoor"
 }
 
 /** Display / entry for distance fields and summaries (stored values remain meters). */
@@ -479,7 +479,7 @@ fun CardioSession.summaryLine(
     }
     return buildString {
         append(activity.displayLabel)
-        if (modality == CardioModality.INDOOR_TREADMILL) append(" (treadmill)")
+        if (modality == CardioModality.INDOOR_TREADMILL) append(" (indoor)")
         append(" • ${durationMinutes} min")
         treadmill?.let { t ->
             append(" • ${formatSpeed(t.speed, t.speedUnit)}")
