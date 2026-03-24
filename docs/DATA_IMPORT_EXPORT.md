@@ -202,10 +202,10 @@ Phases can overlap; **A + B** deliver most of the “data ownership” story; **
 
 ## 11. Shipped references (import docs)
 
-- **Weight training (implemented import):** **`docs/WEIGHT_IMPORT_AI_GUIDE.md`**, **`docs/WEIGHT_IMPORT_CSV.md`**, **`docs/WEIGHT_IMPORT_BUILTIN_EXERCISES.md`**. The same AI and CSV guides (plus the exercise table) are bundled under **Settings → Import / export** for on-device reading.
+- **Weight training (implemented import):** **`docs/weight_training_import_ai_guide.md`**, **`docs/weight_training_import_csv_guide.md`**, **`docs/weight_training_builtin_exercise_ids.md`**. Nostr uses kind **30078** with `erv/weight/...` d-tags (see **PLAN_OF_ACTION.md** / **PROTOCOL_GRAPH.md**). Bundled under **Settings → Import And Export**.
 - Sessions created from weight file import use `source`: **`IMPORTED`** in encrypted day payloads (`erv/weight/<date>`).
 - **Relay uploads (weight + cardio import):** After local merge, payloads go through a durable **`RelayPublishOutbox`** (DataStore): enqueue **master + per-day** JSON, then **`kickDrain`** sends sequentially with **~150 ms** spacing and **exponential backoff** on failure. **`MainActivity`** also drains the outbox when relays/signer are available (e.g. after relay URL changes). **Local DataStore remains canonical**; failed sends stay queued and retry.
-- **Cardio (implemented import):** **`docs/CARDIO_IMPORT_AI_GUIDE.md`**, **`docs/CARDIO_IMPORT_CSV.md`** — JSON (primary) and ERV cardio CSV (Excel-friendly) under **Settings → Import / export → Import → Cardio**, with the same preview/merge pattern as weight. Sessions use `source`: **`IMPORTED`**. The AI guide also documents **Strava** export paths for conversion workflows.
+- **Cardio (implemented import):** **`docs/cardio_training_import_ai_guide.md`**, **`docs/cardio_training_import_csv_guide.md`**, **`docs/cardio_training_nostr_events_reference.md`** (kind **30078**, `erv/cardio/...` d-tags). JSON (primary) and ERV cardio CSV under **Settings → Import And Export**, with the same preview/merge pattern as weight. Sessions use `source`: **`IMPORTED`**. The AI guide also documents **Strava** export paths for conversion workflows.
 
 ## 12. Open decisions
 

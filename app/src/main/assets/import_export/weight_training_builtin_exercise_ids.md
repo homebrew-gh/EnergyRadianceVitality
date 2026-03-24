@@ -1,4 +1,4 @@
-# ERV built-in weight exercises — IDs
+# ERV Built-In Weight Exercise IDs
 
 Use these exact `exerciseId` strings in import JSON or CSV. Custom lifts you define in the app use their own UUIDs (copy from the exercise editor or export when available).
 

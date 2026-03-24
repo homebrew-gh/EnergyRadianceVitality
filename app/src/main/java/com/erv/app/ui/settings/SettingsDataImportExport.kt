@@ -7,8 +7,10 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
@@ -101,27 +103,30 @@ private data class ImportPreviewBlock(
 )
 
 internal object ImportExportDocAssets {
-    const val KEY_AI = "ai"
-    const val KEY_CSV = "csv"
-    const val KEY_BUILTIN = "builtin"
+    const val KEY_WEIGHT_AI = "weight_ai"
+    const val KEY_WEIGHT_CSV = "weight_csv"
+    const val KEY_WEIGHT_BUILTIN = "weight_builtin"
     const val KEY_CARDIO_AI = "cardio_ai"
     const val KEY_CARDIO_CSV = "cardio_csv"
+    const val KEY_CARDIO_NOSTR = "cardio_nostr"
 
     fun pathForKey(docKey: String): String? = when (docKey) {
-        KEY_AI -> "import_export/erv_weight_import_ai_guide.md"
-        KEY_CSV -> "import_export/erv_weight_import_csv.md"
-        KEY_BUILTIN -> "import_export/erv_weight_import_builtin_exercises.md"
-        KEY_CARDIO_AI -> "import_export/erv_cardio_import_ai_guide.md"
-        KEY_CARDIO_CSV -> "import_export/erv_cardio_import_csv.md"
+        KEY_WEIGHT_AI -> "import_export/weight_training_import_ai_guide.md"
+        KEY_WEIGHT_CSV -> "import_export/weight_training_import_csv_guide.md"
+        KEY_WEIGHT_BUILTIN -> "import_export/weight_training_builtin_exercise_ids.md"
+        KEY_CARDIO_AI -> "import_export/cardio_training_import_ai_guide.md"
+        KEY_CARDIO_CSV -> "import_export/cardio_training_import_csv_guide.md"
+        KEY_CARDIO_NOSTR -> "import_export/cardio_training_nostr_events_reference.md"
         else -> null
     }
 
     fun titleForKey(docKey: String): String = when (docKey) {
-        KEY_AI -> "AI import guide"
-        KEY_CSV -> "CSV import format"
-        KEY_BUILTIN -> "Built-in exercise IDs"
-        KEY_CARDIO_AI -> "Cardio import (AI guide)"
-        KEY_CARDIO_CSV -> "Cardio CSV import format"
+        KEY_WEIGHT_AI -> "Weight Training Import AI Guide"
+        KEY_WEIGHT_CSV -> "Weight Training Import CSV Guide"
+        KEY_WEIGHT_BUILTIN -> "Weight Training Built-In Exercise IDs"
+        KEY_CARDIO_AI -> "Cardio Training Import AI Guide"
+        KEY_CARDIO_CSV -> "Cardio Training Import CSV Guide"
+        KEY_CARDIO_NOSTR -> "Cardio Training Nostr Events Reference"
         else -> "Reference"
     }
 }
@@ -173,7 +178,6 @@ fun SettingsDataImportExportScreen(
     val loadUnit by userPreferences.weightTrainingLoadUnit.collectAsState(initial = BodyWeightUnit.LB)
     val cardioDistanceUnit by userPreferences.cardioDistanceUnit.collectAsState(initial = CardioDistanceUnit.MILES)
 
-    var showImportMenu by remember { mutableStateOf(false) }
     var activeImportSilo by remember { mutableStateOf<ImportSilo?>(null) }
     var pendingWeightImport by remember { mutableStateOf<PendingWeightImport?>(null) }
     var pendingCardioImport by remember { mutableStateOf<PendingCardioImport?>(null) }
@@ -227,40 +231,6 @@ fun SettingsDataImportExportScreen(
                 }
             }
         }
-    }
-
-    if (showImportMenu) {
-        AlertDialog(
-            onDismissRequest = { showImportMenu = false },
-            title = { Text("Import") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(
-                        "Choose which data the file contains, then pick JSON or CSV.",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    TextButton(
-                        onClick = {
-                            showImportMenu = false
-                            activeImportSilo = ImportSilo.WEIGHT
-                            pickLauncher.launch(arrayOf("application/json", "text/csv", "text/plain", "*/*"))
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) { Text("Weight training") }
-                    TextButton(
-                        onClick = {
-                            showImportMenu = false
-                            activeImportSilo = ImportSilo.CARDIO
-                            pickLauncher.launch(arrayOf("application/json", "text/csv", "text/plain", "*/*"))
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) { Text("Cardio") }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showImportMenu = false }) { Text("Cancel") }
-            },
-        )
     }
 
     pendingWeightImport?.let { pending ->
@@ -364,7 +334,7 @@ fun SettingsDataImportExportScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
-                title = { Text("Import / export") },
+                title = { Text("Import And Export") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -379,59 +349,113 @@ fun SettingsDataImportExportScreen(
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp)
-                .padding(top = 12.dp, bottom = 32.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+                .padding(top = 8.dp, bottom = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(0.dp)
         ) {
             Text(
-                "Merge weight training or cardio history from a JSON or CSV file that matches the ERV import spec. " +
-                    "Pick the silo, then choose a file — preview shows what will be appended. Sessions are stored as Imported.",
+                "Choose Your Silo Below. JSON Or CSV Files Are Previewed Before Merge. New Sessions Are Tagged Imported.",
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 12.dp)
+            )
+
+            ImportSectionTitle("Weight Training", first = true)
+            Text(
+                "Guides And Exercise IDs Help You Or An AI Build Files That Upload After Import Via The Outbox.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 10.dp)
             )
             OutlinedButton(
-                onClick = { showImportMenu = true },
+                onClick = {
+                    activeImportSilo = ImportSilo.WEIGHT
+                    pickLauncher.launch(arrayOf("application/json", "text/csv", "text/plain", "*/*"))
+                },
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Icon(Icons.Default.Upload, contentDescription = null)
-                Text("Import", modifier = Modifier.padding(start = 8.dp))
+                Text("Import Weight Training File", modifier = Modifier.padding(start = 8.dp))
             }
             Text(
-                "Export from the app will be added later. For now you can back up via Nostr sync (encrypted) when relays are configured.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Text(
-                "Reference (bundled in the app)",
+                "Reference Files (Weight Training Upload)",
                 style = MaterialTheme.typography.titleSmall,
-                modifier = Modifier.padding(top = 8.dp)
+                modifier = Modifier.padding(top = 14.dp, bottom = 4.dp)
+            )
+            DocLinkRow(
+                title = ImportExportDocAssets.titleForKey(ImportExportDocAssets.KEY_WEIGHT_AI),
+                subtitle = "AI Prompt Rules For Weight Training JSON",
+                onClick = { onOpenDoc(ImportExportDocAssets.KEY_WEIGHT_AI) }
+            )
+            DocLinkRow(
+                title = ImportExportDocAssets.titleForKey(ImportExportDocAssets.KEY_WEIGHT_CSV),
+                subtitle = "Spreadsheet Columns For Weight Training CSV",
+                onClick = { onOpenDoc(ImportExportDocAssets.KEY_WEIGHT_CSV) }
+            )
+            DocLinkRow(
+                title = ImportExportDocAssets.titleForKey(ImportExportDocAssets.KEY_WEIGHT_BUILTIN),
+                subtitle = "Official Names And IDs For Lift Mapping",
+                onClick = { onOpenDoc(ImportExportDocAssets.KEY_WEIGHT_BUILTIN) }
+            )
+
+            Spacer(Modifier.height(8.dp))
+            HorizontalDivider()
+            ImportSectionTitle("Cardio Training")
+            Text(
+                "Guides And Nostr Reference Cover Cardio JSON, CSV, And Relay D-Tags (Kind 30078).",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 10.dp)
+            )
+            OutlinedButton(
+                onClick = {
+                    activeImportSilo = ImportSilo.CARDIO
+                    pickLauncher.launch(arrayOf("application/json", "text/csv", "text/plain", "*/*"))
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Default.Upload, contentDescription = null)
+                Text("Import Cardio Training File", modifier = Modifier.padding(start = 8.dp))
+            }
+            Text(
+                "Reference Files (Cardio Training Upload)",
+                style = MaterialTheme.typography.titleSmall,
+                modifier = Modifier.padding(top = 14.dp, bottom = 4.dp)
             )
             DocLinkRow(
                 title = ImportExportDocAssets.titleForKey(ImportExportDocAssets.KEY_CARDIO_AI),
-                subtitle = "Prompt and rules for an AI to emit valid cardio JSON",
+                subtitle = "AI Prompt Rules For Cardio JSON",
                 onClick = { onOpenDoc(ImportExportDocAssets.KEY_CARDIO_AI) }
             )
             DocLinkRow(
                 title = ImportExportDocAssets.titleForKey(ImportExportDocAssets.KEY_CARDIO_CSV),
-                subtitle = "Column headers for spreadsheet cardio import",
+                subtitle = "Spreadsheet Columns For Cardio CSV",
                 onClick = { onOpenDoc(ImportExportDocAssets.KEY_CARDIO_CSV) }
             )
             DocLinkRow(
-                title = ImportExportDocAssets.titleForKey(ImportExportDocAssets.KEY_AI),
-                subtitle = "Prompt and rules for an AI to emit valid JSON",
-                onClick = { onOpenDoc(ImportExportDocAssets.KEY_AI) }
+                title = ImportExportDocAssets.titleForKey(ImportExportDocAssets.KEY_CARDIO_NOSTR),
+                subtitle = "Kind 30078 And ERV Cardio D-Tags On Relays",
+                onClick = { onOpenDoc(ImportExportDocAssets.KEY_CARDIO_NOSTR) }
             )
-            DocLinkRow(
-                title = ImportExportDocAssets.titleForKey(ImportExportDocAssets.KEY_CSV),
-                subtitle = "Column headers and row rules for spreadsheet import",
-                onClick = { onOpenDoc(ImportExportDocAssets.KEY_CSV) }
-            )
-            DocLinkRow(
-                title = ImportExportDocAssets.titleForKey(ImportExportDocAssets.KEY_BUILTIN),
-                subtitle = "All built-in exercise names and stable ids",
-                onClick = { onOpenDoc(ImportExportDocAssets.KEY_BUILTIN) }
+
+            Spacer(Modifier.height(16.dp))
+            HorizontalDivider()
+            Text(
+                "Full App Export Is Planned. Until Then Use Nostr Sync For Encrypted Backup When Relays Are Set Up.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 14.dp)
             )
         }
     }
+}
+
+@Composable
+private fun ImportSectionTitle(text: String, first: Boolean = false) {
+    Text(
+        text,
+        style = MaterialTheme.typography.titleMedium,
+        modifier = Modifier.padding(top = if (first) 0.dp else 18.dp, bottom = 6.dp)
+    )
 }
 
 @Composable
@@ -449,7 +473,7 @@ private fun WeightImportPreviewDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Import preview") },
+        title = { Text("Weight Training Import Preview") },
         text = {
             Column(
                 modifier = Modifier
@@ -467,7 +491,7 @@ private fun WeightImportPreviewDialog(
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
                 Text(
-                    "Sample (Imported)",
+                    "Preview Sample (Imported)",
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(bottom = 4.dp)
@@ -539,7 +563,7 @@ private fun CardioImportPreviewDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Cardio import preview") },
+        title = { Text("Cardio Training Import Preview") },
         text = {
             Column(
                 modifier = Modifier
@@ -557,7 +581,7 @@ private fun CardioImportPreviewDialog(
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
                 Text(
-                    "Sample (Imported)",
+                    "Preview Sample (Imported)",
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(bottom = 4.dp)
@@ -609,7 +633,7 @@ private fun ImportFailureDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Import failed") },
+        title = { Text("Import Failed") },
         text = {
             Column(
                 modifier = Modifier

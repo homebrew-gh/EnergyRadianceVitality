@@ -12,7 +12,7 @@ Header names are **case-insensitive**. Required columns:
 | --- | --- | --- |
 | `date` | **Yes** | `YYYY-MM-DD` calendar date. |
 | `session_key` | **Yes** | Any non-empty label grouping rows into one workout on that day. Same `date` + same `session_key` → one session. Use `a`, `b`, `morning`, UUIDs, etc. |
-| `exercise_id` | **Yes** | ERV built-in id (see **Built-in exercise IDs** in Settings) or a **custom UUID** already present in the app. |
+| `exercise_id` | **Yes** | ERV built-in id (see **Weight Training Built-In Exercise IDs** in Settings) or a **custom UUID** already present in the app. |
 | `set_index` | **Yes** | Integer **≥ 1**, sort order for sets of that exercise in that session. Duplicate indices for the same exercise overwrite (last wins). |
 | `reps` | **Yes** | Integer **≥ 0**. |
 
@@ -56,7 +56,7 @@ CSV only references `exercise_id`. If you need **new** lifts not in the built-in
 
 ## 4. Built-in exercise table
 
-Open **Built-in exercise IDs** from Settings → Import / export for the full **name ↔ `exerciseId`** list (127 entries).
+Open **Weight Training Built-In Exercise IDs** from **Settings → Import And Export** for the full **name ↔ `exerciseId`** list (127 entries).
 
 ---
 

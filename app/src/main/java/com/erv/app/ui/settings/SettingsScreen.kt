@@ -540,8 +540,8 @@ private fun SettingsHomeScreen(
                 onClick = { onOpenSection(SettingsRoutes.RELAYS) }
             )
             SettingsHubRow(
-                title = "Import / export",
-                subtitle = "Weight history: guides and file import",
+                title = "Import And Export",
+                subtitle = "Weight And Cardio Import Guides And Files",
                 icon = Icons.Default.Upload,
                 onClick = { onOpenSection(SettingsRoutes.DATA_IMPORT_EXPORT) }
             )

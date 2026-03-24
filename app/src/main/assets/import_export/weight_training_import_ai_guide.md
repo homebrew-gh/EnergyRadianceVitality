@@ -26,7 +26,7 @@ Unknown top-level keys should be omitted (the app may ignore some in future vers
 - **Weight:** always **`weightKg`** (kilograms) inside JSON. Convert lb → kg when needed (`kg = lb × 0.45359237`).
 - **Dates:** `date` on each day log must be **`YYYY-MM-DD`** (calendar date in the user’s intended locale; the app stores one `erv/weight/<date>` document per day).
 - **`exerciseId`:** must be either:
-  - A **built-in** stable id from the app (see **Built-in exercise IDs** in Settings → Import / export), or
+  - A **built-in** stable id from the app (see **Weight Training Built-In Exercise IDs** in **Settings → Import And Export**), or
   - A **UUID** string for a custom exercise the user already has, or that you add under `exercises` in this same file.
 
 **Do not** invent new stable `erv-weight-exercise-*` ids. For new lifts, use a random UUID and include a full object in `exercises`.
@@ -138,4 +138,4 @@ Each **entry** (`entries[]`):
 
 ## 8. Built-in exercise names and ids
 
-The full table of **127** built-in lifts ships in the app as **Built-in exercise IDs** (same folder as this guide in Settings). Use those rows as the only authoritative list of `erv-weight-exercise-*` strings.
+The full table of **127** built-in lifts ships in the app as **Weight Training Built-In Exercise IDs** (same screen as this guide in Settings). Use those rows as the only authoritative list of `erv-weight-exercise-*` strings.
