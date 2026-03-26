@@ -73,6 +73,7 @@ import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.erv.app.heatcold.HeatColdLibraryState
@@ -80,6 +81,8 @@ import com.erv.app.heatcold.HeatColdMode
 import com.erv.app.heatcold.HeatColdRepository
 import com.erv.app.heatcold.HeatColdSession
 import com.erv.app.heatcold.HeatColdSync
+import com.erv.app.nostr.LibraryStateMerge
+import com.erv.app.nostr.RelayPayloadDigestStore
 import com.erv.app.heatcold.TemperatureUnit
 import com.erv.app.heatcold.HeatColdTimelineEntry
 import com.erv.app.heatcold.chronologicalHeatColdTimelineFor
@@ -87,6 +90,7 @@ import com.erv.app.heatcold.chronologicalHeatColdTimelineForRange
 import com.erv.app.heatcold.formatDurationSeconds
 import com.erv.app.heatcold.formatTemp
 import com.erv.app.nostr.EventSigner
+import com.erv.app.nostr.LocalKeyManager
 import com.erv.app.nostr.RelayPool
 import com.erv.app.SectionLogDateFilter
 import com.erv.app.heatcold.heatColdTimelineForSectionLog
@@ -163,6 +167,8 @@ fun HeatColdCategoryScreen(
     val today = remember { LocalDate.now() }
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
+    val keyManager = LocalKeyManager.current
+    val appContext = LocalContext.current.applicationContext
 
     val headerDark = if (mode == HeatColdMode.SAUNA) hotDark else coldDark
     val headerMid = if (mode == HeatColdMode.SAUNA) hotMid else coldMid
@@ -173,16 +179,18 @@ fun HeatColdCategoryScreen(
 
     suspend fun syncSaunaLog() {
         if (relayPool != null && signer != null) {
+            val urls = keyManager.relayUrlsForKind30078Publish()
             repository.currentState().saunaLogFor(today)?.let { log ->
-                HeatColdSync.publishSaunaDailyLog(relayPool, signer, log)
+                HeatColdSync.publishSaunaDailyLog(appContext, relayPool, signer, log, urls)
             }
         }
     }
 
     suspend fun syncColdLog() {
         if (relayPool != null && signer != null) {
+            val urls = keyManager.relayUrlsForKind30078Publish()
             repository.currentState().coldLogFor(today)?.let { log ->
-                HeatColdSync.publishColdDailyLog(relayPool, signer, log)
+                HeatColdSync.publishColdDailyLog(appContext, relayPool, signer, log, urls)
             }
         }
     }
@@ -190,7 +198,13 @@ fun HeatColdCategoryScreen(
     LaunchedEffect(relayPool, signer?.publicKey) {
         if (relayPool != null && signer != null) {
             HeatColdSync.fetchFromNetwork(relayPool, signer, signer.publicKey)?.let { remote ->
-                repository.replaceAll(remote)
+                val merged = LibraryStateMerge.mergeHeatCold(repository.currentState(), remote)
+                repository.replaceAll(merged)
+                RelayPayloadDigestStore.reconcileIdenticalRemoteMerged(
+                    appContext,
+                    HeatColdSync.fullOutboxEntries(remote),
+                    HeatColdSync.fullOutboxEntries(merged),
+                )
             }
         }
     }
@@ -711,14 +725,17 @@ fun HeatColdLogScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val darkTheme = isSystemInDarkTheme()
     val headerMid = if (darkTheme) ErvDarkTherapyRedMid else ErvLightTherapyRedMid
+    val keyManager = LocalKeyManager.current
+    val logAppContext = LocalContext.current.applicationContext
 
     suspend fun syncAfterDeleteForDate(date: LocalDate) {
         if (relayPool == null || signer == null) return
+        val urls = keyManager.relayUrlsForKind30078Publish()
         repository.currentState().saunaLogFor(date)?.let {
-            HeatColdSync.publishSaunaDailyLog(relayPool, signer, it)
+            HeatColdSync.publishSaunaDailyLog(logAppContext, relayPool, signer, it, urls)
         }
         repository.currentState().coldLogFor(date)?.let {
-            HeatColdSync.publishColdDailyLog(relayPool, signer, it)
+            HeatColdSync.publishColdDailyLog(logAppContext, relayPool, signer, it, urls)
         }
     }
 

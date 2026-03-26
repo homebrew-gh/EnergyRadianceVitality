@@ -48,8 +48,8 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material.icons.filled.VolumeOff
-import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.automirrored.filled.VolumeOff
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ElevatedCard
@@ -102,6 +102,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import com.erv.app.data.StretchGuidedTtsVoice
 import com.erv.app.data.UserPreferences
 import com.erv.app.nostr.EventSigner
+import com.erv.app.nostr.LocalKeyManager
 import com.erv.app.nostr.RelayPool
 import com.erv.app.stretching.GuidedStretchStep
 import com.erv.app.stretching.StretchCatalogEntry
@@ -117,6 +118,8 @@ import com.erv.app.stretching.StretchRoutine
 import com.erv.app.stretching.StretchSession
 import com.erv.app.stretching.StretchingRepository
 import com.erv.app.stretching.StretchingSync
+import com.erv.app.nostr.LibraryStateMerge
+import com.erv.app.nostr.RelayPayloadDigestStore
 import com.erv.app.stretching.applyStretchGuidedTtsVoice
 import com.erv.app.stretching.DatedStretchSession
 import com.erv.app.SectionLogDateFilter
@@ -225,6 +228,7 @@ private fun ttsSpeakParams(): Bundle = Bundle().apply {
  * Only call when [engineReady] (init status was [TextToSpeech.SUCCESS]); otherwise speak/stop log "not bound".
  * Retries simpler [speak] shapes if needed.
  */
+@Suppress("DEPRECATION")
 private fun runStretchTtsSpeak(
     tts: TextToSpeech,
     text: String,
@@ -241,7 +245,6 @@ private fun runStretchTtsSpeak(
         code = tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
     }
     if (code == TextToSpeech.ERROR) {
-        @Suppress("DEPRECATION")
         val legacy = java.util.HashMap<String, String>()
         legacy[TextToSpeech.Engine.KEY_PARAM_STREAM] = AudioManager.STREAM_MUSIC.toString()
         legacy[TextToSpeech.Engine.KEY_PARAM_VOLUME] = "1.0"
@@ -333,6 +336,7 @@ private suspend fun awaitFirstStretchIntroUtterance(
                 override fun onDone(utteranceId: String?) {
                     if (utteranceId == FIRST_INTRO_UTTERANCE_ID) finishOnce()
                 }
+                @Deprecated("Deprecated in Android UtteranceProgressListener; kept for older API levels.")
                 override fun onError(utteranceId: String?) {
                     if (utteranceId == FIRST_INTRO_UTTERANCE_ID) finishOnce()
                 }
@@ -417,23 +421,43 @@ fun StretchingCategoryScreen(
     var guidedRoutine by remember { mutableStateOf<StretchRoutine?>(null) }
     var routineEditor by remember { mutableStateOf<StretchRoutine?>(null) }
     var creatingRoutine by remember { mutableStateOf(false) }
+    val keyManager = LocalKeyManager.current
+    val appContext = LocalContext.current.applicationContext
 
     suspend fun syncRoutines() {
         if (relayPool != null && signer != null) {
-            StretchingSync.publishRoutinesMaster(relayPool, signer, repository.currentState())
+            StretchingSync.publishRoutinesMaster(
+                appContext,
+                relayPool,
+                signer,
+                repository.currentState(),
+                keyManager.relayUrlsForKind30078Publish(),
+            )
         }
     }
 
     suspend fun syncDailyLog(log: StretchDayLog) {
         if (relayPool != null && signer != null) {
-            StretchingSync.publishDailyLog(relayPool, signer, log)
+            StretchingSync.publishDailyLog(
+                appContext,
+                relayPool,
+                signer,
+                log,
+                keyManager.relayUrlsForKind30078Publish(),
+            )
         }
     }
 
     LaunchedEffect(relayPool, signer?.publicKey) {
         if (relayPool != null && signer != null) {
             StretchingSync.fetchFromNetwork(relayPool, signer, signer.publicKey)?.let { remote ->
-                repository.replaceAll(remote)
+                val merged = LibraryStateMerge.mergeStretch(repository.currentState(), remote)
+                repository.replaceAll(merged)
+                RelayPayloadDigestStore.reconcileIdenticalRemoteMerged(
+                    appContext,
+                    StretchingSync.fullOutboxEntries(remote),
+                    StretchingSync.fullOutboxEntries(merged),
+                )
             }
         }
     }
@@ -1088,7 +1112,7 @@ private fun StretchGuidedSessionOverlay(
                 .padding(8.dp)
         ) {
             Icon(
-                imageVector = if (voiceEnabled) Icons.Filled.VolumeUp else Icons.Filled.VolumeOff,
+                imageVector = if (voiceEnabled) Icons.AutoMirrored.Filled.VolumeUp else Icons.AutoMirrored.Filled.VolumeOff,
                 contentDescription = if (voiceEnabled) "Mute next-stretch voice" else "Unmute next-stretch voice",
                 tint = Color.White.copy(alpha = 0.95f)
             )
@@ -1407,11 +1431,19 @@ fun StretchingLogScreen(
     val onHeader =
         if (darkTheme) MaterialTheme.colorScheme.onPrimaryContainer
         else MaterialTheme.colorScheme.onPrimary
+    val keyManager = LocalKeyManager.current
+    val logAppContext = LocalContext.current.applicationContext
 
     suspend fun syncDailyLogForDate(date: LocalDate) {
         if (relayPool != null && signer != null) {
             repository.currentState().logFor(date)?.let { log ->
-                StretchingSync.publishDailyLog(relayPool, signer, log)
+                StretchingSync.publishDailyLog(
+                    logAppContext,
+                    relayPool,
+                    signer,
+                    log,
+                    keyManager.relayUrlsForKind30078Publish(),
+                )
             }
         }
     }

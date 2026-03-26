@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.DirectionsRun
 import androidx.compose.material.icons.filled.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -45,7 +46,7 @@ fun Category.isImplemented(): Boolean = id in implementedCategoryIds
 val categories = listOf(
     Category("stretching", "Stretching", Icons.Default.FavoriteBorder, "category/stretching"),
     Category("weight_training", "Weight Training", Icons.Default.FitnessCenter, "category/weight_training"),
-    Category("cardio", "Cardio", Icons.Default.DirectionsRun, "category/cardio"),
+    Category("cardio", "Cardio", Icons.AutoMirrored.Filled.DirectionsRun, "category/cardio"),
     Category(
         id = "heat_cold",
         label = "Hot + Cold",
@@ -55,8 +56,7 @@ val categories = listOf(
     ),
     Category("light_therapy", "Light Therapy", Icons.Default.WbSunny, "category/light_therapy"),
     Category("supplements", "Supplements", Icons.Default.LocalPharmacy, "category/supplements"),
-    Category("sleep", "Sleep", Icons.Default.Bedtime, "category/sleep"),
-    Category("protocols", "Protocols", Icons.Default.Rule, "category/protocols"),
+    // Sleep & protocols: hidden for first iteration — re-add Category rows when ready to ship.
     Category("body_tracker", "Body tracker", Icons.Default.MonitorWeight, "category/body_tracker"),
     Category("programs", "Programs", Icons.Default.CalendarMonth, "category/programs")
 )

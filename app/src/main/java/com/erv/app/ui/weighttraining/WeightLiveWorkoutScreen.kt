@@ -60,6 +60,8 @@ fun WeightLiveWorkoutScreen(
     draft: WeightWorkoutDraft,
     library: WeightLibraryState,
     loadUnit: BodyWeightUnit,
+    /** When the user expands an exercise, logs sets, or starts HIIT — for HR correlation. */
+    onRecordExerciseActivity: (String) -> Unit = {},
     /** Back arrow: leave this screen; workout keeps running (notification). Parent may clear an empty draft. */
     onLeaveWorkoutUi: () -> Unit,
     /** User explicitly abandons the live session (top bar Discard). */
@@ -104,6 +106,7 @@ fun WeightLiveWorkoutScreen(
             onDismiss = { showPickExercise = false },
             onPick = { id ->
                 onAddExercise(id)
+                onRecordExerciseActivity(id)
                 showPickExercise = false
             }
         )
@@ -145,6 +148,7 @@ fun WeightLiveWorkoutScreen(
             exerciseName = exName,
             plan = plan,
             onFinished = { block ->
+                onRecordExerciseActivity(exerciseId)
                 onSaveHiitBlock(exerciseId, block)
                 hiitTimerTarget = null
                 setsCollapsedIds = setsCollapsedIds - exerciseId
@@ -280,7 +284,10 @@ fun WeightLiveWorkoutScreen(
                                 equipment = ex?.equipment,
                                 sets = sets,
                                 loadUnit = loadUnit,
-                                onSetsChange = { onSaveSets(exerciseId, it) },
+                                onSetsChange = {
+                                    onRecordExerciseActivity(exerciseId)
+                                    onSaveSets(exerciseId, it)
+                                },
                                 canMoveUp = index > 0,
                                 canMoveDown = index < draft.exerciseOrder.lastIndex,
                                 onMoveUp = { onMoveExerciseUp(index) },
@@ -294,6 +301,7 @@ fun WeightLiveWorkoutScreen(
                                     setsCollapsedIds = setsCollapsedIds + exerciseId
                                 },
                                 onExpandSets = {
+                                    onRecordExerciseActivity(exerciseId)
                                     setsCollapsedIds = setsCollapsedIds - exerciseId
                                 },
                                 onRecentWorkouts = { recentWorkoutsExerciseId = exerciseId },
@@ -301,6 +309,7 @@ fun WeightLiveWorkoutScreen(
                                 hiitBlock = draft.hiitBlocksByExerciseId[exerciseId],
                                 onClearHiitBlock = { onClearHiitBlock(exerciseId) },
                                 onStartHiitTimer = { plan ->
+                                    onRecordExerciseActivity(exerciseId)
                                     hiitTimerTarget = exerciseId to plan
                                 }
                             )

@@ -1,5 +1,6 @@
 package com.erv.app.nostr
 
+import android.content.Context
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.coroutineScope
@@ -20,6 +21,7 @@ object SettingsSync {
     )
 
     suspend fun saveToNetwork(
+        appContext: Context,
         relayPool: RelayPool,
         signer: EventSigner,
         keyManager: KeyManager
@@ -29,16 +31,15 @@ object SettingsSync {
             put("socialRelays", buildJsonArray { keyManager.socialRelayUrls.forEach { add(it) } })
         }.toString()
 
-        val encrypted = signer.encryptToSelf(json)
-        val unsigned = UnsignedEvent(
-            pubkey = signer.publicKey,
-            createdAt = System.currentTimeMillis() / 1000,
-            kind = 30078,
-            tags = listOf(listOf("d", D_TAG)),
-            content = encrypted
+        val r = RelayPublishOutbox.get(appContext).enqueueReplaceByDTagAndKickDrain(
+            appContext,
+            relayPool,
+            signer,
+            keyManager.relayUrlsForKind30078Publish(),
+            D_TAG,
+            json,
         )
-        val signed = signer.sign(unsigned)
-        return relayPool.publish(signed)
+        return r.publishedFail == 0
     }
 
     suspend fun fetchFromNetwork(

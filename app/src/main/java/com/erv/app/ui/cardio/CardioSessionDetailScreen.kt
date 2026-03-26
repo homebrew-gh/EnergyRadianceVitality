@@ -59,6 +59,7 @@ import com.erv.app.cardio.supportsPhoneGpsTracking
 import com.erv.app.cardio.summaryLine
 import com.erv.app.cardio.label
 import com.erv.app.data.UserPreferences
+import com.erv.app.hr.HeartRateSessionAnalyticsSection
 import com.erv.app.ui.theme.ErvDarkTherapyRedMid
 import com.erv.app.ui.theme.ErvLightTherapyRedMid
 import java.time.Instant
@@ -84,6 +85,7 @@ fun CardioSessionDetailScreen(
 ) {
     val session = state.logFor(logDate)?.sessions?.firstOrNull { it.id == sessionId }
     val distanceUnit by userPreferences.cardioDistanceUnit.collectAsState(initial = CardioDistanceUnit.MILES)
+    val heartRateMaxPref by userPreferences.heartRateMaxBpm.collectAsState(initial = null)
     val darkTheme = isSystemInDarkTheme()
     val headerMid = if (darkTheme) ErvDarkTherapyRedMid else ErvLightTherapyRedMid
 
@@ -123,6 +125,7 @@ fun CardioSessionDetailScreen(
             CardioSessionDetailBody(
                 session = session,
                 distanceUnit = distanceUnit,
+                userMaxHrBpm = heartRateMaxPref,
                 modifier = Modifier.padding(padding)
             )
         }
@@ -133,6 +136,7 @@ fun CardioSessionDetailScreen(
 private fun CardioSessionDetailBody(
     session: CardioSession,
     distanceUnit: CardioDistanceUnit,
+    userMaxHrBpm: Int?,
     modifier: Modifier = Modifier
 ) {
     val elapsedGuess = session.durationMinutes * 60
@@ -209,14 +213,14 @@ private fun CardioSessionDetailBody(
         item { DetailLine("Logged at", formatDetailTime(session.loggedAtEpochSeconds)) }
 
         session.heartRate?.let { hr ->
-            if (hr.avgBpm != null || hr.maxBpm != null || hr.minBpm != null) {
+            if (hr.samples.size >= 2 || hr.avgBpm != null || hr.maxBpm != null || hr.minBpm != null) {
                 item {
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("Heart rate", style = MaterialTheme.typography.titleMedium)
-                        hr.avgBpm?.let { DetailLine("Average", "$it bpm") }
-                        hr.maxBpm?.let { DetailLine("Max", "$it bpm") }
-                        hr.minBpm?.let { DetailLine("Min", "$it bpm") }
-                    }
+                    HeartRateSessionAnalyticsSection(
+                        heartRate = hr,
+                        userMaxHrBpm = userMaxHrBpm,
+                        useLightOnDarkBackground = false,
+                        modifier = Modifier.padding(vertical = 4.dp)
+                    )
                 }
             }
         }

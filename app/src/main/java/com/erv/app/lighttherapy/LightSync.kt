@@ -1,14 +1,13 @@
 package com.erv.app.lighttherapy
 
+import android.content.Context
 import com.erv.app.nostr.EventSigner
 import com.erv.app.nostr.NostrEvent
 import com.erv.app.nostr.NostrFilter
 import com.erv.app.nostr.RelayPool
-import com.erv.app.nostr.UnsignedEvent
+import com.erv.app.nostr.RelayPublishOutbox
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
@@ -31,25 +30,42 @@ object LightSync {
     }
 
     suspend fun publishMaster(
+        appContext: Context,
         relayPool: RelayPool,
         signer: EventSigner,
-        state: LightLibraryState
+        state: LightLibraryState,
+        dataRelayUrls: List<String>,
     ): Boolean {
         val payload = LightMasterPayload(
             devices = state.devices,
             routines = state.routines
         )
         val content = json.encodeToString(LightMasterPayload.serializer(), payload)
-        return publishEvent(relayPool, signer, LIGHT_MASTER_D_TAG, content)
+        return publishEvent(appContext, relayPool, signer, LIGHT_MASTER_D_TAG, content, dataRelayUrls)
     }
 
     suspend fun publishDailyLog(
+        appContext: Context,
         relayPool: RelayPool,
         signer: EventSigner,
-        log: LightDayLog
+        log: LightDayLog,
+        dataRelayUrls: List<String>,
     ): Boolean {
         val content = json.encodeToString(LightDayLog.serializer(), log)
-        return publishEvent(relayPool, signer, dailyTag(log.date), content)
+        return publishEvent(appContext, relayPool, signer, dailyTag(log.date), content, dataRelayUrls)
+    }
+
+    fun fullOutboxEntries(state: LightLibraryState): List<Pair<String, String>> {
+        val masterPayload = LightMasterPayload(
+            devices = state.devices,
+            routines = state.routines
+        )
+        val pairs = mutableListOf<Pair<String, String>>()
+        pairs += LIGHT_MASTER_D_TAG to json.encodeToString(LightMasterPayload.serializer(), masterPayload)
+        for (log in state.logs) {
+            pairs += dailyTag(log.date) to json.encodeToString(LightDayLog.serializer(), log)
+        }
+        return pairs
     }
 
     suspend fun fetchFromNetwork(
@@ -106,21 +122,22 @@ object LightSync {
     }
 
     private suspend fun publishEvent(
+        appContext: Context,
         relayPool: RelayPool,
         signer: EventSigner,
         dTag: String,
-        plaintext: String
+        plaintext: String,
+        dataRelayUrls: List<String>,
     ): Boolean {
-        val encrypted = signer.encryptToSelf(plaintext)
-        val unsigned = UnsignedEvent(
-            pubkey = signer.publicKey,
-            createdAt = nowEpochSeconds(),
-            kind = 30078,
-            tags = listOf(listOf("d", dTag)),
-            content = encrypted
+        val r = RelayPublishOutbox.get(appContext).enqueueReplaceByDTagAndKickDrain(
+            appContext,
+            relayPool,
+            signer,
+            dataRelayUrls,
+            dTag,
+            plaintext,
         )
-        val signed = signer.sign(unsigned)
-        return relayPool.publish(signed)
+        return r.publishedFail == 0
     }
 
     private fun decodeMaster(raw: String): LightMasterPayload? =

@@ -1,10 +1,11 @@
 package com.erv.app.stretching
 
+import android.content.Context
 import com.erv.app.nostr.EventSigner
 import com.erv.app.nostr.NostrEvent
 import com.erv.app.nostr.NostrFilter
 import com.erv.app.nostr.RelayPool
-import com.erv.app.nostr.UnsignedEvent
+import com.erv.app.nostr.RelayPublishOutbox
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -28,22 +29,36 @@ object StretchingSync {
     }
 
     suspend fun publishRoutinesMaster(
+        appContext: Context,
         relayPool: RelayPool,
         signer: EventSigner,
-        state: StretchLibraryState
+        state: StretchLibraryState,
+        dataRelayUrls: List<String>,
     ): Boolean {
         val payload = StretchRoutinesPayload(routines = state.routines)
         val content = json.encodeToString(StretchRoutinesPayload.serializer(), payload)
-        return publishEvent(relayPool, signer, STRETCHING_ROUTINES_D_TAG, content)
+        return publishEvent(appContext, relayPool, signer, STRETCHING_ROUTINES_D_TAG, content, dataRelayUrls)
     }
 
     suspend fun publishDailyLog(
+        appContext: Context,
         relayPool: RelayPool,
         signer: EventSigner,
-        log: StretchDayLog
+        log: StretchDayLog,
+        dataRelayUrls: List<String>,
     ): Boolean {
         val content = json.encodeToString(StretchDayLog.serializer(), log)
-        return publishEvent(relayPool, signer, dailyTag(log.date), content)
+        return publishEvent(appContext, relayPool, signer, dailyTag(log.date), content, dataRelayUrls)
+    }
+
+    fun fullOutboxEntries(state: StretchLibraryState): List<Pair<String, String>> {
+        val masterPayload = StretchRoutinesPayload(routines = state.routines)
+        val pairs = mutableListOf<Pair<String, String>>()
+        pairs += STRETCHING_ROUTINES_D_TAG to json.encodeToString(StretchRoutinesPayload.serializer(), masterPayload)
+        for (log in state.logs) {
+            pairs += dailyTag(log.date) to json.encodeToString(StretchDayLog.serializer(), log)
+        }
+        return pairs
     }
 
     suspend fun fetchFromNetwork(
@@ -99,21 +114,22 @@ object StretchingSync {
     }
 
     private suspend fun publishEvent(
+        appContext: Context,
         relayPool: RelayPool,
         signer: EventSigner,
         dTag: String,
-        plaintext: String
+        plaintext: String,
+        dataRelayUrls: List<String>,
     ): Boolean {
-        val encrypted = signer.encryptToSelf(plaintext)
-        val unsigned = UnsignedEvent(
-            pubkey = signer.publicKey,
-            createdAt = nowEpochSeconds(),
-            kind = 30078,
-            tags = listOf(listOf("d", dTag)),
-            content = encrypted
+        val r = RelayPublishOutbox.get(appContext).enqueueReplaceByDTagAndKickDrain(
+            appContext,
+            relayPool,
+            signer,
+            dataRelayUrls,
+            dTag,
+            plaintext,
         )
-        val signed = signer.sign(unsigned)
-        return relayPool.publish(signed)
+        return r.publishedFail == 0
     }
 
     private fun decodeRoutinesMaster(raw: String): StretchRoutinesPayload? =

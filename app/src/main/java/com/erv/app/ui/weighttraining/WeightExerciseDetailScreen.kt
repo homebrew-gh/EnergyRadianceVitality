@@ -36,11 +36,13 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.erv.app.data.BodyWeightUnit
 import com.erv.app.nostr.EventSigner
+import com.erv.app.nostr.LocalKeyManager
 import com.erv.app.nostr.RelayPool
 import com.erv.app.ui.theme.ErvDarkTherapyRedMid
 import com.erv.app.ui.theme.ErvLightTherapyRedMid
@@ -88,12 +90,15 @@ fun WeightExerciseDetailScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     var showEditor by remember(exerciseId) { mutableStateOf(false) }
     var showDeleteConfirm by remember(exerciseId) { mutableStateOf(false) }
+    val keyManager = LocalKeyManager.current
+    val appContext = LocalContext.current.applicationContext
 
     suspend fun pushMasters() {
         if (relayPool == null || signer == null) return
+        val urls = keyManager.relayUrlsForKind30078Publish()
         val s = repository.currentState()
-        WeightSync.publishExercises(relayPool, signer, s.exercises)
-        WeightSync.publishRoutines(relayPool, signer, s.routines)
+        WeightSync.publishExercises(appContext, relayPool, signer, s.exercises, urls)
+        WeightSync.publishRoutines(appContext, relayPool, signer, s.routines, urls)
     }
 
     Scaffold(

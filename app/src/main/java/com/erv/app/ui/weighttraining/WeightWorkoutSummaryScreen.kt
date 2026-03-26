@@ -40,7 +40,10 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.collectAsState
 import com.erv.app.data.BodyWeightUnit
+import com.erv.app.data.UserPreferences
+import com.erv.app.hr.HeartRateSessionAnalyticsSection
 import com.erv.app.nostr.EventSigner
 import com.erv.app.nostr.RelayPool
 import com.erv.app.nostr.UnsignedEvent
@@ -90,6 +93,9 @@ internal fun buildWeightWorkoutNoteContent(
     }
     val sets = session.totalSetCount()
     if (sets > 0) append("Sets: $sets\n")
+    session.heartRate?.avgBpm?.let { avg ->
+        append("Heart rate (avg): $avg bpm\n")
+    }
     val vol = session.totalVolumeLoadTimesReps(displayUnit)
     if (vol > 0.5) append("Volume (${unitSfx}×reps): ~${vol.toInt()}\n")
     append("Exercises:\n")
@@ -143,6 +149,7 @@ fun WeightWorkoutSummaryFullScreen(
     logDate: LocalDate,
     library: WeightLibraryState,
     loadUnit: BodyWeightUnit,
+    userPreferences: UserPreferences,
     dark: Color,
     mid: Color,
     glow: Color,
@@ -154,6 +161,7 @@ fun WeightWorkoutSummaryFullScreen(
     onRemoveFromLog: (() -> Unit)? = null,
     onDone: () -> Unit
 ) {
+    val maxHrPref by userPreferences.heartRateMaxBpm.collectAsState(initial = null)
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     var sharing by remember { mutableStateOf(false) }
@@ -204,6 +212,23 @@ fun WeightWorkoutSummaryFullScreen(
                     "Elapsed: %d:%02d".format(m, s),
                     style = MaterialTheme.typography.titleMedium,
                     color = Color.White.copy(alpha = 0.9f)
+                )
+            }
+            session.heartRate?.let { hr ->
+                val corr = session.heartRateExerciseSegments.map { seg ->
+                    val title = library.exerciseById(seg.exerciseId)?.name ?: seg.exerciseId
+                    val detail = buildList {
+                        seg.avgBpm?.let { add("avg $it") }
+                        seg.maxBpm?.let { add("max $it") }
+                        add("${seg.sampleCount} readings")
+                    }.joinToString(" · ")
+                    title to detail
+                }
+                HeartRateSessionAnalyticsSection(
+                    heartRate = hr,
+                    userMaxHrBpm = maxHrPref,
+                    useLightOnDarkBackground = true,
+                    exerciseCorrelationLines = corr.takeIf { it.isNotEmpty() }
                 )
             }
             val vol = session.totalVolumeLoadTimesReps(loadUnit)

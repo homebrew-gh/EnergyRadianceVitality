@@ -1,10 +1,11 @@
 package com.erv.app.weighttraining
 
-import com.erv.app.nostr.EncryptedKind30078Publish
+import android.content.Context
 import com.erv.app.nostr.EventSigner
 import com.erv.app.nostr.NostrEvent
 import com.erv.app.nostr.NostrFilter
 import com.erv.app.nostr.RelayPool
+import com.erv.app.nostr.RelayPublishOutbox
 import java.time.LocalDate
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -35,35 +36,44 @@ object WeightSync {
     }
 
     suspend fun publishExercises(
+        appContext: Context,
         relayPool: RelayPool,
         signer: EventSigner,
-        exercises: List<WeightExercise>
+        exercises: List<WeightExercise>,
+        dataRelayUrls: List<String>,
     ): Boolean {
         val payload = WeightExercisesPayload(
             exercises = exercises.map { it.copy(sessionSummaries = emptyList()) }
         )
         val content = json.encodeToString(WeightExercisesPayload.serializer(), payload)
-        return publishEvent(relayPool, signer, WEIGHT_EXERCISES_D_TAG, content)
+        return publishEvent(appContext, relayPool, signer, WEIGHT_EXERCISES_D_TAG, content, dataRelayUrls)
     }
 
     suspend fun publishRoutines(
+        appContext: Context,
         relayPool: RelayPool,
         signer: EventSigner,
-        routines: List<WeightRoutine>
+        routines: List<WeightRoutine>,
+        dataRelayUrls: List<String>,
     ): Boolean {
         val payload = WeightRoutinesPayload(routines = routines)
         val content = json.encodeToString(WeightRoutinesPayload.serializer(), payload)
-        return publishEvent(relayPool, signer, WEIGHT_ROUTINES_D_TAG, content)
+        return publishEvent(appContext, relayPool, signer, WEIGHT_ROUTINES_D_TAG, content, dataRelayUrls)
     }
 
     suspend fun publishDayLog(
+        appContext: Context,
         relayPool: RelayPool,
         signer: EventSigner,
-        log: WeightDayLog
+        log: WeightDayLog,
+        dataRelayUrls: List<String>,
     ): Boolean {
         val content = json.encodeToString(WeightDayLog.serializer(), log)
-        return publishEvent(relayPool, signer, dailyTag(log.date), content)
+        return publishEvent(appContext, relayPool, signer, dailyTag(log.date), content, dataRelayUrls)
     }
+
+    fun fullOutboxEntries(state: WeightLibraryState): List<Pair<String, String>> =
+        weightImportOutboxEntries(state, state.logs.map { it.date })
 
     /**
      * Ordered payloads for [com.erv.app.nostr.RelayPublishOutbox] after a weight import (exercises master, then each day).
@@ -82,7 +92,10 @@ object WeightSync {
         )
         for (dateIso in affectedDates.distinct().sorted()) {
             val log = state.logFor(LocalDate.parse(dateIso)) ?: continue
-            pairs += dailyTag(dateIso) to json.encodeToString(WeightDayLog.serializer(), log)
+            pairs += dailyTag(dateIso) to json.encodeToString(
+                WeightDayLog.serializer(),
+                log
+            )
         }
         return pairs
     }
@@ -151,12 +164,23 @@ object WeightSync {
     }
 
     private suspend fun publishEvent(
+        appContext: Context,
         relayPool: RelayPool,
         signer: EventSigner,
         dTag: String,
-        plaintext: String
-    ): Boolean =
-        EncryptedKind30078Publish.publish(relayPool, signer, dTag, plaintext)
+        plaintext: String,
+        dataRelayUrls: List<String>,
+    ): Boolean {
+        val r = RelayPublishOutbox.get(appContext).enqueueReplaceByDTagAndKickDrain(
+            appContext,
+            relayPool,
+            signer,
+            dataRelayUrls,
+            dTag,
+            plaintext,
+        )
+        return r.publishedFail == 0
+    }
 
     private fun decodeExercises(raw: String): List<WeightExercise>? =
         try {

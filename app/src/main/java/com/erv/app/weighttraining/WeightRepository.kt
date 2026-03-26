@@ -9,6 +9,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import com.erv.app.nostr.LibraryStateMerge
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import java.time.LocalDate
@@ -58,13 +59,7 @@ class WeightRepository(context: Context) {
      * so a fetch that returns data older than a just-saved local edit cannot revert routine names or lists.
      */
     suspend fun mergeRemoteFetch(remote: WeightLibraryState) {
-        updateState { local ->
-            local.copy(
-                exercises = remote.exercises,
-                routines = mergeRoutinesPreservingNewerEdits(local.routines, remote.routines),
-                logs = remote.logs
-            )
-        }
+        updateState { local -> LibraryStateMerge.mergeWeight(local, remote) }
     }
 
     suspend fun deleteRoutine(routineId: String) {
@@ -176,24 +171,6 @@ private fun WeightLibraryState.mergeMissingCatalogExercises(): WeightLibraryStat
     val existingIds = exercises.map { it.id }.toSet()
     val toAdd = defaultCatalogExercises().filter { it.id !in existingIds }
     return if (toAdd.isEmpty()) this else copy(exercises = exercises + toAdd)
-}
-
-private fun mergeRoutinesPreservingNewerEdits(
-    local: List<WeightRoutine>,
-    remote: List<WeightRoutine>
-): List<WeightRoutine> {
-    val ids = (local.map { it.id } + remote.map { it.id }).toSet()
-    return ids.map { id ->
-        val l = local.firstOrNull { it.id == id }
-        val r = remote.firstOrNull { it.id == id }
-        when {
-            l == null -> r!!
-            r == null -> l
-            l.lastModifiedEpochSeconds > r.lastModifiedEpochSeconds -> l
-            r.lastModifiedEpochSeconds > l.lastModifiedEpochSeconds -> r
-            else -> r
-        }
-    }
 }
 
 private fun <T : Any> List<T>.upsertById(entry: T, idSelector: (T) -> String): List<T> {

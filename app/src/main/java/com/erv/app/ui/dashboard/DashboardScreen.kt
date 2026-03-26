@@ -20,7 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.DirectionsRun
+import androidx.compose.material.icons.automirrored.filled.DirectionsRun
 import androidx.compose.material.icons.filled.FitnessCenter
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Medication
@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.AcUnit
 import androidx.compose.material.icons.filled.Thermostat
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material.icons.filled.Bedtime
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Settings
@@ -49,7 +50,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.erv.app.R
+import com.erv.app.hr.LocalHeartRateBle
 import com.erv.app.nostr.EventSigner
+import com.erv.app.nostr.LocalKeyManager
 import com.erv.app.nostr.RelayPool
 import com.erv.app.ui.navigation.Category
 import com.erv.app.ui.navigation.CategorySheet
@@ -185,6 +188,7 @@ fun DashboardScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val heartRateBle = LocalHeartRateBle.current
     val selectedDate by viewModel.selectedDate.collectAsState()
     val supplementState by supplementRepository.state.collectAsState(initial = SupplementLibraryState())
     val lightState by lightTherapyRepository.state.collectAsState(initial = LightLibraryState())
@@ -197,6 +201,7 @@ fun DashboardScreen(
     val cardioGpsPreferred by userPreferences.cardioGpsRecordingPreferred.collectAsState(initial = true)
     val weightTrainingLoadUnit by userPreferences.weightTrainingLoadUnit.collectAsState(initial = BodyWeightUnit.LB)
     val selectedGoalIds by userPreferences.selectedGoalIds.collectAsState(initial = emptySet())
+    val heartRateBannerExpanded by userPreferences.heartRateBannerExpanded.collectAsState(initial = true)
     val goalsAsOfDate = LocalDate.now()
     val weeklyGoalRows = remember(
         goalsAsOfDate,
@@ -297,6 +302,7 @@ fun DashboardScreen(
     val therapyRedDark = if (darkTheme) ErvDarkTherapyRedDark else ErvLightTherapyRedDark
     val therapyRedMid = if (darkTheme) ErvDarkTherapyRedMid else ErvLightTherapyRedMid
     val therapyRedGlow = if (darkTheme) ErvDarkTherapyRedGlow else ErvLightTherapyRedGlow
+    val keyManager = LocalKeyManager.current
 
     val scaffoldState = rememberBottomSheetScaffoldState(
         bottomSheetState = rememberStandardBottomSheetState(
@@ -317,29 +323,37 @@ fun DashboardScreen(
 
     suspend fun syncMaster() {
         if (relayPool != null && signer != null) {
-            SupplementSync.publishMaster(relayPool, signer, supplementRepository.currentState())
+            val urls = keyManager.relayUrlsForKind30078Publish()
+            SupplementSync.publishMaster(
+                context.applicationContext,
+                relayPool,
+                signer,
+                supplementRepository.currentState(),
+                urls,
+            )
         }
     }
 
     suspend fun syncDailyLog() {
         if (relayPool != null && signer != null) {
+            val urls = keyManager.relayUrlsForKind30078Publish()
             supplementRepository.currentState().logFor(today)?.let { log ->
-                SupplementSync.publishDailyLog(relayPool, signer, log)
+                SupplementSync.publishDailyLog(context.applicationContext, relayPool, signer, log, urls)
             }
             lightTherapyRepository.currentState().logFor(today)?.let { log ->
-                LightSync.publishDailyLog(relayPool, signer, log)
+                LightSync.publishDailyLog(context.applicationContext, relayPool, signer, log, urls)
             }
             cardioRepository.currentState().logFor(selectedDate)?.let { log ->
-                CardioSync.publishDailyLog(relayPool, signer, log)
+                CardioSync.publishDailyLog(context.applicationContext, relayPool, signer, log, urls)
             }
             heatColdRepository.currentState().saunaLogFor(today)?.let { log ->
-                HeatColdSync.publishSaunaDailyLog(relayPool, signer, log)
+                HeatColdSync.publishSaunaDailyLog(context.applicationContext, relayPool, signer, log, urls)
             }
             heatColdRepository.currentState().coldLogFor(today)?.let { log ->
-                HeatColdSync.publishColdDailyLog(relayPool, signer, log)
+                HeatColdSync.publishColdDailyLog(context.applicationContext, relayPool, signer, log, urls)
             }
             stretchingRepository.currentState().logFor(today)?.let { log ->
-                StretchingSync.publishDailyLog(relayPool, signer, log)
+                StretchingSync.publishDailyLog(context.applicationContext, relayPool, signer, log, urls)
             }
         }
     }
@@ -479,6 +493,22 @@ fun DashboardScreen(
                 },
                 actions = {
                     RelayDataSyncTopBarIcon(contentColor = Color.White)
+                    if (heartRateBle.bleHardwareAvailable) {
+                        IconButton(
+                            onClick = {
+                                scope.launch {
+                                    userPreferences.setHeartRateBannerExpanded(!heartRateBannerExpanded)
+                                }
+                            },
+                        ) {
+                            Icon(
+                                imageVector = if (heartRateBannerExpanded) Icons.Filled.Favorite
+                                else Icons.Filled.FavoriteBorder,
+                                contentDescription = stringResource(R.string.dashboard_hr_banner_toggle_cd),
+                                tint = if (heartRateBannerExpanded) Color(0xFFFF8A80) else Color.White,
+                            )
+                        }
+                    }
                     Box(modifier = Modifier.size(48.dp)) {
                         IconButton(
                             onClick = { showGoalsSheet = true },
@@ -687,7 +717,6 @@ fun DashboardScreen(
                                 Spacer(Modifier.height(14.dp))
                                 ActivitySection(
                                     showSectionHeading = false,
-                                    selectedDate = selectedDate,
                                     supplementRows = supplementRows,
                                     lightRows = lightRows,
                                     cardioRows = cardioRows,
@@ -711,7 +740,6 @@ fun DashboardScreen(
                         Spacer(Modifier.height(14.dp))
                         ActivitySection(
                             showSectionHeading = false,
-                            selectedDate = selectedDate,
                             supplementRows = supplementRows,
                             lightRows = lightRows,
                             cardioRows = cardioRows,
@@ -905,7 +933,13 @@ fun DashboardScreen(
                         )
                         lightTherapyRepository.currentState().logFor(today)?.let { log ->
                             if (relayPool != null && signer != null) {
-                                LightSync.publishDailyLog(relayPool, signer, log)
+                                LightSync.publishDailyLog(
+                                    context.applicationContext,
+                                    relayPool,
+                                    signer,
+                                    log,
+                                    keyManager.relayUrlsForKind30078Publish(),
+                                )
                             }
                         }
                         snackbarHostState.showSnackbar("Logged ${r.name} • ${r.durationMinutes} min")
@@ -946,7 +980,13 @@ fun DashboardScreen(
                         )
                         lightTherapyRepository.currentState().logFor(today)?.let { log ->
                             if (relayPool != null && signer != null) {
-                                LightSync.publishDailyLog(relayPool, signer, log)
+                                LightSync.publishDailyLog(
+                                    context.applicationContext,
+                                    relayPool,
+                                    signer,
+                                    log,
+                                    keyManager.relayUrlsForKind30078Publish(),
+                                )
                             }
                         }
                         snackbarHostState.showSnackbar("Logged ${s.routineName ?: "Light therapy"} • ${s.minutes} min")
@@ -991,7 +1031,13 @@ fun DashboardScreen(
                             cardioRepository.addSession(selectedDate, session)
                             cardioRepository.currentState().logFor(selectedDate)?.let { log ->
                                 if (relayPool != null && signer != null) {
-                                    CardioSync.publishDailyLog(relayPool, signer, log)
+                                    CardioSync.publishDailyLog(
+                                        context.applicationContext,
+                                        relayPool,
+                                        signer,
+                                        log,
+                                        keyManager.relayUrlsForKind30078Publish(),
+                                    )
                                 }
                             }
                             snackbarHostState.showSnackbar("Logged ${r.name}")
@@ -1066,23 +1112,32 @@ fun DashboardScreen(
                                     elapsedSecondsForDistance = elapsedSeconds,
                                     gpsPoints = gpsPoints
                                 )
-                                val session = CardioMetEstimator.applyEstimatedKcal(
+                                val hrSummary = heartRateBle.takeWorkoutHeartRateSummary()
+                                val sessionBase = CardioMetEstimator.applyEstimatedKcal(
                                     raw,
                                     cardioRepository.currentState(),
                                     weightKg
                                 )
+                                val session = hrSummary?.let { sessionBase.copy(heartRate = it) } ?: sessionBase
                                 cardioLiveWorkoutViewModel.clearSession()
                                 cardioWorkoutSummary = CardioTimerCompletionResult(session, elapsedSeconds)
                                 cardioRepository.addSession(selectedDate, session)
                                 cardioRepository.currentState().logFor(selectedDate)?.let { log ->
                                     if (relayPool != null && signer != null) {
-                                        CardioSync.publishDailyLog(relayPool, signer, log)
+                                        CardioSync.publishDailyLog(
+                                            context.applicationContext,
+                                            relayPool,
+                                            signer,
+                                            log,
+                                            keyManager.relayUrlsForKind30078Publish(),
+                                        )
                                     }
                                 }
                             }
                         },
                         onCancel = {
                             drainCardioGpsIfNeeded(recordGps, context.applicationContext)
+                            heartRateBle.discardWorkoutRecording()
                             cardioLiveWorkoutViewModel.clearSession()
                         }
                     )
@@ -1110,12 +1165,20 @@ fun DashboardScreen(
                                     weightKg
                                 )
                                 if (session != null) {
+                                    val hrSummary = heartRateBle.takeWorkoutHeartRateSummary()
+                                    val withHr = hrSummary?.let { session.copy(heartRate = it) } ?: session
                                     cardioLiveWorkoutViewModel.clearSession()
-                                    cardioWorkoutSummary = CardioTimerCompletionResult(session, null)
-                                    cardioRepository.addSession(selectedDate, session)
+                                    cardioWorkoutSummary = CardioTimerCompletionResult(withHr, null)
+                                    cardioRepository.addSession(selectedDate, withHr)
                                     cardioRepository.currentState().logFor(selectedDate)?.let { log ->
                                         if (relayPool != null && signer != null) {
-                                            CardioSync.publishDailyLog(relayPool, signer, log)
+                                            CardioSync.publishDailyLog(
+                                                context.applicationContext,
+                                                relayPool,
+                                                signer,
+                                                log,
+                                                keyManager.relayUrlsForKind30078Publish(),
+                                            )
                                         }
                                     }
                                 } else if (next != null) {
@@ -1124,7 +1187,10 @@ fun DashboardScreen(
                                 }
                             }
                         },
-                        onCancel = { cardioLiveWorkoutViewModel.clearSession() }
+                        onCancel = {
+                            heartRateBle.discardWorkoutRecording()
+                            cardioLiveWorkoutViewModel.clearSession()
+                        }
                     )
                 }
             }
@@ -1565,7 +1631,7 @@ private fun RoutinesSection(
                 }
                 add(
                     QuickLogTileSpec(
-                        icon = Icons.Default.DirectionsRun,
+                        icon = Icons.AutoMirrored.Filled.DirectionsRun,
                         label = "Cardio",
                         subtitle = cardioRoutineShortcutsSubtitle(cardioRoutines, cardioQuickLaunches),
                         onClick = { showCardioPicker = true },
@@ -2077,7 +2143,6 @@ private fun LightRoutinePickerSheet(
 @Composable
 private fun ActivitySection(
     showSectionHeading: Boolean = true,
-    selectedDate: LocalDate,
     supplementRows: List<SupplementActivityRow>,
     lightRows: List<LightActivityRow>,
     cardioRows: List<CardioActivityRow>,
@@ -2606,7 +2671,7 @@ private fun routineIconFor(index: Int) = when (index % 7) {
     1 -> Icons.Default.Bedtime
     2 -> Icons.Default.WbSunny
     3 -> Icons.Default.FitnessCenter
-    4 -> Icons.Default.DirectionsRun
+    4 -> Icons.AutoMirrored.Filled.DirectionsRun
     5 -> Icons.Default.Thermostat
     else -> Icons.Default.Medication
 }

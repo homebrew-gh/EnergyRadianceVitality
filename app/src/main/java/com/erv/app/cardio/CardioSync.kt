@@ -1,10 +1,11 @@
 package com.erv.app.cardio
 
-import com.erv.app.nostr.EncryptedKind30078Publish
+import android.content.Context
 import com.erv.app.nostr.EventSigner
 import com.erv.app.nostr.NostrEvent
 import com.erv.app.nostr.NostrFilter
 import com.erv.app.nostr.RelayPool
+import com.erv.app.nostr.RelayPublishOutbox
 import java.time.LocalDate
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -31,9 +32,11 @@ object CardioSync {
     }
 
     suspend fun publishMaster(
+        appContext: Context,
         relayPool: RelayPool,
         signer: EventSigner,
-        state: CardioLibraryState
+        state: CardioLibraryState,
+        dataRelayUrls: List<String>,
     ): Boolean {
         val payload = CardioMasterPayload(
             routines = state.routines,
@@ -41,17 +44,22 @@ object CardioSync {
             quickLaunches = state.quickLaunches
         )
         val content = json.encodeToString(CardioMasterPayload.serializer(), payload)
-        return publishEvent(relayPool, signer, CARDIO_MASTER_D_TAG, content)
+        return publishEvent(appContext, relayPool, signer, CARDIO_MASTER_D_TAG, content, dataRelayUrls)
     }
 
     suspend fun publishDailyLog(
+        appContext: Context,
         relayPool: RelayPool,
         signer: EventSigner,
-        log: CardioDayLog
+        log: CardioDayLog,
+        dataRelayUrls: List<String>,
     ): Boolean {
         val content = json.encodeToString(CardioDayLog.serializer(), log.withoutGpsTracks())
-        return publishEvent(relayPool, signer, dailyTag(log.date), content)
+        return publishEvent(appContext, relayPool, signer, dailyTag(log.date), content, dataRelayUrls)
     }
+
+    fun fullOutboxEntries(state: CardioLibraryState): List<Pair<String, String>> =
+        cardioImportOutboxEntries(state, state.logs.map { it.date })
 
     /** Master + day logs for [com.erv.app.nostr.RelayPublishOutbox] after cardio import. */
     fun cardioImportOutboxEntries(
@@ -133,12 +141,23 @@ object CardioSync {
     }
 
     private suspend fun publishEvent(
+        appContext: Context,
         relayPool: RelayPool,
         signer: EventSigner,
         dTag: String,
-        plaintext: String
-    ): Boolean =
-        EncryptedKind30078Publish.publish(relayPool, signer, dTag, plaintext)
+        plaintext: String,
+        dataRelayUrls: List<String>,
+    ): Boolean {
+        val r = RelayPublishOutbox.get(appContext).enqueueReplaceByDTagAndKickDrain(
+            appContext,
+            relayPool,
+            signer,
+            dataRelayUrls,
+            dTag,
+            plaintext,
+        )
+        return r.publishedFail == 0
+    }
 
     private fun decodeMaster(raw: String): CardioMasterPayload? =
         try {

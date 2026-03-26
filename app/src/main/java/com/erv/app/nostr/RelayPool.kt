@@ -70,6 +70,19 @@ class RelayPool(
         }
     }
 
+    /**
+     * Publishes only to relays whose URLs appear in [urls] and are connected in this pool.
+     * Used for kind **30078** so encrypted backups stay off social-only relays.
+     */
+    suspend fun publishToRelayUrls(event: NostrEvent, urls: Collection<String>): Boolean {
+        if (urls.isEmpty()) return false
+        return coroutineScope {
+            urls.distinct().mapNotNull { clients[it] }.map { client ->
+                async { client.publish(event) }
+            }.awaitAll().any { it }
+        }
+    }
+
     fun subscribe(subscriptionId: String, vararg filters: NostrFilter) {
         clients.values.forEach { it.subscribe(subscriptionId, *filters) }
     }

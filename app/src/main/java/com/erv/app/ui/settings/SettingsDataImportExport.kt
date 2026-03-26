@@ -30,25 +30,11 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Upload
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ElevatedCard
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -63,11 +49,16 @@ import com.erv.app.cardio.CardioHistoryImport
 import com.erv.app.cardio.CardioImportOutcome
 import com.erv.app.cardio.CardioLibraryState
 import com.erv.app.cardio.CardioRepository
+import com.erv.app.dataexport.DataExportCategory
+import com.erv.app.dataexport.DataExportFormat
+import com.erv.app.dataexport.ErvAppDataExport
+import com.erv.app.dataexport.ExportDateSelection
 import com.erv.app.cardio.CardioSync
 import com.erv.app.cardio.summaryLine
 import com.erv.app.data.BodyWeightUnit
 import com.erv.app.data.UserPreferences
 import com.erv.app.nostr.EventSigner
+import com.erv.app.nostr.LocalKeyManager
 import com.erv.app.nostr.RelayPool
 import com.erv.app.nostr.RelayPublishOutbox
 import com.erv.app.weighttraining.WeightEquipment
@@ -76,6 +67,10 @@ import com.erv.app.weighttraining.WeightImportDatedSession
 import com.erv.app.weighttraining.WeightImportOutcome
 import com.erv.app.weighttraining.WeightLibraryState
 import com.erv.app.weighttraining.WeightRepository
+import com.erv.app.heatcold.HeatColdRepository
+import com.erv.app.lighttherapy.LightTherapyRepository
+import com.erv.app.stretching.StretchingRepository
+import com.erv.app.supplements.SupplementRepository
 import com.erv.app.weighttraining.WeightSync
 import com.erv.app.weighttraining.WeightWorkoutEntry
 import com.erv.app.weighttraining.WeightWorkoutSession
@@ -88,6 +83,7 @@ import java.io.File
 import java.io.InputStreamReader
 import java.nio.charset.StandardCharsets
 import java.time.LocalDate
+import java.time.ZoneId
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -234,14 +230,54 @@ fun SettingsDataImportExportScreen(
     userPreferences: UserPreferences,
     weightRepository: WeightRepository,
     cardioRepository: CardioRepository,
+    stretchingRepository: StretchingRepository,
+    heatColdRepository: HeatColdRepository,
+    lightTherapyRepository: LightTherapyRepository,
+    supplementRepository: SupplementRepository,
     relayPool: RelayPool?,
     signer: EventSigner?,
 ) {
     val context = LocalContext.current
+    val keyManager = LocalKeyManager.current
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     val loadUnit by userPreferences.weightTrainingLoadUnit.collectAsState(initial = BodyWeightUnit.LB)
     val cardioDistanceUnit by userPreferences.cardioDistanceUnit.collectAsState(initial = CardioDistanceUnit.MILES)
+
+    var exportCategory by remember { mutableStateOf(DataExportCategory.ALL) }
+    var exportFormat by remember { mutableStateOf(DataExportFormat.JSON) }
+    var exportDateAllTime by remember { mutableStateOf(true) }
+    var exportRangeStart by remember { mutableStateOf(LocalDate.now().minusMonths(1)) }
+    var exportRangeEnd by remember { mutableStateOf(LocalDate.now()) }
+    var showExportStartPicker by remember { mutableStateOf(false) }
+    var showExportEndPicker by remember { mutableStateOf(false) }
+    var exportCategoryMenuExpanded by remember { mutableStateOf(false) }
+    var pendingExportBytes by remember { mutableStateOf<ByteArray?>(null) }
+
+    val zoneId = remember { ZoneId.systemDefault() }
+
+    fun finishCreateExport(uri: Uri?) {
+        val bytes = pendingExportBytes
+        pendingExportBytes = null
+        if (uri == null || bytes == null) return
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    context.contentResolver.openOutputStream(uri)?.use { it.write(bytes) }
+                }
+                snackbarHostState.showSnackbar("Export saved")
+            } catch (_: Exception) {
+                snackbarHostState.showSnackbar("Could not write export file")
+            }
+        }
+    }
+
+    val createJsonExportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json"),
+    ) { uri: Uri? -> finishCreateExport(uri) }
+    val createCsvExportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("text/csv"),
+    ) { uri: Uri? -> finishCreateExport(uri) }
 
     var activeImportSilo by remember { mutableStateOf<ImportSilo?>(null) }
     var pendingWeightImport by remember { mutableStateOf<PendingWeightImport?>(null) }
@@ -320,8 +356,8 @@ fun SettingsDataImportExportScreen(
                         )
                         val drain = withContext(Dispatchers.IO) {
                             val outbox = RelayPublishOutbox.get(context.applicationContext)
-                            outbox.enqueueAll(entries)
-                            outbox.kickDrain(relayPool, signer)
+                            outbox.enqueueAllDigestsAware(context.applicationContext, entries)
+                            outbox.kickDrain(relayPool, signer, keyManager.relayUrlsForKind30078Publish())
                         }
                         val relayMsg = buildString {
                             append(baseMsg)
@@ -365,8 +401,8 @@ fun SettingsDataImportExportScreen(
                         )
                         val drain = withContext(Dispatchers.IO) {
                             val outbox = RelayPublishOutbox.get(context.applicationContext)
-                            outbox.enqueueAll(entries)
-                            outbox.kickDrain(relayPool, signer)
+                            outbox.enqueueAllDigestsAware(context.applicationContext, entries)
+                            outbox.kickDrain(relayPool, signer, keyManager.relayUrlsForKind30078Publish())
                         }
                         val relayMsg = buildString {
                             append(baseMsg)
@@ -419,14 +455,190 @@ fun SettingsDataImportExportScreen(
                 .padding(top = 8.dp, bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(0.dp)
         ) {
+            ImportSectionTitle("Export Data", first = true)
             Text(
-                "Choose Your Silo Below. JSON Or CSV Files Are Previewed Before Merge. New Sessions Are Tagged Imported.",
+                "Save a snapshot of your data. Files are plain text — anyone with the file can read them.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(bottom = 12.dp)
+                modifier = Modifier.padding(bottom = 10.dp)
+            )
+            ExposedDropdownMenuBox(
+                expanded = exportCategoryMenuExpanded,
+                onExpandedChange = { exportCategoryMenuExpanded = it },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 10.dp)
+            ) {
+                OutlinedTextField(
+                    value = exportCategory.label,
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("Category") },
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = exportCategoryMenuExpanded) },
+                    modifier = Modifier
+                        .menuAnchor()
+                        .fillMaxWidth()
+                )
+                ExposedDropdownMenu(
+                    expanded = exportCategoryMenuExpanded,
+                    onDismissRequest = { exportCategoryMenuExpanded = false }
+                ) {
+                    DataExportCategory.entries.forEach { option ->
+                        DropdownMenuItem(
+                            text = { Text(option.label) },
+                            onClick = {
+                                exportCategory = option
+                                exportCategoryMenuExpanded = false
+                            }
+                        )
+                    }
+                }
+            }
+            Text("Format", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(bottom = 4.dp))
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.padding(bottom = 10.dp)
+            ) {
+                FilterChip(
+                    selected = exportFormat == DataExportFormat.JSON,
+                    onClick = { exportFormat = DataExportFormat.JSON },
+                    label = { Text("JSON") }
+                )
+                FilterChip(
+                    selected = exportFormat == DataExportFormat.CSV,
+                    onClick = { exportFormat = DataExportFormat.CSV },
+                    label = { Text("CSV") }
+                )
+            }
+            if (!ErvAppDataExport.csvSupported(exportCategory, exportFormat)) {
+                Text(
+                    "CSV is only available for Weight training and Cardio (same columns as import). Use JSON for other categories or for all categories.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+            }
+            Text("Dates", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(bottom = 4.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 8.dp)) {
+                FilterChip(
+                    selected = exportDateAllTime,
+                    onClick = { exportDateAllTime = true },
+                    label = { Text("All time") }
+                )
+                FilterChip(
+                    selected = !exportDateAllTime,
+                    onClick = { exportDateAllTime = false },
+                    label = { Text("Date range") }
+                )
+            }
+            if (!exportDateAllTime) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 10.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = { showExportStartPicker = true },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Start ${exportRangeStart}", style = MaterialTheme.typography.bodySmall)
+                    }
+                    OutlinedButton(
+                        onClick = { showExportEndPicker = true },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("End ${exportRangeEnd}", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+            Button(
+                onClick = {
+                    if (exportFormat == DataExportFormat.CSV &&
+                        !ErvAppDataExport.csvSupported(exportCategory, exportFormat)
+                    ) {
+                        scope.launch { snackbarHostState.showSnackbar("Choose JSON for this category") }
+                        return@Button
+                    }
+                    val selection: ExportDateSelection = if (exportDateAllTime) {
+                        ExportDateSelection.AllTime
+                    } else {
+                        if (exportRangeStart.isAfter(exportRangeEnd)) {
+                            scope.launch {
+                                snackbarHostState.showSnackbar("Start date must be on or before end date")
+                            }
+                            return@Button
+                        }
+                        ExportDateSelection.Range(exportRangeStart, exportRangeEnd)
+                    }
+                    scope.launch {
+                        try {
+                            val bytes = withContext(Dispatchers.IO) {
+                                val w = weightRepository.currentState()
+                                val c = cardioRepository.currentState()
+                                val st = stretchingRepository.currentState()
+                                val hc = heatColdRepository.currentState()
+                                val lt = lightTherapyRepository.currentState()
+                                val sup = supplementRepository.currentState()
+                                when (exportFormat) {
+                                    DataExportFormat.JSON -> {
+                                        val bundle = ErvAppDataExport.buildBundle(
+                                            exportCategory,
+                                            selection,
+                                            w,
+                                            c,
+                                            st,
+                                            hc,
+                                            lt,
+                                            sup,
+                                        )
+                                        ErvAppDataExport.toJsonString(bundle).toByteArray(StandardCharsets.UTF_8)
+                                    }
+                                    DataExportFormat.CSV -> {
+                                        val text = when (exportCategory) {
+                                            DataExportCategory.WEIGHT_TRAINING ->
+                                                ErvAppDataExport.weightTrainingToCsv(
+                                                    ErvAppDataExport.filterWeightState(w, selection)
+                                                )
+                                            DataExportCategory.CARDIO ->
+                                                ErvAppDataExport.cardioToCsv(
+                                                    ErvAppDataExport.filterCardioState(c, selection)
+                                                )
+                                            else -> ""
+                                        }
+                                        text.toByteArray(StandardCharsets.UTF_8)
+                                    }
+                                }
+                            }
+                            pendingExportBytes = bytes
+                            val stem = ErvAppDataExport.defaultExportFileStem(exportCategory, exportFormat)
+                            val fileName = if (exportFormat == DataExportFormat.JSON) "$stem.json" else "$stem.csv"
+                            if (exportFormat == DataExportFormat.JSON) {
+                                createJsonExportLauncher.launch(fileName)
+                            } else {
+                                createCsvExportLauncher.launch(fileName)
+                            }
+                        } catch (_: Exception) {
+                            snackbarHostState.showSnackbar("Could not build export")
+                        }
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 16.dp)
+            ) {
+                Icon(Icons.Default.Share, contentDescription = null)
+                Text("Export To File", modifier = Modifier.padding(start = 8.dp))
+            }
+            HorizontalDivider()
+            Text(
+                "Import: Choose Your Silo Below. JSON Or CSV Files Are Previewed Before Merge. New Sessions Are Tagged Imported.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 16.dp, bottom = 12.dp)
             )
 
-            ImportSectionTitle("Weight Training", first = true)
+            ImportSectionTitle("Weight Training")
             Text(
                 "Guides And Exercise IDs Help You Or An AI Build Files That Upload After Import Via The Outbox.",
                 style = MaterialTheme.typography.bodySmall,
@@ -559,13 +771,57 @@ fun SettingsDataImportExportScreen(
             }
 
             Spacer(Modifier.height(16.dp))
-            HorizontalDivider()
-            Text(
-                "Full App Export Is Planned. Until Then Use Nostr Sync For Encrypted Backup When Relays Are Set Up.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 14.dp)
+        }
+    }
+
+    if (showExportStartPicker) {
+        key(exportRangeStart) {
+            val startPickerState = rememberDatePickerState(
+                initialSelectedDateMillis = exportRangeStart.atStartOfDay(zoneId).toInstant().toEpochMilli()
             )
+            DatePickerDialog(
+                onDismissRequest = { showExportStartPicker = false },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            startPickerState.selectedDateMillis?.let {
+                                exportRangeStart = ErvAppDataExport.millisToLocalDateUtc(it)
+                            }
+                            showExportStartPicker = false
+                        }
+                    ) { Text("OK") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showExportStartPicker = false }) { Text("Cancel") }
+                },
+            ) {
+                DatePicker(state = startPickerState)
+            }
+        }
+    }
+    if (showExportEndPicker) {
+        key(exportRangeEnd) {
+            val endPickerState = rememberDatePickerState(
+                initialSelectedDateMillis = exportRangeEnd.atStartOfDay(zoneId).toInstant().toEpochMilli()
+            )
+            DatePickerDialog(
+                onDismissRequest = { showExportEndPicker = false },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            endPickerState.selectedDateMillis?.let {
+                                exportRangeEnd = ErvAppDataExport.millisToLocalDateUtc(it)
+                            }
+                            showExportEndPicker = false
+                        }
+                    ) { Text("OK") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showExportEndPicker = false }) { Text("Cancel") }
+                },
+            ) {
+                DatePicker(state = endPickerState)
+            }
         }
     }
 }

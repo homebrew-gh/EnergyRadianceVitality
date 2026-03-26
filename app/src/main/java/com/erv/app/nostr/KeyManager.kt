@@ -84,6 +84,18 @@ class KeyManager(context: Context) {
     fun allRelayUrls(): List<String> = (relayUrls + socialRelayUrls).distinct()
 
     /**
+     * Relays that receive kind **30078** (encrypted activity backup).
+     * When [relayUrls] is non-empty, only those relays get the ciphertext (social-only relays do not).
+     * When [relayUrls] is empty, falls back to all saved URLs then [relayUrlsForPool] for legacy setups.
+     */
+    fun relayUrlsForKind30078Publish(): List<String> {
+        val data = relayUrls
+        if (data.isNotEmpty()) return data
+        val all = allRelayUrls()
+        return if (all.isNotEmpty()) all else relayUrlsForPool()
+    }
+
+    /**
      * Relays to open on the [RelayPool]. Uses only what the user has saved when non-empty.
      * When empty (e.g. Amber before NIP-65), returns [DEFAULT_RELAYS] for connectivity only —
      * nothing is written to preferences.

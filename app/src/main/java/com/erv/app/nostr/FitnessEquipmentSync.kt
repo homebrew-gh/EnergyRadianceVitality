@@ -1,5 +1,6 @@
 package com.erv.app.nostr
 
+import android.content.Context
 import com.erv.app.data.FitnessEquipmentNostrPayload
 import com.erv.app.data.OwnedEquipmentItem
 import kotlinx.coroutines.coroutineScope
@@ -21,24 +22,29 @@ object FitnessEquipmentSync {
         encodeDefaults = true
     }
 
+    fun plaintextFor(gymMembership: Boolean, equipment: List<OwnedEquipmentItem>): Pair<String, String> {
+        val payload = FitnessEquipmentNostrPayload(gymMembership = gymMembership, equipment = equipment)
+        return D_TAG to json.encodeToString(FitnessEquipmentNostrPayload.serializer(), payload)
+    }
+
     suspend fun saveToNetwork(
+        appContext: Context,
         relayPool: RelayPool,
         signer: EventSigner,
         gymMembership: Boolean,
         equipment: List<OwnedEquipmentItem>,
+        dataRelayUrls: List<String>,
     ): Boolean {
-        val payload = FitnessEquipmentNostrPayload(gymMembership = gymMembership, equipment = equipment)
-        val plaintext = json.encodeToString(FitnessEquipmentNostrPayload.serializer(), payload)
-        val encrypted = signer.encryptToSelf(plaintext)
-        val unsigned = UnsignedEvent(
-            pubkey = signer.publicKey,
-            createdAt = System.currentTimeMillis() / 1000,
-            kind = KIND,
-            tags = listOf(listOf("d", D_TAG)),
-            content = encrypted
+        val (_, plaintext) = plaintextFor(gymMembership, equipment)
+        val r = RelayPublishOutbox.get(appContext).enqueueReplaceByDTagAndKickDrain(
+            appContext,
+            relayPool,
+            signer,
+            dataRelayUrls,
+            D_TAG,
+            plaintext,
         )
-        val signed = signer.sign(unsigned)
-        return relayPool.publish(signed)
+        return r.publishedFail == 0
     }
 
     suspend fun fetchFromNetwork(

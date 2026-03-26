@@ -19,7 +19,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.DarkMode
-import androidx.compose.material.icons.filled.DirectionsRun
+import androidx.compose.material.icons.automirrored.filled.DirectionsRun
 import androidx.compose.material.icons.filled.FitnessCenter
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.LightMode
@@ -65,8 +65,13 @@ import com.erv.app.nostr.KeyManager
 import com.erv.app.nostr.Nip96Uploader
 import com.erv.app.nostr.NipB7
 import com.erv.app.nostr.RelayPool
+import com.erv.app.nostr.RelayPublishOutbox
 import com.erv.app.nostr.SettingsSync
 import com.erv.app.cardio.CardioRepository
+import com.erv.app.heatcold.HeatColdRepository
+import com.erv.app.lighttherapy.LightTherapyRepository
+import com.erv.app.stretching.StretchingRepository
+import com.erv.app.supplements.SupplementRepository
 import com.erv.app.weighttraining.WeightRepository
 import com.erv.app.ui.navigation.RelayDataSyncTopBarIcon
 import kotlinx.coroutines.CoroutineScope
@@ -98,13 +103,20 @@ fun SettingsScreen(
     userPreferences: UserPreferences,
     weightRepository: WeightRepository,
     cardioRepository: CardioRepository,
-    relayPool: RelayPool?,
-    signer: EventSigner?,
+    stretchingRepository: StretchingRepository,
+    heatColdRepository: HeatColdRepository,
+    lightTherapyRepository: LightTherapyRepository,
+    supplementRepository: SupplementRepository,
     onBack: () -> Unit,
     onRelaysChanged: () -> Unit = {},
+    showDeferNostrLoginEntry: Boolean = false,
+    onRequestNostrLogin: () -> Unit = {},
     onLogout: () -> Unit
 ) {
     val context = LocalContext.current
+    val pendingRelayUploadCount by remember(context.applicationContext) {
+        RelayPublishOutbox.get(context.applicationContext).pendingCountFlow()
+    }.collectAsState(initial = 0)
     val scope = rememberCoroutineScope()
     val themeMode by userPreferences.themeMode.collectAsState(initial = ThemeMode.SYSTEM)
     val bodyWeightValue by userPreferences.bodyWeightValue.collectAsState(initial = "")
@@ -112,6 +124,7 @@ fun SettingsScreen(
     val cardioDistanceUnit by userPreferences.cardioDistanceUnit.collectAsState(initial = CardioDistanceUnit.MILES)
     val cardioGpsPreferred by userPreferences.cardioGpsRecordingPreferred.collectAsState(initial = true)
     val cardioGpsTrackRetainOnDevice by userPreferences.cardioGpsTrackRetainOnDevice.collectAsState(initial = true)
+    val heartRateMaxBpm by userPreferences.heartRateMaxBpm.collectAsState(initial = null)
     val nip96MediaOrigin by userPreferences.nip96MediaServerOrigin.collectAsState(initial = "")
     val blossomPublicSaved by userPreferences.blossomPublicServerOrigin.collectAsState(initial = "")
     val blossomPrivateSaved by userPreferences.blossomPrivateServerOrigin.collectAsState(initial = "")
@@ -187,7 +200,10 @@ fun SettingsScreen(
             composable(SettingsRoutes.HOME) {
                 SettingsHomeScreen(
                     onBack = onBack,
-                    onOpenSection = { nestedNav.navigate(it) }
+                    onOpenSection = { nestedNav.navigate(it) },
+                    pendingRelayUploadCount = pendingRelayUploadCount,
+                    showDeferNostrLoginEntry = showDeferNostrLoginEntry,
+                    onRequestNostrLogin = onRequestNostrLogin,
                 )
             }
             composable(SettingsRoutes.DATA_IMPORT_EXPORT) {
@@ -197,6 +213,10 @@ fun SettingsScreen(
                     userPreferences = userPreferences,
                     weightRepository = weightRepository,
                     cardioRepository = cardioRepository,
+                    stretchingRepository = stretchingRepository,
+                    heatColdRepository = heatColdRepository,
+                    lightTherapyRepository = lightTherapyRepository,
+                    supplementRepository = supplementRepository,
                     relayPool = relayPool,
                     signer = signer
                 )
@@ -259,6 +279,11 @@ fun SettingsScreen(
                     CardioGpsRetentionSettingsSection(
                         retainOnDevice = cardioGpsTrackRetainOnDevice,
                         onRetainChange = { v -> scope.launch { userPreferences.setCardioGpsTrackRetainOnDevice(v) } }
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    MaxHeartRateZonesSection(
+                        maxBpm = heartRateMaxBpm,
+                        onSave = { v -> scope.launch { userPreferences.setHeartRateMaxBpm(v) } }
                     )
                     Spacer(Modifier.height(12.dp))
                     CardioNostrRouteShareSection(
@@ -350,13 +375,27 @@ fun SettingsScreen(
                         onGymMembershipChange = { enabled ->
                             scope.launch {
                                 userPreferences.setGymMembership(enabled)
-                                syncFitnessEquipmentToNostr(relayPool, signer, enabled, ownedEquipment)
+                                syncFitnessEquipmentToNostr(
+                                    context.applicationContext,
+                                    relayPool,
+                                    signer,
+                                    keyManager,
+                                    enabled,
+                                    ownedEquipment,
+                                )
                             }
                         },
                         onEquipmentChange = { list ->
                             scope.launch {
                                 userPreferences.setOwnedEquipment(list)
-                                syncFitnessEquipmentToNostr(relayPool, signer, gymMembership, list)
+                                syncFitnessEquipmentToNostr(
+                                    context.applicationContext,
+                                    relayPool,
+                                    signer,
+                                    keyManager,
+                                    gymMembership,
+                                    list,
+                                )
                             }
                         }
                     )
@@ -373,6 +412,14 @@ fun SettingsScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(bottom = 8.dp)
                     )
+                    if (pendingRelayUploadCount > 0) {
+                        Text(
+                            relayUploadQueueHint(pendingRelayUploadCount),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(bottom = 10.dp)
+                        )
+                    }
                     allRelays.forEach { url ->
                         RelayRow(
                             url = url,
@@ -435,7 +482,12 @@ fun SettingsScreen(
                                 scope.launch {
                                     saving = true
                                     try {
-                                        val ok = SettingsSync.saveToNetwork(relayPool, signer, keyManager)
+                                        val ok = SettingsSync.saveToNetwork(
+                                            context.applicationContext,
+                                            relayPool,
+                                            signer,
+                                            keyManager,
+                                        )
                                         if (ok) {
                                             hasUnsavedChanges = false
                                             snackbarMessage = "Settings saved"
@@ -462,10 +514,22 @@ fun SettingsScreen(
     }
 }
 
+private fun relayUploadQueueHint(count: Int): String {
+    val head = when {
+        count > 99 -> "More than 99 encrypted activity updates are"
+        count == 1 -> "1 encrypted activity update is"
+        else -> "$count encrypted activity updates are"
+    }
+    return "$head queued for relay upload. Keep the app open online; they retry automatically."
+}
+
 @Composable
 private fun SettingsHomeScreen(
     onBack: () -> Unit,
     onOpenSection: (String) -> Unit,
+    pendingRelayUploadCount: Int,
+    showDeferNostrLoginEntry: Boolean,
+    onRequestNostrLogin: () -> Unit,
 ) {
     Scaffold(
         topBar = {
@@ -491,6 +555,20 @@ private fun SettingsHomeScreen(
                 .padding(top = 12.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            if (showDeferNostrLoginEntry) {
+                FilledTonalButton(
+                    onClick = onRequestNostrLogin,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Login or Create NOSTR Identity")
+                }
+                Text(
+                    "Sign in to encrypt and sync health data to your relays. You can keep using the app locally until then.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+            }
             SettingsHubRow(
                 title = "Appearance",
                 subtitle = "Light, dark, or system theme",
@@ -506,7 +584,7 @@ private fun SettingsHomeScreen(
             SettingsHubRow(
                 title = "Cardio & Sharing",
                 subtitle = "GPS tracking and workout route uploads",
-                icon = Icons.Default.DirectionsRun,
+                icon = Icons.AutoMirrored.Filled.DirectionsRun,
                 onClick = { onOpenSection(SettingsRoutes.CARDIO) }
             )
             SettingsHubRow(
@@ -537,6 +615,7 @@ private fun SettingsHomeScreen(
                 title = "Relays",
                 subtitle = "Nostr data and social sync",
                 icon = Icons.Default.Cloud,
+                pendingBadgeCount = pendingRelayUploadCount,
                 onClick = { onOpenSection(SettingsRoutes.RELAYS) }
             )
             SettingsHubRow(
@@ -586,7 +665,8 @@ private fun SettingsHubRow(
     title: String,
     subtitle: String,
     icon: ImageVector,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    pendingBadgeCount: Int = 0,
 ) {
     ElevatedCard(
         modifier = Modifier.fillMaxWidth(),
@@ -610,11 +690,32 @@ private fun SettingsHubRow(
                 )
             },
             trailingContent = {
-                Icon(
-                    Icons.AutoMirrored.Filled.NavigateNext,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                BadgedBox(
+                    badge = {
+                        if (pendingBadgeCount > 0) {
+                            Badge(
+                                containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                            ) {
+                                Text(
+                                    if (pendingBadgeCount > 99) "99+" else pendingBadgeCount.toString(),
+                                    style = MaterialTheme.typography.labelSmall,
+                                )
+                            }
+                        }
+                    },
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.NavigateNext,
+                        contentDescription =
+                            if (pendingBadgeCount > 0) {
+                                "Open Relays, $pendingBadgeCount uploads queued"
+                            } else {
+                                null
+                            },
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             },
             modifier = Modifier.fillMaxWidth()
         )
@@ -622,20 +723,78 @@ private fun SettingsHubRow(
 }
 
 private suspend fun syncFitnessEquipmentToNostr(
+    appContext: android.content.Context,
     relayPool: RelayPool?,
     signer: EventSigner?,
+    keyManager: KeyManager,
     gymMembership: Boolean,
     ownedEquipment: List<OwnedEquipmentItem>
 ) {
     val pool = relayPool ?: return
     val sig = signer ?: return
-    FitnessEquipmentSync.saveToNetwork(pool, sig, gymMembership, ownedEquipment)
+    FitnessEquipmentSync.saveToNetwork(
+        appContext,
+        pool,
+        sig,
+        gymMembership,
+        ownedEquipment,
+        keyManager.relayUrlsForKind30078Publish(),
+    )
 }
 
 private fun normalizeRelayUrl(input: String): String? {
     val s = input.trim()
     if (s.isEmpty()) return null
     return if (s.startsWith("wss://") || s.startsWith("ws://")) s else "$WSS_PREFIX$s"
+}
+
+@Composable
+private fun MaxHeartRateZonesSection(
+    maxBpm: Int?,
+    onSave: (Int?) -> Unit
+) {
+    var draft by remember(maxBpm) { mutableStateOf(maxBpm?.toString().orEmpty()) }
+    Text(
+        "Heart rate zones (BLE workouts)",
+        style = MaterialTheme.typography.titleMedium,
+        modifier = Modifier.padding(bottom = 8.dp)
+    )
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                "Optional max heart rate (90–230 bpm) for Z1–Z5 time charts after cardio or live lifts. Leave blank to use each workout’s peak BPM as a proxy.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            OutlinedTextField(
+                value = draft,
+                onValueChange = { s -> draft = s.filter { ch -> ch.isDigit() }.take(3) },
+                label = { Text("Max HR (bpm)") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.fillMaxWidth()
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = {
+                        val v = draft.trim().toIntOrNull()
+                        onSave(v?.takeIf { it in 90..230 })
+                    },
+                    modifier = Modifier.weight(1f)
+                ) { Text("Save") }
+                OutlinedButton(
+                    onClick = {
+                        draft = ""
+                        onSave(null)
+                    },
+                    modifier = Modifier.weight(1f)
+                ) { Text("Clear") }
+            }
+        }
+    }
 }
 
 @Composable

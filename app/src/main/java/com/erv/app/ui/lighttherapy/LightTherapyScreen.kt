@@ -38,12 +38,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.isSystemInDarkTheme
 import com.erv.app.lighttherapy.*
 import com.erv.app.nostr.EventSigner
+import com.erv.app.nostr.LibraryStateMerge
+import com.erv.app.nostr.RelayPayloadDigestStore
 import com.erv.app.ui.theme.ErvDarkTherapyRedDark
 import com.erv.app.ui.theme.ErvDarkTherapyRedGlow
 import com.erv.app.ui.theme.ErvDarkTherapyRedMid
 import com.erv.app.ui.theme.ErvLightTherapyRedDark
 import com.erv.app.ui.theme.ErvLightTherapyRedGlow
 import com.erv.app.ui.theme.ErvLightTherapyRedMid
+import com.erv.app.nostr.LocalKeyManager
 import com.erv.app.nostr.RelayPool
 import com.erv.app.reminders.RoutineReminder
 import com.erv.app.reminders.RoutineReminderDraft
@@ -99,23 +102,42 @@ fun LightTherapyCategoryScreen(
     var creatingDevice by remember { mutableStateOf(false) }
     var routineEditor by remember { mutableStateOf<LightRoutine?>(null) }
     var creatingRoutine by remember { mutableStateOf(false) }
+    val keyManager = LocalKeyManager.current
 
     suspend fun syncMaster() {
         if (relayPool != null && signer != null) {
-            LightSync.publishMaster(relayPool, signer, repository.currentState())
+            LightSync.publishMaster(
+                context.applicationContext,
+                relayPool,
+                signer,
+                repository.currentState(),
+                keyManager.relayUrlsForKind30078Publish(),
+            )
         }
     }
 
     suspend fun syncDailyLog(log: LightDayLog) {
         if (relayPool != null && signer != null) {
-            LightSync.publishDailyLog(relayPool, signer, log)
+            LightSync.publishDailyLog(
+                context.applicationContext,
+                relayPool,
+                signer,
+                log,
+                keyManager.relayUrlsForKind30078Publish(),
+            )
         }
     }
 
     LaunchedEffect(relayPool, signer?.publicKey) {
         if (relayPool != null && signer != null) {
             LightSync.fetchFromNetwork(relayPool, signer, signer.publicKey)?.let { remote ->
-                repository.replaceAll(remote)
+                val merged = LibraryStateMerge.mergeLight(repository.currentState(), remote)
+                repository.replaceAll(merged)
+                RelayPayloadDigestStore.reconcileIdenticalRemoteMerged(
+                    context.applicationContext,
+                    LightSync.fullOutboxEntries(remote),
+                    LightSync.fullOutboxEntries(merged),
+                )
             }
         }
     }
@@ -244,29 +266,6 @@ fun LightTherapyCategoryScreen(
                             syncMaster()
                             snackbarHostState.showSnackbar("Device removed")
                         }
-                    },
-                    onCreateDevice = { device ->
-                        scope.launch {
-                            repository.addDevice(device)
-                            syncMaster()
-                            snackbarHostState.showSnackbar("Device saved")
-                        }
-                        creatingDevice = false
-                        deviceEditor = null
-                    },
-                    onUpdateDevice = { device ->
-                        scope.launch {
-                            repository.updateDevice(device)
-                            syncMaster()
-                            snackbarHostState.showSnackbar("Device updated")
-                        }
-                        deviceEditor = null
-                    },
-                    deviceEditor = deviceEditor,
-                    creatingDevice = creatingDevice,
-                    onDismissDeviceEditor = {
-                        deviceEditor = null
-                        creatingDevice = false
                     }
                 )
             }
@@ -351,7 +350,6 @@ fun LightTherapyTimerFullScreen(
     onComplete: () -> Unit,
     onCancel: () -> Unit
 ) {
-    val context = LocalContext.current
     var remainingSeconds by remember(durationMinutes) { mutableIntStateOf(durationMinutes * 60) }
 
     LaunchedEffect(remainingSeconds) {
@@ -630,11 +628,19 @@ fun LightLogScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val darkTheme = isSystemInDarkTheme()
     val headerMid = if (darkTheme) ErvDarkTherapyRedMid else ErvLightTherapyRedMid
+    val keyManager = LocalKeyManager.current
+    val logAppContext = LocalContext.current.applicationContext
 
     suspend fun syncDailyLogForDate(date: LocalDate) {
         if (relayPool != null && signer != null) {
             repository.currentState().logFor(date)?.let { log ->
-                LightSync.publishDailyLog(relayPool, signer, log)
+                LightSync.publishDailyLog(
+                    logAppContext,
+                    relayPool,
+                    signer,
+                    log,
+                    keyManager.relayUrlsForKind30078Publish(),
+                )
             }
         }
     }
@@ -821,11 +827,6 @@ private fun LightsTabContent(
     onAddDevice: () -> Unit,
     onEditDevice: (LightDevice) -> Unit,
     onDeleteDevice: (String) -> Unit,
-    onCreateDevice: (LightDevice) -> Unit,
-    onUpdateDevice: (LightDevice) -> Unit,
-    deviceEditor: LightDevice?,
-    creatingDevice: Boolean,
-    onDismissDeviceEditor: () -> Unit
 ) {
     Box(modifier = Modifier.fillMaxSize()) {
         if (state.devices.isEmpty()) {

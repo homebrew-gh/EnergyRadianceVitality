@@ -3,6 +3,7 @@ package com.erv.app
 import android.os.Bundle
 import android.Manifest
 import android.content.pm.PackageManager
+import android.os.Build
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -29,6 +30,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.erv.app.data.ThemeMode
 import com.erv.app.data.UserPreferences
@@ -51,15 +53,19 @@ import com.erv.app.supplements.SupplementSync
 import com.erv.app.reminders.RoutineReminderRepository
 import com.erv.app.reminders.RoutineReminderScheduler
 import com.erv.app.ui.navigation.ErvNavHost
+import com.erv.app.ui.navigation.Routes
 import com.erv.app.ui.navigation.LocalRelayDataSyncInProgress
 import com.erv.app.ui.dashboard.DashboardViewModel
 import com.erv.app.ui.weighttraining.WeightLiveWorkoutViewModel
 import com.erv.app.ui.cardio.CardioLiveWorkoutViewModel
+import com.erv.app.hr.HeartRateBleViewModel
+import com.erv.app.hr.HeartRateTopBar
+import com.erv.app.hr.LocalHeartRateBle
+import com.erv.app.hr.requiredBlePermissionsForHeartRate
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.erv.app.ui.onboarding.RelaySetupScreen
 import com.erv.app.ui.theme.ErvTheme
 import androidx.core.content.ContextCompat
-import android.os.Build
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -69,6 +75,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 
 class MainActivity : AppCompatActivity() {
 
@@ -149,6 +156,11 @@ private fun ErvApp(
     var appState by remember {
         mutableStateOf(if (keyManager.isLoggedIn) AppState.Ready else AppState.LoggedOut)
     }
+    LaunchedEffect(Unit) {
+        if (!keyManager.isLoggedIn && userPreferences.useAppWithoutNostrAccount.first()) {
+            appState = AppState.Ready
+        }
+    }
     var onboardingLoading by remember { mutableStateOf(false) }
 
     fun resolveSigner(): EventSigner? {
@@ -156,9 +168,6 @@ private fun ErvApp(
             ?: (if (keyManager.loginMethod == KeyManager.LOGIN_AMBER && keyManager.publicKeyHex != null && keyManager.amberPackageName != null)
                 AmberSigner(keyManager.publicKeyHex!!, amberHost, context.contentResolver, keyManager.amberPackageName!!)
             else null)
-    }
-    val signer = remember(appState) {
-        if (appState == AppState.LoggedOut) null else resolveSigner()
     }
     var onboardingPool by remember { mutableStateOf<RelayPool?>(null) }
     DisposableEffect(onboardingPool) {
@@ -177,7 +186,14 @@ private fun ErvApp(
         AppState.LoggedOut -> LoginScreen(
             keyManager = keyManager,
             amberHost = amberHost,
+            onContinueWithoutAccount = {
+                scope.launch {
+                    userPreferences.setUseAppWithoutNostrAccount(true)
+                    appState = AppState.Ready
+                }
+            },
             onLoginSuccess = {
+                scope.launch { userPreferences.setUseAppWithoutNostrAccount(false) }
                 resolveSigner()?.let { activeSigner ->
                     appState = AppState.Onboarding
                     onboardingLoading = true
@@ -219,7 +235,12 @@ private fun ErvApp(
                                 pool.setRelays(keyManager.relayUrlsForPool())
                                 delay(1500)
                                 resolveSigner()?.let { currentSigner ->
-                                    SettingsSync.saveToNetwork(pool, currentSigner, keyManager)
+                                    SettingsSync.saveToNetwork(
+                                        context.applicationContext,
+                                        pool,
+                                        currentSigner,
+                                        keyManager,
+                                    )
                                 }
                             }
                             appState = AppState.Ready
@@ -237,9 +258,19 @@ private fun ErvApp(
             consumePendingReminderRoutineId = consumePendingReminderRoutineId,
             navigateToWeightLiveWorkout = navigateToWeightLiveWorkout,
             navigateToCardioLiveWorkout = navigateToCardioLiveWorkout,
+            onRequestNostrLogin = {
+                scope.launch {
+                    userPreferences.setUseAppWithoutNostrAccount(false)
+                    appState = AppState.LoggedOut
+                }
+            },
             onLogout = {
-                keyManager.logout()
-                appState = AppState.LoggedOut
+                scope.launch {
+                    RelayPayloadDigestStore.get(context.applicationContext).clear()
+                    userPreferences.setUseAppWithoutNostrAccount(false)
+                    keyManager.logout()
+                    appState = AppState.LoggedOut
+                }
             }
         )
     }
@@ -313,10 +344,16 @@ private fun MainAppShell(
     consumePendingReminderRoutineId: () -> Unit,
     navigateToWeightLiveWorkout: MutableStateFlow<Boolean>,
     navigateToCardioLiveWorkout: MutableStateFlow<Boolean>,
+    onRequestNostrLogin: () -> Unit,
     onLogout: () -> Unit
 ) {
     val context = LocalContext.current
     val navController = rememberNavController()
+    val navBackStackEntry by navController.currentBackStackEntryAsState()
+    val currentNavRoute = navBackStackEntry?.destination?.route
+    val heartRateBannerExpanded by userPreferences.heartRateBannerExpanded.collectAsState(initial = true)
+    val showGlobalHeartRateBar =
+        heartRateBannerExpanded && !Routes.isCardioDestination(currentNavRoute)
     val supplementRepository = remember(context) { SupplementRepository(context) }
     val lightTherapyRepository = remember(context) { LightTherapyRepository(context) }
     val cardioRepository = remember(context, userPreferences) { CardioRepository(context, userPreferences) }
@@ -370,39 +407,80 @@ private fun MainAppShell(
         try {
             delay(1500)
             val pubkey = signer.publicKey
-            kotlinx.coroutines.coroutineScope {
-                awaitAll(
-                    async {
-                        SupplementSync.fetchFromNetwork(relayPool, signer, pubkey, timeoutMs = 8000)
-                            ?.let { supplementRepository.replaceAll(it) }
-                    },
-                    async {
-                        LightSync.fetchFromNetwork(relayPool, signer, pubkey, timeoutMs = 8000)
-                            ?.let { lightTherapyRepository.replaceAll(it) }
-                    },
-                    async {
-                        CardioSync.fetchFromNetwork(relayPool, signer, pubkey, timeoutMs = 8000)
-                            ?.let { cardioRepository.replaceAll(it) }
-                    },
-                    async {
-                        WeightSync.fetchFromNetwork(relayPool, signer, pubkey, timeoutMs = 8000)
-                            ?.let { weightRepository.mergeRemoteFetch(it) }
-                    },
-                    async {
-                        HeatColdSync.fetchFromNetwork(relayPool, signer, pubkey, timeoutMs = 8000)
-                            ?.let { heatColdRepository.replaceAll(it) }
-                    },
-                    async {
-                        StretchingSync.fetchFromNetwork(relayPool, signer, pubkey, timeoutMs = 8000)
-                            ?.let { stretchingRepository.replaceAll(it) }
-                    },
-                    async {
-                        FitnessEquipmentSync.fetchFromNetwork(relayPool, signer, pubkey, timeoutMs = 8000)?.let { remote ->
-                            userPreferences.setGymMembership(remote.gymMembership)
-                            userPreferences.setOwnedEquipment(remote.equipment)
-                        }
-                    }
-                )
+            val appCtx = context.applicationContext
+            coroutineScope {
+                val supR = async { SupplementSync.fetchFromNetwork(relayPool, signer, pubkey, timeoutMs = 8000) }
+                val lightR = async { LightSync.fetchFromNetwork(relayPool, signer, pubkey, timeoutMs = 8000) }
+                val cardioR = async { CardioSync.fetchFromNetwork(relayPool, signer, pubkey, timeoutMs = 8000) }
+                val weightR = async { WeightSync.fetchFromNetwork(relayPool, signer, pubkey, timeoutMs = 8000) }
+                val heatR = async { HeatColdSync.fetchFromNetwork(relayPool, signer, pubkey, timeoutMs = 8000) }
+                val stretchR = async { StretchingSync.fetchFromNetwork(relayPool, signer, pubkey, timeoutMs = 8000) }
+                val equipR = async { FitnessEquipmentSync.fetchFromNetwork(relayPool, signer, pubkey, timeoutMs = 8000) }
+                awaitAll(supR, lightR, cardioR, weightR, heatR, stretchR, equipR)
+                supR.await()?.let { remote ->
+                    val merged = LibraryStateMerge.mergeSupplement(supplementRepository.currentState(), remote)
+                    supplementRepository.replaceAll(merged)
+                    RelayPayloadDigestStore.reconcileIdenticalRemoteMerged(
+                        appCtx,
+                        SupplementSync.fullOutboxEntries(remote),
+                        SupplementSync.fullOutboxEntries(merged),
+                    )
+                }
+                lightR.await()?.let { remote ->
+                    val merged = LibraryStateMerge.mergeLight(lightTherapyRepository.currentState(), remote)
+                    lightTherapyRepository.replaceAll(merged)
+                    RelayPayloadDigestStore.reconcileIdenticalRemoteMerged(
+                        appCtx,
+                        LightSync.fullOutboxEntries(remote),
+                        LightSync.fullOutboxEntries(merged),
+                    )
+                }
+                cardioR.await()?.let { remote ->
+                    val merged = LibraryStateMerge.mergeCardio(cardioRepository.currentState(), remote)
+                    cardioRepository.replaceAll(merged)
+                    RelayPayloadDigestStore.reconcileIdenticalRemoteMerged(
+                        appCtx,
+                        CardioSync.fullOutboxEntries(remote),
+                        CardioSync.fullOutboxEntries(merged),
+                    )
+                }
+                weightR.await()?.let { remote ->
+                    val merged = LibraryStateMerge.mergeWeight(weightRepository.currentState(), remote)
+                    weightRepository.replaceAll(merged)
+                    RelayPayloadDigestStore.reconcileIdenticalRemoteMerged(
+                        appCtx,
+                        WeightSync.fullOutboxEntries(remote),
+                        WeightSync.fullOutboxEntries(merged),
+                    )
+                }
+                heatR.await()?.let { remote ->
+                    val merged = LibraryStateMerge.mergeHeatCold(heatColdRepository.currentState(), remote)
+                    heatColdRepository.replaceAll(merged)
+                    RelayPayloadDigestStore.reconcileIdenticalRemoteMerged(
+                        appCtx,
+                        HeatColdSync.fullOutboxEntries(remote),
+                        HeatColdSync.fullOutboxEntries(merged),
+                    )
+                }
+                stretchR.await()?.let { remote ->
+                    val merged = LibraryStateMerge.mergeStretch(stretchingRepository.currentState(), remote)
+                    stretchingRepository.replaceAll(merged)
+                    RelayPayloadDigestStore.reconcileIdenticalRemoteMerged(
+                        appCtx,
+                        StretchingSync.fullOutboxEntries(remote),
+                        StretchingSync.fullOutboxEntries(merged),
+                    )
+                }
+                equipR.await()?.let { remote ->
+                    val gym = userPreferences.gymMembership.first()
+                    val equip = userPreferences.ownedEquipment.first()
+                    val merged = LibraryStateMerge.mergeFitnessEquipment(gym, equip, remote)
+                    userPreferences.setGymMembership(merged.gymMembership)
+                    userPreferences.setOwnedEquipment(merged.equipment)
+                    val remotePair = FitnessEquipmentSync.plaintextFor(remote.gymMembership, remote.equipment)
+                    val mergedPair = FitnessEquipmentSync.plaintextFor(merged.gymMembership, merged.equipment)
+                    RelayPayloadDigestStore.reconcileIdenticalRemoteMerged(appCtx, listOf(remotePair), listOf(mergedPair))
+                }
             }
         } finally {
             relayDataSyncInProgress = false
@@ -427,7 +505,11 @@ private fun MainAppShell(
         val sig = signer ?: return@LaunchedEffect
         delay(800)
         withContext(Dispatchers.IO) {
-            RelayPublishOutbox.get(context.applicationContext).kickDrain(pool, sig)
+            RelayPublishOutbox.get(context.applicationContext).kickDrain(
+                pool,
+                sig,
+                keyManager.relayUrlsForKind30078Publish(),
+            )
         }
     }
 
@@ -436,10 +518,17 @@ private fun MainAppShell(
             viewModel<WeightLiveWorkoutViewModel>(viewModelStoreOwner = activityForLifecycle)
         val cardioLiveWorkoutViewModel =
             viewModel<CardioLiveWorkoutViewModel>(viewModelStoreOwner = activityForLifecycle)
+        val heartRateBleViewModel =
+            viewModel<HeartRateBleViewModel>(viewModelStoreOwner = activityForLifecycle)
         val activeWeightWorkout by weightLiveWorkoutViewModel.activeDraft.collectAsState()
         val activeCardioTimer by cardioLiveWorkoutViewModel.activeTimer.collectAsState()
-        val keepScreenAwakeForLiveWorkout =
-            activeWeightWorkout != null || activeCardioTimer != null
+        val liveWorkoutActive = activeWeightWorkout != null || activeCardioTimer != null
+        LaunchedEffect(liveWorkoutActive) {
+            if (liveWorkoutActive) {
+                heartRateBleViewModel.resetWorkoutRecordingOnLiveStart()
+            }
+        }
+        val keepScreenAwakeForLiveWorkout = liveWorkoutActive
         val windowContentView = LocalView.current
         DisposableEffect(keepScreenAwakeForLiveWorkout) {
             if (keepScreenAwakeForLiveWorkout) {
@@ -449,30 +538,50 @@ private fun MainAppShell(
                 windowContentView.keepScreenOn = false
             }
         }
-        CompositionLocalProvider(LocalRelayDataSyncInProgress provides relayDataSyncInProgress) {
-            ErvNavHost(
-                navController = navController,
-                keyManager = keyManager,
-                amberHost = amberHost,
-                userPreferences = userPreferences,
-                dashboardViewModel = dashboardViewModel,
-                supplementRepository = supplementRepository,
-                lightTherapyRepository = lightTherapyRepository,
-                cardioRepository = cardioRepository,
-                weightRepository = weightRepository,
-                heatColdRepository = heatColdRepository,
-                stretchingRepository = stretchingRepository,
-                weightLiveWorkoutViewModel = weightLiveWorkoutViewModel,
-                cardioLiveWorkoutViewModel = cardioLiveWorkoutViewModel,
-                relayPool = relayPool,
-                signer = signer,
-                pendingReminderRoutineId = pendingReminderRoutineId,
-                consumePendingReminderRoutineId = consumePendingReminderRoutineId,
-                navigateToWeightLiveWorkout = navigateToWeightLiveWorkout,
-                navigateToCardioLiveWorkout = navigateToCardioLiveWorkout,
-                onRelaysChanged = { relayUrlsVersion++ },
-                onLogout = onLogout
-            )
+        val blePermissionLauncher = rememberLauncherForActivityResult(
+            ActivityResultContracts.RequestMultiplePermissions()
+        ) { }
+        CompositionLocalProvider(
+            LocalRelayDataSyncInProgress provides relayDataSyncInProgress,
+            LocalHeartRateBle provides heartRateBleViewModel,
+            LocalKeyManager provides keyManager,
+        ) {
+            Column(Modifier.fillMaxSize()) {
+                if (showGlobalHeartRateBar) {
+                    HeartRateTopBar(
+                        viewModel = heartRateBleViewModel,
+                        onRequestBlePermissions = {
+                            blePermissionLauncher.launch(requiredBlePermissionsForHeartRate())
+                        }
+                    )
+                }
+                ErvNavHost(
+                    modifier = Modifier.weight(1f),
+                    navController = navController,
+                    keyManager = keyManager,
+                    amberHost = amberHost,
+                    userPreferences = userPreferences,
+                    dashboardViewModel = dashboardViewModel,
+                    supplementRepository = supplementRepository,
+                    lightTherapyRepository = lightTherapyRepository,
+                    cardioRepository = cardioRepository,
+                    weightRepository = weightRepository,
+                    heatColdRepository = heatColdRepository,
+                    stretchingRepository = stretchingRepository,
+                    weightLiveWorkoutViewModel = weightLiveWorkoutViewModel,
+                    cardioLiveWorkoutViewModel = cardioLiveWorkoutViewModel,
+                    relayPool = relayPool,
+                    signer = signer,
+                    pendingReminderRoutineId = pendingReminderRoutineId,
+                    consumePendingReminderRoutineId = consumePendingReminderRoutineId,
+                    navigateToWeightLiveWorkout = navigateToWeightLiveWorkout,
+                    navigateToCardioLiveWorkout = navigateToCardioLiveWorkout,
+                    onRelaysChanged = { relayUrlsVersion++ },
+                    showDeferNostrLoginEntry = !keyManager.isLoggedIn,
+                    onRequestNostrLogin = onRequestNostrLogin,
+                    onLogout = onLogout
+                )
+            }
         }
     }
 }
@@ -487,6 +596,7 @@ private enum class LoginStep { Welcome, ExistingUser, BackupKey }
 private fun LoginScreen(
     keyManager: KeyManager,
     amberHost: AmberLauncherHost,
+    onContinueWithoutAccount: () -> Unit,
     onLoginSuccess: () -> Unit
 ) {
     var step by remember { mutableStateOf(LoginStep.Welcome) }
@@ -500,7 +610,8 @@ private fun LoginScreen(
                     step = LoginStep.BackupKey
                 } catch (_: Exception) { /* astronomically unlikely */ }
             },
-            onExistingAccount = { step = LoginStep.ExistingUser }
+            onExistingAccount = { step = LoginStep.ExistingUser },
+            onContinueWithoutAccount = onContinueWithoutAccount
         )
         LoginStep.ExistingUser -> ExistingUserScreen(
             keyManager = keyManager,
@@ -523,7 +634,8 @@ private fun LoginScreen(
 @Composable
 private fun WelcomeScreen(
     onGetStarted: () -> Unit,
-    onExistingAccount: () -> Unit
+    onExistingAccount: () -> Unit,
+    onContinueWithoutAccount: () -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -563,6 +675,13 @@ private fun WelcomeScreen(
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("I already have an account")
+        }
+        Spacer(Modifier.height(12.dp))
+        TextButton(
+            onClick = onContinueWithoutAccount,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Use ERV without a NOSTR Identity")
         }
     }
 }

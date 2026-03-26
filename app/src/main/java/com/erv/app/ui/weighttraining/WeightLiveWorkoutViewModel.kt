@@ -9,6 +9,7 @@ import com.erv.app.weighttraining.WeightLiveWorkoutForegroundService
 import com.erv.app.weighttraining.WeightHiitBlockLog
 import com.erv.app.weighttraining.WeightRoutine
 import com.erv.app.weighttraining.WeightSet
+import com.erv.app.weighttraining.WeightExerciseFocusMark
 import com.erv.app.weighttraining.WeightWorkoutDraft
 import com.erv.app.weighttraining.weightNowEpochSeconds
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -85,13 +86,17 @@ class WeightLiveWorkoutViewModel(application: Application) : AndroidViewModel(ap
         val ids = routine.exerciseIds.filter { id -> library.exerciseById(id) != null }
         val blankRow = listOf(WeightSet(reps = 0, weightKg = null, rpe = null))
         val setsSeed = ids.associateWith { blankRow }
+        val started = weightNowEpochSeconds()
+        val initialMarks =
+            if (ids.isNotEmpty()) listOf(WeightExerciseFocusMark(ids.first(), started)) else emptyList()
         val draft = WeightWorkoutDraft(
-            startedAtEpochSeconds = weightNowEpochSeconds(),
+            startedAtEpochSeconds = started,
             exerciseOrder = ids,
             setsByExerciseId = setsSeed,
             hiitBlocksByExerciseId = emptyMap(),
             routineId = routine.id,
-            routineName = routine.name
+            routineName = routine.name,
+            exerciseFocusMarks = initialMarks
         )
         _activeDraft.value = draft
         _liveWorkoutUiExpanded.value = true
@@ -180,6 +185,18 @@ class WeightLiveWorkoutViewModel(application: Application) : AndroidViewModel(ap
         val d = _activeDraft.value ?: return
         if (exerciseId !in d.hiitBlocksByExerciseId) return
         _activeDraft.value = d.copy(hiitBlocksByExerciseId = d.hiitBlocksByExerciseId - exerciseId)
+        persistDraft()
+    }
+
+    /** Records that the user focused this exercise (for HR ↔ lift correlation). Skips duplicate consecutive ids. */
+    fun recordExerciseFocus(exerciseId: String) {
+        val d = _activeDraft.value ?: return
+        if (exerciseId !in d.exerciseOrder) return
+        val now = weightNowEpochSeconds()
+        if (d.exerciseFocusMarks.lastOrNull()?.exerciseId == exerciseId) return
+        _activeDraft.value = d.copy(
+            exerciseFocusMarks = d.exerciseFocusMarks + WeightExerciseFocusMark(exerciseId, now)
+        )
         persistDraft()
     }
 }

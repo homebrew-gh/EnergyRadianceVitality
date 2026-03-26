@@ -30,10 +30,14 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.erv.app.data.BodyWeightUnit
 import com.erv.app.data.UserPreferences
 import com.erv.app.nostr.EventSigner
+import com.erv.app.nostr.LibraryStateMerge
+import com.erv.app.nostr.LocalKeyManager
+import com.erv.app.nostr.RelayPayloadDigestStore
 import com.erv.app.nostr.RelayPool
 import com.erv.app.SectionLogDateFilter
 import com.erv.app.ui.dashboard.SectionLogCalendarSheet
@@ -88,17 +92,25 @@ fun WeightTrainingLogScreen(
     val scope = rememberCoroutineScope()
     val darkTheme = isSystemInDarkTheme()
     val headerMid = if (darkTheme) ErvDarkTherapyRedMid else ErvLightTherapyRedMid
+    val keyManager = LocalKeyManager.current
+    val appContext = LocalContext.current.applicationContext
 
     suspend fun pushDayLog(date: LocalDate) {
         if (relayPool == null || signer == null) return
         val log = repository.currentState().logFor(date) ?: return
-        WeightSync.publishDayLog(relayPool, signer, log)
+        WeightSync.publishDayLog(appContext, relayPool, signer, log, keyManager.relayUrlsForKind30078Publish())
     }
 
     LaunchedEffect(relayPool, signer?.publicKey) {
         if (relayPool != null && signer != null) {
             WeightSync.fetchFromNetwork(relayPool, signer, signer.publicKey)?.let { remote ->
-                repository.mergeRemoteFetch(remote)
+                val merged = LibraryStateMerge.mergeWeight(repository.currentState(), remote)
+                repository.replaceAll(merged)
+                RelayPayloadDigestStore.reconcileIdenticalRemoteMerged(
+                    appContext,
+                    WeightSync.fullOutboxEntries(remote),
+                    WeightSync.fullOutboxEntries(merged),
+                )
             }
         }
     }

@@ -84,6 +84,10 @@ object Routes {
     fun weightExerciseDetail(exerciseId: String) = "category/weight_training/exercise/$exerciseId"
     const val heatColdLog = "category/heat_cold/log"
     const val stretchingLog = "category/stretching/log"
+
+    /** Cardio flows show live HR in-session; the global HR strip above the nav host is redundant there. */
+    fun isCardioDestination(route: String?): Boolean =
+        route != null && route.startsWith("category/cardio")
 }
 
 @Composable
@@ -108,6 +112,8 @@ fun ErvNavHost(
     navigateToWeightLiveWorkout: MutableStateFlow<Boolean>,
     navigateToCardioLiveWorkout: MutableStateFlow<Boolean>,
     onRelaysChanged: () -> Unit = {},
+    showDeferNostrLoginEntry: Boolean = false,
+    onRequestNostrLogin: () -> Unit = {},
     onLogout: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -197,10 +203,14 @@ fun ErvNavHost(
                 userPreferences = userPreferences,
                 weightRepository = weightRepository,
                 cardioRepository = cardioRepository,
-                relayPool = relayPool,
-                signer = signer,
+                stretchingRepository = stretchingRepository,
+                heatColdRepository = heatColdRepository,
+                lightTherapyRepository = lightTherapyRepository,
+                supplementRepository = supplementRepository,
                 onBack = { navController.popBackStack() },
                 onRelaysChanged = onRelaysChanged,
+                showDeferNostrLoginEntry = showDeferNostrLoginEntry,
+                onRequestNostrLogin = onRequestNostrLogin,
                 onLogout = onLogout
             )
         }

@@ -65,12 +65,16 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.erv.app.data.BodyWeightUnit
 import com.erv.app.data.UserPreferences
 import com.erv.app.nostr.EventSigner
+import com.erv.app.nostr.LibraryStateMerge
+import com.erv.app.nostr.LocalKeyManager
+import com.erv.app.nostr.RelayPayloadDigestStore
 import com.erv.app.nostr.RelayPool
 import com.erv.app.ui.theme.ErvDarkTherapyRedDark
 import com.erv.app.ui.theme.ErvDarkTherapyRedGlow
@@ -78,6 +82,7 @@ import com.erv.app.ui.theme.ErvDarkTherapyRedMid
 import com.erv.app.ui.theme.ErvLightTherapyRedDark
 import com.erv.app.ui.theme.ErvLightTherapyRedGlow
 import com.erv.app.ui.theme.ErvLightTherapyRedMid
+import com.erv.app.hr.LocalHeartRateBle
 import com.erv.app.ui.cardio.CardioLiveWorkoutViewModel
 import com.erv.app.weighttraining.WeightEquipment
 import com.erv.app.weighttraining.WeightExercise
@@ -88,7 +93,9 @@ import com.erv.app.weighttraining.WeightRoutine
 import com.erv.app.weighttraining.WeightWorkoutSession
 import com.erv.app.weighttraining.WeightSync
 import com.erv.app.weighttraining.displayLabel
+import com.erv.app.weighttraining.buildWeightExerciseHrSegments
 import com.erv.app.weighttraining.toFinishedLiveSession
+import com.erv.app.weighttraining.weightNowEpochSeconds
 import com.erv.app.weighttraining.exerciseIdsUsedInAnyLog
 import com.erv.app.weighttraining.exercisesGroupedByMuscle
 import com.erv.app.weighttraining.formatMuscleGroupHeader
@@ -112,6 +119,7 @@ fun WeightTrainingCategoryScreen(
     onOpenExerciseDetail: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val heartRateBle = LocalHeartRateBle.current
     val loadUnit by userPreferences.weightTrainingLoadUnit.collectAsState(initial = BodyWeightUnit.LB)
     val liveDraft by liveWorkoutViewModel.activeDraft.collectAsState()
     val liveWorkoutUiExpanded by liveWorkoutViewModel.liveWorkoutUiExpanded.collectAsState()
@@ -135,24 +143,33 @@ fun WeightTrainingCategoryScreen(
     val headerDark = if (darkTheme) ErvDarkTherapyRedDark else ErvLightTherapyRedDark
     val headerMid = if (darkTheme) ErvDarkTherapyRedMid else ErvLightTherapyRedMid
     val headerGlow = if (darkTheme) ErvDarkTherapyRedGlow else ErvLightTherapyRedGlow
+    val keyManager = LocalKeyManager.current
+    val appContext = LocalContext.current.applicationContext
 
     suspend fun pushMasters() {
         if (relayPool == null || signer == null) return
+        val urls = keyManager.relayUrlsForKind30078Publish()
         val s = repository.currentState()
-        WeightSync.publishExercises(relayPool, signer, s.exercises)
-        WeightSync.publishRoutines(relayPool, signer, s.routines)
+        WeightSync.publishExercises(appContext, relayPool, signer, s.exercises, urls)
+        WeightSync.publishRoutines(appContext, relayPool, signer, s.routines, urls)
     }
 
     suspend fun pushDayLog(date: LocalDate) {
         if (relayPool == null || signer == null) return
         val log = repository.currentState().logFor(date) ?: return
-        WeightSync.publishDayLog(relayPool, signer, log)
+        WeightSync.publishDayLog(appContext, relayPool, signer, log, keyManager.relayUrlsForKind30078Publish())
     }
 
     LaunchedEffect(relayPool, signer?.publicKey) {
         if (relayPool != null && signer != null) {
             WeightSync.fetchFromNetwork(relayPool, signer, signer.publicKey)?.let { remote ->
-                repository.mergeRemoteFetch(remote)
+                val merged = LibraryStateMerge.mergeWeight(repository.currentState(), remote)
+                repository.replaceAll(merged)
+                RelayPayloadDigestStore.reconcileIdenticalRemoteMerged(
+                    appContext,
+                    WeightSync.fullOutboxEntries(remote),
+                    WeightSync.fullOutboxEntries(merged),
+                )
             }
         }
     }
@@ -161,11 +178,12 @@ fun WeightTrainingCategoryScreen(
 
     val summarySession = completedSessionForSummary
     if (summarySession != null) {
-        WeightWorkoutSummaryFullScreen(
+            WeightWorkoutSummaryFullScreen(
             session = summarySession,
             logDate = LocalDate.now(),
             library = state,
             loadUnit = loadUnit,
+            userPreferences = userPreferences,
             dark = headerDark,
             mid = headerMid,
             glow = headerGlow,
@@ -326,6 +344,7 @@ fun WeightTrainingCategoryScreen(
                 draft = expandedDraft,
                 library = state,
                 loadUnit = loadUnit,
+                onRecordExerciseActivity = { id -> liveWorkoutViewModel.recordExerciseFocus(id) },
                 onLeaveWorkoutUi = {
                     val draft = liveWorkoutViewModel.activeDraft.value
                     if (draft != null) {
@@ -335,17 +354,32 @@ fun WeightTrainingCategoryScreen(
                         }
                         val noHiit = draft.hiitBlocksByExerciseId.isEmpty()
                         if (noExercises && noLoggedSets && noHiit) {
+                            heartRateBle.discardWorkoutRecording()
                             liveWorkoutViewModel.clearDraft()
                         } else {
                             liveWorkoutViewModel.setLiveWorkoutUiExpanded(false)
                         }
                     }
                 },
-                onDiscardWorkout = { liveWorkoutViewModel.clearDraft() },
+                onDiscardWorkout = {
+                    heartRateBle.discardWorkoutRecording()
+                    liveWorkoutViewModel.clearDraft()
+                },
                 onFinish = {
                     scope.launch {
                         val current = liveWorkoutViewModel.activeDraft.value ?: return@launch
-                        val session = current.toFinishedLiveSession() ?: return@launch
+                        val hr = heartRateBle.takeWorkoutHeartRateSummary()
+                        val end = weightNowEpochSeconds()
+                        val segments = buildWeightExerciseHrSegments(
+                            current.exerciseFocusMarks,
+                            current.startedAtEpochSeconds,
+                            end,
+                            hr?.samples.orEmpty()
+                        )
+                        val session = current.toFinishedLiveSession(
+                            heartRate = hr,
+                            heartRateExerciseSegments = segments
+                        ) ?: return@launch
                         repository.addWorkout(LocalDate.now(), session)
                         liveWorkoutViewModel.clearDraft()
                         pushDayLog(LocalDate.now())

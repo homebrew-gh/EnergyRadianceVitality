@@ -69,6 +69,14 @@ class UserPreferences(private val context: Context) {
         val OWNED_EQUIPMENT_JSON_V1 = stringPreferencesKey("owned_equipment_json_v1")
         val LIVE_WEIGHT_WORKOUT_DRAFT_JSON_V1 = stringPreferencesKey("live_weight_workout_draft_json_v1")
         val STRETCH_GUIDED_TTS_VOICE = stringPreferencesKey("stretch_guided_tts_voice")
+        /** MAC address of last paired BLE heart rate sensor (standard Heart Rate GATT service). */
+        val BLE_HEART_RATE_DEVICE_ADDRESS = stringPreferencesKey("ble_heart_rate_device_address_v1")
+        /** Optional max HR (bpm) for heart rate zone breakdown; empty = use workout peak as proxy. */
+        val HEART_RATE_MAX_BPM = stringPreferencesKey("heart_rate_max_bpm_v1")
+        /** Global BLE heart-rate strip above navigation; cardio screens hide it regardless. */
+        val HEART_RATE_BANNER_EXPANDED = booleanPreferencesKey("heart_rate_banner_expanded_v1")
+        /** User chose to use the app without creating a Nostr identity yet (local-only shell). */
+        val USE_APP_WITHOUT_NOSTR_ACCOUNT_V1 = booleanPreferencesKey("use_app_without_nostr_account_v1")
     }
 
     val themeMode: Flow<ThemeMode> = context.dataStore.data.map { prefs ->
@@ -361,6 +369,51 @@ class UserPreferences(private val context: Context) {
     suspend fun setStretchGuidedTtsVoice(voice: StretchGuidedTtsVoice) {
         context.dataStore.edit { prefs ->
             prefs[Keys.STRETCH_GUIDED_TTS_VOICE] = voice.name
+        }
+    }
+
+    val bleHeartRateDeviceAddress: Flow<String?> = context.dataStore.data.map { prefs ->
+        prefs[Keys.BLE_HEART_RATE_DEVICE_ADDRESS]?.trim()?.takeIf { it.isNotEmpty() }
+    }
+
+    suspend fun setBleHeartRateDeviceAddress(address: String?) {
+        context.dataStore.edit { prefs ->
+            val t = address?.trim().orEmpty()
+            if (t.isEmpty()) prefs.remove(Keys.BLE_HEART_RATE_DEVICE_ADDRESS)
+            else prefs[Keys.BLE_HEART_RATE_DEVICE_ADDRESS] = t
+        }
+    }
+
+    /** Null = unset (zones use each workout’s peak BPM as a proxy max). */
+    val heartRateMaxBpm: Flow<Int?> = context.dataStore.data.map { prefs ->
+        prefs[Keys.HEART_RATE_MAX_BPM]?.trim()?.toIntOrNull()?.takeIf { it in 90..230 }
+    }
+
+    suspend fun setHeartRateMaxBpm(bpm: Int?) {
+        context.dataStore.edit { prefs ->
+            if (bpm == null || bpm !in 90..230) prefs.remove(Keys.HEART_RATE_MAX_BPM)
+            else prefs[Keys.HEART_RATE_MAX_BPM] = bpm.toString()
+        }
+    }
+
+    /** When true, show the global heart-rate sensor strip (hidden on cardio routes). Default on for existing behavior. */
+    val heartRateBannerExpanded: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[Keys.HEART_RATE_BANNER_EXPANDED] ?: true
+    }
+
+    suspend fun setHeartRateBannerExpanded(expanded: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.HEART_RATE_BANNER_EXPANDED] = expanded
+        }
+    }
+
+    val useAppWithoutNostrAccount: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[Keys.USE_APP_WITHOUT_NOSTR_ACCOUNT_V1] == true
+    }
+
+    suspend fun setUseAppWithoutNostrAccount(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.USE_APP_WITHOUT_NOSTR_ACCOUNT_V1] = enabled
         }
     }
 }

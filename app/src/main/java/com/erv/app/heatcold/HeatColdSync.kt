@@ -1,10 +1,11 @@
 package com.erv.app.heatcold
 
+import android.content.Context
 import com.erv.app.nostr.EventSigner
 import com.erv.app.nostr.NostrEvent
 import com.erv.app.nostr.NostrFilter
 import com.erv.app.nostr.RelayPool
-import com.erv.app.nostr.UnsignedEvent
+import com.erv.app.nostr.RelayPublishOutbox
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -20,21 +21,36 @@ object HeatColdSync {
     }
 
     suspend fun publishSaunaDailyLog(
+        appContext: Context,
         relayPool: RelayPool,
         signer: EventSigner,
-        log: HeatColdDayLog
+        log: HeatColdDayLog,
+        dataRelayUrls: List<String>,
     ): Boolean {
         val content = json.encodeToString(HeatColdDayLog.serializer(), log)
-        return publishEvent(relayPool, signer, "erv/sauna/${log.date}", content)
+        return publishEvent(appContext, relayPool, signer, "erv/sauna/${log.date}", content, dataRelayUrls)
     }
 
     suspend fun publishColdDailyLog(
+        appContext: Context,
         relayPool: RelayPool,
         signer: EventSigner,
-        log: HeatColdDayLog
+        log: HeatColdDayLog,
+        dataRelayUrls: List<String>,
     ): Boolean {
         val content = json.encodeToString(HeatColdDayLog.serializer(), log)
-        return publishEvent(relayPool, signer, "erv/cold/${log.date}", content)
+        return publishEvent(appContext, relayPool, signer, "erv/cold/${log.date}", content, dataRelayUrls)
+    }
+
+    fun fullOutboxEntries(state: HeatColdLibraryState): List<Pair<String, String>> {
+        val pairs = mutableListOf<Pair<String, String>>()
+        for (log in state.saunaLogs) {
+            pairs += "erv/sauna/${log.date}" to json.encodeToString(HeatColdDayLog.serializer(), log)
+        }
+        for (log in state.coldLogs) {
+            pairs += "erv/cold/${log.date}" to json.encodeToString(HeatColdDayLog.serializer(), log)
+        }
+        return pairs
     }
 
     suspend fun fetchFromNetwork(
@@ -94,21 +110,22 @@ object HeatColdSync {
     }
 
     private suspend fun publishEvent(
+        appContext: Context,
         relayPool: RelayPool,
         signer: EventSigner,
         dTag: String,
-        plaintext: String
+        plaintext: String,
+        dataRelayUrls: List<String>,
     ): Boolean {
-        val encrypted = signer.encryptToSelf(plaintext)
-        val unsigned = UnsignedEvent(
-            pubkey = signer.publicKey,
-            createdAt = nowEpochSeconds(),
-            kind = 30078,
-            tags = listOf(listOf("d", dTag)),
-            content = encrypted
+        val r = RelayPublishOutbox.get(appContext).enqueueReplaceByDTagAndKickDrain(
+            appContext,
+            relayPool,
+            signer,
+            dataRelayUrls,
+            dTag,
+            plaintext,
         )
-        val signed = signer.sign(unsigned)
-        return relayPool.publish(signed)
+        return r.publishedFail == 0
     }
 
     private fun decodeLog(raw: String, date: String): HeatColdDayLog? =
