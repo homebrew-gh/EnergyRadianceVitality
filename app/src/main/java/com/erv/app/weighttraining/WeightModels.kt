@@ -1,12 +1,15 @@
 package com.erv.app.weighttraining
 
 import com.erv.app.SectionLogDateFilter
+import com.erv.app.cardio.CardioHrSample
+import com.erv.app.cardio.CardioHrScaffolding
 import kotlinx.serialization.EncodeDefault
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import java.time.LocalDate
 import java.util.Locale
 import java.util.UUID
+import kotlin.math.max
 
 @Serializable
 enum class WeightPushPull {
@@ -99,6 +102,23 @@ enum class WeightWorkoutSource {
 }
 
 @Serializable
+data class WeightExerciseHrSegment(
+    val exerciseId: String,
+    val startEpochSeconds: Long,
+    val endEpochSeconds: Long,
+    val sampleCount: Int = 0,
+    val avgBpm: Int? = null,
+    val maxBpm: Int? = null,
+    val minBpm: Int? = null
+)
+
+@Serializable
+data class WeightExerciseFocusMark(
+    val exerciseId: String,
+    val epochSeconds: Long
+)
+
+@Serializable
 data class WeightWorkoutSession(
     val id: String = UUID.randomUUID().toString(),
     val source: WeightWorkoutSource,
@@ -107,7 +127,14 @@ data class WeightWorkoutSession(
     val durationSeconds: Int? = null,
     val routineId: String? = null,
     val routineName: String? = null,
-    val entries: List<WeightWorkoutEntry> = emptyList()
+    val entries: List<WeightWorkoutEntry> = emptyList(),
+    /** Populated when a live session used a connected BLE HR sensor (avg/min/max over the workout). */
+    val heartRate: CardioHrScaffolding? = null,
+    /**
+     * HR stats per exercise window, from focus timestamps during a live lift (approximate).
+     * Omitted when syncing day logs to relays (local detail).
+     */
+    val heartRateExerciseSegments: List<WeightExerciseHrSegment> = emptyList()
 )
 
 @Serializable
@@ -222,7 +249,9 @@ data class WeightWorkoutDraft(
     val setsByExerciseId: Map<String, List<WeightSet>> = emptyMap(),
     val hiitBlocksByExerciseId: Map<String, WeightHiitBlockLog> = emptyMap(),
     val routineId: String? = null,
-    val routineName: String? = null
+    val routineName: String? = null,
+    /** When the user focused an exercise (expand / log sets / HIIT); used to correlate HR samples. */
+    val exerciseFocusMarks: List<WeightExerciseFocusMark> = emptyList()
 )
 
 private fun WeightWorkoutDraft.entryForOrderedExercise(id: String): WeightWorkoutEntry? {
@@ -236,7 +265,10 @@ private fun WeightWorkoutDraft.entryForOrderedExercise(id: String): WeightWorkou
 }
 
 /** Build a finished LIVE session or `null` if nothing was logged. */
-fun WeightWorkoutDraft.toFinishedLiveSession(): WeightWorkoutSession? {
+fun WeightWorkoutDraft.toFinishedLiveSession(
+    heartRate: CardioHrScaffolding? = null,
+    heartRateExerciseSegments: List<WeightExerciseHrSegment> = emptyList()
+): WeightWorkoutSession? {
     val entries = exerciseOrder.mapNotNull { id -> entryForOrderedExercise(id) }
     if (entries.isEmpty()) return null
     return WeightWorkoutSession(
@@ -245,8 +277,46 @@ fun WeightWorkoutDraft.toFinishedLiveSession(): WeightWorkoutSession? {
         finishedAtEpochSeconds = weightNowEpochSeconds(),
         routineId = routineId,
         routineName = routineName,
-        entries = entries
+        entries = entries,
+        heartRate = heartRate,
+        heartRateExerciseSegments = heartRateExerciseSegments
     )
+}
+
+/**
+ * Maps [WeightWorkoutDraft.exerciseFocusMarks] to HR aggregates per exercise window.
+ * Windows are [mark_i, mark_{i+1}) (last window runs through [sessionEnd]).
+ */
+fun buildWeightExerciseHrSegments(
+    marks: List<WeightExerciseFocusMark>,
+    sessionStart: Long,
+    sessionEnd: Long,
+    samples: List<CardioHrSample>
+): List<WeightExerciseHrSegment> {
+    if (samples.isEmpty()) return emptyList()
+    val sorted = marks.sortedBy { it.epochSeconds }
+    if (sorted.isEmpty()) return emptyList()
+    val out = mutableListOf<WeightExerciseHrSegment>()
+    for (i in sorted.indices) {
+        val start = max(sessionStart, sorted[i].epochSeconds)
+        val endExclusive = if (i < sorted.lastIndex) sorted[i + 1].epochSeconds else sessionEnd + 1
+        if (start >= endExclusive) continue
+        val slice = samples.filter { it.epochSeconds >= start && it.epochSeconds < endExclusive }
+        if (slice.isEmpty()) continue
+        val avg = (slice.sumOf { it.bpm.toLong() } / slice.size).toInt()
+        out.add(
+            WeightExerciseHrSegment(
+                exerciseId = sorted[i].exerciseId,
+                startEpochSeconds = start,
+                endEpochSeconds = (endExclusive - 1).coerceAtLeast(start),
+                sampleCount = slice.size,
+                avgBpm = avg,
+                maxBpm = slice.maxOf { it.bpm },
+                minBpm = slice.minOf { it.bpm }
+            )
+        )
+    }
+    return out
 }
 
 /**

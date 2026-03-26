@@ -119,6 +119,8 @@ import com.erv.app.cardio.CardioMultiLegTimerState
 import com.erv.app.cardio.CardioTrackShareImage
 import com.erv.app.cardio.CardioRepository
 import com.erv.app.cardio.CardioSync
+import com.erv.app.nostr.LibraryStateMerge
+import com.erv.app.nostr.RelayPayloadDigestStore
 import com.erv.app.cardio.CardioQuickLaunch
 import com.erv.app.cardio.CardioRoutine
 import com.erv.app.cardio.CardioRoutineStep
@@ -164,12 +166,15 @@ import com.erv.app.nostr.BlossomUploader
 import com.erv.app.nostr.EventSigner
 import com.erv.app.nostr.Nip96Uploader
 import com.erv.app.nostr.UnsignedEvent
+import com.erv.app.nostr.LocalKeyManager
 import com.erv.app.nostr.RelayPool
 import com.erv.app.ui.dashboard.SectionLogCalendarSheet
 import com.erv.app.ui.dashboard.SectionLogFilterBar
 import com.erv.app.ui.dashboard.datesWithCardioActivity
 import com.erv.app.ui.weighttraining.LiveWorkoutInProgressBanner
 import com.erv.app.ui.media.WorkoutMediaControlPanel
+import com.erv.app.hr.HeartRateSessionAnalyticsSection
+import com.erv.app.hr.LocalHeartRateBle
 import com.erv.app.ui.weighttraining.WeightLiveWorkoutFgsDisclosureDialog
 import com.erv.app.ui.weighttraining.WeightLiveWorkoutViewModel
 import com.erv.app.ui.theme.ErvDarkTherapyRedDark
@@ -209,6 +214,7 @@ fun CardioCategoryScreen(
     val cardioGpsPreferred by userPreferences.cardioGpsRecordingPreferred.collectAsState(initial = true)
     val timerContext = LocalContext.current
     val timerAppContext = remember(timerContext) { timerContext.applicationContext }
+    val heartRateBle = LocalHeartRateBle.current
     var locationFineGranted by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(timerContext, Manifest.permission.ACCESS_FINE_LOCATION) ==
@@ -241,6 +247,7 @@ fun CardioCategoryScreen(
     val therapyRedDark = if (darkTheme) ErvDarkTherapyRedDark else ErvLightTherapyRedDark
     val therapyRedMid = if (darkTheme) ErvDarkTherapyRedMid else ErvLightTherapyRedMid
     val therapyRedGlow = if (darkTheme) ErvDarkTherapyRedGlow else ErvLightTherapyRedGlow
+    val keyManager = LocalKeyManager.current
 
     LaunchedEffect(initialOpenNewWorkout) {
         if (initialOpenNewWorkout) {
@@ -251,13 +258,20 @@ fun CardioCategoryScreen(
 
     suspend fun syncMaster() {
         if (relayPool != null && signer != null) {
-            CardioSync.publishMaster(relayPool, signer, repository.currentState())
+            val urls = keyManager.relayUrlsForKind30078Publish()
+            CardioSync.publishMaster(timerAppContext, relayPool, signer, repository.currentState(), urls)
         }
     }
 
     suspend fun syncDailyLog(log: CardioDayLog) {
         if (relayPool != null && signer != null) {
-            CardioSync.publishDailyLog(relayPool, signer, log)
+            CardioSync.publishDailyLog(
+                timerAppContext,
+                relayPool,
+                signer,
+                log,
+                keyManager.relayUrlsForKind30078Publish(),
+            )
         }
     }
 
@@ -289,7 +303,13 @@ fun CardioCategoryScreen(
     LaunchedEffect(relayPool, signer?.publicKey) {
         if (relayPool != null && signer != null) {
             CardioSync.fetchFromNetwork(relayPool, signer, signer.publicKey)?.let { remote ->
-                repository.replaceAll(remote)
+                val merged = LibraryStateMerge.mergeCardio(repository.currentState(), remote)
+                repository.replaceAll(merged)
+                RelayPayloadDigestStore.reconcileIdenticalRemoteMerged(
+                    timerAppContext,
+                    CardioSync.fullOutboxEntries(remote),
+                    CardioSync.fullOutboxEntries(merged),
+                )
             }
         }
     }
@@ -493,11 +513,13 @@ fun CardioCategoryScreen(
                                     elapsedSecondsForDistance = elapsedSeconds,
                                     gpsPoints = gpsPoints
                                 )
-                                val session = CardioMetEstimator.applyEstimatedKcal(
+                                val hrSummary = heartRateBle.takeWorkoutHeartRateSummary()
+                                val sessionBase = CardioMetEstimator.applyEstimatedKcal(
                                     raw,
                                     repository.currentState(),
                                     weightKg
                                 )
+                                val session = hrSummary?.let { sessionBase.copy(heartRate = it) } ?: sessionBase
                                 cardioLiveWorkoutViewModel.clearSession()
                                 completedWorkoutSummary = CardioTimerCompletionResult(session, elapsedSeconds)
                                 repository.addSession(today, session)
@@ -506,6 +528,7 @@ fun CardioCategoryScreen(
                         },
                         onCancel = {
                             drainCardioGpsIfNeeded(recordGps, timerAppContext)
+                            heartRateBle.discardWorkoutRecording()
                             cardioLiveWorkoutViewModel.clearSession()
                         }
                     )
@@ -533,9 +556,11 @@ fun CardioCategoryScreen(
                                     weightKg
                                 )
                                 if (session != null) {
+                                    val hrSummary = heartRateBle.takeWorkoutHeartRateSummary()
+                                    val withHr = hrSummary?.let { session.copy(heartRate = it) } ?: session
                                     cardioLiveWorkoutViewModel.clearSession()
-                                    completedWorkoutSummary = CardioTimerCompletionResult(session, null)
-                                    repository.addSession(today, session)
+                                    completedWorkoutSummary = CardioTimerCompletionResult(withHr, null)
+                                    repository.addSession(today, withHr)
                                     repository.currentState().logFor(today)?.let { syncDailyLog(it) }
                                 } else if (next != null) {
                                     cardioLiveWorkoutViewModel.replaceSession(CardioActiveTimerSession.Multi(next))
@@ -543,7 +568,10 @@ fun CardioCategoryScreen(
                                 }
                             }
                         },
-                        onCancel = { cardioLiveWorkoutViewModel.clearSession() }
+                        onCancel = {
+                            heartRateBle.discardWorkoutRecording()
+                            cardioLiveWorkoutViewModel.clearSession()
+                        }
                     )
                 }
             }
@@ -1889,6 +1917,7 @@ fun CardioLogScreen(
     var pendingDelete by remember { mutableStateOf<DatedCardioSession?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val logAppContext = LocalContext.current.applicationContext
     val distanceUnit by userPreferences.cardioDistanceUnit.collectAsState(initial = CardioDistanceUnit.MILES)
     val weightKg by userPreferences.fallbackBodyWeightKg.collectAsState(initial = null)
     val datedEntries = remember(state, dateFilter) {
@@ -1898,11 +1927,18 @@ fun CardioLogScreen(
     val datesWithActivity = remember(state) { datesWithCardioActivity(state) }
     val darkTheme = isSystemInDarkTheme()
     val therapyRedMid = if (darkTheme) ErvDarkTherapyRedMid else ErvLightTherapyRedMid
+    val keyManager = LocalKeyManager.current
 
     suspend fun syncDailyLogForDate(date: LocalDate) {
         if (relayPool != null && signer != null) {
             repository.currentState().logFor(date)?.let { log ->
-                CardioSync.publishDailyLog(relayPool, signer, log)
+                CardioSync.publishDailyLog(
+                    logAppContext,
+                    relayPool,
+                    signer,
+                    log,
+                    keyManager.relayUrlsForKind30078Publish(),
+                )
             }
         }
     }
@@ -2078,7 +2114,13 @@ fun CardioLogScreen(
                     repository.addSession(date, session)
                     if (relayPool != null && signer != null) {
                         repository.currentState().logFor(date)?.let { log ->
-                            CardioSync.publishDailyLog(relayPool, signer, log)
+                            CardioSync.publishDailyLog(
+                                logAppContext,
+                                relayPool,
+                                signer,
+                                log,
+                                keyManager.relayUrlsForKind30078Publish(),
+                            )
                         }
                     }
                     showManualLog = false
@@ -2458,6 +2500,7 @@ fun CardioWorkoutSummaryFullScreen(
         initial = WorkoutMediaUploadBackend.NIP96
     )
     val attachRouteImage by userPreferences.attachRouteImageToWorkoutNostrShare.collectAsState(initial = true)
+    val heartRateMaxPref by userPreferences.heartRateMaxBpm.collectAsState(initial = null)
     val normalizedShareMediaOrigin = remember(nip96Origin, blossomPublicOrigin, workoutMediaBackend) {
         when (workoutMediaBackend) {
             WorkoutMediaUploadBackend.NIP96 -> Nip96Uploader.normalizeMediaServerOrigin(nip96Origin)
@@ -2465,6 +2508,7 @@ fun CardioWorkoutSummaryFullScreen(
         }
     }
     val hasGpsForShare = session.gpsTrack?.points?.isNotEmpty() == true
+    val keyManager = LocalKeyManager.current
 
     Box(
         modifier = Modifier
@@ -2600,25 +2644,13 @@ fun CardioWorkoutSummaryFullScreen(
             }
             val hr = session.heartRate
             when {
-                hr != null && (hr.avgBpm != null || hr.maxBpm != null || hr.minBpm != null) -> {
-                    hr.avgBpm?.let {
-                        Text(
-                            "Avg heart rate: $it bpm",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = Color.White.copy(alpha = 0.85f)
-                        )
-                    }
-                    val extras = listOfNotNull(
-                        hr.maxBpm?.let { "Max $it" },
-                        hr.minBpm?.let { "Min $it" }
+                hr != null && (hr.samples.size >= 2 || hr.avgBpm != null || hr.maxBpm != null || hr.minBpm != null) -> {
+                    HeartRateSessionAnalyticsSection(
+                        heartRate = hr,
+                        userMaxHrBpm = heartRateMaxPref,
+                        useLightOnDarkBackground = true,
+                        modifier = Modifier.padding(vertical = 4.dp)
                     )
-                    if (extras.isNotEmpty()) {
-                        Text(
-                            extras.joinToString(" • "),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = Color.White.copy(alpha = 0.75f)
-                        )
-                    }
                 }
                 else -> {
                     Text(
@@ -2639,6 +2671,8 @@ fun CardioWorkoutSummaryFullScreen(
             )
             Spacer(Modifier.height(16.dp))
             if (relayPool != null && signer != null) {
+                val shareRelayPool = relayPool
+                val shareSigner = signer
                 if (attachRouteImage && hasGpsForShare && normalizedShareMediaOrigin.isEmpty()) {
                     Text(
                         stringResource(R.string.cardio_share_route_image_need_server),
@@ -2654,8 +2688,8 @@ fun CardioWorkoutSummaryFullScreen(
                         scope.launch {
                             val outcome = publishWorkoutNote(
                                 summaryContext,
-                                relayPool,
-                                signer,
+                                shareRelayPool,
+                                shareSigner,
                                 session,
                                 distanceUnit,
                                 nip96Origin,
@@ -2671,10 +2705,14 @@ fun CardioWorkoutSummaryFullScreen(
                             if (outcome.uploadedRouteImageUrl != null) {
                                 val url = outcome.uploadedRouteImageUrl
                                 repository.updateSession(logDate, session.id) { it.copy(routeImageUrl = url) }
-                                if (relayPool != null && signer != null) {
-                                    repository.currentState().logFor(logDate)?.let { log ->
-                                        CardioSync.publishDailyLog(relayPool, signer, log)
-                                    }
+                                repository.currentState().logFor(logDate)?.let { log ->
+                                    CardioSync.publishDailyLog(
+                                        summaryContext.applicationContext,
+                                        shareRelayPool,
+                                        shareSigner,
+                                        log,
+                                        keyManager.relayUrlsForKind30078Publish(),
+                                    )
                                 }
                             }
                             snackbarHostState.showSnackbar(outcome.message)
@@ -2742,7 +2780,7 @@ private fun buildWorkoutNoteContent(
         append("\uD83D\uDD25 Est. calories: ~${k.toInt()} kcal\n")
     }
     session.heartRate?.avgBpm?.let { avg ->
-        append("\u2764\uFE0F Avg HR: $avg bpm\n")
+        append("\u2764\uFE0F Heart rate (avg): $avg bpm\n")
     }
     if (session.segments.isNotEmpty()) {
         val labels = session.segments.sortedBy { it.orderIndex }.joinToString(" → ") { it.activity.displayLabel }

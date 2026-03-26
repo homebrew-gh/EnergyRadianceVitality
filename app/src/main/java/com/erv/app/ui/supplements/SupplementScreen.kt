@@ -34,6 +34,9 @@ import androidx.core.content.ContextCompat
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.erv.app.nostr.EventSigner
+import com.erv.app.nostr.LibraryStateMerge
+import com.erv.app.nostr.LocalKeyManager
+import com.erv.app.nostr.RelayPayloadDigestStore
 import com.erv.app.nostr.RelayPool
 import com.erv.app.reminders.RoutineReminder
 import com.erv.app.reminders.RoutineReminderDraft
@@ -148,6 +151,7 @@ fun SupplementCategoryScreen(
     var barcodeLookup by remember { mutableStateOf<BarcodeLookupState?>(null) }
     var createBootstrap by remember { mutableStateOf<CreateSupplementBootstrap?>(null) }
     var barcodeSearchBusy by remember { mutableStateOf(false) }
+    val keyManager = LocalKeyManager.current
 
     val cameraPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -163,13 +167,25 @@ fun SupplementCategoryScreen(
 
     suspend fun syncMaster() {
         if (relayPool != null && signer != null) {
-            SupplementSync.publishMaster(relayPool, signer, repository.currentState())
+            SupplementSync.publishMaster(
+                context.applicationContext,
+                relayPool,
+                signer,
+                repository.currentState(),
+                keyManager.relayUrlsForKind30078Publish(),
+            )
         }
     }
 
     suspend fun syncDailyLog(log: SupplementDayLog) {
         if (relayPool != null && signer != null) {
-            SupplementSync.publishDailyLog(relayPool, signer, log)
+            SupplementSync.publishDailyLog(
+                context.applicationContext,
+                relayPool,
+                signer,
+                log,
+                keyManager.relayUrlsForKind30078Publish(),
+            )
         }
     }
 
@@ -178,15 +194,22 @@ fun SupplementCategoryScreen(
             SupplementSync.fetchFromNetwork(relayPool, signer, signer.publicKey)?.let { remote ->
                 val local = repository.currentState()
                 val preferLocalDates = repository.getRecentlyPublishedLogDates()
-                val merged = if (preferLocalDates.isEmpty()) remote else {
-                    val remoteDates = remote.logs.map { it.date }.toSet()
-                    val replaced = remote.logs.map { log ->
+                val mergedBase = LibraryStateMerge.mergeSupplement(local, remote)
+                val merged = if (preferLocalDates.isEmpty()) mergedBase else {
+                    val remoteDates = mergedBase.logs.map { it.date }.toSet()
+                    val replaced = mergedBase.logs.map { log ->
                         if (log.date in preferLocalDates) local.logFor(LocalDate.parse(log.date)) ?: log else log
                     }
-                    val localOnly = preferLocalDates.filter { it !in remoteDates }.mapNotNull { local.logFor(LocalDate.parse(it)) }
-                    remote.copy(logs = (replaced + localOnly).sortedBy { it.date })
+                    val localOnly =
+                        preferLocalDates.filter { it !in remoteDates }.mapNotNull { local.logFor(LocalDate.parse(it)) }
+                    mergedBase.copy(logs = (replaced + localOnly).sortedBy { it.date })
                 }
                 repository.replaceAll(merged)
+                RelayPayloadDigestStore.reconcileIdenticalRemoteMerged(
+                    context.applicationContext,
+                    SupplementSync.fullOutboxEntries(remote),
+                    SupplementSync.fullOutboxEntries(merged),
+                )
             }
         }
     }
@@ -800,11 +823,19 @@ fun SupplementLogScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val darkTheme = isSystemInDarkTheme()
     val headerMid = if (darkTheme) ErvDarkTherapyRedMid else ErvLightTherapyRedMid
+    val keyManager = LocalKeyManager.current
+    val logAppContext = LocalContext.current.applicationContext
 
     suspend fun syncDailyLogForDate(date: LocalDate) {
         if (relayPool != null && signer != null) {
             repository.currentState().logFor(date)?.let { log ->
-                SupplementSync.publishDailyLog(relayPool, signer, log)
+                SupplementSync.publishDailyLog(
+                    logAppContext,
+                    relayPool,
+                    signer,
+                    log,
+                    keyManager.relayUrlsForKind30078Publish(),
+                )
                 repository.markLogPublished(date.toString())
             }
         }
@@ -894,8 +925,9 @@ fun SupplementLogScreen(
                             onDelete = {
                                 scope.launch {
                                     val logDate = dated.logDate
-                                    if (entry.intakeId != null) {
-                                        repository.removeIntake(logDate, entry.intakeId!!)
+                                    val intakeId = entry.intakeId
+                                    if (intakeId != null) {
+                                        repository.removeIntake(logDate, intakeId)
                                     } else {
                                         repository.removeIntakeByMatch(
                                             logDate,
@@ -1430,10 +1462,18 @@ fun SupplementDetailScreen(
     var seededTurnOffFromInfo by rememberSaveable(supplementId) { mutableStateOf(false) }
     var showEditor by remember(supplementId) { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf(false) }
+    val keyManager = LocalKeyManager.current
+    val detailAppContext = LocalContext.current.applicationContext
 
     suspend fun syncMaster() {
         if (relayPool != null && signer != null) {
-            SupplementSync.publishMaster(relayPool, signer, repository.currentState())
+            SupplementSync.publishMaster(
+                detailAppContext,
+                relayPool,
+                signer,
+                repository.currentState(),
+                keyManager.relayUrlsForKind30078Publish(),
+            )
         }
     }
 

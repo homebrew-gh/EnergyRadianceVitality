@@ -151,12 +151,20 @@ enum class CardioSessionSource {
     IMPORTED,
 }
 
-/** Placeholder for future BLE HR (Phase 10). */
+@Serializable
+data class CardioHrSample(
+    val epochSeconds: Long,
+    val bpm: Int
+)
+
+/** Session-level heart rate summary (from BLE during live cardio, import, or manual entry later). */
 @Serializable
 data class CardioHrScaffolding(
     val avgBpm: Int? = null,
     val maxBpm: Int? = null,
-    val minBpm: Int? = null
+    val minBpm: Int? = null,
+    /** Time series during live BLE capture; included in encrypted data-relay backup. */
+    val samples: List<CardioHrSample> = emptyList()
 )
 
 @Serializable
@@ -198,9 +206,13 @@ data class CardioGpsTrack(
 fun CardioTimerSessionDraft.eligibleForPhoneGps(): Boolean =
     modality == CardioModality.OUTDOOR && activity.supportsPhoneGpsTracking()
 
-/** Strip precise tracks before syncing cardio logs to relays (privacy). */
+/** Strip GPS paths before syncing cardio logs to data relays (heart rate stays full for encrypted backup). */
 fun CardioDayLog.withoutGpsTracks(): CardioDayLog =
-    copy(sessions = sessions.map { it.copy(gpsTrack = null) })
+    copy(
+        sessions = sessions.map { session ->
+            session.copy(gpsTrack = null)
+        }
+    )
 
 @Serializable
 data class CardioSessionSegment(
