@@ -79,6 +79,13 @@ object CardioMetEstimator {
             CardioBuiltinActivity.STATIONARY_BIKE -> 8.0
             // Compendium: rope jumping moderate ~11.8; slightly conservative for mixed pacing
             CardioBuiltinActivity.JUMP_ROPE -> 11.0
+            CardioBuiltinActivity.BATTLE_ROPE -> 10.0
+            CardioBuiltinActivity.BURPEES -> 8.0
+            CardioBuiltinActivity.JUMPING_JACKS -> 7.0
+            // Fan bike: moderate–vigorous typical; intervals often higher — rough average
+            CardioBuiltinActivity.AIR_BIKE -> 9.0
+            CardioBuiltinActivity.SKI_ERG -> 8.5
+            CardioBuiltinActivity.ACTIVE_RECOVERY -> 3.0
             CardioBuiltinActivity.OTHER -> 5.0
         }
 

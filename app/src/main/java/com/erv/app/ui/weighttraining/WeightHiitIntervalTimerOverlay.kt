@@ -28,6 +28,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.erv.app.ui.media.playHiitSoftSegmentStartCue
 import com.erv.app.ui.media.playHiitWorkCountdownTickCue
 import com.erv.app.ui.media.playHiitWorkSegmentEndCue
 import com.erv.app.ui.media.playHiitWorkSegmentStartCue
@@ -37,7 +38,10 @@ import kotlin.math.min
 import kotlinx.coroutines.delay
 import java.util.concurrent.atomic.AtomicBoolean
 
-private enum class HiitPhase { WORK, REST }
+private enum class HiitPhase { PREP, WORK, REST }
+
+/** Prep countdown before the first work interval (get into position / equipment). */
+private const val HiitPrepSeconds = 20
 
 /**
  * Full-screen guided work/rest intervals. On completion, optional RPE is collected before [onFinished].
@@ -150,12 +154,24 @@ private fun HiitTimerBody(
     onAllIntervalsComplete: () -> Unit,
     onCancel: () -> Unit,
 ) {
-    var phase by remember(plan) { mutableStateOf(HiitPhase.WORK) }
+    var phase by remember(plan) { mutableStateOf(HiitPhase.PREP) }
     var intervalIndex by remember(plan) { mutableIntStateOf(1) }
-    var remaining by remember(plan) { mutableIntStateOf(plan.workSeconds) }
+    var remaining by remember(plan) { mutableIntStateOf(HiitPrepSeconds) }
     val skipRest = remember(plan) { AtomicBoolean(false) }
 
     LaunchedEffect(plan) {
+        phase = HiitPhase.PREP
+        intervalIndex = 1
+        playHiitSoftSegmentStartCue()
+        var prep = HiitPrepSeconds
+        while (prep > 0) {
+            remaining = prep
+            if (prep in 1..min(5, HiitPrepSeconds)) {
+                playHiitWorkCountdownTickCue()
+            }
+            delay(1_000L)
+            prep--
+        }
         var interval = 1
         while (interval <= plan.intervals) {
             phase = HiitPhase.WORK
@@ -174,9 +190,13 @@ private fun HiitTimerBody(
             if (interval < plan.intervals && plan.restSeconds > 0) {
                 phase = HiitPhase.REST
                 intervalIndex = interval
+                playHiitSoftSegmentStartCue()
                 var r = plan.restSeconds
                 while (r > 0) {
                     remaining = r
+                    if (r in 1..min(5, plan.restSeconds)) {
+                        playHiitWorkCountdownTickCue()
+                    }
                     delay(1_000L)
                     if (skipRest.getAndSet(false)) break
                     r--
@@ -198,6 +218,7 @@ private fun HiitTimerBody(
         Spacer(Modifier.height(24.dp))
         Text(
             when (phase) {
+                HiitPhase.PREP -> "GET READY"
                 HiitPhase.WORK -> "WORK"
                 HiitPhase.REST -> "REST"
             },
@@ -212,7 +233,11 @@ private fun HiitTimerBody(
         )
         Spacer(Modifier.height(16.dp))
         Text(
-            "Interval $intervalIndex of ${plan.intervals}",
+            if (phase == HiitPhase.PREP) {
+                "Workout starts after countdown"
+            } else {
+                "Interval $intervalIndex of ${plan.intervals}"
+            },
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )

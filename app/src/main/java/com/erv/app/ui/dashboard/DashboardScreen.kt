@@ -608,7 +608,7 @@ fun DashboardScreen(
                             onClick = {
                                 scope.launch { dashboardPagerState.animateScrollToPage(0) }
                             },
-                            text = { Text("Quick Log") }
+                            text = { Text("Launch Pad") }
                         )
                         Tab(
                             selected = dashboardPagerState.currentPage == 1,
@@ -1183,7 +1183,7 @@ fun DashboardScreen(
                                     }
                                 } else if (next != null) {
                                     cardioLiveWorkoutViewModel.replaceSession(CardioActiveTimerSession.Multi(next))
-                                    snackbarHostState.showSnackbar("Leg saved — start next when ready")
+                                    snackbarHostState.showSnackbar("Leg saved — next leg started")
                                 }
                             }
                         },
@@ -1573,7 +1573,7 @@ private fun RoutinesSection(
 
     if (showSectionHeading) {
         Text(
-            text = "Quick Log",
+            text = "Launch Pad",
             style = MaterialTheme.typography.titleLarge,
             modifier = Modifier.padding(bottom = 8.dp)
         )

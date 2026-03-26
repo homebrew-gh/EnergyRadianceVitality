@@ -3,6 +3,7 @@ package com.erv.app.ui.cardio
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Backpack
 import androidx.compose.material.icons.filled.DirectionsBike
+import androidx.compose.material.icons.filled.DownhillSkiing
 import androidx.compose.material.icons.filled.DirectionsRun
 import androidx.compose.material.icons.filled.DirectionsWalk
 import androidx.compose.material.icons.filled.FitnessCenter
@@ -10,6 +11,7 @@ import androidx.compose.material.icons.filled.Kayaking
 import androidx.compose.material.icons.filled.PedalBike
 import androidx.compose.material.icons.filled.Pool
 import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.SelfImprovement
 import androidx.compose.material.icons.filled.SportsGymnastics
 import androidx.compose.material.icons.filled.Terrain
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -34,5 +36,11 @@ private fun cardioBuiltinListIcon(b: CardioBuiltinActivity): ImageVector = when 
     CardioBuiltinActivity.ROWING -> Icons.Filled.Kayaking
     CardioBuiltinActivity.STATIONARY_BIKE -> Icons.Filled.PedalBike
     CardioBuiltinActivity.JUMP_ROPE -> Icons.Filled.SportsGymnastics
+    CardioBuiltinActivity.BATTLE_ROPE -> Icons.Filled.FitnessCenter
+    CardioBuiltinActivity.BURPEES -> Icons.Filled.FitnessCenter
+    CardioBuiltinActivity.JUMPING_JACKS -> Icons.Filled.SportsGymnastics
+    CardioBuiltinActivity.AIR_BIKE -> Icons.Filled.DirectionsBike
+    CardioBuiltinActivity.SKI_ERG -> Icons.Filled.DownhillSkiing
+    CardioBuiltinActivity.ACTIVE_RECOVERY -> Icons.Filled.SelfImprovement
     CardioBuiltinActivity.OTHER -> Icons.Filled.FitnessCenter
 }

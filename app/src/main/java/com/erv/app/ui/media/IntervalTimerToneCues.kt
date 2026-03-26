@@ -41,3 +41,8 @@ fun playHiitWorkSegmentEndCue() {
 fun playHiitWorkCountdownTickCue() {
     playTone(ToneGenerator.TONE_PROP_BEEP, 60, 55)
 }
+
+/** Start of a prep or rest segment (softer than [playHiitWorkSegmentStartCue]). */
+fun playHiitSoftSegmentStartCue() {
+    playTone(ToneGenerator.TONE_PROP_ACK, 130, 82)
+}

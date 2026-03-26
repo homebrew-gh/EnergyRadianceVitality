@@ -29,6 +29,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.erv.app.cardio.CardioActivitySnapshot
 import com.erv.app.cardio.CardioBuiltinActivity
+import com.erv.app.cardio.cardioBuiltinActivitiesForUserSelection
 import com.erv.app.cardio.CardioDistanceUnit
 import com.erv.app.cardio.CardioLibraryState
 import com.erv.app.cardio.CardioModality
@@ -260,7 +261,7 @@ fun CardioQuickLaunchEditorDialog(
                     }
                 } else {
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        CardioBuiltinActivity.entries.forEach { b ->
+                        cardioBuiltinActivitiesForUserSelection().forEach { b ->
                             FilterChip(
                                 selected = selectedBuiltin == b,
                                 onClick = { selectedBuiltin = b },
