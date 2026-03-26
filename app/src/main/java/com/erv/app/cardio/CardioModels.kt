@@ -12,8 +12,58 @@ enum class CardioBuiltinActivity {
     WALK, RUN, SPRINT, RUCK, HIKE, BIKE, SWIM, ELLIPTICAL, ROWING,
     STATIONARY_BIKE,
     JUMP_ROPE,
+    BATTLE_ROPE,
+    BURPEES,
+    JUMPING_JACKS,
+    AIR_BIKE,
+    SKI_ERG,
+    /** Synthetic leg for interval templates; not listed in the Activities tab. */
+    ACTIVE_RECOVERY,
     OTHER
 }
+
+/** Built-ins shown in pickers and the Activities tab (excludes interval-template-only types). */
+fun cardioBuiltinActivitiesForUserSelection(): List<CardioBuiltinActivity> =
+    CardioBuiltinActivity.entries.filter { it != CardioBuiltinActivity.ACTIVE_RECOVERY }
+
+/** Distance-forward and steady modalities — first section on the Cardio Activities list. */
+val cardioBuiltinSteadySectionOrder: List<CardioBuiltinActivity> = listOf(
+    CardioBuiltinActivity.WALK,
+    CardioBuiltinActivity.RUN,
+    CardioBuiltinActivity.HIKE,
+    CardioBuiltinActivity.RUCK,
+    CardioBuiltinActivity.BIKE,
+    CardioBuiltinActivity.SWIM,
+    CardioBuiltinActivity.ELLIPTICAL,
+    CardioBuiltinActivity.OTHER,
+)
+
+/**
+ * Erg-style machines that work well for long steady sessions or hard / easy intervals.
+ * Listed between steady distance cardio and interval-focused moves.
+ */
+val cardioBuiltinHybridSectionOrder: List<CardioBuiltinActivity> = listOf(
+    CardioBuiltinActivity.ROWING,
+    CardioBuiltinActivity.STATIONARY_BIKE,
+    CardioBuiltinActivity.AIR_BIKE,
+    CardioBuiltinActivity.SKI_ERG,
+)
+
+/** Sprints and interval-style moves — optional interval-round timer. */
+val cardioBuiltinHiitSectionOrder: List<CardioBuiltinActivity> = listOf(
+    CardioBuiltinActivity.SPRINT,
+    CardioBuiltinActivity.JUMP_ROPE,
+    CardioBuiltinActivity.BATTLE_ROPE,
+    CardioBuiltinActivity.BURPEES,
+    CardioBuiltinActivity.JUMPING_JACKS,
+)
+
+/** Activities that can start a multi-leg work / rest interval template (e.g. Nordic 4×4). */
+fun CardioBuiltinActivity.offersHiitIntervalTemplate(): Boolean =
+    this in cardioBuiltinHiitSectionOrder || this in cardioBuiltinHybridSectionOrder
+
+fun CardioBuiltinActivity.isHybridMachineSection(): Boolean =
+    this in cardioBuiltinHybridSectionOrder
 
 fun CardioBuiltinActivity.supportsTreadmillModality(): Boolean = when (this) {
     CardioBuiltinActivity.WALK, CardioBuiltinActivity.RUN,
@@ -27,7 +77,10 @@ fun CardioActivitySnapshot.supportsOutdoorPaceEstimate(): Boolean {
     return when (b) {
         CardioBuiltinActivity.SWIM, CardioBuiltinActivity.ELLIPTICAL,
         CardioBuiltinActivity.ROWING, CardioBuiltinActivity.STATIONARY_BIKE,
-        CardioBuiltinActivity.JUMP_ROPE -> false
+        CardioBuiltinActivity.JUMP_ROPE, CardioBuiltinActivity.BATTLE_ROPE,
+        CardioBuiltinActivity.BURPEES, CardioBuiltinActivity.JUMPING_JACKS,
+        CardioBuiltinActivity.AIR_BIKE, CardioBuiltinActivity.SKI_ERG,
+        CardioBuiltinActivity.ACTIVE_RECOVERY -> false
         else -> true
     }
 }
@@ -44,6 +97,12 @@ fun CardioBuiltinActivity.displayName(): String = when (this) {
     CardioBuiltinActivity.ROWING -> "Rowing"
     CardioBuiltinActivity.STATIONARY_BIKE -> "Stationary Bike"
     CardioBuiltinActivity.JUMP_ROPE -> "Jump Rope"
+    CardioBuiltinActivity.BATTLE_ROPE -> "Battle Rope"
+    CardioBuiltinActivity.BURPEES -> "Burpees"
+    CardioBuiltinActivity.JUMPING_JACKS -> "Jumping Jacks"
+    CardioBuiltinActivity.AIR_BIKE -> "Air Bike"
+    CardioBuiltinActivity.SKI_ERG -> "SkiErg / Skier"
+    CardioBuiltinActivity.ACTIVE_RECOVERY -> "Active recovery"
     CardioBuiltinActivity.OTHER -> "Other"
 }
 
@@ -691,6 +750,63 @@ data class CardioMultiLegTimerState(
             return CardioMultiLegTimerState(
                 routineId = routine.id,
                 routineName = routine.name,
+                legs = legs,
+                completedSegments = emptyList(),
+                currentLegIndex = 0,
+                workoutStartEpoch = now,
+                legStartedEpoch = now
+            )
+        }
+
+        /**
+         * Alternating work and active recovery legs (e.g. 4×4 min with 3 min recovery between rounds).
+         * No recovery leg after the final work round.
+         */
+        fun fromIntervalTemplate(
+            workActivity: CardioActivitySnapshot,
+            workModality: CardioModality,
+            workTreadmill: CardioTreadmillParams?,
+            routineName: String,
+            rounds: Int,
+            workMinutes: Int,
+            restMinutes: Int,
+        ): CardioMultiLegTimerState {
+            require(rounds >= 1 && workMinutes >= 1 && restMinutes >= 1)
+            val recoverySnap = CardioActivitySnapshot(
+                builtin = CardioBuiltinActivity.ACTIVE_RECOVERY,
+                customTypeId = null,
+                customName = null,
+                displayLabel = CardioBuiltinActivity.ACTIVE_RECOVERY.displayName()
+            )
+            val legs = buildList {
+                var order = 0
+                repeat(rounds) { r ->
+                    add(
+                        CardioRoutineStep(
+                            activity = workActivity,
+                            modality = workModality,
+                            treadmill = workTreadmill,
+                            targetDurationMinutes = workMinutes,
+                            orderIndex = order++
+                        )
+                    )
+                    if (r < rounds - 1) {
+                        add(
+                            CardioRoutineStep(
+                                activity = recoverySnap,
+                                modality = CardioModality.OUTDOOR,
+                                treadmill = null,
+                                targetDurationMinutes = restMinutes,
+                                orderIndex = order++
+                            )
+                        )
+                    }
+                }
+            }
+            val now = nowEpochSeconds()
+            return CardioMultiLegTimerState(
+                routineId = null,
+                routineName = routineName,
                 legs = legs,
                 completedSegments = emptyList(),
                 currentLegIndex = 0,

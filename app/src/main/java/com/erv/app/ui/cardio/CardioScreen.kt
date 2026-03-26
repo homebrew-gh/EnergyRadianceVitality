@@ -99,6 +99,12 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.erv.app.cardio.CardioActivitySnapshot
 import com.erv.app.cardio.CardioBuiltinActivity
+import com.erv.app.cardio.cardioBuiltinActivitiesForUserSelection
+import com.erv.app.cardio.cardioBuiltinHiitSectionOrder
+import com.erv.app.cardio.cardioBuiltinHybridSectionOrder
+import com.erv.app.cardio.cardioBuiltinSteadySectionOrder
+import com.erv.app.cardio.isHybridMachineSection
+import com.erv.app.cardio.offersHiitIntervalTemplate
 import com.erv.app.cardio.formatCardioPackWeightFromKg
 import com.erv.app.cardio.ruckLoadKgResolved
 import com.erv.app.cardio.CardioCustomActivityType
@@ -168,6 +174,10 @@ import com.erv.app.nostr.Nip96Uploader
 import com.erv.app.nostr.UnsignedEvent
 import com.erv.app.nostr.LocalKeyManager
 import com.erv.app.nostr.RelayPool
+import com.erv.app.ui.media.playHiitWorkCountdownTickCue
+import com.erv.app.ui.media.playHiitWorkSegmentEndCue
+import com.erv.app.ui.media.playHiitWorkSegmentStartCue
+import com.erv.app.ui.media.playHiitSoftSegmentStartCue
 import com.erv.app.ui.dashboard.SectionLogCalendarSheet
 import com.erv.app.ui.dashboard.SectionLogFilterBar
 import com.erv.app.ui.dashboard.datesWithCardioActivity
@@ -183,6 +193,7 @@ import com.erv.app.ui.theme.ErvDarkTherapyRedMid
 import com.erv.app.ui.theme.ErvLightTherapyRedDark
 import com.erv.app.ui.theme.ErvLightTherapyRedGlow
 import com.erv.app.ui.theme.ErvLightTherapyRedMid
+import kotlin.math.min
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.Instant
@@ -423,6 +434,9 @@ fun CardioCategoryScreen(
                     onStartWorkout = { d ->
                         startOrQueueCardio(CardioActiveTimerSession.Single(d))
                     },
+                    onStartIntervalWorkout = { m ->
+                        startOrQueueCardio(CardioActiveTimerSession.Multi(m))
+                    },
                 )
                 CardioTab.Routines -> RoutinesTab(
                     state = state,
@@ -564,7 +578,7 @@ fun CardioCategoryScreen(
                                     repository.currentState().logFor(today)?.let { syncDailyLog(it) }
                                 } else if (next != null) {
                                     cardioLiveWorkoutViewModel.replaceSession(CardioActiveTimerSession.Multi(next))
-                                    snackbarHostState.showSnackbar("Leg saved — start next when ready")
+                                    snackbarHostState.showSnackbar("Leg saved — next leg started")
                                 }
                             }
                         },
@@ -899,7 +913,7 @@ private fun WorkoutBuilderBottomSheet(
                 }
             } else {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    CardioBuiltinActivity.entries.forEach { b ->
+                    cardioBuiltinActivitiesForUserSelection().forEach { b ->
                         FilterChip(
                             selected = selectedBuiltin == b,
                             onClick = { selectedBuiltin = b },
@@ -1749,6 +1763,137 @@ private fun CardioTimerStartOptionsDialog(
     )
 }
 
+private data class HiitTimerPending(
+    val snap: CardioActivitySnapshot,
+    val modality: CardioModality,
+    val treadmill: CardioTreadmillParams?,
+    /** True when started from the hybrid erg section — copy emphasizes steady vs interval choice. */
+    val useHybridMachineCopy: Boolean,
+)
+
+@Composable
+private fun CardioHiitLoggingChoiceDialog(
+    activityLabel: String,
+    useHybridMachineCopy: Boolean,
+    onDismiss: () -> Unit,
+    onSimpleTimer: () -> Unit,
+    onIntervalRounds: () -> Unit,
+) {
+    val body = if (useHybridMachineCopy) {
+        "Rowers, bikes, and skiers are often used for a long steady session or for short hard rounds with easy recovery. " +
+            "Pick a single timer for endurance-style work, or work / active recovery legs for interval-style sessions " +
+            "(you tap stop when each leg is done)."
+    } else {
+        "Log as one continuous timer, or use work / active recovery legs (e.g. Nordic 4×4: " +
+            "several hard rounds with recovery between — you finish each leg when you are done)."
+    }
+    val intervalLabel = if (useHybridMachineCopy) "Work & recovery rounds" else "Interval rounds"
+    val steadyLabel = if (useHybridMachineCopy) "Steady session (one timer)" else "Simple timer"
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(activityLabel) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(body, style = MaterialTheme.typography.bodyMedium)
+                Button(
+                    onClick = {
+                        onIntervalRounds()
+                        onDismiss()
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text(intervalLabel) }
+                OutlinedButton(
+                    onClick = {
+                        onSimpleTimer()
+                        onDismiss()
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text(steadyLabel) }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+
+@Composable
+private fun CardioHiitIntervalParamsDialog(
+    activityLabel: String,
+    onDismiss: () -> Unit,
+    onStart: (rounds: Int, workMinutes: Int, restMinutes: Int) -> Unit,
+) {
+    var roundsStr by remember(activityLabel) { mutableStateOf("4") }
+    var workStr by remember(activityLabel) { mutableStateOf("4") }
+    var restStr by remember(activityLabel) { mutableStateOf("3") }
+    val valid = roundsStr.toIntOrNull()?.let { it in 1..99 } == true &&
+        workStr.toIntOrNull()?.let { it in 1..180 } == true &&
+        restStr.toIntOrNull()?.let { it in 1..180 } == true
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Interval rounds — $activityLabel") },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    "Preset: Nordic-style 4×4 uses 4 rounds, 4 min hard, 3 min active recovery between rounds.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(
+                        onClick = {
+                            roundsStr = "4"
+                            workStr = "4"
+                            restStr = "3"
+                        }
+                    ) { Text("4×4 (3 min recovery)") }
+                }
+                OutlinedTextField(
+                    value = roundsStr,
+                    onValueChange = { roundsStr = it },
+                    label = { Text("Work rounds") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = workStr,
+                    onValueChange = { workStr = it },
+                    label = { Text("Minutes per work round") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = restStr,
+                    onValueChange = { restStr = it },
+                    label = { Text("Minutes active recovery between rounds") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val r = roundsStr.toIntOrNull() ?: return@TextButton
+                    val w = workStr.toIntOrNull() ?: return@TextButton
+                    val rest = restStr.toIntOrNull() ?: return@TextButton
+                    onStart(r, w, rest)
+                    onDismiss()
+                },
+                enabled = valid
+            ) { Text("Start") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+
 @Composable
 private fun ActivitiesTab(
     state: CardioLibraryState,
@@ -1756,13 +1901,20 @@ private fun ActivitiesTab(
     onEditCustom: (CardioCustomActivityType) -> Unit,
     onDeleteCustom: (String) -> Unit,
     onStartWorkout: (CardioTimerSessionDraft) -> Unit,
+    onStartIntervalWorkout: (CardioMultiLegTimerState) -> Unit,
 ) {
     var pendingModalityForStart by remember { mutableStateOf<CardioActivitySnapshot?>(null) }
     var pendingTimerOpts by remember { mutableStateOf<PendingCardioTimerOpts?>(null) }
-    val builtins = remember(state) {
-        CardioBuiltinActivity.entries.map { b ->
-            b.displayName() to state.resolveSnapshot(b, null)
-        }
+    var pendingHiitChoice by remember { mutableStateOf<HiitTimerPending?>(null) }
+    var pendingHiitParams by remember { mutableStateOf<HiitTimerPending?>(null) }
+    val steadyBuiltins = remember(state) {
+        cardioBuiltinSteadySectionOrder.map { b -> b to state.resolveSnapshot(b, null) }
+    }
+    val hybridBuiltins = remember(state) {
+        cardioBuiltinHybridSectionOrder.map { b -> b to state.resolveSnapshot(b, null) }
+    }
+    val hiitBuiltins = remember(state) {
+        cardioBuiltinHiitSectionOrder.map { b -> b to state.resolveSnapshot(b, null) }
     }
     val customs = state.customActivityTypes
 
@@ -1773,7 +1925,47 @@ private fun ActivitiesTab(
             onDismiss = { pendingModalityForStart = null },
             onModalityChosen = { mod, tm ->
                 pendingModalityForStart = null
-                pendingTimerOpts = PendingCardioTimerOpts(snap, mod, tm)
+                if (snap.builtin?.offersHiitIntervalTemplate() == true) {
+                    val hybrid = snap.builtin?.isHybridMachineSection() == true
+                    pendingHiitChoice = HiitTimerPending(snap, mod, tm, hybrid)
+                } else {
+                    pendingTimerOpts = PendingCardioTimerOpts(snap, mod, tm)
+                }
+            }
+        )
+    }
+
+    pendingHiitChoice?.let { p ->
+        CardioHiitLoggingChoiceDialog(
+            activityLabel = p.snap.displayLabel,
+            useHybridMachineCopy = p.useHybridMachineCopy,
+            onDismiss = { pendingHiitChoice = null },
+            onSimpleTimer = {
+                pendingTimerOpts = PendingCardioTimerOpts(p.snap, p.modality, p.treadmill)
+            },
+            onIntervalRounds = {
+                pendingHiitParams = p
+            }
+        )
+    }
+
+    pendingHiitParams?.let { p ->
+        CardioHiitIntervalParamsDialog(
+            activityLabel = p.snap.displayLabel,
+            onDismiss = { pendingHiitParams = null },
+            onStart = { rounds, workMin, restMin ->
+                val name = "${p.snap.displayLabel} ${rounds}×${workMin}m / ${restMin}m recovery"
+                onStartIntervalWorkout(
+                    CardioMultiLegTimerState.fromIntervalTemplate(
+                        workActivity = p.snap,
+                        workModality = p.modality,
+                        workTreadmill = p.treadmill,
+                        routineName = name,
+                        rounds = rounds,
+                        workMinutes = workMin,
+                        restMinutes = restMin,
+                    )
+                )
             }
         )
     }
@@ -1804,6 +1996,9 @@ private fun ActivitiesTab(
     fun startWorkoutFromActivity(snap: CardioActivitySnapshot) {
         if (snap.builtin?.supportsTreadmillModality() == true) {
             pendingModalityForStart = snap
+        } else if (snap.builtin?.offersHiitIntervalTemplate() == true) {
+            val hybrid = snap.builtin?.isHybridMachineSection() == true
+            pendingHiitChoice = HiitTimerPending(snap, CardioModality.OUTDOOR, null, hybrid)
         } else {
             pendingTimerOpts = PendingCardioTimerOpts(
                 snap,
@@ -1813,33 +2008,77 @@ private fun ActivitiesTab(
         }
     }
 
+    @Composable
+    fun BuiltinActivityRow(snap: CardioActivitySnapshot) {
+        ElevatedCard(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { startWorkoutFromActivity(snap) }
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(snap.displayLabel, style = MaterialTheme.typography.titleSmall)
+                Icon(
+                    cardioActivityListIcon(snap),
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            items(builtins, key = { it.second.displayLabel }) { (_, snap) ->
-                ElevatedCard(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { startWorkoutFromActivity(snap) }
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(snap.displayLabel, style = MaterialTheme.typography.titleSmall)
-                        Icon(
-                            cardioActivityListIcon(snap),
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                }
+            item {
+                Text(
+                    "Distance & steady cardio",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            items(steadyBuiltins, key = { it.second.displayLabel }) { (_, snap) ->
+                BuiltinActivityRow(snap)
+            }
+            item {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Erg-style machines",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    "Rower, bikes, SkiErg — good for steady endurance or hard / easy intervals. Choose how you want to log.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            items(hybridBuiltins, key = { it.second.displayLabel }) { (_, snap) ->
+                BuiltinActivityRow(snap)
+            }
+            item {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Intervals & circuits",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    "Sprints, ropes, and bodyweight moves — optional work / recovery legs.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            items(hiitBuiltins, key = { it.second.displayLabel }) { (_, snap) ->
+                BuiltinActivityRow(snap)
             }
             item {
                 Spacer(Modifier.height(4.dp))
@@ -2873,6 +3112,9 @@ private suspend fun publishWorkoutNote(
     return WorkoutPublishOutcome(ok, message, uploadedRouteImageUrl)
 }
 
+/** Prep countdown at the start of a guided multi-leg interval workout (before leg 1). */
+private const val CardioIntervalWorkoutPrepSeconds = 20
+
 @Composable
 fun CardioMultiLegTimerFullScreen(
     state: CardioMultiLegTimerState,
@@ -2885,13 +3127,62 @@ fun CardioMultiLegTimerFullScreen(
     onCancel: () -> Unit
 ) {
     key(stateKey) {
+        val targetMinutes = state.currentLeg.targetDurationMinutes?.takeIf { it > 0 }
+        val guided = targetMinutes != null
         var showMediaSheet by remember { mutableStateOf(false) }
         var running by remember { mutableStateOf(true) }
         var tick by remember(stateKey) { mutableIntStateOf(0) }
-        LaunchedEffect(stateKey, running) {
-            while (running) {
-                delay(1000)
-                tick++
+        val atWorkoutStart = state.currentLegIndex == 0 && state.completedSegments.isEmpty()
+        val initialPrep = guided && atWorkoutStart
+        var guidedRemainingSec by remember(stateKey) {
+            mutableIntStateOf(
+                when {
+                    initialPrep -> CardioIntervalWorkoutPrepSeconds
+                    guided -> targetMinutes!! * 60
+                    else -> 0
+                }
+            )
+        }
+        var guidedInPrep by remember(stateKey) { mutableStateOf(initialPrep) }
+
+        if (guided) {
+            LaunchedEffect(stateKey) {
+                val targetMin = state.currentLeg.targetDurationMinutes?.takeIf { it > 0 } ?: return@LaunchedEffect
+                val targetSec = targetMin * 60
+                val prepFirst = state.currentLegIndex == 0 && state.completedSegments.isEmpty()
+                if (prepFirst) {
+                    guidedInPrep = true
+                    playHiitSoftSegmentStartCue()
+                    var p = CardioIntervalWorkoutPrepSeconds
+                    while (p > 0) {
+                        guidedRemainingSec = p
+                        if (p in 1..min(5, CardioIntervalWorkoutPrepSeconds)) {
+                            playHiitWorkCountdownTickCue()
+                        }
+                        delay(1_000L)
+                        p--
+                    }
+                    guidedInPrep = false
+                }
+                playHiitWorkSegmentStartCue()
+                var s = targetSec
+                while (s > 0) {
+                    guidedRemainingSec = s
+                    if (s in 1..min(5, targetSec)) {
+                        playHiitWorkCountdownTickCue()
+                    }
+                    delay(1_000L)
+                    s--
+                }
+                playHiitWorkSegmentEndCue()
+                onFinishLeg(targetSec)
+            }
+        } else {
+            LaunchedEffect(stateKey, running) {
+                while (running) {
+                    delay(1000)
+                    tick++
+                }
             }
         }
         val elapsed = remember(tick, state.legStartedEpoch) {
@@ -2956,6 +3247,25 @@ fun CardioMultiLegTimerFullScreen(
                         style = MaterialTheme.typography.bodyMedium,
                         color = Color.White.copy(alpha = 0.8f)
                     )
+                    if (guided) {
+                        Text(
+                            if (guidedInPrep) {
+                                "GET READY — first leg starts after countdown"
+                            } else {
+                                "Guided timer — rounds advance automatically"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.White.copy(alpha = 0.72f)
+                        )
+                    } else {
+                        state.currentLeg.targetDurationMinutes?.takeIf { it > 0 }?.let { target ->
+                            Text(
+                                "Suggested target: $target min — tap stop when this leg is done",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color.White.copy(alpha = 0.72f)
+                            )
+                        }
+                    }
                 }
                 Column(
                     modifier = Modifier
@@ -2964,8 +3274,9 @@ fun CardioMultiLegTimerFullScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
-                    val mins = elapsed / 60
-                    val secs = elapsed % 60
+                    val displaySec = if (guided) guidedRemainingSec.coerceAtLeast(0) else elapsed
+                    val mins = displaySec / 60
+                    val secs = displaySec % 60
                     Text(
                         text = "%d:%02d".format(mins, secs),
                         style = MaterialTheme.typography.displayLarge,
@@ -2973,7 +3284,11 @@ fun CardioMultiLegTimerFullScreen(
                     )
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        "Time on this leg",
+                        if (guided) {
+                            if (guidedInPrep) "Get ready" else "Time remaining"
+                        } else {
+                            "Time on this leg"
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = Color.White.copy(alpha = 0.75f)
                     )
@@ -2997,24 +3312,26 @@ fun CardioMultiLegTimerFullScreen(
                             )
                         }
                     }
-                    OutlinedButton(
-                        onClick = {
-                            if (running) {
-                                running = false
-                                onFinishLeg(elapsed)
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
-                        border = ButtonDefaults.outlinedButtonBorder.copy(brush = SolidColor(Color.White))
-                    ) {
-                        Icon(Icons.Default.Stop, contentDescription = null)
-                        Spacer(Modifier.width(8.dp))
-                        Text(if (isLast) "Finish & log workout" else "Finish leg & next")
+                    if (!guided) {
+                        OutlinedButton(
+                            onClick = {
+                                if (running) {
+                                    running = false
+                                    onFinishLeg(elapsed)
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                            border = ButtonDefaults.outlinedButtonBorder.copy(brush = SolidColor(Color.White))
+                        ) {
+                            Icon(Icons.Default.Stop, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text(if (isLast) "Finish & log workout" else "Finish leg & next")
+                        }
                     }
                     OutlinedButton(
                         onClick = onCancel,
-                        enabled = running,
+                        enabled = if (guided) true else running,
                         modifier = Modifier.fillMaxWidth(),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
                         border = ButtonDefaults.outlinedButtonBorder.copy(brush = SolidColor(Color.White))
@@ -3306,7 +3623,7 @@ private fun RoutineEditorDialog(
                                 }
                             } else {
                                 FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    CardioBuiltinActivity.entries.forEach { b ->
+                                    cardioBuiltinActivitiesForUserSelection().forEach { b ->
                                         FilterChip(
                                             selected = draft.selectedBuiltin == b,
                                             onClick = {
