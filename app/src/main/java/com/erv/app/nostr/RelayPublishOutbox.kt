@@ -79,6 +79,18 @@ class RelayPublishOutbox private constructor(private val appContext: Context) {
             decodeQueue(prefs[Keys.QUEUE_JSON]).size
         }
 
+    /** Observes pending item metadata for debugging stuck relay uploads in Settings. */
+    fun pendingItemsFlow(): Flow<List<PendingItemStatus>> =
+        appContext.relayPublishOutboxDataStore.data.map { prefs ->
+            decodeQueue(prefs[Keys.QUEUE_JSON]).map { item ->
+                PendingItemStatus(
+                    dTag = item.dTag,
+                    attempts = item.attempts,
+                    nextAttemptAtEpochMs = item.nextAttemptAtEpochMs,
+                )
+            }
+        }
+
     /**
      * Enqueues only when plaintext differs from [RelayPayloadDigestStore] for [dTag], then [kickDrain].
      */
@@ -299,6 +311,12 @@ class RelayPublishOutbox private constructor(private val appContext: Context) {
         val publishedOk: Int,
         val publishedFail: Int,
         val stoppedBecauseQueueEmpty: Boolean,
+    )
+
+    data class PendingItemStatus(
+        val dTag: String,
+        val attempts: Int,
+        val nextAttemptAtEpochMs: Long,
     )
 
     @Serializable
