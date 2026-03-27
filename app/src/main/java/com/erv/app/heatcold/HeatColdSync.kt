@@ -2,13 +2,11 @@ package com.erv.app.heatcold
 
 import android.content.Context
 import com.erv.app.nostr.EventSigner
+import com.erv.app.nostr.dTagOrNull
+import com.erv.app.nostr.fetchLatestKind30078ByDTag
 import com.erv.app.nostr.NostrEvent
-import com.erv.app.nostr.NostrFilter
 import com.erv.app.nostr.RelayPool
 import com.erv.app.nostr.RelayPublishOutbox
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 
@@ -58,35 +56,16 @@ object HeatColdSync {
         signer: EventSigner,
         pubkeyHex: String,
         timeoutMs: Long = 6000
-    ): HeatColdLibraryState? = coroutineScope {
-        val subId = "erv-heatcold-${System.currentTimeMillis()}"
-        relayPool.subscribe(
-            subId,
-            NostrFilter(
-                kinds = listOf(30078),
-                authors = listOf(pubkeyHex),
-                limit = 200
-            )
-        )
+    ): HeatColdLibraryState? {
+        val latestByTag = fetchLatestKind30078ByDTag(relayPool, pubkeyHex, timeoutMs)
+        if (latestByTag.isEmpty()) return null
+        return fromLatestByTag(latestByTag, signer)
+    }
 
-        val events = mutableListOf<NostrEvent>()
-        val job = launch {
-            relayPool.events.collect { (id, ev) ->
-                if (id == subId && ev.kind == 30078) events.add(ev)
-            }
-        }
-
-        delay(timeoutMs)
-        job.cancel()
-        relayPool.unsubscribe(subId)
-
-        if (events.isEmpty()) return@coroutineScope null
-
-        val latestByTag = events
-            .sortedBy { it.createdAt }
-            .groupBy { it.dTagOrNull() ?: "unknown" }
-            .mapValues { (_, items) -> items.last() }
-
+    suspend fun fromLatestByTag(
+        latestByTag: Map<String, NostrEvent>,
+        signer: EventSigner,
+    ): HeatColdLibraryState {
         val saunaLogs = latestByTag
             .filterKeys { it.startsWith("erv/sauna/") }
             .mapNotNull { (dTag, event) ->
@@ -103,7 +82,7 @@ object HeatColdSync {
                 decodeLog(raw, date)
             }
 
-        HeatColdLibraryState(
+        return HeatColdLibraryState(
             saunaLogs = saunaLogs.sortedBy { it.date },
             coldLogs = coldLogs.sortedBy { it.date }
         )
@@ -137,9 +116,6 @@ object HeatColdSync {
         } catch (_: IllegalArgumentException) {
             null
         }
-
-    private fun NostrEvent.dTagOrNull(): String? =
-        tags.firstOrNull { it.size >= 2 && it[0] == "d" }?.getOrNull(1)
 
     private suspend fun NostrEvent.decryptPayload(signer: EventSigner): String? =
         try {

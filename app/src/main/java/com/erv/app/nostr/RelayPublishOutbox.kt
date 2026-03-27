@@ -222,13 +222,14 @@ class RelayPublishOutbox private constructor(private val appContext: Context) {
                 is DrainStep.Publish -> {
                     if (publishesThisCall > 0) delay(interPublishDelayMs)
                     val item = step.item
-                    val ok = EncryptedKind30078Publish.publish(
+                    val publish = EncryptedKind30078Publish.publishDetailed(
                         relayPool,
                         signer,
                         item.dTag,
                         item.plaintextPayload,
                         dataRelayUrls,
                     )
+                    val ok = publish.ok
                     queueMutex.withLock {
                         val queue = loadQueueUnlocked()
                         val currentIdx = queue.indexOfFirst { it.id == item.id }
@@ -250,8 +251,12 @@ class RelayPublishOutbox private constructor(private val appContext: Context) {
                         }
                     }
                     if (ok) {
+                        RelayOutboxStatusStore.get(appContext).recordSuccess()
                         RelayPayloadDigestStore.get(appContext)
                             .recordPublishedPlaintext(item.dTag, item.plaintextPayload)
+                    } else {
+                        RelayOutboxStatusStore.get(appContext)
+                            .recordFailure(item.dTag, publish.message)
                     }
                     publishesThisCall++
                     if (ok) publishedOk++ else publishedFail++

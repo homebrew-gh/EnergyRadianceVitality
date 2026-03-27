@@ -3,9 +3,8 @@ package com.erv.app.nostr
 import android.content.Context
 import com.erv.app.data.FitnessEquipmentNostrPayload
 import com.erv.app.data.OwnedEquipmentItem
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
+import com.erv.app.nostr.dTagOrNull
+import com.erv.app.nostr.fetchLatestKind30078ByDTag
 import kotlinx.serialization.json.Json
 
 /**
@@ -52,30 +51,13 @@ object FitnessEquipmentSync {
         signer: EventSigner,
         pubkeyHex: String,
         timeoutMs: Long = 6000,
-    ): FitnessEquipmentNostrPayload? = coroutineScope {
-        val subId = "erv-equipment-${System.currentTimeMillis()}"
-        relayPool.subscribe(
-            subId,
-            NostrFilter(
-                kinds = listOf(KIND),
-                authors = listOf(pubkeyHex),
-                dTags = listOf(D_TAG),
-                limit = 5
-            )
-        )
+    ): FitnessEquipmentNostrPayload? {
+        val latest = fetchLatestKind30078ByDTag(relayPool, pubkeyHex, timeoutMs)[D_TAG] ?: return null
+        return fromLatestEvent(latest, signer)
+    }
 
-        val events = mutableListOf<NostrEvent>()
-        val job = launch {
-            relayPool.events.collect { (id, ev) ->
-                if (id == subId && ev.kind == KIND) events.add(ev)
-            }
-        }
-        delay(timeoutMs)
-        job.cancel()
-        relayPool.unsubscribe(subId)
-
-        val latest = events.maxByOrNull { it.createdAt } ?: return@coroutineScope null
-        try {
+    suspend fun fromLatestEvent(latest: NostrEvent, signer: EventSigner): FitnessEquipmentNostrPayload? {
+        return try {
             val decrypted = signer.decryptFromSelf(latest.content)
             json.decodeFromString(FitnessEquipmentNostrPayload.serializer(), decrypted)
         } catch (_: Exception) {

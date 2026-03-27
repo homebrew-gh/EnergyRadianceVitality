@@ -4,6 +4,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import kotlinx.serialization.json.*
 import okhttp3.*
+import java.util.concurrent.TimeUnit
 
 sealed class ConnectionState {
     data object Disconnected : ConnectionState()
@@ -11,6 +12,14 @@ sealed class ConnectionState {
     data object Connected : ConnectionState()
     data object Authenticated : ConnectionState()
     data class Error(val message: String) : ConnectionState()
+}
+
+sealed interface ClientPublishResult {
+    data object Success : ClientPublishResult
+    data object NoSocket : ClientPublishResult
+    data object TimedOut : ClientPublishResult
+    data class Rejected(val message: String) : ClientPublishResult
+    data class SendFailed(val message: String) : ClientPublishResult
 }
 
 data class NostrFilter(
@@ -40,7 +49,21 @@ class NostrClient(
     private val signer: EventSigner,
     private val scope: CoroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 ) {
-    private val okHttpClient = OkHttpClient()
+    private data class PublishAck(val success: Boolean, val message: String)
+
+    private data class PendingPublish(
+        val event: NostrEvent,
+        val deferred: CompletableDeferred<PublishAck>,
+        var authRetryCount: Int = 0,
+    )
+
+    private companion object {
+        const val MAX_AUTH_PUBLISH_RETRIES = 1
+    }
+
+    private val okHttpClient = OkHttpClient.Builder()
+        .pingInterval(30, TimeUnit.SECONDS)
+        .build()
     private var webSocket: WebSocket? = null
     private var relayUrl: String? = null
     private var reconnectJob: Job? = null
@@ -56,7 +79,7 @@ class NostrClient(
     private val _notices = MutableSharedFlow<String>(extraBufferCapacity = 16)
     val notices: SharedFlow<String> = _notices.asSharedFlow()
 
-    private val pendingPublishes = mutableMapOf<String, CompletableDeferred<Boolean>>()
+    private val pendingPublishes = mutableMapOf<String, PendingPublish>()
     private var authEventId: String? = null
     private var pendingChallenge: String? = null
 
@@ -69,6 +92,8 @@ class NostrClient(
         reconnectAttempts = 0
         reconnectJob?.cancel()
         reconnectJob = null
+        authEventId = null
+        pendingChallenge = null
         relayUrl = url
         webSocket?.cancel()
         webSocket = null
@@ -113,6 +138,8 @@ class NostrClient(
         shouldReconnect = false
         reconnectJob?.cancel()
         reconnectJob = null
+        authEventId = null
+        pendingChallenge = null
         relayUrl = null
         webSocket?.cancel()
         webSocket = null
@@ -149,15 +176,26 @@ class NostrClient(
      * Returns true if the relay accepted it (OK true), false otherwise.
      */
     suspend fun publish(event: NostrEvent): Boolean {
-        val ws = webSocket ?: return false
-        val deferred = CompletableDeferred<Boolean>()
-        pendingPublishes[event.id] = deferred
-        ws.send("""["EVENT",${event.toJson()}]""")
+        return publishDetailed(event) is ClientPublishResult.Success
+    }
+
+    suspend fun publishDetailed(event: NostrEvent): ClientPublishResult {
+        val ws = webSocket ?: return ClientPublishResult.NoSocket
+        val pending = PendingPublish(
+            event = event,
+            deferred = CompletableDeferred(),
+        )
+        pendingPublishes[event.id] = pending
+        if (!ws.send("""["EVENT",${event.toJson()}]""")) {
+            pendingPublishes.remove(event.id)
+            return ClientPublishResult.SendFailed("Relay socket closed before send")
+        }
         return try {
-            withTimeout(15_000) { deferred.await() }
+            val ack = withTimeout(15_000) { pending.deferred.await() }
+            if (ack.success) ClientPublishResult.Success else ClientPublishResult.Rejected(ack.message)
         } catch (_: TimeoutCancellationException) {
             pendingPublishes.remove(event.id)
-            false
+            ClientPublishResult.TimedOut
         }
     }
 
@@ -272,20 +310,85 @@ class NostrClient(
             if (success) {
                 _connectionState.value = ConnectionState.Authenticated
                 flushSubscriptions()
+                retryAuthBlockedPublishes()
+            } else {
+                failAuthBlockedPublishes(if (message.isBlank()) "Relay auth was rejected" else message)
             }
             return
         }
 
         if (!success && message.startsWith("auth-required")) {
-            scope.launch { pendingChallenge?.let { handleAuth(it) } }
+            val pending = pendingPublishes[eventId]
+            if (pending == null) return
+            if (pending.authRetryCount >= MAX_AUTH_PUBLISH_RETRIES) {
+                pendingPublishes.remove(eventId)?.deferred?.complete(
+                    PublishAck(
+                        success = false,
+                        message = "Relay requires authentication; publish retry was exhausted"
+                    )
+                )
+                return
+            }
+            pending.authRetryCount++
+            scope.launch {
+                val challenge = awaitPendingChallenge()
+                if (challenge == null) {
+                    pendingPublishes.remove(eventId)?.deferred?.complete(
+                        PublishAck(
+                            success = false,
+                            message = "Relay requires authentication but did not provide a challenge"
+                        )
+                    )
+                } else {
+                    handleAuth(challenge)
+                }
+            }
             return
         }
 
-        pendingPublishes.remove(eventId)?.complete(success)
+        pendingPublishes.remove(eventId)?.deferred?.complete(
+            PublishAck(success = success, message = message)
+        )
     }
 
     private fun failAllPending() {
-        pendingPublishes.values.forEach { it.complete(false) }
+        pendingPublishes.values.forEach {
+            it.deferred.complete(PublishAck(success = false, message = "Relay connection closed"))
+        }
         pendingPublishes.clear()
+    }
+
+    private suspend fun awaitPendingChallenge(timeoutMs: Long = 1_500): String? {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            pendingChallenge?.let { return it }
+            delay(50)
+        }
+        return pendingChallenge
+    }
+
+    private fun retryAuthBlockedPublishes() {
+        val ws = webSocket ?: return
+        val blocked = pendingPublishes.values.filter {
+            !it.deferred.isCompleted && it.authRetryCount > 0
+        }
+        for (pending in blocked) {
+            if (!ws.send("""["EVENT",${pending.event.toJson()}]""")) {
+                pendingPublishes.remove(pending.event.id)?.deferred?.complete(
+                    PublishAck(success = false, message = "Relay socket closed before authenticated retry")
+                )
+            }
+        }
+    }
+
+    private fun failAuthBlockedPublishes(message: String) {
+        val blockedIds = pendingPublishes.values
+            .filter { !it.deferred.isCompleted && it.authRetryCount > 0 }
+            .map { it.event.id }
+        for (eventId in blockedIds) {
+            pendingPublishes.remove(eventId)?.deferred?.complete(
+                PublishAck(success = false, message = message)
+            )
+        }
     }
 }

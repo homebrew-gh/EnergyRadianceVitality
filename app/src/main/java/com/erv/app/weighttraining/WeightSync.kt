@@ -2,14 +2,12 @@ package com.erv.app.weighttraining
 
 import android.content.Context
 import com.erv.app.nostr.EventSigner
+import com.erv.app.nostr.dTagOrNull
+import com.erv.app.nostr.fetchLatestKind30078ByDTag
 import com.erv.app.nostr.NostrEvent
-import com.erv.app.nostr.NostrFilter
 import com.erv.app.nostr.RelayPool
 import com.erv.app.nostr.RelayPublishOutbox
 import java.time.LocalDate
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
@@ -76,20 +74,15 @@ object WeightSync {
         weightImportOutboxEntries(state, state.logs.map { it.date })
 
     /**
-     * Ordered payloads for [com.erv.app.nostr.RelayPublishOutbox] after a weight import (exercises master, then each day).
+     * Ordered payloads for [com.erv.app.nostr.RelayPublishOutbox] after a weight import
+     * (exercises master, routines master, then each day).
      */
     fun weightImportOutboxEntries(
         state: WeightLibraryState,
         affectedDates: List<String>,
     ): List<Pair<String, String>> {
-        val exercisesPayload = WeightExercisesPayload(
-            exercises = state.exercises.map { it.copy(sessionSummaries = emptyList()) }
-        )
         val pairs = mutableListOf<Pair<String, String>>()
-        pairs += WEIGHT_EXERCISES_D_TAG to json.encodeToString(
-            WeightExercisesPayload.serializer(),
-            exercisesPayload
-        )
+        pairs += masterOutboxEntries(state)
         for (dateIso in affectedDates.distinct().sorted()) {
             val log = state.logFor(LocalDate.parse(dateIso)) ?: continue
             pairs += dailyTag(dateIso) to json.encodeToString(
@@ -105,35 +98,16 @@ object WeightSync {
         signer: EventSigner,
         pubkeyHex: String,
         timeoutMs: Long = 6000
-    ): WeightLibraryState? = coroutineScope {
-        val subId = "erv-weight-${System.currentTimeMillis()}"
-        relayPool.subscribe(
-            subId,
-            NostrFilter(
-                kinds = listOf(30078),
-                authors = listOf(pubkeyHex),
-                limit = 100
-            )
-        )
+    ): WeightLibraryState? {
+        val latestByTag = fetchLatestKind30078ByDTag(relayPool, pubkeyHex, timeoutMs)
+        if (latestByTag.isEmpty()) return null
+        return fromLatestByTag(latestByTag, signer)
+    }
 
-        val events = mutableListOf<NostrEvent>()
-        val job = launch {
-            relayPool.events.collect { (id, ev) ->
-                if (id == subId && ev.kind == 30078) events.add(ev)
-            }
-        }
-
-        delay(timeoutMs)
-        job.cancel()
-        relayPool.unsubscribe(subId)
-
-        if (events.isEmpty()) return@coroutineScope null
-
-        val latestByTag = events
-            .sortedBy { it.createdAt }
-            .groupBy { it.dTagOrNull() ?: "unknown" }
-            .mapValues { (_, items) -> items.last() }
-
+    suspend fun fromLatestByTag(
+        latestByTag: Map<String, NostrEvent>,
+        signer: EventSigner,
+    ): WeightLibraryState {
         val exercises = latestByTag[WEIGHT_EXERCISES_D_TAG]
             ?.decryptPayload(signer)
             ?.let { decodeExercises(it) }
@@ -156,7 +130,7 @@ object WeightSync {
                 decodeDayLog(raw, date)
             }
 
-        WeightLibraryState(
+        return WeightLibraryState(
             exercises = exercises,
             routines = routines,
             logs = logs.sortedBy { it.date }
@@ -180,6 +154,23 @@ object WeightSync {
             plaintext,
         )
         return r.publishedFail == 0
+    }
+
+    private fun masterOutboxEntries(state: WeightLibraryState): List<Pair<String, String>> {
+        val exercisesPayload = WeightExercisesPayload(
+            exercises = state.exercises.map { it.copy(sessionSummaries = emptyList()) }
+        )
+        val routinesPayload = WeightRoutinesPayload(routines = state.routines)
+        return listOf(
+            WEIGHT_EXERCISES_D_TAG to json.encodeToString(
+                WeightExercisesPayload.serializer(),
+                exercisesPayload
+            ),
+            WEIGHT_ROUTINES_D_TAG to json.encodeToString(
+                WeightRoutinesPayload.serializer(),
+                routinesPayload
+            ),
+        )
     }
 
     private fun decodeExercises(raw: String): List<WeightExercise>? =
@@ -209,9 +200,6 @@ object WeightSync {
         } catch (_: IllegalArgumentException) {
             null
         }
-
-    private fun NostrEvent.dTagOrNull(): String? =
-        tags.firstOrNull { it.size >= 2 && it[0] == "d" }?.getOrNull(1)
 
     private suspend fun NostrEvent.decryptPayload(signer: EventSigner): String? =
         try {

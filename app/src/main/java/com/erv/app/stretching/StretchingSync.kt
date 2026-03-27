@@ -2,13 +2,11 @@ package com.erv.app.stretching
 
 import android.content.Context
 import com.erv.app.nostr.EventSigner
+import com.erv.app.nostr.dTagOrNull
+import com.erv.app.nostr.fetchLatestKind30078ByDTag
 import com.erv.app.nostr.NostrEvent
-import com.erv.app.nostr.NostrFilter
 import com.erv.app.nostr.RelayPool
 import com.erv.app.nostr.RelayPublishOutbox
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
@@ -66,35 +64,16 @@ object StretchingSync {
         signer: EventSigner,
         pubkeyHex: String,
         timeoutMs: Long = 6000
-    ): StretchLibraryState? = coroutineScope {
-        val subId = "erv-stretching-${System.currentTimeMillis()}"
-        relayPool.subscribe(
-            subId,
-            NostrFilter(
-                kinds = listOf(30078),
-                authors = listOf(pubkeyHex),
-                limit = 100
-            )
-        )
+    ): StretchLibraryState? {
+        val latestByTag = fetchLatestKind30078ByDTag(relayPool, pubkeyHex, timeoutMs)
+        if (latestByTag.isEmpty()) return null
+        return fromLatestByTag(latestByTag, signer)
+    }
 
-        val events = mutableListOf<NostrEvent>()
-        val job = launch {
-            relayPool.events.collect { (id, ev) ->
-                if (id == subId && ev.kind == 30078) events.add(ev)
-            }
-        }
-
-        delay(timeoutMs)
-        job.cancel()
-        relayPool.unsubscribe(subId)
-
-        if (events.isEmpty()) return@coroutineScope null
-
-        val latestByTag = events
-            .sortedBy { it.createdAt }
-            .groupBy { it.dTagOrNull() ?: "unknown" }
-            .mapValues { (_, items) -> items.last() }
-
+    suspend fun fromLatestByTag(
+        latestByTag: Map<String, NostrEvent>,
+        signer: EventSigner,
+    ): StretchLibraryState {
         val master = latestByTag[STRETCHING_ROUTINES_D_TAG]
             ?.decryptPayload(signer)
             ?.let { decodeRoutinesMaster(it) }
@@ -107,7 +86,7 @@ object StretchingSync {
                 decodeLog(raw, date)
             }
 
-        StretchLibraryState(
+        return StretchLibraryState(
             routines = master?.routines ?: emptyList(),
             logs = logs.sortedBy { it.date }
         )
@@ -150,9 +129,6 @@ object StretchingSync {
         } catch (_: IllegalArgumentException) {
             null
         }
-
-    private fun NostrEvent.dTagOrNull(): String? =
-        tags.firstOrNull { it.size >= 2 && it[0] == "d" }?.getOrNull(1)
 
     private suspend fun NostrEvent.decryptPayload(signer: EventSigner): String? =
         try {

@@ -42,16 +42,38 @@ class KeyManager(context: Context) {
     var relayUrls: List<String>
         get() {
             migrateRelayUrlIfNeeded()
+            migrateSavedRelayUrlsIfNeeded()
             return prefs.getStringSet(KEY_RELAY_URLS, emptySet())?.toList() ?: emptyList()
         }
         private set(value) = prefs.edit().putStringSet(KEY_RELAY_URLS, value.toSet()).apply()
 
     /** Relays used for public social posts (e.g. kind 1 workout summaries). */
     var socialRelayUrls: List<String>
-        get() = prefs.getStringSet(KEY_SOCIAL_RELAY_URLS, emptySet())?.toList() ?: emptyList()
+        get() {
+            migrateSavedRelayUrlsIfNeeded()
+            return prefs.getStringSet(KEY_SOCIAL_RELAY_URLS, emptySet())?.toList() ?: emptyList()
+        }
         private set(value) = prefs.edit().putStringSet(KEY_SOCIAL_RELAY_URLS, value.toSet()).apply()
 
+    /** All saved relays, including ones that currently have no assigned role. */
+    private var savedRelayUrls: List<String>
+        get() {
+            migrateRelayUrlIfNeeded()
+            migrateSavedRelayUrlsIfNeeded()
+            return prefs.getStringSet(KEY_SAVED_RELAY_URLS, emptySet())?.toList() ?: emptyList()
+        }
+        set(value) = prefs.edit().putStringSet(KEY_SAVED_RELAY_URLS, value.toSet()).apply()
+
+    private fun addSavedRelay(url: String) {
+        val current = savedRelayUrls.toMutableList()
+        if (url !in current) {
+            current.add(url)
+            savedRelayUrls = current
+        }
+    }
+
     fun addRelay(url: String) {
+        addSavedRelay(url)
         val current = relayUrls.toMutableList()
         if (url !in current) {
             current.add(url)
@@ -64,6 +86,7 @@ class KeyManager(context: Context) {
     }
 
     fun addSocialRelay(url: String) {
+        addSavedRelay(url)
         val current = socialRelayUrls.toMutableList()
         if (url !in current) {
             current.add(url)
@@ -78,10 +101,13 @@ class KeyManager(context: Context) {
     fun removeRelayCompletely(url: String) {
         removeRelay(url)
         removeSocialRelay(url)
+        savedRelayUrls = savedRelayUrls.filter { it != url }
     }
 
     /** All relays (data + social), deduplicated. */
-    fun allRelayUrls(): List<String> = (relayUrls + socialRelayUrls).distinct()
+    fun allRelayUrls(): List<String> = savedRelayUrls
+
+    private fun activeRelayUrls(): List<String> = (relayUrls + socialRelayUrls).distinct()
 
     /**
      * Relays that receive kind **30078** (encrypted activity backup).
@@ -91,8 +117,25 @@ class KeyManager(context: Context) {
     fun relayUrlsForKind30078Publish(): List<String> {
         val data = relayUrls
         if (data.isNotEmpty()) return data
-        val all = allRelayUrls()
-        return if (all.isNotEmpty()) all else relayUrlsForPool()
+        val active = activeRelayUrls()
+        return when {
+            active.isNotEmpty() -> active
+            allRelayUrls().isEmpty() -> relayUrlsForPool()
+            else -> emptyList()
+        }
+    }
+
+    /**
+     * Public profile metadata (kind **0**) should reach both data and social relays so other clients
+     * can discover it regardless of which relay set they read from.
+     */
+    fun relayUrlsForKind0Publish(): List<String> {
+        val active = activeRelayUrls()
+        return when {
+            active.isNotEmpty() -> active
+            allRelayUrls().isEmpty() -> relayUrlsForPool()
+            else -> emptyList()
+        }
     }
 
     /**
@@ -101,8 +144,12 @@ class KeyManager(context: Context) {
      * nothing is written to preferences.
      */
     fun relayUrlsForPool(): List<String> {
-        val stored = allRelayUrls()
-        return if (stored.isEmpty()) DEFAULT_RELAYS else stored
+        val active = activeRelayUrls()
+        return when {
+            active.isNotEmpty() -> active
+            allRelayUrls().isEmpty() -> DEFAULT_RELAYS
+            else -> emptyList()
+        }
     }
 
     fun isDataRelay(url: String): Boolean = url in relayUrls
@@ -117,6 +164,17 @@ class KeyManager(context: Context) {
                 .remove(KEY_RELAY_URL_LEGACY)
                 .apply()
         }
+    }
+
+    private fun migrateSavedRelayUrlsIfNeeded() {
+        val saved = prefs.getStringSet(KEY_SAVED_RELAY_URLS, null)
+        if (saved != null) return
+        val merged = (
+            (prefs.getStringSet(KEY_RELAY_URLS, emptySet()) ?: emptySet()) +
+                (prefs.getStringSet(KEY_SOCIAL_RELAY_URLS, emptySet()) ?: emptySet())
+            )
+        if (merged.isEmpty()) return
+        prefs.edit().putStringSet(KEY_SAVED_RELAY_URLS, merged).apply()
     }
 
     var loginMethod: String?
@@ -225,6 +283,7 @@ class KeyManager(context: Context) {
             .remove(KEY_LOGIN_METHOD)
             .remove(KEY_RELAY_URLS)
             .remove(KEY_SOCIAL_RELAY_URLS)
+            .remove(KEY_SAVED_RELAY_URLS)
             .remove(KEY_AMBER_PACKAGE)
             .apply()
     }
@@ -235,6 +294,7 @@ class KeyManager(context: Context) {
         private const val KEY_RELAY_URL_LEGACY = "relay_url"
         private const val KEY_RELAY_URLS = "relay_urls"
         private const val KEY_SOCIAL_RELAY_URLS = "social_relay_urls"
+        private const val KEY_SAVED_RELAY_URLS = "saved_relay_urls"
         private const val KEY_LOGIN_METHOD = "login_method"
         private const val KEY_AMBER_PACKAGE = "amber_package"
 

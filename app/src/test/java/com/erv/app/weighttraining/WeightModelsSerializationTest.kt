@@ -55,6 +55,58 @@ class WeightModelsSerializationTest {
     }
 
     @Test
+    fun weightImportOutboxEntries_includeRoutinesMaster_beforeAffectedDays() {
+        val state = WeightLibraryState(
+            exercises = listOf(
+                WeightExercise(
+                    id = "bench",
+                    name = "Bench Press",
+                    muscleGroup = "chest",
+                    pushOrPull = WeightPushPull.PUSH,
+                    equipment = WeightEquipment.BARBELL,
+                    sessionSummaries = listOf(
+                        WeightExerciseSessionSummary(
+                            date = "2026-03-20",
+                            workoutId = "w1",
+                            volumeKg = 500.0,
+                            bestEstOneRmKg = 110.0,
+                            workingSetCount = 3
+                        )
+                    )
+                )
+            ),
+            routines = listOf(
+                WeightRoutine(
+                    id = "push-a",
+                    name = "Push A",
+                    exerciseIds = listOf("bench"),
+                    notes = "Main push day",
+                    lastModifiedEpochSeconds = 1234L
+                )
+            ),
+            logs = listOf(
+                WeightDayLog(date = "2026-03-20", workouts = emptyList()),
+                WeightDayLog(date = "2026-03-21", workouts = emptyList())
+            )
+        )
+
+        val entries = WeightSync.weightImportOutboxEntries(state, listOf("2026-03-21"))
+
+        assertEquals(
+            listOf(
+                WEIGHT_EXERCISES_D_TAG,
+                WEIGHT_ROUTINES_D_TAG,
+                "erv/weight/2026-03-21",
+            ),
+            entries.map { it.first }
+        )
+        assertTrue(entries[0].second.contains("Bench Press"))
+        assertFalse(entries[0].second.contains("sessionSummaries"))
+        assertTrue(entries[1].second.contains("Push A"))
+        assertTrue(entries[1].second.contains("Main push day"))
+    }
+
+    @Test
     fun weightDayLog_unknownKeys_ignored() {
         val raw = """{"date":"2026-01-01","workouts":[],"futureField":true}"""
         val parsed = json.decodeFromString(WeightDayLog.serializer(), raw)

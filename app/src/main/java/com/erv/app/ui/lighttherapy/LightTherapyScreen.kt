@@ -128,20 +128,6 @@ fun LightTherapyCategoryScreen(
         }
     }
 
-    LaunchedEffect(relayPool, signer?.publicKey) {
-        if (relayPool != null && signer != null) {
-            LightSync.fetchFromNetwork(relayPool, signer, signer.publicKey)?.let { remote ->
-                val merged = LibraryStateMerge.mergeLight(repository.currentState(), remote)
-                repository.replaceAll(merged)
-                RelayPayloadDigestStore.reconcileIdenticalRemoteMerged(
-                    context.applicationContext,
-                    LightSync.fullOutboxEntries(remote),
-                    LightSync.fullOutboxEntries(merged),
-                )
-            }
-        }
-    }
-
     LaunchedEffect(reminderRepository) {
         reminderRepository.restoreAllSchedules()
     }

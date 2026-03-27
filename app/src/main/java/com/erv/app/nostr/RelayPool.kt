@@ -12,6 +12,11 @@ class RelayPool(
     private val signer: EventSigner,
     private val scope: CoroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 ) {
+    data class PublishReport(
+        val ok: Boolean,
+        val message: String,
+    )
+
     private val clients = mutableMapOf<String, NostrClient>()
 
     private val _relayStates = MutableStateFlow<Map<String, ConnectionState>>(emptyMap())
@@ -75,12 +80,33 @@ class RelayPool(
      * Used for kind **30078** so encrypted backups stay off social-only relays.
      */
     suspend fun publishToRelayUrls(event: NostrEvent, urls: Collection<String>): Boolean {
-        if (urls.isEmpty()) return false
-        return coroutineScope {
-            urls.distinct().mapNotNull { clients[it] }.map { client ->
-                async { client.publish(event) }
-            }.awaitAll().any { it }
+        return publishToRelayUrlsDetailed(event, urls).ok
+    }
+
+    suspend fun publishToRelayUrlsDetailed(event: NostrEvent, urls: Collection<String>): PublishReport {
+        if (urls.isEmpty()) {
+            return PublishReport(ok = false, message = "No data relays configured")
         }
+        val targetUrls = urls.distinct()
+        val targets = targetUrls.mapNotNull { url -> clients[url]?.let { url to it } }
+        if (targets.isEmpty()) {
+            return PublishReport(
+                ok = false,
+                message = summarizeMissingTargets(targetUrls)
+            )
+        }
+        val results = coroutineScope {
+            targets.map { (url, client) ->
+                async { url to client.publishDetailed(event) }
+            }.awaitAll()
+        }
+        if (results.any { (_, result) -> result is ClientPublishResult.Success }) {
+            return PublishReport(ok = true, message = "")
+        }
+        return PublishReport(
+            ok = false,
+            message = summarizePublishFailure(targetUrls, results)
+        )
     }
 
     fun subscribe(subscriptionId: String, vararg filters: NostrFilter) {
@@ -119,5 +145,46 @@ class RelayPool(
     fun destroy() {
         disconnect()
         scope.cancel()
+    }
+
+    private fun summarizeMissingTargets(targetUrls: List<String>): String {
+        val anyConnected = targetUrls.any { url ->
+            relayStates.value[url].let { it is ConnectionState.Connected || it is ConnectionState.Authenticated }
+        }
+        return if (anyConnected) {
+            "Data relay clients are not ready yet"
+        } else {
+            "No connected data relays"
+        }
+    }
+
+    private fun summarizePublishFailure(
+        targetUrls: List<String>,
+        results: List<Pair<String, ClientPublishResult>>,
+    ): String {
+        val connectedCount = targetUrls.count { url ->
+            relayStates.value[url].let { it is ConnectionState.Connected || it is ConnectionState.Authenticated }
+        }
+        val firstRejected = results.firstNotNullOfOrNull { (_, result) ->
+            (result as? ClientPublishResult.Rejected)?.message?.takeIf { it.isNotBlank() }
+        }
+        return when {
+            results.any { (_, result) -> result is ClientPublishResult.TimedOut } ->
+                "Timed out waiting for a data relay acknowledgement"
+            results.any { (_, result) -> result is ClientPublishResult.NoSocket } && connectedCount == 0 ->
+                "No connected data relays"
+            firstRejected?.startsWith("Relay requires authentication") == true ->
+                firstRejected
+            firstRejected?.startsWith("auth-required") == true ->
+                "Data relay requires authentication"
+            firstRejected != null ->
+                "Data relay rejected publish: $firstRejected"
+            results.any { (_, result) -> result is ClientPublishResult.SendFailed } ->
+                "Data relay socket closed before send"
+            connectedCount == 0 ->
+                "No connected data relays"
+            else ->
+                "Data relay publish failed"
+        }
     }
 }

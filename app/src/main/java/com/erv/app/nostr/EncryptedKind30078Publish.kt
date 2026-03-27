@@ -14,6 +14,16 @@ object EncryptedKind30078Publish {
         plaintextPayload: String,
         dataRelayUrls: List<String>,
     ): Boolean {
+        return publishDetailed(relayPool, signer, dTag, plaintextPayload, dataRelayUrls).ok
+    }
+
+    suspend fun publishDetailed(
+        relayPool: RelayPool,
+        signer: EventSigner,
+        dTag: String,
+        plaintextPayload: String,
+        dataRelayUrls: List<String>,
+    ): RelayPool.PublishReport {
         val encrypted = signer.encryptToSelf(plaintextPayload)
         val unsigned = UnsignedEvent(
             pubkey = signer.publicKey,
@@ -23,6 +33,6 @@ object EncryptedKind30078Publish {
             content = encrypted
         )
         val signed = signer.sign(unsigned)
-        return relayPool.publishToRelayUrls(signed, dataRelayUrls)
+        return relayPool.publishToRelayUrlsDetailed(signed, dataRelayUrls)
     }
 }
