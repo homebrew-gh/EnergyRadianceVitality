@@ -34,10 +34,15 @@ private val launchPadTileOrderJson = Json {
     encodeDefaults = false
 }
 
+private val launchPadTileIndexById = defaultLaunchPadTileOrder.withIndex().associate { (index, id) -> id to index }
+
 fun normalizeLaunchPadTileOrder(items: List<LaunchPadTileId>): List<LaunchPadTileId> {
     val distinctKnown = items.filter { it in defaultLaunchPadTileOrder }.distinct()
     return distinctKnown + defaultLaunchPadTileOrder.filterNot { it in distinctKnown }
 }
+
+fun normalizeLaunchPadHiddenTiles(items: Set<LaunchPadTileId>): Set<LaunchPadTileId> =
+    items.filter { it in defaultLaunchPadTileOrder }.toSet()
 
 fun resolveVisibleLaunchPadTileOrder(
     storedOrder: List<LaunchPadTileId>,
@@ -81,5 +86,25 @@ fun decodeLaunchPadTileOrder(raw: String?): List<LaunchPadTileId> {
         )
     } catch (_: Exception) {
         emptyList()
+    }
+}
+
+fun encodeLaunchPadHiddenTiles(items: Set<LaunchPadTileId>): String =
+    launchPadTileOrderJson.encodeToString(
+        ListSerializer(LaunchPadTileId.serializer()),
+        normalizeLaunchPadHiddenTiles(items).sortedBy { launchPadTileIndexById[it] ?: Int.MAX_VALUE },
+    )
+
+fun decodeLaunchPadHiddenTiles(raw: String?): Set<LaunchPadTileId> {
+    if (raw.isNullOrBlank()) return emptySet()
+    return try {
+        normalizeLaunchPadHiddenTiles(
+            launchPadTileOrderJson.decodeFromString(
+                ListSerializer(LaunchPadTileId.serializer()),
+                raw,
+            ).toSet()
+        )
+    } catch (_: Exception) {
+        emptySet()
     }
 }

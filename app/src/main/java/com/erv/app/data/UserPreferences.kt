@@ -119,6 +119,7 @@ class UserPreferences(private val context: Context) {
         val LOCAL_PROFILE_PICTURE_URL_V1 = stringPreferencesKey("local_profile_picture_url_v1")
         val LOCAL_PROFILE_BIO_V1 = stringPreferencesKey("local_profile_bio_v1")
         val LAUNCH_PAD_TILE_ORDER_JSON_V1 = stringPreferencesKey("launch_pad_tile_order_json_v1")
+        val LAUNCH_PAD_HIDDEN_TILES_JSON_V1 = stringPreferencesKey("launch_pad_hidden_tiles_json_v1")
         /**
          * When true (default), ERV does not publish NIP-65 kind 10002 relay list metadata.
          */
@@ -657,6 +658,10 @@ class UserPreferences(private val context: Context) {
         decodeLaunchPadTileOrder(prefs[Keys.LAUNCH_PAD_TILE_ORDER_JSON_V1])
     }
 
+    val launchPadHiddenTiles: Flow<Set<LaunchPadTileId>> = context.dataStore.data.map { prefs ->
+        decodeLaunchPadHiddenTiles(prefs[Keys.LAUNCH_PAD_HIDDEN_TILES_JSON_V1])
+    }
+
     suspend fun setLocalProfileDisplayName(value: String) {
         context.dataStore.edit { prefs ->
             val t = value.trim()
@@ -684,6 +689,17 @@ class UserPreferences(private val context: Context) {
     suspend fun setLaunchPadTileOrder(order: List<LaunchPadTileId>) {
         context.dataStore.edit { prefs ->
             prefs[Keys.LAUNCH_PAD_TILE_ORDER_JSON_V1] = encodeLaunchPadTileOrder(order)
+        }
+    }
+
+    suspend fun setLaunchPadHiddenTiles(hiddenTileIds: Set<LaunchPadTileId>) {
+        context.dataStore.edit { prefs ->
+            val normalized = normalizeLaunchPadHiddenTiles(hiddenTileIds)
+            if (normalized.isEmpty()) {
+                prefs.remove(Keys.LAUNCH_PAD_HIDDEN_TILES_JSON_V1)
+            } else {
+                prefs[Keys.LAUNCH_PAD_HIDDEN_TILES_JSON_V1] = encodeLaunchPadHiddenTiles(normalized)
+            }
         }
     }
 

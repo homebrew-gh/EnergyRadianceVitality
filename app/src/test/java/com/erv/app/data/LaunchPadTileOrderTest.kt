@@ -73,4 +73,22 @@ class LaunchPadTileOrderTest {
             merged,
         )
     }
+
+    @Test
+    fun decodeLaunchPadHiddenTiles_ignores_unknown_entries() {
+        val encoded = encodeLaunchPadHiddenTiles(
+            setOf(
+                LaunchPadTileId.PROGRAMS,
+                LaunchPadTileId.HOT_COLD,
+            )
+        )
+
+        assertEquals(
+            setOf(
+                LaunchPadTileId.PROGRAMS,
+                LaunchPadTileId.HOT_COLD,
+            ),
+            decodeLaunchPadHiddenTiles(encoded),
+        )
+    }
 }

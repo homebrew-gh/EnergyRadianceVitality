@@ -32,6 +32,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.automirrored.filled.DirectionsRun
 import androidx.compose.material.icons.filled.FitnessCenter
 import androidx.compose.material.icons.filled.PlaylistPlay
@@ -123,7 +124,7 @@ import com.erv.app.goals.computeWeeklyGoalProgress
 import com.erv.app.goals.summaryLine
 import com.erv.app.data.UserPreferences
 import com.erv.app.data.mergeVisibleLaunchPadTileOrder
-import com.erv.app.data.resolveVisibleLaunchPadTileOrder
+import com.erv.app.data.normalizeLaunchPadTileOrder
 import com.erv.app.heatcold.HeatColdActivityRow
 import com.erv.app.heatcold.HeatColdLibraryState
 import com.erv.app.stretching.StretchActivityRow
@@ -357,12 +358,36 @@ fun DashboardScreen(
     var pendingDashboardWeightBlank by remember { mutableStateOf(false) }
     var pendingDashboardWeightRoutine by remember { mutableStateOf<WeightRoutine?>(null) }
     var pendingProgramWeightBlock by remember { mutableStateOf<ProgramDayBlock?>(null) }
+    val savedLaunchPadTileOrder by userPreferences.launchPadTileOrder.collectAsState(initial = emptyList())
+    val savedLaunchPadHiddenTileIds by userPreferences.launchPadHiddenTiles.collectAsState(initial = emptySet())
+    var launchPadEditMode by remember { mutableStateOf(false) }
     // Match app ThemeMode (LIGHT/DARK/SYSTEM), not raw system — same as ErvTheme in MainActivity.
     val darkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val therapyRedDark = if (darkTheme) ErvDarkTherapyRedDark else ErvLightTherapyRedDark
     val therapyRedMid = if (darkTheme) ErvDarkTherapyRedMid else ErvLightTherapyRedMid
     val therapyRedGlow = if (darkTheme) ErvDarkTherapyRedGlow else ErvLightTherapyRedGlow
     val keyManager = LocalKeyManager.current
+    val availableLaunchPadTileIds = remember(
+        supplementState.routines,
+        lightState.routines,
+    ) {
+        buildSet {
+            add(LaunchPadTileId.PROGRAMS)
+            add(LaunchPadTileId.WORKOUT_LAUNCHER)
+            add(LaunchPadTileId.STRETCHING)
+            add(LaunchPadTileId.CARDIO)
+            add(LaunchPadTileId.WEIGHT_TRAINING)
+            add(LaunchPadTileId.HOT_COLD)
+            add(LaunchPadTileId.BODY_TRACKER)
+            if (supplementState.routines.isNotEmpty()) add(LaunchPadTileId.SUPPLEMENTS)
+            if (lightState.routines.isNotEmpty()) add(LaunchPadTileId.LIGHT_THERAPY)
+        }
+    }
+    val resolvedLaunchPadTileIds = remember(savedLaunchPadTileOrder) {
+        normalizeLaunchPadTileOrder(savedLaunchPadTileOrder)
+    }
+    var draftLaunchPadTileIds by remember { mutableStateOf(resolvedLaunchPadTileIds) }
+    var draftLaunchPadHiddenTileIds by remember { mutableStateOf(savedLaunchPadHiddenTileIds) }
 
     val scaffoldState = rememberBottomSheetScaffoldState(
         bottomSheetState = rememberStandardBottomSheetState(
@@ -378,6 +403,12 @@ fun DashboardScreen(
     LaunchedEffect(hideDashboardChrome) {
         if (!hideDashboardChrome) {
             scaffoldState.bottomSheetState.partialExpand()
+        }
+    }
+    LaunchedEffect(resolvedLaunchPadTileIds, savedLaunchPadHiddenTileIds, launchPadEditMode) {
+        if (!launchPadEditMode) {
+            draftLaunchPadTileIds = resolvedLaunchPadTileIds
+            draftLaunchPadHiddenTileIds = savedLaunchPadHiddenTileIds
         }
     }
 
@@ -817,7 +848,7 @@ fun DashboardScreen(
                                     .fillMaxSize()
                                     .verticalScroll(routinesScrollState)
                                     .padding(horizontal = 16.dp)
-                                    .padding(bottom = 16.dp)
+                                    .padding(bottom = if (launchPadEditMode) 112.dp else 16.dp)
                             ) {
                                 Spacer(Modifier.height(14.dp))
                                 RoutinesSection(
@@ -922,6 +953,25 @@ fun DashboardScreen(
                                     stretchRoutineCount = stretchState.routines.size,
                                     onOpenStretchingCategory = { onNavigateToCategory(stretchingCategory) },
                                     onOpenBodyTrackerCategory = { onNavigateToCategory(bodyTrackerCategory) },
+                                    launchPadEditMode = launchPadEditMode,
+                                    draftLaunchPadTileIds = draftLaunchPadTileIds
+                                        .filter { it in availableLaunchPadTileIds && it !in draftLaunchPadHiddenTileIds },
+                                    draftHiddenLaunchPadTileIds = draftLaunchPadHiddenTileIds,
+                                    onEnterLaunchPadEditMode = { launchPadEditMode = true },
+                                    onLaunchPadTilesReordered = { reordered ->
+                                        draftLaunchPadTileIds = mergeVisibleLaunchPadTileOrder(
+                                            storedOrder = draftLaunchPadTileIds,
+                                            visibleOrder = reordered,
+                                        )
+                                    },
+                                    onHideLaunchPadTile = { tileId ->
+                                        draftLaunchPadHiddenTileIds = draftLaunchPadHiddenTileIds + tileId
+                                    },
+                                    onShowLaunchPadTile = { tileId ->
+                                        draftLaunchPadHiddenTileIds = draftLaunchPadHiddenTileIds - tileId
+                                        draftLaunchPadTileIds =
+                                            draftLaunchPadTileIds.filterNot { it == tileId } + tileId
+                                    },
                                     relayPool = relayPool,
                                     signer = signer,
                                 )
@@ -981,6 +1031,23 @@ fun DashboardScreen(
                     },
                     onDismiss = { showCalendar = false },
                     datesWithActivity = datesWithActivity
+                )
+            }
+
+            if (launchPadEditMode && !hideDashboardChrome) {
+                ExtendedFloatingActionButton(
+                    onClick = {
+                        scope.launch {
+                            userPreferences.setLaunchPadTileOrder(draftLaunchPadTileIds)
+                            userPreferences.setLaunchPadHiddenTiles(draftLaunchPadHiddenTileIds)
+                            launchPadEditMode = false
+                        }
+                    },
+                    icon = { Icon(Icons.Default.Check, contentDescription = null) },
+                    text = { Text("Done") },
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(horizontal = 16.dp, vertical = 72.dp)
                 )
             }
 
@@ -1743,6 +1810,7 @@ private fun QuickLogTilesLayout(
     editMode: Boolean,
     onEnterEditMode: () -> Unit,
     onTilesReordered: (List<LaunchPadTileId>) -> Unit,
+    onTileHidden: (LaunchPadTileId) -> Unit,
 ) {
     if (tiles.isEmpty()) return
     BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
@@ -1911,6 +1979,7 @@ private fun QuickLogTilesLayout(
                         secondaryIcon = tile.secondaryIcon,
                         statusBadge = tile.statusBadge,
                         elevation = animatedElevation,
+                        onHide = if (editMode) ({ onTileHidden(tile.id) }) else null,
                     )
                 }
             }
@@ -1972,12 +2041,18 @@ private fun RoutinesSection(
     stretchRoutineCount: Int,
     onOpenStretchingCategory: () -> Unit,
     onOpenBodyTrackerCategory: () -> Unit,
+    launchPadEditMode: Boolean,
+    draftLaunchPadTileIds: List<LaunchPadTileId>,
+    draftHiddenLaunchPadTileIds: Set<LaunchPadTileId>,
+    onEnterLaunchPadEditMode: () -> Unit,
+    onLaunchPadTilesReordered: (List<LaunchPadTileId>) -> Unit,
+    onHideLaunchPadTile: (LaunchPadTileId) -> Unit,
+    onShowLaunchPadTile: (LaunchPadTileId) -> Unit,
     relayPool: RelayPool?,
     signer: EventSigner?,
 ) {
     val context = LocalContext.current
     val keyManager = LocalKeyManager.current
-    val savedLaunchPadTileOrder by userPreferences.launchPadTileOrder.collectAsState(initial = emptyList())
     var showSupplementPicker by remember { mutableStateOf(false) }
     var showLightPicker by remember { mutableStateOf(false) }
     var showWorkoutLauncherSheet by remember { mutableStateOf(false) }
@@ -1985,7 +2060,7 @@ private fun RoutinesSection(
     var showWeightPicker by remember { mutableStateOf(false) }
     var showHeatColdSheet by remember { mutableStateOf(false) }
     var showProgramSheet by remember { mutableStateOf(false) }
-    var launchPadEditMode by remember { mutableStateOf(false) }
+    var showAddLaunchPadTileMenu by remember { mutableStateOf(false) }
     val routineSectionScope = rememberCoroutineScope()
     val activeProgram = programsLibraryState.activeProgramId?.let { id ->
         programsLibraryState.programs.firstOrNull { it.id == id }
@@ -2248,51 +2323,84 @@ private fun RoutinesSection(
                     }
                 }
             }
-            val resolvedTileIds = remember(savedLaunchPadTileOrder, availableTileSpecs.keys) {
-                resolveVisibleLaunchPadTileOrder(
-                    storedOrder = savedLaunchPadTileOrder,
-                    visibleTileIds = availableTileSpecs.keys,
-                )
-            }
-            var draftTileIds by remember { mutableStateOf(resolvedTileIds) }
-            LaunchedEffect(resolvedTileIds, launchPadEditMode) {
-                if (!launchPadEditMode) {
-                    draftTileIds = resolvedTileIds
-                }
-            }
             val quickLogTileRowSpacing = 12.dp
-            val quickLogTiles = remember(draftTileIds, availableTileSpecs) {
-                draftTileIds.mapNotNull { availableTileSpecs[it] }
+            val quickLogTiles = remember(draftLaunchPadTileIds, availableTileSpecs) {
+                draftLaunchPadTileIds.mapNotNull { availableTileSpecs[it] }
+            }
+            val hiddenQuickLogTiles = remember(availableTileSpecs, draftHiddenLaunchPadTileIds) {
+                availableTileSpecs.values.filter { it.id in draftHiddenLaunchPadTileIds }
+            }
+            if (launchPadEditMode) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "Drag tiles to rearrange your Launch Pad.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (hiddenQuickLogTiles.isNotEmpty()) {
+                        Box {
+                            FilledTonalButton(onClick = { showAddLaunchPadTileMenu = true }) {
+                                Icon(Icons.Default.Add, contentDescription = null)
+                                Spacer(Modifier.width(8.dp))
+                                Text("Add")
+                            }
+                            DropdownMenu(
+                                expanded = showAddLaunchPadTileMenu,
+                                onDismissRequest = { showAddLaunchPadTileMenu = false },
+                            ) {
+                                hiddenQuickLogTiles.forEach { tile ->
+                                    DropdownMenuItem(
+                                        text = { Text(tile.label) },
+                                        onClick = {
+                                            showAddLaunchPadTileMenu = false
+                                            onShowLaunchPadTile(tile.id)
+                                        },
+                                        leadingIcon = {
+                                            Icon(
+                                                imageVector = tile.icon,
+                                                contentDescription = null,
+                                            )
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            } else if (quickLogTiles.isEmpty()) {
+                Text(
+                    text = "All Launch Pad tiles are hidden. Add back the ones you want.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                FilledTonalButton(
+                    onClick = onEnterLaunchPadEditMode,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.Default.Edit, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Edit Launch Pad")
+                }
             }
             QuickLogTilesLayout(
                 tiles = quickLogTiles,
                 tileRowSpacing = quickLogTileRowSpacing,
                 editMode = launchPadEditMode,
-                onEnterEditMode = { launchPadEditMode = true },
-                onTilesReordered = { reordered -> draftTileIds = reordered },
+                onEnterEditMode = onEnterLaunchPadEditMode,
+                onTilesReordered = onLaunchPadTilesReordered,
+                onTileHidden = onHideLaunchPadTile,
             )
             if (launchPadEditMode) {
                 Text(
-                    text = "Drag tiles to rearrange your Launch Pad.",
+                    text = "Tap the minus button to hide a tile. Hidden tiles stay in the menu below.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Button(
-                    onClick = {
-                        routineSectionScope.launch {
-                            userPreferences.setLaunchPadTileOrder(
-                                mergeVisibleLaunchPadTileOrder(
-                                    storedOrder = savedLaunchPadTileOrder,
-                                    visibleOrder = draftTileIds,
-                                )
-                            )
-                            launchPadEditMode = false
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Done")
-                }
             }
         }
     }
@@ -3617,6 +3725,7 @@ private fun RoutineTile(
     secondaryIcon: ImageVector? = null,
     statusBadge: QuickLogTileStatusBadge? = null,
     elevation: Dp = 4.dp,
+    onHide: (() -> Unit)? = null,
 ) {
     ElevatedCard(
         modifier = modifier.aspectRatio(1f),
@@ -3686,6 +3795,20 @@ private fun RoutineTile(
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
                         )
                     }
+                }
+            }
+            onHide?.let { hideTile ->
+                FilledIconButton(
+                    onClick = hideTile,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(8.dp)
+                        .size(28.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Remove,
+                        contentDescription = "Hide $label",
+                    )
                 }
             }
         }
