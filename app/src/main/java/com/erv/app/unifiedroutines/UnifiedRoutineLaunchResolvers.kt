@@ -2,6 +2,7 @@ package com.erv.app.unifiedroutines
 
 import com.erv.app.cardio.CardioActiveTimerSession
 import com.erv.app.cardio.CardioLibraryState
+import com.erv.app.cardio.CardioTimerSessionDraft
 import com.erv.app.programs.ProgramDashboardStretchLaunch
 import com.erv.app.programs.ProgramBlockKind
 import com.erv.app.programs.ProgramDayBlock
@@ -22,8 +23,14 @@ fun UnifiedRoutineBlock.resolveWeightRoutine(weightState: WeightLibraryState): W
         weightState
     )
 
-fun UnifiedRoutineBlock.resolveCardioLaunch(cardioState: CardioLibraryState): CardioActiveTimerSession? =
-    cardioTimerSessionForProgramBlock(
+fun UnifiedRoutineBlock.resolveCardioLaunch(cardioState: CardioLibraryState): CardioActiveTimerSession? {
+    cardioQuickLaunchId?.let { quickLaunchId ->
+        val quickLaunch = cardioState.quickLaunches.firstOrNull { it.id == quickLaunchId }
+        if (quickLaunch != null) {
+            return CardioActiveTimerSession.Single(CardioTimerSessionDraft.fromQuickLaunch(quickLaunch))
+        }
+    }
+    return cardioTimerSessionForProgramBlock(
         ProgramDayBlock(
             kind = ProgramBlockKind.CARDIO,
             title = title,
@@ -34,6 +41,7 @@ fun UnifiedRoutineBlock.resolveCardioLaunch(cardioState: CardioLibraryState): Ca
         ),
         cardioState
     )
+}
 
 fun UnifiedRoutineBlock.resolveStretchLaunch(): ProgramDashboardStretchLaunch? =
     when {

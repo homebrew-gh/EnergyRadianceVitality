@@ -35,6 +35,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -61,6 +62,8 @@ import com.erv.app.weighttraining.weightNowEpochSeconds
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+private enum class WorkoutTimerDisplayMode { SESSION, TOTAL }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WeightLiveWorkoutScreen(
@@ -68,6 +71,7 @@ fun WeightLiveWorkoutScreen(
     library: WeightLibraryState,
     loadUnit: BodyWeightUnit,
     userPreferences: UserPreferences,
+    unifiedWorkoutStartedAtEpochSeconds: Long? = null,
     /** When the user expands an exercise, logs sets, or starts HIIT — for HR correlation. */
     onRecordExerciseActivity: (String) -> Unit = {},
     /** Back arrow: leave this screen; workout keeps running (notification). Parent may clear an empty draft. */
@@ -171,6 +175,9 @@ fun WeightLiveWorkoutScreen(
     val darkTheme = isSystemInDarkTheme()
     val headerMid = if (darkTheme) ErvDarkTherapyRedMid else ErvLightTherapyRedMid
     val headerDark = if (darkTheme) ErvDarkTherapyRedDark else ErvLightTherapyRedDark
+    var timerDisplayMode by rememberSaveable(draft.startedAtEpochSeconds, unifiedWorkoutStartedAtEpochSeconds) {
+        mutableStateOf(WorkoutTimerDisplayMode.SESSION)
+    }
 
     if (showPickExercise) {
         WeightPickExerciseDialog(
@@ -327,9 +334,23 @@ fun WeightLiveWorkoutScreen(
                 val elapsedSec = remember(tick, draft.startedAtEpochSeconds) {
                     (weightNowEpochSeconds() - draft.startedAtEpochSeconds).coerceAtLeast(0)
                 }
+                val unifiedElapsedSec = remember(tick, unifiedWorkoutStartedAtEpochSeconds) {
+                    unifiedWorkoutStartedAtEpochSeconds?.let {
+                        (weightNowEpochSeconds() - it).coerceAtLeast(0)
+                    }
+                }
+                val showingUnifiedTotal =
+                    unifiedElapsedSec != null && timerDisplayMode == WorkoutTimerDisplayMode.TOTAL
                 WeightLiveRestTimerHeaderRow(
                     restMode = restTimerMode,
-                    workoutElapsedText = formatElapsed(elapsedSec),
+                    workoutElapsedLabel = if (showingUnifiedTotal) "Total workout" else "Weight session",
+                    workoutElapsedText = formatElapsed(if (showingUnifiedTotal) unifiedElapsedSec ?: elapsedSec else elapsedSec),
+                    workoutElapsedHint = if (unifiedElapsedSec != null) {
+                        if (showingUnifiedTotal) "Swipe to view weight session"
+                        else "Swipe to view total workout"
+                    } else {
+                        null
+                    },
                     restSecondsRemaining = restRemainingSec,
                     restManualPending = restManualPending && restEndAtEpochSeconds == null,
                     onStartManualRest = {
@@ -338,6 +359,16 @@ fun WeightLiveWorkoutScreen(
                     },
                     onSkipRest = { clearRestTimerUi() },
                     onRestZoneLongPress = { showRestTimerSettings = true },
+                    onWorkoutTimerSwipe = {
+                        if (unifiedElapsedSec != null) {
+                            timerDisplayMode =
+                                if (timerDisplayMode == WorkoutTimerDisplayMode.SESSION) {
+                                    WorkoutTimerDisplayMode.TOTAL
+                                } else {
+                                    WorkoutTimerDisplayMode.SESSION
+                                }
+                        }
+                    },
                     modifier = Modifier.padding(vertical = 16.dp)
                 )
                 if (draft.routineName != null) {

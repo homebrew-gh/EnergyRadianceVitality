@@ -332,12 +332,26 @@ fun WeightTrainingCategoryScreen(
 
         val expandedDraft = liveDraft
         if (expandedDraft != null && liveWorkoutUiExpanded) {
+            val activeUnifiedSession = unifiedState.activeSession
+            val activeUnifiedWeightBlockId = activeUnifiedSession?.lastLaunchedBlockId?.takeIf { blockId ->
+                unifiedState
+                    .routineById(activeUnifiedSession.routineId)
+                    ?.blocks
+                    ?.firstOrNull { it.id == blockId }
+                    ?.type == com.erv.app.unifiedroutines.UnifiedRoutineBlockType.WEIGHT
+            }
             WeightLiveWorkoutScreen(
                 modifier = Modifier.fillMaxSize(),
                 draft = expandedDraft,
                 library = state,
                 loadUnit = loadUnit,
                 userPreferences = userPreferences,
+                unifiedWorkoutStartedAtEpochSeconds =
+                    if (activeUnifiedSession != null && activeUnifiedWeightBlockId != null) {
+                        activeUnifiedSession.startedAtEpochSeconds
+                    } else {
+                        null
+                    },
                 onRecordExerciseActivity = { id -> liveWorkoutViewModel.recordExerciseFocus(id) },
                 onLeaveWorkoutUi = {
                     val draft = liveWorkoutViewModel.activeDraft.value
@@ -350,14 +364,23 @@ fun WeightTrainingCategoryScreen(
                         if (noExercises && noLoggedSets && noHiit) {
                             heartRateBle.discardWorkoutRecording()
                             liveWorkoutViewModel.clearDraft()
+                            if (activeUnifiedSession != null && activeUnifiedWeightBlockId != null) {
+                                onBack()
+                            }
                         } else {
                             liveWorkoutViewModel.setLiveWorkoutUiExpanded(false)
+                            if (activeUnifiedSession != null && activeUnifiedWeightBlockId != null) {
+                                onBack()
+                            }
                         }
                     }
                 },
                 onDiscardWorkout = {
                     heartRateBle.discardWorkoutRecording()
                     liveWorkoutViewModel.clearDraft()
+                    if (activeUnifiedSession != null && activeUnifiedWeightBlockId != null) {
+                        onBack()
+                    }
                 },
                 onFinish = {
                     scope.launch {

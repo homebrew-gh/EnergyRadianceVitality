@@ -612,7 +612,20 @@ fun StretchingCategoryScreen(
                 }
                 guidedRoutine = null
             },
-            onCancel = { guidedRoutine = null }
+            onCancel = {
+                val activeUnifiedSession = unifiedState.activeSession
+                val activeUnifiedBlockId = activeUnifiedSession?.lastLaunchedBlockId?.takeIf { blockId ->
+                    unifiedState
+                        .routineById(activeUnifiedSession.routineId)
+                        ?.blocks
+                        ?.firstOrNull { it.id == blockId }
+                        ?.type == UnifiedRoutineBlockType.STRETCH
+                }
+                guidedRoutine = null
+                if (activeUnifiedSession != null && activeUnifiedBlockId != null) {
+                    onBack()
+                }
+            }
         )
         return
     }

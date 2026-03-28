@@ -509,6 +509,14 @@ fun CardioCategoryScreen(
                         draft.eligibleForPhoneGps() && cardioGpsPreferred && locationFineGranted && !paceOnlyTimer
                     val showGpsPermissionHint =
                         draft.eligibleForPhoneGps() && cardioGpsPreferred && !locationFineGranted && !paceOnlyTimer
+                    val activeUnifiedSession = unifiedState.activeSession
+                    val activeUnifiedBlockId = activeUnifiedSession?.lastLaunchedBlockId?.takeIf { blockId ->
+                        unifiedState
+                            .routineById(activeUnifiedSession.routineId)
+                            ?.blocks
+                            ?.firstOrNull { it.id == blockId }
+                            ?.type == UnifiedRoutineBlockType.CARDIO
+                    }
                     CardioElapsedTimerFullScreen(
                         draft = draft,
                         distanceUnit = distanceUnit,
@@ -525,7 +533,12 @@ fun CardioCategoryScreen(
                         onRequestLocationPermission = {
                             requestCardioLocationPermission.launch(Manifest.permission.ACCESS_FINE_LOCATION)
                         },
-                        onLeaveTimerUi = { cardioLiveWorkoutViewModel.setCardioLiveUiExpanded(false) },
+                        onLeaveTimerUi = {
+                            cardioLiveWorkoutViewModel.setCardioLiveUiExpanded(false)
+                            if (activeUnifiedSession != null && activeUnifiedBlockId != null) {
+                                onBack()
+                            }
+                        },
                         onStop = { elapsedSeconds ->
                             val gpsPoints = drainCardioGpsIfNeeded(recordGps, timerAppContext)
                             scope.launch {
@@ -586,12 +599,23 @@ fun CardioCategoryScreen(
                             heartRateBle.discardWorkoutRecording()
                             cyclingCscBle.discardWorkoutRecording()
                             cardioLiveWorkoutViewModel.clearSession()
+                            if (activeUnifiedSession != null && activeUnifiedBlockId != null) {
+                                onBack()
+                            }
                         }
                     )
                 }
             }
             is CardioActiveTimerSession.Multi -> {
                 if (cardioLiveUiExpanded) {
+                    val activeUnifiedSession = unifiedState.activeSession
+                    val activeUnifiedBlockId = activeUnifiedSession?.lastLaunchedBlockId?.takeIf { blockId ->
+                        unifiedState
+                            .routineById(activeUnifiedSession.routineId)
+                            ?.blocks
+                            ?.firstOrNull { it.id == blockId }
+                            ?.type == UnifiedRoutineBlockType.CARDIO
+                    }
                     val multiKey = timer.state.currentLegIndex to timer.state.completedSegments.size
                     CardioMultiLegTimerFullScreen(
                         state = timer.state,
@@ -599,7 +623,12 @@ fun CardioCategoryScreen(
                         dark = therapyRedDark,
                         mid = therapyRedMid,
                         glow = therapyRedGlow,
-                        onLeaveWorkoutUi = { cardioLiveWorkoutViewModel.setCardioLiveUiExpanded(false) },
+                        onLeaveWorkoutUi = {
+                            cardioLiveWorkoutViewModel.setCardioLiveUiExpanded(false)
+                            if (activeUnifiedSession != null && activeUnifiedBlockId != null) {
+                                onBack()
+                            }
+                        },
                         onFinishLeg = { elapsedSeconds ->
                             scope.launch {
                                 val durationMinutes = max(1, (elapsedSeconds + 59) / 60)
@@ -653,6 +682,9 @@ fun CardioCategoryScreen(
                         onCancel = {
                             heartRateBle.discardWorkoutRecording()
                             cardioLiveWorkoutViewModel.clearSession()
+                            if (activeUnifiedSession != null && activeUnifiedBlockId != null) {
+                                onBack()
+                            }
                         }
                     )
                 }

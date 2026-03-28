@@ -64,15 +64,21 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.erv.app.cardio.CardioBuiltinActivity
+import com.erv.app.cardio.CardioDistanceUnit
 import com.erv.app.cardio.CardioLibraryState
+import com.erv.app.cardio.CardioQuickLaunch
 import com.erv.app.cardio.CardioRoutine
 import com.erv.app.cardio.cardioBuiltinActivitiesForUserSelection
 import com.erv.app.cardio.displayName
+import com.erv.app.cardio.formatCardioAveragePaceForSession
+import com.erv.app.cardio.formatCardioDistanceFromMeters
 import com.erv.app.data.UserPreferences
+import com.erv.app.data.BodyWeightUnit
 import com.erv.app.hr.LocalHeartRateBle
 import com.erv.app.programs.decodeUnifiedRoutineLaunch
 import com.erv.app.programs.encodeStretchLaunch
 import com.erv.app.stretching.StretchCatalogEntry
+import com.erv.app.stretching.StretchSession
 import com.erv.app.stretching.StretchLibraryState
 import com.erv.app.stretching.StretchRoutine
 import com.erv.app.ui.weighttraining.WeightPickExerciseDialog
@@ -84,7 +90,9 @@ import com.erv.app.unifiedroutines.UnifiedRoutineBlock
 import com.erv.app.unifiedroutines.UnifiedRoutineBlockType
 import com.erv.app.unifiedroutines.UnifiedRoutineLibraryState
 import com.erv.app.unifiedroutines.UnifiedRoutineRepository
+import com.erv.app.unifiedroutines.UnifiedWorkoutSession
 import com.erv.app.unifiedroutines.isBlockCompleted
+import com.erv.app.unifiedroutines.nowUnifiedRoutineEpochSeconds
 import com.erv.app.unifiedroutines.resolveCardioLaunch
 import com.erv.app.unifiedroutines.resolveStretchLaunch
 import com.erv.app.unifiedroutines.resolveWeightRoutine
@@ -93,6 +101,11 @@ import com.erv.app.weighttraining.WeightExercise
 import com.erv.app.weighttraining.WeightLibraryState
 import com.erv.app.weighttraining.WeightRoutine
 import com.erv.app.weighttraining.displayLabel
+import com.erv.app.weighttraining.WeightWorkoutSession
+import com.erv.app.weighttraining.totalSetCount
+import com.erv.app.weighttraining.totalVolumeLoadTimesReps
+import com.erv.app.weighttraining.weightLoadUnitSuffix
+import java.time.LocalDate
 import java.util.UUID
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -394,14 +407,25 @@ fun UnifiedRoutineRunScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val heartRateBle = LocalHeartRateBle.current
     val session = unifiedState.activeSession?.takeIf { it.routineId == routineId }
+    val recapSession = session?.let { unifiedState.sessionById(it.sessionId) }
     val routine = session?.routineSnapshot ?: unifiedState.routineById(routineId)
     val fgsDisclosureSeen by userPreferences.weightLiveWorkoutFgsDisclosureSeen.collectAsState(initial = false)
+    val cardioDistanceUnit by userPreferences.cardioDistanceUnit.collectAsState(initial = CardioDistanceUnit.MILES)
+    val weightLoadUnit by userPreferences.weightTrainingLoadUnit.collectAsState(initial = BodyWeightUnit.LB)
     var pendingWeightBlock by remember { mutableStateOf<UnifiedRoutineBlock?>(null) }
+    var tick by remember { mutableStateOf(0) }
 
     LaunchedEffect(routineId, routine) {
         if (routine != null && (session == null || session.routineId != routineId)) {
             repository.startSession(routineId)
             heartRateBle.startUnifiedWorkoutRecording()
+        }
+    }
+    LaunchedEffect(session?.sessionId) {
+        tick = 0
+        while (session != null) {
+            delay(1_000L)
+            tick++
         }
     }
 
@@ -434,17 +458,23 @@ fun UnifiedRoutineRunScreen(
     }
 
     fun launchWeightBlock(block: UnifiedRoutineBlock) {
-        val resolved = block.resolveWeightRoutine(weightState)
-        if (resolved == null) {
-            scope.launch { snackbarHostState.showSnackbar("This weight block does not have any usable exercises.") }
-            return
-        }
         if (cardioLiveWorkoutViewModel.hasActiveTimer) {
             scope.launch { snackbarHostState.showSnackbar("Finish or cancel your cardio timer first.") }
             return
         }
         if (!fgsDisclosureSeen) {
             pendingWeightBlock = block
+            return
+        }
+        if (weightLiveWorkoutViewModel.hasLiveSession) {
+            weightLiveWorkoutViewModel.setLiveWorkoutUiExpanded(true)
+            scope.launch { repository.setLastLaunchedBlock(routine.id, block.id) }
+            onOpenWeightCategory()
+            return
+        }
+        val resolved = block.resolveWeightRoutine(weightState)
+        if (resolved == null) {
+            scope.launch { snackbarHostState.showSnackbar("This weight block does not have any usable exercises.") }
             return
         }
         if (!weightLiveWorkoutViewModel.tryStartFromRoutine(resolved, weightState)) {
@@ -459,6 +489,12 @@ fun UnifiedRoutineRunScreen(
     fun launchCardioBlock(block: UnifiedRoutineBlock) {
         if (weightLiveWorkoutViewModel.hasLiveSession) {
             scope.launch { snackbarHostState.showSnackbar("Finish or cancel your live weight workout first.") }
+            return
+        }
+        if (cardioLiveWorkoutViewModel.hasActiveTimer) {
+            cardioLiveWorkoutViewModel.setCardioLiveUiExpanded(true)
+            scope.launch { repository.setLastLaunchedBlock(routine.id, block.id) }
+            onOpenCardioCategory()
             return
         }
         val sessionToStart = block.resolveCardioLaunch(cardioState)
@@ -522,6 +558,17 @@ fun UnifiedRoutineRunScreen(
                 ) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Progress", style = MaterialTheme.typography.titleSmall)
+                        session?.startedAtEpochSeconds?.let { startedAt ->
+                            val totalElapsedText = formatUnifiedElapsedClock(
+                                remember(tick, startedAt) {
+                                    (nowUnifiedRoutineEpochSeconds() - startedAt).coerceAtLeast(0)
+                                }
+                            )
+                            Text(
+                                "Total workout: $totalElapsedText",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
                         Text(
                             "${session?.completedBlockIds?.size ?: 0} / ${routine.blocks.size} blocks completed",
                             style = MaterialTheme.typography.bodyMedium
@@ -538,6 +585,19 @@ fun UnifiedRoutineRunScreen(
             }
             items(routine.blocks, key = { it.id }) { block ->
                 val completed = session?.isBlockCompleted(block.id) == true
+                val completedSummary = if (completed) {
+                    completedUnifiedBlockSummary(
+                        blockId = block.id,
+                        recapSession = recapSession,
+                        weightState = weightState,
+                        cardioState = cardioState,
+                        stretchState = stretchState,
+                        cardioDistanceUnit = cardioDistanceUnit,
+                        weightLoadUnit = weightLoadUnit
+                    )
+                } else {
+                    null
+                }
                 ElevatedCard(modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
@@ -545,10 +605,17 @@ fun UnifiedRoutineRunScreen(
                             style = MaterialTheme.typography.titleMedium
                         )
                         Text(
-                            unifiedBlockSummary(block, weightState, cardioState, stretchState, stretchCatalog),
+                            completedSummary ?: unifiedBlockSummary(block, weightState, cardioState, stretchState, stretchCatalog),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                        if (completedSummary != null) {
+                            Text(
+                                "Planned: ${unifiedBlockSummary(block, weightState, cardioState, stretchState, stretchCatalog)}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                         block.notes?.takeIf { it.isNotBlank() }?.let {
                             Text(
                                 it,
@@ -815,6 +882,7 @@ private fun UnifiedRoutineBlockEditorDialog(
     var weightIds by rememberSaveable(initial.id) { mutableStateOf(initial.weightExerciseIds) }
     var cardioActivity by rememberSaveable(initial.id) { mutableStateOf(initial.cardioActivity ?: CardioBuiltinActivity.RUN.name) }
     var cardioRoutineId by rememberSaveable(initial.id) { mutableStateOf(initial.cardioRoutineId.orEmpty()) }
+    var cardioQuickLaunchId by rememberSaveable(initial.id) { mutableStateOf(initial.cardioQuickLaunchId.orEmpty()) }
     var stretchRoutineId by rememberSaveable(initial.id) { mutableStateOf(initial.stretchRoutineId.orEmpty()) }
     val stretchIds = remember(initial.id) { mutableStateListOf<String>().apply { addAll(initial.stretchCatalogIds) } }
     var holdSeconds by rememberSaveable(initial.id) { mutableStateOf(initial.stretchHoldSecondsPerStretch.toString()) }
@@ -893,12 +961,34 @@ private fun UnifiedRoutineBlockEditorDialog(
                     }
                     UnifiedRoutineBlockType.CARDIO -> {
                         RoutineDropdown(
-                            label = "Cardio routine",
-                            currentValue = cardioRoutineId,
-                            displayValue = cardioState.routines.firstOrNull { it.id == cardioRoutineId }?.name
-                                ?: if (cardioRoutineId.isBlank()) "None" else "Unknown routine",
-                            options = cardioState.routines.map { it.id to it.name },
-                            onValueSelected = { cardioRoutineId = it }
+                            label = "Cardio saved source",
+                            currentValue = when {
+                                cardioQuickLaunchId.isNotBlank() -> "quick:$cardioQuickLaunchId"
+                                cardioRoutineId.isNotBlank() -> "routine:$cardioRoutineId"
+                                else -> ""
+                            },
+                            displayValue = cardioSavedSourceLabel(
+                                cardioRoutineId = cardioRoutineId,
+                                cardioQuickLaunchId = cardioQuickLaunchId,
+                                cardioState = cardioState
+                            ),
+                            options = cardioSavedSourceOptions(cardioState),
+                            onValueSelected = { selected ->
+                                when {
+                                    selected.startsWith("routine:") -> {
+                                        cardioRoutineId = selected.removePrefix("routine:")
+                                        cardioQuickLaunchId = ""
+                                    }
+                                    selected.startsWith("quick:") -> {
+                                        cardioQuickLaunchId = selected.removePrefix("quick:")
+                                        cardioRoutineId = ""
+                                    }
+                                    else -> {
+                                        cardioRoutineId = ""
+                                        cardioQuickLaunchId = ""
+                                    }
+                                }
+                            }
                         )
                         var expanded by remember { mutableStateOf(false) }
                         ExposedDropdownMenuBox(
@@ -958,7 +1048,7 @@ private fun UnifiedRoutineBlockEditorDialog(
                         OutlinedTextField(
                             value = targetMinutes,
                             onValueChange = { targetMinutes = it.filter { ch -> ch.isDigit() } },
-                            label = { Text("Target Minutes (optional)") },
+                            label = { Text("Target Minutes (optional for manual cardio)") },
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true
                         )
@@ -996,6 +1086,7 @@ private fun UnifiedRoutineBlockEditorDialog(
                             weightExerciseIds = if (weightRoutineId.isBlank()) weightIds else emptyList(),
                             cardioActivity = cardioActivity,
                             cardioRoutineId = cardioRoutineId.ifBlank { null },
+                            cardioQuickLaunchId = cardioQuickLaunchId.ifBlank { null },
                             stretchRoutineId = stretchRoutineId.ifBlank { null },
                             stretchCatalogIds = stretchIds.toList(),
                             stretchHoldSecondsPerStretch = holdSeconds.toIntOrNull()?.coerceIn(5, 300) ?: 30,
@@ -1129,8 +1220,105 @@ private fun unifiedRoutinePreviewLine(
         unifiedBlockSummary(it, weightState, cardioState, stretchState, stretchCatalog)
     }.ifBlank { "No blocks yet." } + if (routine.blocks.size > 3) "..." else ""
 
+private fun completedUnifiedBlockSummary(
+    blockId: String,
+    recapSession: UnifiedWorkoutSession?,
+    weightState: WeightLibraryState,
+    cardioState: CardioLibraryState,
+    stretchState: StretchLibraryState,
+    cardioDistanceUnit: CardioDistanceUnit,
+    weightLoadUnit: BodyWeightUnit,
+): String? {
+    val recap: com.erv.app.unifiedroutines.UnifiedWorkoutBlockRecap =
+        recapSession?.blocks?.firstOrNull { recapBlock -> recapBlock.blockId == blockId } ?: return null
+    return resolveCompletedWeightSummary(recap, weightState, weightLoadUnit)
+        ?: resolveCompletedCardioSummary(recap, cardioState, cardioDistanceUnit)
+        ?: resolveCompletedStretchSummary(recap, stretchState)
+}
+
+private fun resolveCompletedWeightSummary(
+    recap: com.erv.app.unifiedroutines.UnifiedWorkoutBlockRecap,
+    weightState: WeightLibraryState,
+    loadUnit: BodyWeightUnit,
+): String? {
+    val session = resolveCompletedWeightSession(recap, weightState) ?: return null
+    val volume = session.totalVolumeLoadTimesReps(loadUnit)
+    return buildString {
+        append("Completed: ${session.entries.size} exercises · ${session.totalSetCount()} sets")
+        if (volume > 0.5) {
+            append(" · Volume ~${volume.toInt()} ${weightLoadUnitSuffix(loadUnit)}×reps")
+        }
+    }
+}
+
+private fun resolveCompletedCardioSummary(
+    recap: com.erv.app.unifiedroutines.UnifiedWorkoutBlockRecap,
+    cardioState: CardioLibraryState,
+    distanceUnit: CardioDistanceUnit,
+): String? {
+    val session = resolveCompletedCardioSession(recap, cardioState) ?: return null
+    return buildString {
+        append("Completed: ${session.activity.displayLabel} · ${session.durationMinutes} min")
+        session.distanceMeters?.takeIf { it > 1.0 }?.let {
+            append(" · ${formatCardioDistanceFromMeters(it, distanceUnit)}")
+        }
+        formatCardioAveragePaceForSession(session, distanceUnit, null)?.let { pace ->
+            append(" · $pace")
+        }
+    }
+}
+
+private fun resolveCompletedStretchSummary(
+    recap: com.erv.app.unifiedroutines.UnifiedWorkoutBlockRecap,
+    stretchState: StretchLibraryState,
+): String? {
+    val session = resolveCompletedStretchSession(recap, stretchState) ?: return null
+    return buildString {
+        append("Completed: ${session.totalMinutes} min")
+        session.routineName?.takeIf { it.isNotBlank() }?.let { append(" · $it") }
+        if (session.routineName.isNullOrBlank() && session.stretchIds.isNotEmpty()) {
+            append(" · ${session.stretchIds.size} stretches")
+        }
+    }
+}
+
+private fun resolveCompletedWeightSession(
+    recap: com.erv.app.unifiedroutines.UnifiedWorkoutBlockRecap,
+    weightState: WeightLibraryState,
+): WeightWorkoutSession? {
+    val date = runCatching { LocalDate.parse(recap.linkedLogDate) }.getOrNull() ?: return null
+    return weightState.logFor(date)?.workouts?.firstOrNull { it.id == recap.linkedEntryId }
+}
+
+private fun resolveCompletedCardioSession(
+    recap: com.erv.app.unifiedroutines.UnifiedWorkoutBlockRecap,
+    cardioState: CardioLibraryState,
+): com.erv.app.cardio.CardioSession? {
+    val date = runCatching { LocalDate.parse(recap.linkedLogDate) }.getOrNull() ?: return null
+    return cardioState.logFor(date)?.sessions?.firstOrNull { it.id == recap.linkedEntryId }
+}
+
+private fun resolveCompletedStretchSession(
+    recap: com.erv.app.unifiedroutines.UnifiedWorkoutBlockRecap,
+    stretchState: StretchLibraryState,
+): StretchSession? {
+    val date = runCatching { LocalDate.parse(recap.linkedLogDate) }.getOrNull() ?: return null
+    return stretchState.logFor(date)?.sessions?.firstOrNull { it.id == recap.linkedEntryId }
+}
+
+private fun formatUnifiedElapsedClock(totalSeconds: Long): String {
+    val hours = totalSeconds / 3600
+    val minutes = (totalSeconds % 3600) / 60
+    val seconds = totalSeconds % 60
+    return if (hours > 0) {
+        String.format("%d:%02d:%02d", hours, minutes, seconds)
+    } else {
+        String.format("%d:%02d", minutes, seconds)
+    }
+}
+
 private fun unifiedBlockTypeLabel(type: UnifiedRoutineBlockType): String = when (type) {
-    UnifiedRoutineBlockType.WEIGHT -> "Weight"
+    UnifiedRoutineBlockType.WEIGHT -> "Weight Training"
     UnifiedRoutineBlockType.CARDIO -> "Cardio"
     UnifiedRoutineBlockType.STRETCH -> "Stretch"
 }
@@ -1153,12 +1341,24 @@ private fun unifiedBlockSummary(
     }
     UnifiedRoutineBlockType.CARDIO -> {
         val routineName = block.cardioRoutineId?.let { id -> cardioState.routines.firstOrNull { it.id == id }?.name }
+        val quickLaunchName = block.cardioQuickLaunchId?.let { id ->
+            cardioState.quickLaunches.firstOrNull { it.id == id }?.name
+        }
         val activityName = block.cardioActivity?.let { raw ->
             runCatching { CardioBuiltinActivity.valueOf(raw) }.getOrNull()?.displayName() ?: raw
         }
         buildString {
-            append(routineName ?: activityName ?: "No cardio selected")
-            block.targetMinutes?.let { append(" · ~${it} min") }
+            append(
+                when {
+                    quickLaunchName != null -> "Quick Start: $quickLaunchName"
+                    routineName != null -> "Routine: $routineName"
+                    activityName != null -> activityName
+                    else -> "No cardio selected"
+                }
+            )
+            if (quickLaunchName == null) {
+                block.targetMinutes?.let { append(" · ~${it} min") }
+            }
         }
     }
     UnifiedRoutineBlockType.STRETCH -> {
@@ -1179,3 +1379,27 @@ private fun unifiedBlockSummary(
         }
     }
 }
+
+private fun cardioSavedSourceLabel(
+    cardioRoutineId: String,
+    cardioQuickLaunchId: String,
+    cardioState: CardioLibraryState,
+): String = when {
+    cardioQuickLaunchId.isNotBlank() ->
+        cardioState.quickLaunches.firstOrNull { it.id == cardioQuickLaunchId }?.let { "Quick Start: ${it.name}" }
+            ?: "Unknown quick start"
+    cardioRoutineId.isNotBlank() ->
+        cardioState.routines.firstOrNull { it.id == cardioRoutineId }?.let { "Routine: ${it.name}" }
+            ?: "Unknown routine"
+    else -> "None"
+}
+
+private fun cardioSavedSourceOptions(cardioState: CardioLibraryState): List<Pair<String, String>> =
+    buildList {
+        cardioState.routines
+            .sortedBy { it.name.lowercase() }
+            .forEach { add("routine:${it.id}" to "Routine: ${it.name}") }
+        cardioState.quickLaunches
+            .sortedBy { it.name.lowercase() }
+            .forEach { add("quick:${it.id}" to "Quick Start: ${it.name}") }
+    }

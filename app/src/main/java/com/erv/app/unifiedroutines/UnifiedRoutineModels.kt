@@ -25,6 +25,7 @@ data class UnifiedRoutineBlock(
     val weightRoutineId: String? = null,
     val cardioActivity: String? = null,
     val cardioRoutineId: String? = null,
+    val cardioQuickLaunchId: String? = null,
     val stretchRoutineId: String? = null,
     val stretchCatalogIds: List<String> = emptyList(),
     val stretchHoldSecondsPerStretch: Int = 30,

@@ -2,6 +2,7 @@ package com.erv.app.ui.weighttraining
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -21,6 +22,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -181,12 +183,15 @@ fun WeightLiveRestTimerSettingsDialog(
 @Composable
 fun WeightLiveRestTimerHeaderRow(
     restMode: WeightLiveRestTimerMode,
+    workoutElapsedLabel: String,
     workoutElapsedText: String,
+    workoutElapsedHint: String?,
     restSecondsRemaining: Int?,
     restManualPending: Boolean,
     onStartManualRest: () -> Unit,
     onSkipRest: () -> Unit,
     onRestZoneLongPress: () -> Unit,
+    onWorkoutTimerSwipe: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val restSettingsCd = stringResource(R.string.weight_live_rest_timer_long_press_cd)
@@ -264,11 +269,27 @@ fun WeightLiveRestTimerHeaderRow(
             }
         }
         Column(
-            modifier = Modifier.weight(1f),
+            modifier = Modifier
+                .weight(1f)
+                .pointerInput(onWorkoutTimerSwipe) {
+                    var accumulatedDrag = 0f
+                    detectHorizontalDragGestures(
+                        onHorizontalDrag = { _, dragAmount ->
+                            accumulatedDrag += dragAmount
+                        },
+                        onDragEnd = {
+                            if (abs(accumulatedDrag) > 32f) {
+                                onWorkoutTimerSwipe()
+                            }
+                            accumulatedDrag = 0f
+                        },
+                        onDragCancel = { accumulatedDrag = 0f }
+                    )
+                },
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
-                text = stringResource(R.string.weight_live_workout_timer_display_label),
+                text = workoutElapsedLabel,
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -276,6 +297,14 @@ fun WeightLiveRestTimerHeaderRow(
                 text = workoutElapsedText,
                 style = MaterialTheme.typography.displaySmall
             )
+            workoutElapsedHint?.let { hint ->
+                Text(
+                    text = hint,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
+                )
+            }
         }
     }
 }
