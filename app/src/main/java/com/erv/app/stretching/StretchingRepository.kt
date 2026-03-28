@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.erv.app.unifiedroutines.UnifiedSessionLink
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -63,7 +64,8 @@ class StretchingRepository(context: Context) {
         routineId: String? = null,
         routineName: String? = null,
         stretchIds: List<String>,
-        totalMinutes: Int
+        totalMinutes: Int,
+        unifiedLink: UnifiedSessionLink? = null
     ) {
         updateState { current ->
             val log = current.logFor(date) ?: StretchDayLog(date = date.toString())
@@ -73,7 +75,8 @@ class StretchingRepository(context: Context) {
                 stretchIds = stretchIds,
                 totalMinutes = totalMinutes.coerceAtLeast(0),
                 loggedAtEpochSeconds = nowEpochSeconds(),
-                id = UUID.randomUUID().toString()
+                id = UUID.randomUUID().toString(),
+                unifiedLink = unifiedLink
             )
             current.copy(
                 logs = current.logs.upsert(

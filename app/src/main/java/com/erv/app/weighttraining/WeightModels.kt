@@ -3,6 +3,7 @@ package com.erv.app.weighttraining
 import com.erv.app.SectionLogDateFilter
 import com.erv.app.cardio.CardioHrSample
 import com.erv.app.cardio.CardioHrScaffolding
+import com.erv.app.unifiedroutines.UnifiedSessionLink
 import kotlinx.serialization.EncodeDefault
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -134,7 +135,8 @@ data class WeightWorkoutSession(
      * HR stats per exercise window, from focus timestamps during a live lift (approximate).
      * Omitted when syncing day logs to relays (local detail).
      */
-    val heartRateExerciseSegments: List<WeightExerciseHrSegment> = emptyList()
+    val heartRateExerciseSegments: List<WeightExerciseHrSegment> = emptyList(),
+    val unifiedLink: UnifiedSessionLink? = null
 )
 
 @Serializable

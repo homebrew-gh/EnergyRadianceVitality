@@ -1,6 +1,7 @@
 package com.erv.app.stretching
 
 import com.erv.app.SectionLogDateFilter
+import com.erv.app.unifiedroutines.UnifiedSessionLink
 import kotlinx.serialization.Serializable
 import java.nio.charset.StandardCharsets
 import java.time.LocalDate
@@ -123,7 +124,8 @@ data class StretchSession(
     val stretchIds: List<String> = emptyList(),
     val totalMinutes: Int = 0,
     val loggedAtEpochSeconds: Long = nowEpochSeconds(),
-    val id: String = ""
+    val id: String = "",
+    val unifiedLink: UnifiedSessionLink? = null
 )
 
 internal fun stableLegacyStretchSessionId(session: StretchSession): String {
