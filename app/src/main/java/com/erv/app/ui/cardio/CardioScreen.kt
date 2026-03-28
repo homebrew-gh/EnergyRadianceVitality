@@ -65,6 +65,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.SnackbarHost
@@ -158,6 +159,7 @@ import com.erv.app.cardio.metersToCardioDistanceInputString
 import com.erv.app.cardio.parseCardioDistanceInputToMeters
 import com.erv.app.cardio.defaultSprintIndoorTreadmillParams
 import com.erv.app.cardio.displayName
+import com.erv.app.cardio.isCyclingActivity
 import com.erv.app.cardio.label
 import com.erv.app.cardio.nowEpochSeconds
 import com.erv.app.cardio.resolveSnapshot
@@ -172,6 +174,9 @@ import com.erv.app.nostr.BlossomUploader
 import com.erv.app.nostr.EventSigner
 import com.erv.app.nostr.Nip96Uploader
 import com.erv.app.nostr.UnsignedEvent
+import com.erv.app.nostr.buildWorkoutShareHashtagContentLine
+import com.erv.app.nostr.parseExtraWorkoutHashtagTopics
+import com.erv.app.nostr.workoutShareKind1TopicTags
 import com.erv.app.nostr.LocalKeyManager
 import com.erv.app.nostr.RelayPool
 import com.erv.app.ui.media.playHiitWorkCountdownTickCue
@@ -183,6 +188,7 @@ import com.erv.app.ui.dashboard.SectionLogFilterBar
 import com.erv.app.ui.dashboard.datesWithCardioActivity
 import com.erv.app.ui.weighttraining.LiveWorkoutInProgressBanner
 import com.erv.app.ui.media.WorkoutMediaControlPanel
+import com.erv.app.cycling.LocalCyclingCsc
 import com.erv.app.hr.HeartRateSessionAnalyticsSection
 import com.erv.app.hr.LocalHeartRateBle
 import com.erv.app.ui.weighttraining.WeightLiveWorkoutFgsDisclosureDialog
@@ -193,6 +199,10 @@ import com.erv.app.ui.theme.ErvDarkTherapyRedMid
 import com.erv.app.ui.theme.ErvLightTherapyRedDark
 import com.erv.app.ui.theme.ErvLightTherapyRedGlow
 import com.erv.app.ui.theme.ErvLightTherapyRedMid
+import com.erv.app.unifiedroutines.UnifiedRoutineBlockType
+import com.erv.app.unifiedroutines.UnifiedRoutineLibraryState
+import com.erv.app.unifiedroutines.UnifiedRoutineRepository
+import com.erv.app.unifiedroutines.linkFor
 import kotlin.math.min
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -209,6 +219,7 @@ private enum class CardioTab { Activities, Routines }
 @Composable
 fun CardioCategoryScreen(
     repository: CardioRepository,
+    unifiedRoutineRepository: UnifiedRoutineRepository,
     userPreferences: UserPreferences,
     cardioLiveWorkoutViewModel: CardioLiveWorkoutViewModel,
     weightLiveWorkoutViewModel: WeightLiveWorkoutViewModel,
@@ -226,6 +237,12 @@ fun CardioCategoryScreen(
     val timerContext = LocalContext.current
     val timerAppContext = remember(timerContext) { timerContext.applicationContext }
     val heartRateBle = LocalHeartRateBle.current
+    val cyclingCscBle = LocalCyclingCsc.current
+    val unifiedState by unifiedRoutineRepository.state.collectAsState(initial = UnifiedRoutineLibraryState())
+    val cyclingWorkoutDistanceMeters by cyclingCscBle.workoutDistanceMeters.collectAsState()
+    val cyclingSpeedKmh by cyclingCscBle.currentSpeedKmh.collectAsState()
+    val cyclingCadenceRpm by cyclingCscBle.currentCadenceRpm.collectAsState()
+    val cyclingConnectionState by cyclingCscBle.connectionState.collectAsState()
     var locationFineGranted by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(timerContext, Manifest.permission.ACCESS_FINE_LOCATION) ==
@@ -306,20 +323,6 @@ fun CardioCategoryScreen(
                     } else {
                         "Could not start the cardio timer. Check notification permission and try again."
                     }
-                )
-            }
-        }
-    }
-
-    LaunchedEffect(relayPool, signer?.publicKey) {
-        if (relayPool != null && signer != null) {
-            CardioSync.fetchFromNetwork(relayPool, signer, signer.publicKey)?.let { remote ->
-                val merged = LibraryStateMerge.mergeCardio(repository.currentState(), remote)
-                repository.replaceAll(merged)
-                RelayPayloadDigestStore.reconcileIdenticalRemoteMerged(
-                    timerAppContext,
-                    CardioSync.fullOutboxEntries(remote),
-                    CardioSync.fullOutboxEntries(merged),
                 )
             }
         }
@@ -499,6 +502,8 @@ fun CardioCategoryScreen(
             is CardioActiveTimerSession.Single -> {
                 if (cardioLiveUiExpanded) {
                     val draft = timer.draft
+                    val cyclingDistanceMeters =
+                        if (draft.activity.isCyclingActivity()) cyclingWorkoutDistanceMeters else null
                     val paceOnlyTimer = draft.timerStyle is CardioTimerStyle.CountDownDistance
                     val recordGps =
                         draft.eligibleForPhoneGps() && cardioGpsPreferred && locationFineGranted && !paceOnlyTimer
@@ -510,6 +515,11 @@ fun CardioCategoryScreen(
                         dark = therapyRedDark,
                         mid = therapyRedMid,
                         glow = therapyRedGlow,
+                        preferredLiveDistanceMeters = cyclingDistanceMeters,
+                        cyclingSensorConnected = draft.activity.isCyclingActivity() &&
+                            cyclingConnectionState == com.erv.app.cycling.CyclingCscBleConnectionState.Connected,
+                        cyclingSpeedKmh = if (draft.activity.isCyclingActivity()) cyclingSpeedKmh else null,
+                        cyclingCadenceRpm = if (draft.activity.isCyclingActivity()) cyclingCadenceRpm else null,
                         gpsRecordingActive = recordGps,
                         showGpsPermissionHint = showGpsPermissionHint,
                         onRequestLocationPermission = {
@@ -525,7 +535,12 @@ fun CardioCategoryScreen(
                                     durationMinutes = durationMinutes,
                                     endEpoch = end,
                                     elapsedSecondsForDistance = elapsedSeconds,
-                                    gpsPoints = gpsPoints
+                                    gpsPoints = gpsPoints,
+                                    preferredDistanceMeters = if (draft.activity.isCyclingActivity()) {
+                                        cyclingCscBle.takeWorkoutSummary()?.distanceMeters
+                                    } else {
+                                        null
+                                    }
                                 )
                                 val hrSummary = heartRateBle.takeWorkoutHeartRateSummary()
                                 val sessionBase = CardioMetEstimator.applyEstimatedKcal(
@@ -534,15 +549,42 @@ fun CardioCategoryScreen(
                                     weightKg
                                 )
                                 val session = hrSummary?.let { sessionBase.copy(heartRate = it) } ?: sessionBase
+                                val activeUnifiedSession = unifiedState.activeSession
+                                val activeUnifiedBlockId = activeUnifiedSession?.lastLaunchedBlockId?.takeIf { blockId ->
+                                    unifiedState
+                                        .routineById(activeUnifiedSession.routineId)
+                                        ?.blocks
+                                        ?.firstOrNull { it.id == blockId }
+                                        ?.type == UnifiedRoutineBlockType.CARDIO
+                                }
+                                val storedSession = if (activeUnifiedSession != null && activeUnifiedBlockId != null) {
+                                    val recap = unifiedState.sessionById(activeUnifiedSession.sessionId)
+                                    session.copy(unifiedLink = recap?.linkFor(activeUnifiedBlockId))
+                                } else {
+                                    session
+                                }
                                 cardioLiveWorkoutViewModel.clearSession()
-                                completedWorkoutSummary = CardioTimerCompletionResult(session, elapsedSeconds)
-                                repository.addSession(today, session)
+                                repository.addSession(today, storedSession)
+                                if (activeUnifiedSession != null && activeUnifiedBlockId != null) {
+                                    unifiedRoutineRepository.attachLoggedBlock(
+                                        routineId = activeUnifiedSession.routineId,
+                                        blockId = activeUnifiedBlockId,
+                                        logDate = today.toString(),
+                                        entryId = storedSession.id
+                                    )
+                                }
                                 repository.currentState().logFor(today)?.let { syncDailyLog(it) }
+                                if (activeUnifiedSession != null && activeUnifiedBlockId != null) {
+                                    onBack()
+                                } else {
+                                    completedWorkoutSummary = CardioTimerCompletionResult(storedSession, elapsedSeconds)
+                                }
                             }
                         },
                         onCancel = {
                             drainCardioGpsIfNeeded(recordGps, timerAppContext)
                             heartRateBle.discardWorkoutRecording()
+                            cyclingCscBle.discardWorkoutRecording()
                             cardioLiveWorkoutViewModel.clearSession()
                         }
                     )
@@ -572,10 +614,36 @@ fun CardioCategoryScreen(
                                 if (session != null) {
                                     val hrSummary = heartRateBle.takeWorkoutHeartRateSummary()
                                     val withHr = hrSummary?.let { session.copy(heartRate = it) } ?: session
+                                    val activeUnifiedSession = unifiedState.activeSession
+                                    val activeUnifiedBlockId = activeUnifiedSession?.lastLaunchedBlockId?.takeIf { blockId ->
+                                        unifiedState
+                                            .routineById(activeUnifiedSession.routineId)
+                                            ?.blocks
+                                            ?.firstOrNull { it.id == blockId }
+                                            ?.type == UnifiedRoutineBlockType.CARDIO
+                                    }
+                                    val storedSession = if (activeUnifiedSession != null && activeUnifiedBlockId != null) {
+                                        val recap = unifiedState.sessionById(activeUnifiedSession.sessionId)
+                                        withHr.copy(unifiedLink = recap?.linkFor(activeUnifiedBlockId))
+                                    } else {
+                                        withHr
+                                    }
                                     cardioLiveWorkoutViewModel.clearSession()
-                                    completedWorkoutSummary = CardioTimerCompletionResult(withHr, null)
-                                    repository.addSession(today, withHr)
+                                    repository.addSession(today, storedSession)
+                                    if (activeUnifiedSession != null && activeUnifiedBlockId != null) {
+                                        unifiedRoutineRepository.attachLoggedBlock(
+                                            routineId = activeUnifiedSession.routineId,
+                                            blockId = activeUnifiedBlockId,
+                                            logDate = today.toString(),
+                                            entryId = storedSession.id
+                                        )
+                                    }
                                     repository.currentState().logFor(today)?.let { syncDailyLog(it) }
+                                    if (activeUnifiedSession != null && activeUnifiedBlockId != null) {
+                                        onBack()
+                                    } else {
+                                        completedWorkoutSummary = CardioTimerCompletionResult(storedSession, null)
+                                    }
                                 } else if (next != null) {
                                     cardioLiveWorkoutViewModel.replaceSession(CardioActiveTimerSession.Multi(next))
                                     snackbarHostState.showSnackbar("Leg saved — next leg started")
@@ -2419,6 +2487,10 @@ fun CardioElapsedTimerFullScreen(
     dark: Color,
     mid: Color,
     glow: Color,
+    preferredLiveDistanceMeters: Double? = null,
+    cyclingSensorConnected: Boolean = false,
+    cyclingSpeedKmh: Double? = null,
+    cyclingCadenceRpm: Int? = null,
     gpsRecordingActive: Boolean = false,
     showGpsPermissionHint: Boolean = false,
     onRequestLocationPermission: () -> Unit = {},
@@ -2475,7 +2547,7 @@ fun CardioElapsedTimerFullScreen(
             }
             val dTarget = distanceCountdownTarget
             if (dTarget != null) {
-                val covered = draft.liveDistanceMeters(elapsed) ?: 0.0
+                val covered = draft.liveDistanceMeters(elapsed, preferredLiveDistanceMeters) ?: 0.0
                 if (covered >= dTarget) {
                     complete(elapsed)
                     break
@@ -2484,13 +2556,13 @@ fun CardioElapsedTimerFullScreen(
         }
     }
 
-    val coveredM = draft.liveDistanceMeters(workoutElapsedSeconds) ?: 0.0
+    val coveredM = draft.liveDistanceMeters(workoutElapsedSeconds, preferredLiveDistanceMeters) ?: 0.0
     val remainingDistance =
         distanceCountdownTarget?.let { max(0.0, it - coveredM) }
     val mainClockSeconds =
         if (timeCountdownCap != null) max(0, timeCountdownCap - workoutElapsedSeconds)
         else workoutElapsedSeconds
-    val distM = draft.liveDistanceMeters(workoutElapsedSeconds)
+    val distM = draft.liveDistanceMeters(workoutElapsedSeconds, preferredLiveDistanceMeters)
 
     Box(
         modifier = Modifier
@@ -2607,6 +2679,35 @@ fun CardioElapsedTimerFullScreen(
                     style = MaterialTheme.typography.bodyMedium,
                     color = Color.White.copy(alpha = 0.75f)
                 )
+                if (draft.activity.isCyclingActivity() && cyclingSensorConnected) {
+                    Spacer(Modifier.height(12.dp))
+                    cyclingSpeedKmh?.let { speed ->
+                        Text(
+                            text = String.format(Locale.US, "%.1f km/h", speed),
+                            style = MaterialTheme.typography.titleMedium,
+                            color = Color.White.copy(alpha = 0.95f)
+                        )
+                    }
+                    cyclingCadenceRpm?.let { cadence ->
+                        Text(
+                            text = "$cadence rpm cadence",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Color.White.copy(alpha = 0.9f)
+                        )
+                    }
+                    preferredLiveDistanceMeters?.let { sensorDistance ->
+                        Text(
+                            text = formatCardioDistanceFromMeters(sensorDistance, distanceUnit),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Color.White.copy(alpha = 0.85f)
+                        )
+                    }
+                    Text(
+                        "Live cycling sensor data",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.White.copy(alpha = 0.65f)
+                    )
+                }
                 if (remainingDistance == null) {
                     if (gpsRecordingActive) {
                         Spacer(Modifier.height(12.dp))
@@ -2644,6 +2745,8 @@ fun CardioElapsedTimerFullScreen(
                         )
                         Text(
                             when {
+                                draft.activity.isCyclingActivity() && cyclingSensorConnected ->
+                                    "Distance from cycling speed sensor"
                                 gpsRecordingActive && liveGpsMeters != null -> "Pace × time (comparison)"
                                 gpsRecordingActive -> "Pace × time while GPS locks"
                                 else -> "Distance from pace × time"
@@ -2732,6 +2835,7 @@ fun CardioWorkoutSummaryFullScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     var sharing by remember { mutableStateOf(false) }
     var shared by remember { mutableStateOf(false) }
+    var shareExtraHashtags by remember { mutableStateOf("") }
     val summaryContext = LocalContext.current
     val nip96Origin by userPreferences.nip96MediaServerOrigin.collectAsState(initial = "")
     val blossomPublicOrigin by userPreferences.blossomPublicServerOrigin.collectAsState(initial = "")
@@ -2920,6 +3024,38 @@ fun CardioWorkoutSummaryFullScreen(
                         modifier = Modifier.padding(bottom = 8.dp)
                     )
                 }
+                OutlinedTextField(
+                    value = shareExtraHashtags,
+                    onValueChange = { shareExtraHashtags = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !sharing && !shared,
+                    label = { Text(stringResource(R.string.workout_share_extra_hashtags_label)) },
+                    placeholder = { Text(stringResource(R.string.workout_share_extra_hashtags_placeholder)) },
+                    supportingText = {
+                        Text(
+                            stringResource(R.string.workout_share_extra_hashtags_helper),
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    },
+                    minLines = 2,
+                    maxLines = 4,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        disabledTextColor = Color.White.copy(alpha = 0.6f),
+                        focusedLabelColor = Color.White.copy(alpha = 0.85f),
+                        unfocusedLabelColor = Color.White.copy(alpha = 0.72f),
+                        disabledLabelColor = Color.White.copy(alpha = 0.5f),
+                        focusedBorderColor = Color.White.copy(alpha = 0.9f),
+                        unfocusedBorderColor = Color.White.copy(alpha = 0.5f),
+                        disabledBorderColor = Color.White.copy(alpha = 0.35f),
+                        cursorColor = Color.White,
+                        focusedSupportingTextColor = Color.White.copy(alpha = 0.65f),
+                        unfocusedSupportingTextColor = Color.White.copy(alpha = 0.6f),
+                        focusedPlaceholderColor = Color.White.copy(alpha = 0.45f),
+                        unfocusedPlaceholderColor = Color.White.copy(alpha = 0.45f),
+                    )
+                )
                 OutlinedButton(
                     onClick = {
                         if (sharing || shared) return@OutlinedButton
@@ -2937,7 +3073,8 @@ fun CardioWorkoutSummaryFullScreen(
                                 attachRouteImage,
                                 dark,
                                 mid,
-                                glow
+                                glow,
+                                shareExtraHashtags
                             )
                             sharing = false
                             shared = outcome.relayOk
@@ -2996,7 +3133,8 @@ fun CardioWorkoutSummaryFullScreen(
 private fun buildWorkoutNoteContent(
     session: CardioSession,
     distanceUnit: CardioDistanceUnit,
-    routeImageUrl: String? = null
+    routeImageUrl: String? = null,
+    extraTopics: List<String> = emptyList()
 ): String = buildString {
     append("\uD83C\uDFC3 Completed: ${session.activity.displayLabel}")
     if (session.modality == CardioModality.INDOOR_TREADMILL) append(" (indoor)")
@@ -3025,7 +3163,7 @@ private fun buildWorkoutNoteContent(
         val labels = session.segments.sortedBy { it.orderIndex }.joinToString(" → ") { it.activity.displayLabel }
         append("\uD83D\uDD04 Segments: $labels\n")
     }
-    append("\n#erv #workout #fitness")
+    append("\n${buildWorkoutShareHashtagContentLine(extraTopics)}")
     if (routeImageUrl != null) {
         append("\n\n")
         append(routeImageUrl)
@@ -3051,8 +3189,10 @@ private suspend fun publishWorkoutNote(
     attachRouteImage: Boolean,
     dark: Color,
     mid: Color,
-    glow: Color
+    glow: Color,
+    extraHashtagInput: String = ""
 ): WorkoutPublishOutcome {
+    val extraTopics = parseExtraWorkoutHashtagTopics(extraHashtagInput)
     val normalizedOrigin = when (mediaBackend) {
         WorkoutMediaUploadBackend.NIP96 ->
             Nip96Uploader.normalizeMediaServerOrigin(nip96OriginRaw)
@@ -3084,15 +3224,11 @@ private suspend fun publishWorkoutNote(
             uploadOk = routeImageUrl != null
         }
     }
-    val tags = mutableListOf(
-        listOf("t", "erv"),
-        listOf("t", "workout"),
-        listOf("t", "fitness")
-    )
+    val tags = workoutShareKind1TopicTags(extraTopics).toMutableList()
     if (routeImageUrl != null) {
         tags.add(listOf("imeta", "url $routeImageUrl", "m image/png", "dim 1080x1440"))
     }
-    val content = buildWorkoutNoteContent(session, distanceUnit, routeImageUrl)
+    val content = buildWorkoutNoteContent(session, distanceUnit, routeImageUrl, extraTopics)
     val unsigned = UnsignedEvent(
         pubkey = signer.publicKey,
         createdAt = System.currentTimeMillis() / 1000,

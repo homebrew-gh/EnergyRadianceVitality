@@ -4,15 +4,27 @@ import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -22,14 +34,17 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.automirrored.filled.DirectionsRun
 import androidx.compose.material.icons.filled.FitnessCenter
+import androidx.compose.material.icons.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Medication
 import androidx.compose.material.icons.filled.AcUnit
 import androidx.compose.material.icons.filled.Thermostat
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material.icons.filled.Bedtime
+import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.MonitorWeight
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
@@ -37,10 +52,15 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.zIndex
 import androidx.core.content.ContextCompat
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -50,6 +70,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.erv.app.R
+import com.erv.app.cycling.LocalCyclingCsc
 import com.erv.app.hr.LocalHeartRateBle
 import com.erv.app.nostr.EventSigner
 import com.erv.app.nostr.LocalKeyManager
@@ -87,6 +108,7 @@ import com.erv.app.cardio.CardioSync
 import com.erv.app.cardio.CardioTimerSessionDraft
 import com.erv.app.cardio.CardioTimerStyle
 import com.erv.app.cardio.eligibleForPhoneGps
+import com.erv.app.cardio.isCyclingActivity
 import com.erv.app.cardio.cardioActivityRowsFor
 import com.erv.app.cardio.effectiveSteps
 import com.erv.app.cardio.stepsSummaryLabel
@@ -94,11 +116,14 @@ import com.erv.app.cardio.summaryLine
 import com.erv.app.cardio.summaryLabel
 import com.erv.app.cardio.needsOutdoorRuckWeightPrompt
 import com.erv.app.data.BodyWeightUnit
+import com.erv.app.data.LaunchPadTileId
 import com.erv.app.goals.GoalProgressRow
 import com.erv.app.goals.anySelectedGoalMet
 import com.erv.app.goals.computeWeeklyGoalProgress
 import com.erv.app.goals.summaryLine
 import com.erv.app.data.UserPreferences
+import com.erv.app.data.mergeVisibleLaunchPadTileOrder
+import com.erv.app.data.resolveVisibleLaunchPadTileOrder
 import com.erv.app.heatcold.HeatColdActivityRow
 import com.erv.app.heatcold.HeatColdLibraryState
 import com.erv.app.stretching.StretchActivityRow
@@ -112,12 +137,31 @@ import com.erv.app.heatcold.coldActivityFor
 import com.erv.app.heatcold.saunaActivityFor
 import com.erv.app.heatcold.summaryLine
 import com.erv.app.lighttherapy.LightTherapyRepository
+import com.erv.app.programs.ProgramBlockKind
+import com.erv.app.programs.ProgramDayBlock
+import com.erv.app.programs.ProgramDashboardHeatColdLaunch
+import com.erv.app.programs.ProgramDashboardStretchLaunch
+import com.erv.app.programs.ProgramDashboardUnifiedRoutineLaunch
+import com.erv.app.programs.ProgramRepository
+import com.erv.app.programs.ProgramSync
+import com.erv.app.programs.ProgramsLibraryState
+import com.erv.app.programs.cardioTimerSessionForProgramBlock
+import com.erv.app.programs.encodeHeatColdLaunch
+import com.erv.app.programs.encodeStretchLaunch
+import com.erv.app.programs.encodeUnifiedRoutineLaunch
+import com.erv.app.programs.launchPadLabelsForBlocks
+import com.erv.app.programs.programBlockCompletionKey
+import com.erv.app.programs.programBlocksForCalendarDay
+import com.erv.app.programs.programChecklistCompletionKey
+import com.erv.app.programs.weightRoutineForProgramBlock
 import com.erv.app.ui.cardio.CardioElapsedTimerFullScreen
 import com.erv.app.ui.cardio.drainCardioGpsIfNeeded
 import com.erv.app.ui.cardio.CardioMultiLegTimerFullScreen
 import com.erv.app.ui.cardio.CardioWorkoutSummaryFullScreen
 import com.erv.app.ui.cardio.OutdoorRuckPackWeightDialog
 import com.erv.app.ui.lighttherapy.LightTherapyTimerFullScreen
+import com.erv.app.unifiedroutines.UnifiedRoutineRepository
+import com.erv.app.unifiedroutines.UnifiedRoutine
 import com.erv.app.lighttherapy.LightTimeOfDay
 import com.erv.app.lighttherapy.lightActivityFor
 import com.erv.app.ui.theme.ErvDarkTherapyRedDark
@@ -149,6 +193,7 @@ import com.erv.app.weighttraining.WeightRoutine
 import com.erv.app.weighttraining.weightActivityRowsFor
 import java.time.LocalDate
 import kotlin.math.max
+import kotlin.math.roundToInt
 
 private data class LightTimerSession(
     val minutes: Int,
@@ -177,6 +222,8 @@ fun DashboardScreen(
     weightRepository: WeightRepository,
     heatColdRepository: HeatColdRepository,
     stretchingRepository: StretchingRepository,
+    programRepository: ProgramRepository,
+    unifiedRoutineRepository: UnifiedRoutineRepository,
     weightLiveWorkoutViewModel: WeightLiveWorkoutViewModel,
     cardioLiveWorkoutViewModel: CardioLiveWorkoutViewModel,
     userPreferences: UserPreferences,
@@ -189,6 +236,11 @@ fun DashboardScreen(
 ) {
     val context = LocalContext.current
     val heartRateBle = LocalHeartRateBle.current
+    val cyclingCscBle = LocalCyclingCsc.current
+    val cyclingWorkoutDistanceMeters by cyclingCscBle.workoutDistanceMeters.collectAsState()
+    val cyclingSpeedKmh by cyclingCscBle.currentSpeedKmh.collectAsState()
+    val cyclingCadenceRpm by cyclingCscBle.currentCadenceRpm.collectAsState()
+    val cyclingConnectionState by cyclingCscBle.connectionState.collectAsState()
     val selectedDate by viewModel.selectedDate.collectAsState()
     val supplementState by supplementRepository.state.collectAsState(initial = SupplementLibraryState())
     val lightState by lightTherapyRepository.state.collectAsState(initial = LightLibraryState())
@@ -196,30 +248,34 @@ fun DashboardScreen(
     val weightState by weightRepository.state.collectAsState(initial = WeightLibraryState())
     val heatColdState by heatColdRepository.state.collectAsState(initial = HeatColdLibraryState())
     val stretchState by stretchingRepository.state.collectAsState(initial = StretchLibraryState())
+    val programsState by programRepository.state.collectAsState(initial = ProgramsLibraryState())
+    val unifiedRoutineState by unifiedRoutineRepository.state.collectAsState(initial = com.erv.app.unifiedroutines.UnifiedRoutineLibraryState())
     val weightKg by userPreferences.fallbackBodyWeightKg.collectAsState(initial = null)
     val cardioDistanceUnit by userPreferences.cardioDistanceUnit.collectAsState(initial = CardioDistanceUnit.MILES)
     val cardioGpsPreferred by userPreferences.cardioGpsRecordingPreferred.collectAsState(initial = true)
     val weightTrainingLoadUnit by userPreferences.weightTrainingLoadUnit.collectAsState(initial = BodyWeightUnit.LB)
-    val selectedGoalIds by userPreferences.selectedGoalIds.collectAsState(initial = emptySet())
+    val goals by userPreferences.goals.collectAsState(initial = emptyList())
     val heartRateBannerExpanded by userPreferences.heartRateBannerExpanded.collectAsState(initial = true)
     val goalsAsOfDate = LocalDate.now()
     val weeklyGoalRows = remember(
         goalsAsOfDate,
-        selectedGoalIds,
+        goals,
         supplementState,
         lightState,
         cardioState,
         weightState,
         stretchState,
+        programsState,
     ) {
         computeWeeklyGoalProgress(
             asOfDate = goalsAsOfDate,
-            selectedGoalIds = selectedGoalIds,
+            goals = goals,
             supplementState = supplementState,
             lightState = lightState,
             cardioState = cardioState,
             weightState = weightState,
             stretchState = stretchState,
+            programsState = programsState,
         )
     }
     val anyGoalMetThisWeek = remember(weeklyGoalRows) { anySelectedGoalMet(weeklyGoalRows) }
@@ -263,12 +319,15 @@ fun DashboardScreen(
         )
     }
     val weightTrainingCategory = remember { categories.first { it.id == "weight_training" } }
+    val unifiedCategory = remember { categories.first { it.id == "unified_routines" } }
     val cardioCategory = remember { categories.first { it.id == "cardio" } }
     val liveWeightDraft by weightLiveWorkoutViewModel.activeDraft.collectAsState()
     val cardioActiveTimer by cardioLiveWorkoutViewModel.activeTimer.collectAsState()
     val cardioLiveUiExpanded by cardioLiveWorkoutViewModel.cardioLiveUiExpanded.collectAsState()
     val heatColdCategory = remember { categories.first { it.id == "heat_cold" } }
     val stretchingCategory = remember { categories.first { it.id == "stretching" } }
+    val bodyTrackerCategory = remember { categories.first { it.id == "body_tracker" } }
+    val programsCategory = remember { categories.first { it.id == "programs" } }
     val today = remember { LocalDate.now() }
     val scope = rememberCoroutineScope()
     var showCalendar by remember { mutableStateOf(false) }
@@ -297,6 +356,7 @@ fun DashboardScreen(
     var showWeightFgsDialog by remember { mutableStateOf(false) }
     var pendingDashboardWeightBlank by remember { mutableStateOf(false) }
     var pendingDashboardWeightRoutine by remember { mutableStateOf<WeightRoutine?>(null) }
+    var pendingProgramWeightBlock by remember { mutableStateOf<ProgramDayBlock?>(null) }
     // Match app ThemeMode (LIGHT/DARK/SYSTEM), not raw system — same as ErvTheme in MainActivity.
     val darkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val therapyRedDark = if (darkTheme) ErvDarkTherapyRedDark else ErvLightTherapyRedDark
@@ -379,6 +439,132 @@ fun DashboardScreen(
                         "Could not start the cardio timer. Check notification permission and try again."
                     }
                 )
+            }
+        }
+    }
+
+    fun startProgramBlockFromLaunchPad(block: ProgramDayBlock) {
+        when (block.kind) {
+            ProgramBlockKind.REST, ProgramBlockKind.CUSTOM -> {
+                scope.launch {
+                    snackbarHostState.showSnackbar("No live session for this block — see notes in Programs.")
+                }
+            }
+            ProgramBlockKind.FLEX_TRAINING -> {
+                scope.launch {
+                    snackbarHostState.showSnackbar("Choose Weight or Cardio from the Programs sheet for this workout block.")
+                }
+            }
+            ProgramBlockKind.UNIFIED_ROUTINE -> {
+                val routineId = block.unifiedRoutineId?.takeIf { it.isNotBlank() }
+                if (routineId == null || unifiedRoutineState.routines.none { it.id == routineId }) {
+                    scope.launch {
+                        snackbarHostState.showSnackbar("No unified routine linked — edit this block in Programs.")
+                    }
+                    return
+                }
+                scope.launch {
+                    userPreferences.setProgramDashboardUnifiedRoutineLaunchJson(
+                        encodeUnifiedRoutineLaunch(ProgramDashboardUnifiedRoutineLaunch(routineId = routineId))
+                    )
+                    onNavigateToCategory(categories.first { it.id == "unified_routines" })
+                }
+            }
+            ProgramBlockKind.OTHER -> {
+                scope.launch {
+                    snackbarHostState.showSnackbar("Use the checklist on the Programs sheet for this day — habits are checked off there.")
+                }
+            }
+            ProgramBlockKind.WEIGHT -> {
+                val routine = weightRoutineForProgramBlock(block, weightState)
+                if (routine == null) {
+                    scope.launch {
+                        snackbarHostState.showSnackbar("Add exercises or a saved routine to this block first.")
+                    }
+                    return
+                }
+                if (cardioLiveWorkoutViewModel.hasActiveTimer) {
+                    scope.launch {
+                        snackbarHostState.showSnackbar("Finish or cancel your cardio timer first.")
+                    }
+                    return
+                }
+                if (!fgsDisclosureSeen) {
+                    pendingProgramWeightBlock = block
+                    showWeightFgsDialog = true
+                    return
+                }
+                if (!weightLiveWorkoutViewModel.tryStartFromRoutine(routine, weightState)) {
+                    scope.launch {
+                        snackbarHostState.showSnackbar("Finish or cancel your live workout first.")
+                    }
+                    return
+                }
+                weightLiveWorkoutViewModel.setLiveWorkoutUiExpanded(true)
+                onNavigateToCategory(weightTrainingCategory)
+            }
+            ProgramBlockKind.CARDIO -> {
+                if (weightLiveWorkoutViewModel.hasLiveSession) {
+                    scope.launch {
+                        snackbarHostState.showSnackbar("Finish or cancel your live weight workout first.")
+                    }
+                    return
+                }
+                scope.launch {
+                    delay(120L)
+                    val session = cardioTimerSessionForProgramBlock(block, cardioState)
+                    if (session == null) {
+                        snackbarHostState.showSnackbar("Could not start cardio — check activity or routine in Programs.")
+                        return@launch
+                    }
+                    dashboardStartOrQueueCardio(session)
+                }
+            }
+            ProgramBlockKind.STRETCH_ROUTINE -> {
+                val rid = block.stretchRoutineId?.takeIf { it.isNotBlank() }
+                if (rid == null) {
+                    scope.launch {
+                        snackbarHostState.showSnackbar("No stretch routine linked — edit this block in Programs.")
+                    }
+                    return
+                }
+                scope.launch {
+                    userPreferences.setProgramDashboardStretchLaunchJson(
+                        encodeStretchLaunch(ProgramDashboardStretchLaunch(routineId = rid))
+                    )
+                    onNavigateToCategory(stretchingCategory)
+                }
+            }
+            ProgramBlockKind.STRETCH_CATALOG -> {
+                if (block.stretchCatalogIds.isEmpty()) {
+                    scope.launch {
+                        snackbarHostState.showSnackbar("No stretches in this block — edit it in Programs.")
+                    }
+                    return
+                }
+                scope.launch {
+                    userPreferences.setProgramDashboardStretchLaunchJson(
+                        encodeStretchLaunch(
+                            ProgramDashboardStretchLaunch(
+                                stretchIds = block.stretchCatalogIds,
+                                title = block.title,
+                                holdSecondsPerStretch = 30
+                            )
+                        )
+                    )
+                    onNavigateToCategory(stretchingCategory)
+                }
+            }
+            ProgramBlockKind.HEAT_COLD -> {
+                val m = block.heatColdMode?.takeIf { it == "SAUNA" || it == "COLD_PLUNGE" } ?: "SAUNA"
+                val secs = block.targetMinutes?.times(60)?.coerceIn(30, 7200)
+                    ?: if (m == "COLD_PLUNGE") 120 else (15 * 60)
+                scope.launch {
+                    userPreferences.setProgramDashboardHeatColdLaunchJson(
+                        encodeHeatColdLaunch(ProgramDashboardHeatColdLaunch(mode = m, durationSeconds = secs))
+                    )
+                    onNavigateToCategory(heatColdCategory)
+                }
             }
         }
     }
@@ -591,7 +777,7 @@ fun DashboardScreen(
 
                     Spacer(Modifier.height(8.dp))
 
-                    if (selectedGoalIds.isNotEmpty()) {
+                    if (goals.isNotEmpty()) {
                         DashboardGoalsSection(
                             rows = weeklyGoalRows,
                             onOpenDetails = { showGoalsSheet = true },
@@ -637,14 +823,35 @@ fun DashboardScreen(
                                 RoutinesSection(
                                     showSectionHeading = false,
                                     dashboardSelectedDate = selectedDate,
+                                    userPreferences = userPreferences,
+                                    programsLibraryState = programsState,
+                                    programRepository = programRepository,
+                                    onOpenProgramsBuilder = { onNavigateToCategory(programsCategory) },
+                                    onProgramBlockStart = { block -> startProgramBlockFromLaunchPad(block) },
                                     supplementRoutines = supplementState.routines,
                                     lightRoutines = lightState.routines,
+                                    unifiedRoutines = unifiedRoutineState.routines,
                                     cardioRoutines = cardioState.routines,
                                     cardioQuickLaunches = cardioState.quickLaunches,
                                     cardioDistanceUnit = cardioDistanceUnit,
                                     weightRoutines = weightState.routines,
+                                    cardioCompletedCount = cardioRows.size,
+                                    weightCompletedCount = weightRows.size,
+                                    stretchCompletedCount = stretchRows.size,
+                                    saunaCompletedCount = saunaRows.size,
+                                    coldCompletedCount = coldRows.size,
                                     onSupplementRoutineSelected = { routinePreview = it },
                                     onLightRoutineSelected = { lightRoutinePreview = it },
+                                    onUnifiedRoutineSelected = { routine ->
+                                        scope.launch {
+                                            userPreferences.setProgramDashboardUnifiedRoutineLaunchJson(
+                                                encodeUnifiedRoutineLaunch(
+                                                    ProgramDashboardUnifiedRoutineLaunch(routineId = routine.id)
+                                                )
+                                            )
+                                            onNavigateToCategory(unifiedCategory)
+                                        }
+                                    },
                                     onCardioRoutineSelected = { cardioRoutinePreview = it },
                                     onCardioQuickLaunchSelected = { ql ->
                                         if (ql.needsOutdoorRuckWeightPrompt()) {
@@ -659,6 +866,16 @@ fun DashboardScreen(
                                     },
                                     onOpenCardioNewWorkout = onOpenCardioNewWorkout,
                                     onOpenCardioLogBackfill = onOpenCardioLogBackfill,
+                                    onOpenUnifiedNewWorkout = {
+                                        scope.launch {
+                                            userPreferences.setProgramDashboardUnifiedRoutineLaunchJson(
+                                                encodeUnifiedRoutineLaunch(
+                                                    ProgramDashboardUnifiedRoutineLaunch(createNew = true)
+                                                )
+                                            )
+                                            onNavigateToCategory(unifiedCategory)
+                                        }
+                                    },
                                     onOpenWeightNewWorkout = {
                                         when {
                                             cardioLiveWorkoutViewModel.hasActiveTimer -> {
@@ -703,7 +920,10 @@ fun DashboardScreen(
                                     onOpenHeatColdCategory = { onNavigateToCategory(heatColdCategory) },
                                     onOpenHeatColdLog = onOpenHeatColdLog,
                                     stretchRoutineCount = stretchState.routines.size,
-                                    onOpenStretchingCategory = { onNavigateToCategory(stretchingCategory) }
+                                    onOpenStretchingCategory = { onNavigateToCategory(stretchingCategory) },
+                                    onOpenBodyTrackerCategory = { onNavigateToCategory(bodyTrackerCategory) },
+                                    relayPool = relayPool,
+                                    signer = signer,
                                 )
                             }
 
@@ -770,6 +990,7 @@ fun DashboardScreen(
                     showWeightFgsDialog = false
                     pendingDashboardWeightBlank = false
                     pendingDashboardWeightRoutine = null
+                    pendingProgramWeightBlock = null
                 },
                 onContinue = {
                     scope.launch {
@@ -777,9 +998,22 @@ fun DashboardScreen(
                         showWeightFgsDialog = false
                         val blank = pendingDashboardWeightBlank
                         val pendingR = pendingDashboardWeightRoutine
+                        val pendingProg = pendingProgramWeightBlock
                         pendingDashboardWeightBlank = false
                         pendingDashboardWeightRoutine = null
+                        pendingProgramWeightBlock = null
                         when {
+                            pendingProg != null -> {
+                                val routine = weightRoutineForProgramBlock(pendingProg, weightState)
+                                if (cardioLiveWorkoutViewModel.hasActiveTimer) {
+                                    snackbarHostState.showSnackbar("Finish or cancel your cardio timer first.")
+                                } else if (routine != null && weightLiveWorkoutViewModel.tryStartFromRoutine(routine, weightState)) {
+                                    weightLiveWorkoutViewModel.setLiveWorkoutUiExpanded(true)
+                                    onNavigateToCategory(weightTrainingCategory)
+                                } else {
+                                    snackbarHostState.showSnackbar("Could not start this workout from Programs.")
+                                }
+                            }
                             blank -> {
                                 if (cardioLiveWorkoutViewModel.hasActiveTimer) {
                                     snackbarHostState.showSnackbar("Finish or cancel your cardio timer first.")
@@ -834,7 +1068,7 @@ fun DashboardScreen(
 
             if (showGoalsSheet) {
                 GoalsOverviewSheet(
-                    selectedGoalIds = selectedGoalIds,
+                    hasGoals = goals.isNotEmpty(),
                     progressRows = weeklyGoalRows,
                     onDismiss = { showGoalsSheet = false },
                     onEditGoals = {
@@ -1084,6 +1318,8 @@ fun DashboardScreen(
             is CardioActiveTimerSession.Single -> {
                 if (cardioLiveUiExpanded) {
                     val draft = ct.draft
+                    val cyclingDistanceMeters =
+                        if (draft.activity.isCyclingActivity()) cyclingWorkoutDistanceMeters else null
                     val paceOnlyTimer = draft.timerStyle is CardioTimerStyle.CountDownDistance
                     val recordGps =
                         draft.eligibleForPhoneGps() && cardioGpsPreferred && dashboardLocationFineGranted && !paceOnlyTimer
@@ -1095,6 +1331,11 @@ fun DashboardScreen(
                         dark = therapyRedDark,
                         mid = therapyRedMid,
                         glow = therapyRedGlow,
+                        preferredLiveDistanceMeters = cyclingDistanceMeters,
+                        cyclingSensorConnected = draft.activity.isCyclingActivity() &&
+                            cyclingConnectionState == com.erv.app.cycling.CyclingCscBleConnectionState.Connected,
+                        cyclingSpeedKmh = if (draft.activity.isCyclingActivity()) cyclingSpeedKmh else null,
+                        cyclingCadenceRpm = if (draft.activity.isCyclingActivity()) cyclingCadenceRpm else null,
                         gpsRecordingActive = recordGps,
                         showGpsPermissionHint = showGpsPermissionHint,
                         onRequestLocationPermission = {
@@ -1110,7 +1351,12 @@ fun DashboardScreen(
                                     durationMinutes = durationMinutes,
                                     endEpoch = end,
                                     elapsedSecondsForDistance = elapsedSeconds,
-                                    gpsPoints = gpsPoints
+                                    gpsPoints = gpsPoints,
+                                    preferredDistanceMeters = if (draft.activity.isCyclingActivity()) {
+                                        cyclingCscBle.takeWorkoutSummary()?.distanceMeters
+                                    } else {
+                                        null
+                                    }
                                 )
                                 val hrSummary = heartRateBle.takeWorkoutHeartRateSummary()
                                 val sessionBase = CardioMetEstimator.applyEstimatedKcal(
@@ -1138,6 +1384,7 @@ fun DashboardScreen(
                         onCancel = {
                             drainCardioGpsIfNeeded(recordGps, context.applicationContext)
                             heartRateBle.discardWorkoutRecording()
+                            cyclingCscBle.discardWorkoutRecording()
                             cardioLiveWorkoutViewModel.clearSession()
                         }
                     )
@@ -1229,7 +1476,7 @@ private fun DashboardGoalsSection(
                         style = MaterialTheme.typography.titleSmall,
                     )
                     Text(
-                        text = "Mon–Sun · default targets",
+                        text = "Mon–Sun · custom targets",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -1281,7 +1528,7 @@ private fun DashboardGoalsSection(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun GoalsOverviewSheet(
-    selectedGoalIds: Set<String>,
+    hasGoals: Boolean,
     progressRows: List<GoalProgressRow>,
     onDismiss: () -> Unit,
     onEditGoals: () -> Unit,
@@ -1298,15 +1545,15 @@ private fun GoalsOverviewSheet(
                 style = MaterialTheme.typography.titleLarge,
                 modifier = Modifier.padding(bottom = 12.dp),
             )
-            if (selectedGoalIds.isEmpty()) {
+            if (!hasGoals) {
                 Text(
-                    text = "You have not chosen any goals yet. Use Edit goals to pick areas to focus on.",
+                    text = "You have not created any goals yet. Add a few abstract weekly goals and the app will track progress from your logs.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             } else {
                 Text(
-                    text = "This week (Mon–Sun). A ★ on the trophy appears when at least one goal reaches its default target.",
+                    text = "This week (Mon–Sun). A ★ on the trophy appears when at least one goal reaches its target.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(bottom = 8.dp),
@@ -1425,100 +1672,246 @@ private fun HeatColdQuickSheet(
 }
 
 private data class QuickLogTileSpec(
+    val id: LaunchPadTileId,
     val icon: ImageVector,
     val label: String,
     val subtitle: String,
     val onClick: () -> Unit,
     val secondaryIcon: ImageVector? = null,
+    val statusBadge: QuickLogTileStatusBadge? = null,
 )
 
+private enum class QuickLogTileStatusBadge {
+    INCOMPLETE,
+    COMPLETE
+}
+
+private data class ProgramBlockProgressState(
+    val isDone: Boolean,
+    val allowsManualToggle: Boolean
+)
+
+private fun moveLaunchPadTile(
+    items: List<LaunchPadTileId>,
+    fromIndex: Int,
+    toIndex: Int,
+): List<LaunchPadTileId> {
+    if (fromIndex == toIndex || fromIndex !in items.indices || toIndex !in items.indices) return items
+    val mutable = items.toMutableList()
+    val moved = mutable.removeAt(fromIndex)
+    mutable.add(toIndex, moved)
+    return mutable
+}
+
+private fun quickLogTileOffsetPx(
+    index: Int,
+    tileWidthPx: Float,
+    tileSpacingPx: Float,
+): Pair<Float, Float> {
+    val x = if (index % 2 == 0) 0f else tileWidthPx + tileSpacingPx
+    val y = (index / 2) * (tileWidthPx + tileSpacingPx)
+    return x to y
+}
+
+private fun nearestQuickLogTileIndex(
+    centerX: Float,
+    centerY: Float,
+    tileCount: Int,
+    tileWidthPx: Float,
+    tileSpacingPx: Float,
+): Int {
+    var nearestIndex = 0
+    var nearestDistance = Float.MAX_VALUE
+    for (index in 0 until tileCount) {
+        val (x, y) = quickLogTileOffsetPx(index, tileWidthPx, tileSpacingPx)
+        val dx = centerX - (x + tileWidthPx / 2f)
+        val dy = centerY - (y + tileWidthPx / 2f)
+        val distance = (dx * dx) + (dy * dy)
+        if (distance < nearestDistance) {
+            nearestDistance = distance
+            nearestIndex = index
+        }
+    }
+    return nearestIndex
+}
+
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun QuickLogTilesLayout(
     tiles: List<QuickLogTileSpec>,
     tileRowSpacing: Dp,
+    editMode: Boolean,
+    onEnterEditMode: () -> Unit,
+    onTilesReordered: (List<LaunchPadTileId>) -> Unit,
 ) {
     if (tiles.isEmpty()) return
     BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
         val tileWidth = (maxWidth - tileRowSpacing) / 2
-        val tileModifier = Modifier.width(tileWidth)
-        when (tiles.size) {
-            1 -> {
-                Box(
-                    modifier = Modifier.fillMaxWidth(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    val t = tiles[0]
-                    RoutineTile(
-                        icon = t.icon,
-                        label = t.label,
-                        subtitle = t.subtitle,
-                        onClick = t.onClick,
-                        modifier = tileModifier,
-                        secondaryIcon = t.secondaryIcon,
-                    )
-                }
+        val rowCount = (tiles.size + 1) / 2
+        val containerHeight = tileWidth * rowCount + tileRowSpacing * (rowCount - 1).coerceAtLeast(0)
+        val wiggleTransition = rememberInfiniteTransition(label = "launchPadWiggle")
+        val wiggleRotation by wiggleTransition.animateFloat(
+            initialValue = -2f,
+            targetValue = 2f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 140, easing = LinearEasing),
+                repeatMode = RepeatMode.Reverse,
+            ),
+            label = "launchPadWiggleRotation",
+        )
+        var draggedTileId by remember(editMode, tiles.map { it.id }) { mutableStateOf<LaunchPadTileId?>(null) }
+        var draggedTileStartIndex by remember(editMode, tiles.map { it.id }) { mutableStateOf<Int?>(null) }
+        var dragHoverIndex by remember(editMode, tiles.map { it.id }) { mutableStateOf<Int?>(null) }
+        var dragPointerX by remember(editMode, tiles.map { it.id }) { mutableStateOf(0f) }
+        var dragPointerY by remember(editMode, tiles.map { it.id }) { mutableStateOf(0f) }
+        var dragGrabOffsetX by remember(editMode, tiles.map { it.id }) { mutableStateOf(0f) }
+        var dragGrabOffsetY by remember(editMode, tiles.map { it.id }) { mutableStateOf(0f) }
+        val tileWidthPx = with(LocalDensity.current) { tileWidth.toPx() }
+        val tileSpacingPx = with(LocalDensity.current) { tileRowSpacing.toPx() }
+        val tileIds = remember(tiles) { tiles.map { it.id } }
+        val previewTileIds = remember(tileIds, draggedTileStartIndex, dragHoverIndex) {
+            val startIndex = draggedTileStartIndex
+            val hoverIndex = dragHoverIndex
+            if (startIndex == null || hoverIndex == null) {
+                tileIds
+            } else {
+                moveLaunchPadTile(
+                    items = tileIds,
+                    fromIndex = startIndex,
+                    toIndex = hoverIndex,
+                )
             }
-            2 -> {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    val t0 = tiles[0]
-                    RoutineTile(
-                        icon = t0.icon,
-                        label = t0.label,
-                        subtitle = t0.subtitle,
-                        onClick = t0.onClick,
-                        modifier = tileModifier,
-                        secondaryIcon = t0.secondaryIcon,
-                    )
-                    Spacer(Modifier.width(tileRowSpacing))
-                    val t1 = tiles[1]
-                    RoutineTile(
-                        icon = t1.icon,
-                        label = t1.label,
-                        subtitle = t1.subtitle,
-                        onClick = t1.onClick,
-                        modifier = tileModifier,
-                        secondaryIcon = t1.secondaryIcon,
-                    )
+        }
+        val previewIndicesById = remember(previewTileIds) {
+            previewTileIds.withIndex().associate { (index, id) -> id to index }
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(containerHeight)
+        ) {
+            tiles.forEachIndexed { index, tile ->
+                val previewIndex = previewIndicesById[tile.id] ?: index
+                val (baseX, baseY) = quickLogTileOffsetPx(previewIndex, tileWidthPx, tileSpacingPx)
+                val isDragged = editMode && draggedTileId == tile.id
+                val animatedScale by animateFloatAsState(
+                    targetValue = if (isDragged) 1.06f else 1f,
+                    animationSpec = spring(dampingRatio = 0.78f, stiffness = 520f),
+                    label = "launchPadTileScale",
+                )
+                val animatedElevation by animateDpAsState(
+                    targetValue = if (isDragged) 10.dp else 4.dp,
+                    animationSpec = spring(dampingRatio = 0.82f, stiffness = 520f),
+                    label = "launchPadTileElevation",
+                )
+                val animatedBaseX by animateFloatAsState(
+                    targetValue = baseX,
+                    animationSpec = spring(dampingRatio = 0.82f, stiffness = 520f),
+                    label = "launchPadTileBaseX",
+                )
+                val animatedBaseY by animateFloatAsState(
+                    targetValue = baseY,
+                    animationSpec = spring(dampingRatio = 0.82f, stiffness = 520f),
+                    label = "launchPadTileBaseY",
+                )
+                val tileRotation = when {
+                    !editMode || isDragged -> 0f
+                    index % 2 == 0 -> wiggleRotation
+                    else -> -wiggleRotation
                 }
-            }
-            else -> {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(tileRowSpacing)
-                ) {
-                    val rowCount = (tiles.size + 1) / 2
-                    for (row in 0 until rowCount) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(tileRowSpacing)
-                        ) {
-                            val i = row * 2
-                            val t0 = tiles[i]
-                            RoutineTile(
-                                icon = t0.icon,
-                                label = t0.label,
-                                subtitle = t0.subtitle,
-                                onClick = t0.onClick,
-                                modifier = tileModifier,
-                                secondaryIcon = t0.secondaryIcon,
-                            )
-                            if (i + 1 < tiles.size) {
-                                val t1 = tiles[i + 1]
-                                RoutineTile(
-                                    icon = t1.icon,
-                                    label = t1.label,
-                                    subtitle = t1.subtitle,
-                                    onClick = t1.onClick,
-                                    modifier = tileModifier,
-                                    secondaryIcon = t1.secondaryIcon,
+                val drawX = if (isDragged) dragPointerX - dragGrabOffsetX else animatedBaseX
+                val drawY = if (isDragged) dragPointerY - dragGrabOffsetY else animatedBaseY
+                val interactionModifier = if (editMode) {
+                    Modifier.pointerInput(tile.id, tiles) {
+                        detectDragGestures(
+                            onDragStart = { offset ->
+                                draggedTileId = tile.id
+                                draggedTileStartIndex = index
+                                dragHoverIndex = index
+                                dragGrabOffsetX = offset.x
+                                dragGrabOffsetY = offset.y
+                                dragPointerX = animatedBaseX + offset.x
+                                dragPointerY = animatedBaseY + offset.y
+                            },
+                            onDragCancel = {
+                                draggedTileId = null
+                                draggedTileStartIndex = null
+                                dragHoverIndex = null
+                                dragPointerX = 0f
+                                dragPointerY = 0f
+                                dragGrabOffsetX = 0f
+                                dragGrabOffsetY = 0f
+                            },
+                            onDragEnd = {
+                                val startIndex = draggedTileStartIndex
+                                val hoverIndex = dragHoverIndex
+                                if (startIndex != null && hoverIndex != null && startIndex != hoverIndex) {
+                                    onTilesReordered(
+                                        moveLaunchPadTile(
+                                            items = tileIds,
+                                            fromIndex = startIndex,
+                                            toIndex = hoverIndex,
+                                        )
+                                    )
+                                }
+                                draggedTileId = null
+                                draggedTileStartIndex = null
+                                dragHoverIndex = null
+                                dragPointerX = 0f
+                                dragPointerY = 0f
+                                dragGrabOffsetX = 0f
+                                dragGrabOffsetY = 0f
+                            },
+                            onDrag = { change, dragAmount ->
+                                if (draggedTileId != tile.id) return@detectDragGestures
+                                change.consume()
+                                val nextPointerX = dragPointerX + dragAmount.x
+                                val nextPointerY = dragPointerY + dragAmount.y
+                                val drawLeft = nextPointerX - dragGrabOffsetX
+                                val drawTop = nextPointerY - dragGrabOffsetY
+                                val centerX = drawLeft + tileWidthPx / 2f
+                                val centerY = drawTop + tileWidthPx / 2f
+                                val targetIndex = nearestQuickLogTileIndex(
+                                    centerX = centerX,
+                                    centerY = centerY,
+                                    tileCount = tiles.size,
+                                    tileWidthPx = tileWidthPx,
+                                    tileSpacingPx = tileSpacingPx,
                                 )
-                            }
-                        }
+                                dragHoverIndex = targetIndex
+                                dragPointerX = nextPointerX
+                                dragPointerY = nextPointerY
+                            },
+                        )
                     }
+                } else {
+                    Modifier.combinedClickable(
+                        onClick = tile.onClick,
+                        onLongClick = onEnterEditMode,
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .offset { IntOffset(drawX.roundToInt(), drawY.roundToInt()) }
+                        .zIndex(if (isDragged) 10f else 0f)
+                        .width(tileWidth)
+                        .graphicsLayer {
+                            scaleX = animatedScale
+                            scaleY = animatedScale
+                            rotationZ = tileRotation
+                        }
+                        .then(interactionModifier)
+                ) {
+                    RoutineTile(
+                        icon = tile.icon,
+                        label = tile.label,
+                        subtitle = tile.subtitle,
+                        modifier = Modifier.fillMaxWidth(),
+                        secondaryIcon = tile.secondaryIcon,
+                        statusBadge = tile.statusBadge,
+                        elevation = animatedElevation,
+                    )
                 }
             }
         }
@@ -1529,7 +1922,7 @@ private fun cardioRoutineShortcutsSubtitle(
     routines: List<CardioRoutine>,
     quickLaunches: List<CardioQuickLaunch>
 ): String = when {
-    routines.isEmpty() && quickLaunches.isEmpty() -> "New workout"
+    routines.isEmpty() && quickLaunches.isEmpty() -> "Single sessions & timers"
     else -> buildString {
         val parts = mutableListOf<String>()
         if (routines.isNotEmpty()) parts.add("${routines.size} routines")
@@ -1541,22 +1934,36 @@ private fun cardioRoutineShortcutsSubtitle(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun RoutinesSection(
     showSectionHeading: Boolean = true,
     dashboardSelectedDate: LocalDate,
+    userPreferences: UserPreferences,
+    programsLibraryState: ProgramsLibraryState,
+    programRepository: ProgramRepository,
+    onOpenProgramsBuilder: () -> Unit,
+    onProgramBlockStart: (ProgramDayBlock) -> Unit,
     supplementRoutines: List<SupplementRoutine>,
     lightRoutines: List<LightRoutine>,
+    unifiedRoutines: List<UnifiedRoutine>,
     cardioRoutines: List<CardioRoutine>,
     cardioQuickLaunches: List<CardioQuickLaunch>,
     cardioDistanceUnit: CardioDistanceUnit,
     weightRoutines: List<WeightRoutine>,
+    cardioCompletedCount: Int,
+    weightCompletedCount: Int,
+    stretchCompletedCount: Int,
+    saunaCompletedCount: Int,
+    coldCompletedCount: Int,
     onSupplementRoutineSelected: (SupplementRoutine) -> Unit,
     onLightRoutineSelected: (LightRoutine) -> Unit,
+    onUnifiedRoutineSelected: (UnifiedRoutine) -> Unit,
     onCardioRoutineSelected: (CardioRoutine) -> Unit,
     onCardioQuickLaunchSelected: (CardioQuickLaunch) -> Unit,
     onOpenCardioNewWorkout: () -> Unit,
     onOpenCardioLogBackfill: (LocalDate) -> Unit,
+    onOpenUnifiedNewWorkout: () -> Unit,
     onOpenWeightNewWorkout: () -> Unit,
     onOpenWeightLogBackfill: (LocalDate) -> Unit,
     onWeightRoutineSelected: (WeightRoutine) -> Unit,
@@ -1564,12 +1971,129 @@ private fun RoutinesSection(
     onOpenHeatColdLog: () -> Unit,
     stretchRoutineCount: Int,
     onOpenStretchingCategory: () -> Unit,
+    onOpenBodyTrackerCategory: () -> Unit,
+    relayPool: RelayPool?,
+    signer: EventSigner?,
 ) {
+    val context = LocalContext.current
+    val keyManager = LocalKeyManager.current
+    val savedLaunchPadTileOrder by userPreferences.launchPadTileOrder.collectAsState(initial = emptyList())
     var showSupplementPicker by remember { mutableStateOf(false) }
     var showLightPicker by remember { mutableStateOf(false) }
+    var showWorkoutLauncherSheet by remember { mutableStateOf(false) }
     var showCardioPicker by remember { mutableStateOf(false) }
     var showWeightPicker by remember { mutableStateOf(false) }
     var showHeatColdSheet by remember { mutableStateOf(false) }
+    var showProgramSheet by remember { mutableStateOf(false) }
+    var launchPadEditMode by remember { mutableStateOf(false) }
+    val routineSectionScope = rememberCoroutineScope()
+    val activeProgram = programsLibraryState.activeProgramId?.let { id ->
+        programsLibraryState.programs.firstOrNull { it.id == id }
+    }
+    val dayOfWeekIso = dashboardSelectedDate.dayOfWeek.value
+    val programBlocks = remember(activeProgram?.id, dayOfWeekIso, programsLibraryState.programs) {
+        programBlocksForCalendarDay(activeProgram, dayOfWeekIso)
+    }
+    val programRowLabels = remember(programBlocks) { launchPadLabelsForBlocks(programBlocks) }
+    val programBlockProgress = remember(
+        activeProgram?.id,
+        dashboardSelectedDate,
+        programBlocks,
+        programsLibraryState.completionState,
+        cardioCompletedCount,
+        weightCompletedCount,
+        stretchCompletedCount,
+        saunaCompletedCount,
+        coldCompletedCount
+    ) {
+        val pid = activeProgram?.id ?: return@remember emptyMap()
+        var remainingCardio = cardioCompletedCount
+        var remainingWeight = weightCompletedCount
+        var remainingStretch = stretchCompletedCount
+        var remainingSauna = saunaCompletedCount
+        var remainingCold = coldCompletedCount
+        val progress = LinkedHashMap<String, ProgramBlockProgressState>()
+        programBlocks.forEach { block ->
+            val state = when (block.kind) {
+                ProgramBlockKind.OTHER -> {
+                    val done = block.checklistItems.isNotEmpty() &&
+                        block.checklistItems.indices.all { itemIdx ->
+                            val ck = programChecklistCompletionKey(pid, block.id, itemIdx, dashboardSelectedDate)
+                            programsLibraryState.isCompletionDone(ck)
+                        }
+                    ProgramBlockProgressState(isDone = done, allowsManualToggle = false)
+                }
+                ProgramBlockKind.WEIGHT -> {
+                    val done = remainingWeight > 0
+                    if (done) remainingWeight--
+                    ProgramBlockProgressState(isDone = done, allowsManualToggle = false)
+                }
+                ProgramBlockKind.CARDIO -> {
+                    val done = remainingCardio > 0
+                    if (done) remainingCardio--
+                    ProgramBlockProgressState(isDone = done, allowsManualToggle = false)
+                }
+                ProgramBlockKind.UNIFIED_ROUTINE -> {
+                    val key = programBlockCompletionKey(pid, block.id, dashboardSelectedDate)
+                    ProgramBlockProgressState(
+                        isDone = programsLibraryState.isCompletionDone(key),
+                        allowsManualToggle = true
+                    )
+                }
+                ProgramBlockKind.FLEX_TRAINING -> {
+                    val done = (remainingWeight + remainingCardio) > 0
+                    if (done) {
+                        if (remainingWeight > 0) remainingWeight-- else remainingCardio--
+                    }
+                    ProgramBlockProgressState(isDone = done, allowsManualToggle = false)
+                }
+                ProgramBlockKind.STRETCH_ROUTINE, ProgramBlockKind.STRETCH_CATALOG -> {
+                    val done = remainingStretch > 0
+                    if (done) remainingStretch--
+                    ProgramBlockProgressState(isDone = done, allowsManualToggle = false)
+                }
+                ProgramBlockKind.HEAT_COLD -> {
+                    val done = when (block.heatColdMode) {
+                        "COLD_PLUNGE" -> {
+                            val ok = remainingCold > 0
+                            if (ok) remainingCold--
+                            ok
+                        }
+                        else -> {
+                            val ok = remainingSauna > 0
+                            if (ok) remainingSauna--
+                            ok
+                        }
+                    }
+                    ProgramBlockProgressState(isDone = done, allowsManualToggle = false)
+                }
+                ProgramBlockKind.REST, ProgramBlockKind.CUSTOM -> {
+                    val key = programBlockCompletionKey(pid, block.id, dashboardSelectedDate)
+                    ProgramBlockProgressState(
+                        isDone = programsLibraryState.isCompletionDone(key),
+                        allowsManualToggle = true
+                    )
+                }
+            }
+            progress[block.id] = state
+        }
+        progress
+    }
+    val programTileStatus = remember(
+        activeProgram?.id,
+        programBlocks,
+        programBlockProgress
+    ) {
+        if (activeProgram?.id == null) return@remember null
+        if (programBlocks.isEmpty()) return@remember null
+        val allDone = programBlocks.all { block -> programBlockProgress[block.id]?.isDone == true }
+        if (allDone) QuickLogTileStatusBadge.COMPLETE else QuickLogTileStatusBadge.INCOMPLETE
+    }
+    val programTileSubtitle = when {
+        activeProgram == null -> "Choose a program"
+        programBlocks.isEmpty() -> "Rest day"
+        else -> "${programBlocks.size} for this day"
+    }
 
     if (showSectionHeading) {
         Text(
@@ -1590,87 +2114,463 @@ private fun RoutinesSection(
         ) {
             if (supplementRoutines.isEmpty() && lightRoutines.isEmpty()) {
                 Text(
-                    text = "Create supplement or light routines, or use Cardio, Weight Training, and Stretching. Hot + Cold timer is below.",
+                    text = "Create supplement or light routines, or use Programs, Stretching, Cardio, Weight Training, Body Tracker, and Hot + Cold.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+            val availableTileSpecs = remember(
+                programTileSubtitle,
+                programTileStatus,
+                stretchRoutineCount,
+                cardioRoutines,
+                cardioQuickLaunches,
+                weightRoutines,
+                supplementRoutines,
+                lightRoutines,
+            ) {
+                buildMap<LaunchPadTileId, QuickLogTileSpec> {
+                    put(
+                        LaunchPadTileId.PROGRAMS,
+                        QuickLogTileSpec(
+                            id = LaunchPadTileId.PROGRAMS,
+                            icon = Icons.Default.CalendarMonth,
+                            label = "Programs",
+                            subtitle = programTileSubtitle,
+                            onClick = { showProgramSheet = true },
+                            statusBadge = programTileStatus,
+                        )
+                    )
+                    put(
+                        LaunchPadTileId.WORKOUT_LAUNCHER,
+                        QuickLogTileSpec(
+                            id = LaunchPadTileId.WORKOUT_LAUNCHER,
+                            icon = Icons.Default.PlaylistPlay,
+                            label = "Workout Launcher",
+                            subtitle = if (unifiedRoutines.isEmpty()) {
+                                "Mixed workouts & routines"
+                            } else {
+                                "${unifiedRoutines.size} mixed routines"
+                            },
+                            onClick = { showWorkoutLauncherSheet = true },
+                        )
+                    )
+                    put(
+                        LaunchPadTileId.STRETCHING,
+                        QuickLogTileSpec(
+                            id = LaunchPadTileId.STRETCHING,
+                            icon = Icons.Default.FavoriteBorder,
+                            label = "Stretching",
+                            subtitle = when {
+                                stretchRoutineCount == 0 -> "Browse & routines"
+                                stretchRoutineCount == 1 -> "1 routine"
+                                else -> "$stretchRoutineCount routines"
+                            },
+                            onClick = onOpenStretchingCategory,
+                        )
+                    )
+                    put(
+                        LaunchPadTileId.CARDIO,
+                        QuickLogTileSpec(
+                            id = LaunchPadTileId.CARDIO,
+                            icon = Icons.AutoMirrored.Filled.DirectionsRun,
+                            label = "Cardio",
+                            subtitle = cardioRoutineShortcutsSubtitle(cardioRoutines, cardioQuickLaunches),
+                            onClick = { showCardioPicker = true },
+                        )
+                    )
+                    put(
+                        LaunchPadTileId.WEIGHT_TRAINING,
+                        QuickLogTileSpec(
+                            id = LaunchPadTileId.WEIGHT_TRAINING,
+                            icon = Icons.Default.FitnessCenter,
+                            label = "Weight Training",
+                            subtitle = if (weightRoutines.isEmpty()) "New workout" else "${weightRoutines.size} routines",
+                            onClick = { showWeightPicker = true },
+                        )
+                    )
+                    put(
+                        LaunchPadTileId.HOT_COLD,
+                        QuickLogTileSpec(
+                            id = LaunchPadTileId.HOT_COLD,
+                            icon = Icons.Default.Thermostat,
+                            label = "Hot + Cold",
+                            subtitle = "Timer · pick session type",
+                            onClick = { showHeatColdSheet = true },
+                            secondaryIcon = Icons.Default.AcUnit,
+                        )
+                    )
+                    put(
+                        LaunchPadTileId.BODY_TRACKER,
+                        QuickLogTileSpec(
+                            id = LaunchPadTileId.BODY_TRACKER,
+                            icon = Icons.Default.MonitorWeight,
+                            label = "Body Tracker",
+                            subtitle = "Measurements & photos",
+                            onClick = onOpenBodyTrackerCategory,
+                        )
+                    )
+                    if (supplementRoutines.isNotEmpty()) {
+                        put(
+                            LaunchPadTileId.SUPPLEMENTS,
+                            QuickLogTileSpec(
+                                id = LaunchPadTileId.SUPPLEMENTS,
+                                icon = Icons.Default.Medication,
+                                label = "Supplements",
+                                subtitle = if (supplementRoutines.size == 1) "1 routine" else "${supplementRoutines.size} routines",
+                                onClick = {
+                                    if (supplementRoutines.size == 1) {
+                                        onSupplementRoutineSelected(supplementRoutines.first())
+                                    } else {
+                                        showSupplementPicker = true
+                                    }
+                                },
+                            )
+                        )
+                    }
+                    if (lightRoutines.isNotEmpty()) {
+                        put(
+                            LaunchPadTileId.LIGHT_THERAPY,
+                            QuickLogTileSpec(
+                                id = LaunchPadTileId.LIGHT_THERAPY,
+                                icon = Icons.Default.WbSunny,
+                                label = "Light Therapy",
+                                subtitle = if (lightRoutines.size == 1) "1 routine" else "${lightRoutines.size} routines",
+                                onClick = {
+                                    if (lightRoutines.size == 1) {
+                                        onLightRoutineSelected(lightRoutines.first())
+                                    } else {
+                                        showLightPicker = true
+                                    }
+                                },
+                            )
+                        )
+                    }
+                }
+            }
+            val resolvedTileIds = remember(savedLaunchPadTileOrder, availableTileSpecs.keys) {
+                resolveVisibleLaunchPadTileOrder(
+                    storedOrder = savedLaunchPadTileOrder,
+                    visibleTileIds = availableTileSpecs.keys,
+                )
+            }
+            var draftTileIds by remember { mutableStateOf(resolvedTileIds) }
+            LaunchedEffect(resolvedTileIds, launchPadEditMode) {
+                if (!launchPadEditMode) {
+                    draftTileIds = resolvedTileIds
+                }
+            }
             val quickLogTileRowSpacing = 12.dp
-            val quickLogTiles = buildList {
-                if (supplementRoutines.isNotEmpty()) {
-                    add(
-                        QuickLogTileSpec(
-                            icon = Icons.Default.Medication,
-                            label = "Supplements",
-                            subtitle = if (supplementRoutines.size == 1) "1 routine" else "${supplementRoutines.size} routines",
-                            onClick = {
-                                if (supplementRoutines.size == 1) {
-                                    onSupplementRoutineSelected(supplementRoutines.first())
-                                } else {
-                                    showSupplementPicker = true
-                                }
-                            },
-                        )
-                    )
-                }
-                if (lightRoutines.isNotEmpty()) {
-                    add(
-                        QuickLogTileSpec(
-                            icon = Icons.Default.WbSunny,
-                            label = "Light Therapy",
-                            subtitle = if (lightRoutines.size == 1) "1 routine" else "${lightRoutines.size} routines",
-                            onClick = {
-                                if (lightRoutines.size == 1) {
-                                    onLightRoutineSelected(lightRoutines.first())
-                                } else {
-                                    showLightPicker = true
-                                }
-                            },
-                        )
-                    )
-                }
-                add(
-                    QuickLogTileSpec(
-                        icon = Icons.AutoMirrored.Filled.DirectionsRun,
-                        label = "Cardio",
-                        subtitle = cardioRoutineShortcutsSubtitle(cardioRoutines, cardioQuickLaunches),
-                        onClick = { showCardioPicker = true },
-                    )
-                )
-                add(
-                    QuickLogTileSpec(
-                        icon = Icons.Default.FitnessCenter,
-                        label = "Weight Training",
-                        subtitle = if (weightRoutines.isEmpty()) "New workout" else "${weightRoutines.size} routines",
-                        onClick = { showWeightPicker = true },
-                    )
-                )
-                add(
-                    QuickLogTileSpec(
-                        icon = Icons.Default.Thermostat,
-                        label = "Hot + Cold",
-                        subtitle = "Timer · pick session type",
-                        onClick = { showHeatColdSheet = true },
-                        secondaryIcon = Icons.Default.AcUnit,
-                    )
-                )
-                add(
-                    QuickLogTileSpec(
-                        icon = Icons.Default.FavoriteBorder,
-                        label = "Stretching",
-                        subtitle = when {
-                            stretchRoutineCount == 0 -> "Browse & routines"
-                            stretchRoutineCount == 1 -> "1 routine"
-                            else -> "$stretchRoutineCount routines"
-                        },
-                        onClick = onOpenStretchingCategory,
-                    )
-                )
+            val quickLogTiles = remember(draftTileIds, availableTileSpecs) {
+                draftTileIds.mapNotNull { availableTileSpecs[it] }
             }
             QuickLogTilesLayout(
                 tiles = quickLogTiles,
                 tileRowSpacing = quickLogTileRowSpacing,
+                editMode = launchPadEditMode,
+                onEnterEditMode = { launchPadEditMode = true },
+                onTilesReordered = { reordered -> draftTileIds = reordered },
             )
+            if (launchPadEditMode) {
+                Text(
+                    text = "Drag tiles to rearrange your Launch Pad.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Button(
+                    onClick = {
+                        routineSectionScope.launch {
+                            userPreferences.setLaunchPadTileOrder(
+                                mergeVisibleLaunchPadTileOrder(
+                                    storedOrder = savedLaunchPadTileOrder,
+                                    visibleOrder = draftTileIds,
+                                )
+                            )
+                            launchPadEditMode = false
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Done")
+                }
+            }
+        }
+    }
+
+    if (showProgramSheet) {
+        val programSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ModalBottomSheet(
+            onDismissRequest = { showProgramSheet = false },
+            sheetState = programSheetState
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
+                    .padding(bottom = 28.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = activeProgram?.name ?: "Programs",
+                    style = MaterialTheme.typography.titleLarge
+                )
+                Text(
+                    text = "Planned for $dashboardSelectedDate",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                when {
+                    activeProgram == null -> {
+                        if (programsLibraryState.programs.isEmpty()) {
+                            Text(
+                                "Create a program from a template or import JSON under Programs, then pick it here as your active plan.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            FilledTonalButton(
+                                onClick = {
+                                    showProgramSheet = false
+                                    onOpenProgramsBuilder()
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Open Programs")
+                            }
+                        } else {
+                            Text(
+                                "Tap a program to use it on the Launch Pad for this device. You can change it anytime.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            LazyColumn(
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.heightIn(max = 320.dp)
+                            ) {
+                                items(programsLibraryState.programs, key = { it.id }) { p ->
+                                    Card(
+                                        onClick = {
+                                            routineSectionScope.launch {
+                                                programRepository.setActiveProgram(p.id)
+                                                if (relayPool != null && signer != null) {
+                                                    ProgramSync.publishMaster(
+                                                        appContext = context.applicationContext,
+                                                        relayPool = relayPool,
+                                                        signer = signer,
+                                                        state = programRepository.currentState(),
+                                                        dataRelayUrls = keyManager.relayUrlsForKind30078Publish(),
+                                                    )
+                                                }
+                                                showProgramSheet = false
+                                            }
+                                        },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = MaterialTheme.colorScheme.surfaceVariant
+                                        )
+                                    ) {
+                                        Column(Modifier.padding(16.dp)) {
+                                            Text(
+                                                text = p.name,
+                                                style = MaterialTheme.typography.titleMedium
+                                            )
+                                            p.description?.takeIf { it.isNotBlank() }?.let { desc ->
+                                                Text(
+                                                    text = desc,
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    modifier = Modifier.padding(top = 4.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            FilledTonalButton(
+                                onClick = {
+                                    showProgramSheet = false
+                                    onOpenProgramsBuilder()
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Create or manage programs")
+                            }
+                        }
+                    }
+                    programBlocks.isEmpty() -> {
+                        Text(
+                            "Nothing scheduled for this day — rest or add blocks in Programs.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        FilledTonalButton(
+                            onClick = {
+                                showProgramSheet = false
+                                onOpenProgramsBuilder()
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Open Programs")
+                        }
+                    }
+                    else -> {
+                        LazyColumn(
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.heightIn(max = 360.dp)
+                        ) {
+                            itemsIndexed(programBlocks) { index, block ->
+                                val pid = activeProgram!!.id
+                                Column(Modifier.fillMaxWidth()) {
+                                    Text(
+                                        text = programRowLabels.getOrElse(index) { "Activity" },
+                                        style = MaterialTheme.typography.bodyLarge
+                                    )
+                                    if (block.kind == ProgramBlockKind.OTHER) {
+                                        Spacer(Modifier.height(6.dp))
+                                        if (block.checklistItems.isEmpty()) {
+                                            Text(
+                                                text = block.notes?.takeIf { it.isNotBlank() }
+                                                    ?: "Add checklist lines in Programs.",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        } else {
+                                            block.checklistItems.forEachIndexed { itemIdx, label ->
+                                                val ck = programChecklistCompletionKey(
+                                                    pid,
+                                                    block.id,
+                                                    itemIdx,
+                                                    dashboardSelectedDate
+                                                )
+                                                val done = programsLibraryState.isCompletionDone(ck)
+                                                Row(
+                                                    Modifier
+                                                        .fillMaxWidth()
+                                                        .padding(vertical = 2.dp),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Checkbox(
+                                                        checked = done,
+                                                        onCheckedChange = { checked ->
+                                                            routineSectionScope.launch {
+                                                                programRepository.setProgramChecklistItemDone(
+                                                                    programId = pid,
+                                                                    blockId = block.id,
+                                                                    itemIndex = itemIdx,
+                                                                    date = dashboardSelectedDate,
+                                                                    done = checked
+                                                                )
+                                                                if (relayPool != null && signer != null) {
+                                                                    ProgramSync.publishDailyProgress(
+                                                                        appContext = context.applicationContext,
+                                                                        relayPool = relayPool,
+                                                                        signer = signer,
+                                                                        state = programRepository.currentState(),
+                                                                        date = dashboardSelectedDate,
+                                                                        dataRelayUrls = keyManager.relayUrlsForKind30078Publish(),
+                                                                    )
+                                                                }
+                                                            }
+                                                        }
+                                                    )
+                                                    Text(
+                                                        text = label,
+                                                        style = MaterialTheme.typography.bodyMedium,
+                                                        modifier = Modifier.padding(start = 4.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    } else {
+                                        val blockProgress = programBlockProgress[block.id]
+                                            ?: ProgramBlockProgressState(false, false)
+                                        Spacer(Modifier.height(4.dp))
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                if (blockProgress.allowsManualToggle) {
+                                                    Checkbox(
+                                                        checked = blockProgress.isDone,
+                                                        onCheckedChange = { checked ->
+                                                            routineSectionScope.launch {
+                                                                programRepository.setProgramBlockDone(
+                                                                    programId = pid,
+                                                                    blockId = block.id,
+                                                                    date = dashboardSelectedDate,
+                                                                    done = checked
+                                                                )
+                                                                if (relayPool != null && signer != null) {
+                                                                    ProgramSync.publishDailyProgress(
+                                                                        appContext = context.applicationContext,
+                                                                        relayPool = relayPool,
+                                                                        signer = signer,
+                                                                        state = programRepository.currentState(),
+                                                                        date = dashboardSelectedDate,
+                                                                        dataRelayUrls = keyManager.relayUrlsForKind30078Publish(),
+                                                                    )
+                                                                }
+                                                            }
+                                                        }
+                                                    )
+                                                    Text(
+                                                        text = if (blockProgress.isDone) "Done" else "Not done",
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                        modifier = Modifier.padding(start = 2.dp)
+                                                    )
+                                                } else {
+                                                    Text(
+                                                        text = if (blockProgress.isDone) "Logged in app" else "Not logged yet",
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = if (blockProgress.isDone) {
+                                                            MaterialTheme.colorScheme.primary
+                                                        } else {
+                                                            MaterialTheme.colorScheme.error
+                                                        }
+                                                    )
+                                                }
+                                            }
+                                            if (block.kind == ProgramBlockKind.FLEX_TRAINING) {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    TextButton(
+                                                        onClick = {
+                                                            showProgramSheet = false
+                                                            onOpenWeightNewWorkout()
+                                                        }
+                                                    ) {
+                                                        Text("Weight")
+                                                    }
+                                                    TextButton(
+                                                        onClick = {
+                                                            showProgramSheet = false
+                                                            onOpenCardioNewWorkout()
+                                                        }
+                                                    ) {
+                                                        Text("Cardio")
+                                                    }
+                                                }
+                                            } else {
+                                                TextButton(
+                                                    onClick = {
+                                                        showProgramSheet = false
+                                                        onProgramBlockStart(block)
+                                                    }
+                                                ) {
+                                                    Text("Start")
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -1700,6 +2600,20 @@ private fun RoutinesSection(
             onSelect = { routine ->
                 onLightRoutineSelected(routine)
                 showLightPicker = false
+            }
+        )
+    }
+    if (showWorkoutLauncherSheet) {
+        UnifiedRoutinePickerSheet(
+            routines = unifiedRoutines,
+            onDismiss = { showWorkoutLauncherSheet = false },
+            onNewWorkout = {
+                onOpenUnifiedNewWorkout()
+                showWorkoutLauncherSheet = false
+            },
+            onSelectRoutine = { routine ->
+                onUnifiedRoutineSelected(routine)
+                showWorkoutLauncherSheet = false
             }
         )
     }
@@ -1744,6 +2658,89 @@ private fun RoutinesSection(
                 showWeightPicker = false
             }
         )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun UnifiedRoutinePickerSheet(
+    routines: List<UnifiedRoutine>,
+    onDismiss: () -> Unit,
+    onNewWorkout: () -> Unit,
+    onSelectRoutine: (UnifiedRoutine) -> Unit,
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 24.dp)
+        ) {
+            Text(
+                "Workout Launcher",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(bottom = 12.dp)
+            )
+            Text(
+                "Build mixed workouts here. Single cardio quick starts stay on the Cardio tile.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 12.dp)
+            )
+            Surface(
+                onClick = onNewWorkout,
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.medium,
+                color = MaterialTheme.colorScheme.primaryContainer
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("New Workout", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "Build a mixed weight, cardio, and stretching workout on the fly, then save it later if you want to repeat it",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            if (routines.isNotEmpty()) {
+                HorizontalDivider(
+                    modifier = Modifier.padding(top = 16.dp, bottom = 8.dp),
+                    color = MaterialTheme.colorScheme.outlineVariant
+                )
+                Text(
+                    "Saved mixed workouts",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 400.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    items(routines.sortedBy { it.name.lowercase() }, key = { it.id }) { routine ->
+                        Surface(
+                            onClick = { onSelectRoutine(routine) },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = MaterialTheme.shapes.medium
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Text(
+                                    routine.name.ifBlank { "Workout" },
+                                    style = MaterialTheme.typography.bodyLarge
+                                )
+                                Text(
+                                    if (routine.blocks.size == 1) "1 block" else "${routine.blocks.size} blocks",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -1877,7 +2874,7 @@ private fun CardioRoutinePickerSheet(
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text("New workout", style = MaterialTheme.typography.titleSmall)
                     Text(
-                        "Log a session, save a routine, or start a timer",
+                        "Start a single cardio session, launch a timer, or save a cardio-only routine",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -1915,7 +2912,7 @@ private fun CardioRoutinePickerSheet(
                     if (quickLaunches.isNotEmpty()) {
                         item {
                             Text(
-                                "Quick start",
+                                "Quick cardio starts",
                                 style = MaterialTheme.typography.labelLarge,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(bottom = 8.dp)
@@ -2616,52 +3613,81 @@ private fun RoutineTile(
     icon: ImageVector,
     label: String,
     subtitle: String,
-    onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    secondaryIcon: ImageVector? = null
+    secondaryIcon: ImageVector? = null,
+    statusBadge: QuickLogTileStatusBadge? = null,
+    elevation: Dp = 4.dp,
 ) {
     ElevatedCard(
-        onClick = onClick,
         modifier = modifier.aspectRatio(1f),
-        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 4.dp),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = elevation),
         shape = MaterialTheme.shapes.medium
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(10.dp),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            if (secondaryIcon != null) {
-                HotColdDualIcons(
-                    iconSize = 26.dp,
-                    heatIcon = icon,
-                    coldIcon = secondaryIcon
+        Box(modifier = Modifier.fillMaxSize()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(10.dp),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                if (secondaryIcon != null) {
+                    HotColdDualIcons(
+                        iconSize = 26.dp,
+                        heatIcon = icon,
+                        coldIcon = secondaryIcon
+                    )
+                } else {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = label,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(32.dp)
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelMedium,
+                    maxLines = 2,
+                    minLines = 2,
+                    textAlign = TextAlign.Center
                 )
-            } else {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = label,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(32.dp)
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
                 )
             }
-            Spacer(Modifier.height(8.dp))
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelMedium,
-                maxLines = 2,
-                minLines = 2,
-                textAlign = TextAlign.Center
-            )
-            Spacer(Modifier.height(2.dp))
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center
-            )
+            statusBadge?.let { badge ->
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(8.dp)
+                ) {
+                    Surface(
+                        color = if (badge == QuickLogTileStatusBadge.COMPLETE) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.error
+                        },
+                        shape = MaterialTheme.shapes.small
+                    ) {
+                        Text(
+                            text = if (badge == QuickLogTileStatusBadge.COMPLETE) "✓" else "!",
+                            color = if (badge == QuickLogTileStatusBadge.COMPLETE) {
+                                MaterialTheme.colorScheme.onPrimary
+                            } else {
+                                MaterialTheme.colorScheme.onError
+                            },
+                            style = MaterialTheme.typography.labelMedium,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+            }
         }
     }
 }

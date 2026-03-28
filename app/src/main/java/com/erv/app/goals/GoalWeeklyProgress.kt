@@ -1,23 +1,21 @@
 package com.erv.app.goals
 
 import com.erv.app.cardio.CardioLibraryState
-import com.erv.app.data.AllUserGoalOptions
+import com.erv.app.cardio.isCyclingActivity
+import com.erv.app.data.CardioGoalFilter
+import com.erv.app.data.UserGoalDefinition
+import com.erv.app.data.UserGoalMetricType
 import com.erv.app.lighttherapy.LightLibraryState
+import com.erv.app.programs.ProgramBlockKind
+import com.erv.app.programs.ProgramsLibraryState
+import com.erv.app.programs.programBlockCompletionKey
+import com.erv.app.programs.programBlocksForCalendarDay
+import com.erv.app.programs.programChecklistCompletionKey
 import com.erv.app.stretching.StretchLibraryState
 import com.erv.app.supplements.SupplementLibraryState
 import com.erv.app.weighttraining.WeightLibraryState
 import java.time.LocalDate
 import java.time.temporal.WeekFields
-
-/** Default weekly targets; conservative so new users can hit them with light use. */
-data class WeeklyGoalDefaults(
-    /** Days in the ISO week with at least one supplement log (routine or ad hoc). */
-    val supplementActiveDays: Int = 4,
-    val lightMinutesTotal: Int = 60,
-    val cardioSessions: Int = 2,
-    val weightWorkouts: Int = 2,
-    val stretchSessions: Int = 3,
-)
 
 data class GoalProgressRow(
     val goalId: String,
@@ -26,6 +24,7 @@ data class GoalProgressRow(
     val current: Int,
     val target: Int,
     val met: Boolean,
+    val summarySuffix: String,
 ) {
     val progress: Float
         get() = if (target <= 0) 0f else (current.toFloat() / target.toFloat()).coerceIn(0f, 1f)
@@ -39,15 +38,15 @@ fun isoWeekDaysContaining(day: LocalDate): List<LocalDate> {
 
 fun computeWeeklyGoalProgress(
     asOfDate: LocalDate,
-    selectedGoalIds: Set<String>,
+    goals: List<UserGoalDefinition>,
     supplementState: SupplementLibraryState,
     lightState: LightLibraryState,
     cardioState: CardioLibraryState,
     weightState: WeightLibraryState,
     stretchState: StretchLibraryState,
-    defaults: WeeklyGoalDefaults = WeeklyGoalDefaults(),
+    programsState: ProgramsLibraryState,
 ): List<GoalProgressRow> {
-    if (selectedGoalIds.isEmpty()) return emptyList()
+    if (goals.isEmpty()) return emptyList()
     val weekDays = isoWeekDaysContaining(asOfDate)
 
     val supplementActiveDays = weekDays.count { d ->
@@ -63,6 +62,10 @@ fun computeWeeklyGoalProgress(
         cardioState.logFor(d)?.sessions?.size ?: 0
     }
 
+    val cyclingSessions = weekDays.sumOf { d ->
+        cardioState.logFor(d)?.sessions?.count { it.activity.isCyclingActivity() } ?: 0
+    }
+
     val weightWorkouts = weekDays.sumOf { d ->
         weightState.logFor(d)?.workouts?.size ?: 0
     }
@@ -71,59 +74,65 @@ fun computeWeeklyGoalProgress(
         stretchState.logFor(d)?.sessions?.size ?: 0
     }
 
-    val byId = mapOf(
-        "supplements_adherence" to GoalProgressRow(
-            goalId = "supplements_adherence",
-            title = "Supplement routines",
-            detail = "Days this week with something logged",
-            current = supplementActiveDays,
-            target = defaults.supplementActiveDays,
-            met = supplementActiveDays >= defaults.supplementActiveDays,
-        ),
-        "light_therapy_time" to GoalProgressRow(
-            goalId = "light_therapy_time",
-            title = "Light therapy",
-            detail = "Total minutes this week",
-            current = lightMinutes,
-            target = defaults.lightMinutesTotal,
-            met = lightMinutes >= defaults.lightMinutesTotal,
-        ),
-        "cardio_activity" to GoalProgressRow(
-            goalId = "cardio_activity",
-            title = "Cardio",
-            detail = "Sessions logged this week",
-            current = cardioSessions,
-            target = defaults.cardioSessions,
-            met = cardioSessions >= defaults.cardioSessions,
-        ),
-        "weight_training" to GoalProgressRow(
-            goalId = "weight_training",
-            title = "Strength training",
-            detail = "Workouts logged this week",
-            current = weightWorkouts,
-            target = defaults.weightWorkouts,
-            met = weightWorkouts >= defaults.weightWorkouts,
-        ),
-        "stretching_sessions" to GoalProgressRow(
-            goalId = "stretching_sessions",
-            title = "Stretching",
-            detail = "Sessions logged this week",
-            current = stretchSessions,
-            target = defaults.stretchSessions,
-            met = stretchSessions >= defaults.stretchSessions,
-        ),
-    )
+    val programAdherenceDays = weekDays.count { day ->
+        val activeProgram = programsState.activeProgramId?.let(programsState::programById) ?: return@count false
+        val blocks = programBlocksForCalendarDay(activeProgram, day.dayOfWeek.value)
+        if (blocks.isEmpty()) return@count false
+        blocks.all { block ->
+            if (block.kind == ProgramBlockKind.OTHER && block.checklistItems.isNotEmpty()) {
+                block.checklistItems.indices.all { itemIndex ->
+                    programsState.isCompletionDone(
+                        programChecklistCompletionKey(activeProgram.id, block.id, itemIndex, day)
+                    )
+                }
+            } else {
+                programsState.isCompletionDone(programBlockCompletionKey(activeProgram.id, block.id, day))
+            }
+        }
+    }
 
-    return AllUserGoalOptions
-        .mapNotNull { opt -> if (opt.id in selectedGoalIds) byId[opt.id] else null }
+    return goals.map { goal ->
+        val current = when (goal.metricType) {
+            UserGoalMetricType.SUPPLEMENT_DAYS -> supplementActiveDays
+            UserGoalMetricType.PROGRAM_ADHERENCE_DAYS -> programAdherenceDays
+            UserGoalMetricType.CARDIO_SESSIONS ->
+                if (goal.cardioFilter == CardioGoalFilter.CYCLING) cyclingSessions else cardioSessions
+            UserGoalMetricType.STRENGTH_WORKOUTS -> weightWorkouts
+            UserGoalMetricType.STRETCH_SESSIONS -> stretchSessions
+            UserGoalMetricType.LIGHT_MINUTES -> lightMinutes
+        }
+        GoalProgressRow(
+            goalId = goal.id,
+            title = goal.title,
+            detail = goalDetail(goal),
+            current = current,
+            target = goal.target,
+            met = current >= goal.target,
+            summarySuffix = goalSummarySuffix(goal),
+        )
+    }
 }
 
 fun anySelectedGoalMet(rows: List<GoalProgressRow>): Boolean = rows.any { it.met }
 
-fun GoalProgressRow.summaryLine(): String = when (goalId) {
-    "supplements_adherence" -> "$current / $target days"
-    "light_therapy_time" -> "$current / $target min"
-    "weight_training" -> "$current / $target workouts"
-    "stretching_sessions" -> "$current / $target sessions"
-    else -> "$current / $target sessions"
+fun GoalProgressRow.summaryLine(): String = "$current / $target $summarySuffix"
+
+private fun goalDetail(goal: UserGoalDefinition): String = when (goal.metricType) {
+    UserGoalMetricType.SUPPLEMENT_DAYS -> "Days this week with supplement activity logged"
+    UserGoalMetricType.PROGRAM_ADHERENCE_DAYS -> "Days this week where your active program is fully completed"
+    UserGoalMetricType.CARDIO_SESSIONS ->
+        if (goal.cardioFilter == CardioGoalFilter.CYCLING) "Cycling sessions logged this week"
+        else "Cardio sessions logged this week"
+    UserGoalMetricType.STRENGTH_WORKOUTS -> "Weight-training workouts logged this week"
+    UserGoalMetricType.STRETCH_SESSIONS -> "Stretch sessions logged this week"
+    UserGoalMetricType.LIGHT_MINUTES -> "Total light therapy minutes this week"
+}
+
+private fun goalSummarySuffix(goal: UserGoalDefinition): String = when (goal.metricType) {
+    UserGoalMetricType.SUPPLEMENT_DAYS -> "days"
+    UserGoalMetricType.PROGRAM_ADHERENCE_DAYS -> "days"
+    UserGoalMetricType.CARDIO_SESSIONS -> "sessions"
+    UserGoalMetricType.STRENGTH_WORKOUTS -> "workouts"
+    UserGoalMetricType.STRETCH_SESSIONS -> "sessions"
+    UserGoalMetricType.LIGHT_MINUTES -> "min"
 }

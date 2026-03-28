@@ -2,11 +2,14 @@ package com.erv.app.dataexport
 
 import com.erv.app.cardio.CardioLibraryState
 import com.erv.app.cardio.CardioSession
+import com.erv.app.data.FitnessEquipmentNostrPayload
+import com.erv.app.data.OwnedEquipmentItem
 import com.erv.app.heatcold.HeatColdLibraryState
 import com.erv.app.lighttherapy.LightLibraryState
 import com.erv.app.stretching.StretchLibraryState
 import com.erv.app.supplements.SupplementLibraryState
 import com.erv.app.weighttraining.WeightLibraryState
+import kotlinx.serialization.EncodeDefault
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -41,6 +44,12 @@ data class ErvAppDataExportV1(
     val exportedAtEpochSeconds: Long,
     /** Human-readable, e.g. `all` or `2024-01-01..2024-12-31`. */
     val dateRangeLabel: String,
+    /**
+     * Same JSON shape as Nostr `erv/equipment` (Settings → Equipment & Gym). Omitted when the user
+     * has no owned equipment and no commercial gym membership.
+     */
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val fitnessEquipment: FitnessEquipmentNostrPayload? = null,
     val weightTraining: WeightLibraryState? = null,
     val cardio: CardioLibraryState? = null,
     val stretching: StretchLibraryState? = null,
@@ -98,6 +107,21 @@ object ErvAppDataExport {
     fun filterSupplementState(state: SupplementLibraryState, selection: ExportDateSelection): SupplementLibraryState =
         state.copy(logs = state.logs.filter { isDateInSelection(it.date, selection) })
 
+    /**
+     * Nostr-compatible equipment profile for exports. Null when there is nothing to constrain
+     * programming (no listed equipment and no commercial gym access).
+     */
+    fun fitnessEquipmentForExport(
+        gymMembership: Boolean,
+        ownedEquipment: List<OwnedEquipmentItem>,
+    ): FitnessEquipmentNostrPayload? {
+        if (!gymMembership && ownedEquipment.isEmpty()) return null
+        return FitnessEquipmentNostrPayload(
+            gymMembership = gymMembership,
+            equipment = ownedEquipment,
+        )
+    }
+
     fun buildBundle(
         category: DataExportCategory,
         selection: ExportDateSelection,
@@ -107,9 +131,12 @@ object ErvAppDataExport {
         heatCold: HeatColdLibraryState,
         light: LightLibraryState,
         supplements: SupplementLibraryState,
+        gymMembership: Boolean,
+        ownedEquipment: List<OwnedEquipmentItem>,
         exportedAtEpochSeconds: Long = System.currentTimeMillis() / 1000,
     ): ErvAppDataExportV1 {
         val label = dateRangeLabel(selection)
+        val equipmentPayload = fitnessEquipmentForExport(gymMembership, ownedEquipment)
         fun w() = filterWeightState(weight, selection)
         fun c() = filterCardioState(cardio, selection)
         fun st() = filterStretchState(stretching, selection)
@@ -120,6 +147,7 @@ object ErvAppDataExport {
             DataExportCategory.ALL -> ErvAppDataExportV1(
                 exportedAtEpochSeconds = exportedAtEpochSeconds,
                 dateRangeLabel = label,
+                fitnessEquipment = equipmentPayload,
                 weightTraining = w(),
                 cardio = c(),
                 stretching = st(),
@@ -130,31 +158,37 @@ object ErvAppDataExport {
             DataExportCategory.WEIGHT_TRAINING -> ErvAppDataExportV1(
                 exportedAtEpochSeconds = exportedAtEpochSeconds,
                 dateRangeLabel = label,
+                fitnessEquipment = equipmentPayload,
                 weightTraining = w(),
             )
             DataExportCategory.CARDIO -> ErvAppDataExportV1(
                 exportedAtEpochSeconds = exportedAtEpochSeconds,
                 dateRangeLabel = label,
+                fitnessEquipment = equipmentPayload,
                 cardio = c(),
             )
             DataExportCategory.STRETCHING -> ErvAppDataExportV1(
                 exportedAtEpochSeconds = exportedAtEpochSeconds,
                 dateRangeLabel = label,
+                fitnessEquipment = equipmentPayload,
                 stretching = st(),
             )
             DataExportCategory.HEAT_COLD -> ErvAppDataExportV1(
                 exportedAtEpochSeconds = exportedAtEpochSeconds,
                 dateRangeLabel = label,
+                fitnessEquipment = equipmentPayload,
                 heatCold = hc(),
             )
             DataExportCategory.LIGHT_THERAPY -> ErvAppDataExportV1(
                 exportedAtEpochSeconds = exportedAtEpochSeconds,
                 dateRangeLabel = label,
+                fitnessEquipment = equipmentPayload,
                 lightTherapy = lt(),
             )
             DataExportCategory.SUPPLEMENTS -> ErvAppDataExportV1(
                 exportedAtEpochSeconds = exportedAtEpochSeconds,
                 dateRangeLabel = label,
+                fitnessEquipment = equipmentPayload,
                 supplements = sup(),
             )
         }

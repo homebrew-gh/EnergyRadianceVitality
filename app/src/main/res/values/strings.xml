@@ -53,6 +53,26 @@
     <string name="weight_added_load_info_icon_cd">What added weight means</string>
     <string name="weight_exercise_sets_save">Save</string>
     <string name="weight_exercise_card_expand_cd">Tap to edit sets</string>
+    <string name="weight_live_rest_timer_dialog_title">Rest between sets</string>
+    <string name="weight_live_rest_timer_dialog_body">In Auto or Manual mode, rest is offered when you tap Add set on an exercise. Auto starts the countdown immediately; Manual shows Start below the rest time. Expanding an exercise again clears an active rest timer. Long press the Rest column next to the workout timer to change these settings.</string>
+    <string name="weight_live_rest_timer_long_press_cd">Rest timer. Long press for settings.</string>
+    <string name="weight_live_rest_timer_display_label">Rest</string>
+    <string name="weight_live_workout_timer_display_label">Workout</string>
+    <string name="weight_live_rest_timer_idle">—</string>
+    <string name="weight_live_rest_timer_mode_off_display">Off</string>
+    <string name="weight_live_rest_timer_mode_off">Off</string>
+    <string name="weight_live_rest_timer_mode_auto">Auto</string>
+    <string name="weight_live_rest_timer_mode_manual">Manual</string>
+    <string name="weight_live_rest_timer_seconds_label">Rest duration</string>
+    <string name="weight_live_rest_timer_wheel_helper">5 second steps, up to 10:00.</string>
+    <string name="weight_live_rest_timer_countdown_sound_label">Final 5 second countdown sound</string>
+    <string name="weight_live_rest_timer_countdown_sound_helper">Plays one beep per second for the last five seconds.</string>
+    <string name="weight_live_rest_timer_end_sound_label">Timer finished sound</string>
+    <string name="weight_live_rest_timer_end_sound_helper">Plays a louder distinct cue when rest ends.</string>
+    <string name="weight_live_rest_timer_manual_prompt">Start your rest timer?</string>
+    <string name="weight_live_rest_timer_start">Start</string>
+    <string name="weight_live_rest_timer_dismiss">Dismiss</string>
+    <string name="weight_live_rest_timer_skip">Skip</string>
 
     <!-- Cardio GPS foreground service -->
     <string name="cardio_gps_notification_channel_name">Cardio location</string>
@@ -84,7 +104,17 @@
     <string name="settings_cardio_nostr_route_title">Workout share on social relays</string>
     <string name="settings_cardio_nostr_route_switch">Include route image in “Share Workout”</string>
     <string name="settings_cardio_nostr_route_switch_helper">On by default: when GPS was recorded and your media server URL is set, uploads the watermarked route PNG and adds the link plus imeta to your kind 1 note. Turn off to post text only. NIP-96 uses one host; Blossom uses the public host below (private host is not used in notes).</string>
-    <string name="cardio_share_route_image_need_server">Route image needs a media server: set Blossom public or NIP-96 URL in Settings → Cardio &amp; sharing (upload type must match).</string>
+    <string name="cardio_share_route_image_need_server">Route image needs a media server: set Blossom public or NIP-96 URL in Settings → Relays under “Workout share on social relays” (upload type must match).</string>
+    <string name="workout_share_dialog_title">Share workout</string>
+    <string name="workout_share_extra_hashtags_label">Extra hashtags</string>
+    <string name="workout_share_extra_hashtags_placeholder">#morning #5k …</string>
+    <string name="workout_share_extra_hashtags_helper">Added after #erv #workout #fitness. Use #word (letters, numbers, underscore). Up to 20.</string>
+    <string name="weight_workout_share_personal_message_label">Personal message</string>
+    <string name="weight_workout_share_personal_message_placeholder">How did the session feel?</string>
+    <string name="weight_workout_share_personal_message_helper">Optional note shown near the top of your shared post.</string>
+    <string name="weight_workout_share_hashtags_label">Hashtags</string>
+    <string name="weight_workout_share_hashtags_placeholder">#erv #workout #fitness #pushday</string>
+    <string name="weight_workout_share_hashtags_helper">Edit the full hashtag line for this post. Only #word tags are included, up to 20.</string>
     <string name="settings_cardio_nostr_upload_type">Upload type</string>
     <string name="settings_cardio_nostr_upload_nip96">NIP-96</string>
     <string name="settings_cardio_nostr_upload_blossom">Blossom</string>
@@ -97,14 +127,37 @@
     <string name="settings_cardio_nostr_blossom_private_helper">For personal images only. ERV does not upload these to Nostr or put their URLs in posts. Use a self-hosted or restricted server you trust.</string>
     <string name="settings_cardio_nostr_save_blossom_servers">Save Blossom servers</string>
     <string name="settings_cardio_nostr_fetch_blossom">Load from my Nostr profile</string>
-    <string name="settings_cardio_nostr_fetch_blossom_helper">Fetches your latest kind 10063 (Blossom server list) from the relays connected below—the same list other clients publish.</string>
+    <string name="settings_cardio_nostr_fetch_blossom_helper">Fetches your latest kind 10063 (Blossom server list) from the relays configured above on this screen—the same list other clients publish.</string>
     <string name="settings_cardio_nostr_fetch_blossom_loading">Looking up kind 10063…</string>
     <string name="settings_cardio_nostr_fetch_blossom_none">No kind 10063 found. Configure Blossom servers in another Nostr client with this same key, then try again.</string>
     <string name="settings_cardio_nostr_fetch_blossom_applied">Saved public Blossom server from your profile.</string>
     <string name="settings_cardio_nostr_fetch_blossom_pick_title">Choose a server</string>
     <string name="settings_cardio_nostr_fetch_no_pubkey">Sign in to load your Blossom server list.</string>
-    <string name="settings_cardio_nostr_fetch_no_relays">No relay connection. Add relays below and wait until at least one shows connected.</string>
+    <string name="settings_cardio_nostr_fetch_no_relays">No relay connection. Add a relay above and wait until at least one shows connected.</string>
     <string name="settings_cardio_nostr_fetch_no_pool">Sign in and open Settings with relays connected to load your profile.</string>
+
+    <!-- Account / Identity profile -->
+    <string name="settings_identity_profile_title">Profile</string>
+    <string name="settings_identity_profile_helper_nostr">Loaded from your latest kind 0 metadata on the relays below. Save publishes an updated profile to those relays.</string>
+    <string name="settings_identity_profile_helper_local">Stored on this device only. Add a Nostr identity to publish a public profile to relays.</string>
+    <string name="settings_identity_display_name">Display name</string>
+    <string name="settings_identity_picture_url">Profile picture URL</string>
+    <string name="settings_identity_bio">Bio</string>
+    <string name="settings_identity_fetch_profile">Load from Nostr</string>
+    <string name="settings_identity_fetch_loaded">Profile loaded from relays.</string>
+    <string name="settings_identity_fetch_none">No kind 0 profile found on your relays. Fill in below and save to publish.</string>
+    <string name="settings_identity_fetch_failed">Could not load profile. Check relay connection.</string>
+    <string name="settings_identity_save_local">Save profile</string>
+    <string name="settings_identity_save_nostr">Save &amp; publish profile</string>
+    <string name="settings_identity_saved_local">Profile saved on this device.</string>
+    <string name="settings_identity_saved_nostr">Profile published to your relays.</string>
+    <string name="settings_identity_publish_failed">Could not publish profile. Check relay connection and signer (e.g. Amber may need kind 0 allowed).</string>
+    <string name="settings_identity_saved_nostr_relay_list_failed">Profile published, but NIP-65 relay list could not be published.</string>
+
+    <!-- Settings → Relays: NIP-65 relay list (kind 10002) -->
+    <string name="settings_relays_never_publish_nip65_switch">Never publish NIP-65 relay list</string>
+    <string name="settings_relays_never_publish_nip65_helper">When on (recommended for private relays), ERV will not send kind 10002 events that advertise your relay URLs to the network. Encrypted sync and profile publish are unchanged. Turn off only if you want other Nostr clients to auto-discover your relay set.</string>
+    <string name="settings_relays_save_nip65_failed">Relay settings saved, but NIP-65 relay list could not be published.</string>
 
     <!-- Live workout: system media session (track info + transport) -->
     <string name="media_notification_listener_name">ERV media controls</string>
@@ -137,12 +190,14 @@
     <string name="hr_top_bar_connecting">Heart rate: connecting…</string>
     <string name="hr_top_bar_connected_waiting">Heart rate: connected (waiting for data)</string>
     <string name="hr_top_bar_bpm">Heart rate: %1$d bpm</string>
+    <string name="hr_top_bar_battery_percent">%1$d%%</string>
+    <string name="hr_top_bar_battery_content_description">Sensor battery %1$d percent</string>
     <string name="hr_top_bar_error">Heart rate: connection issue</string>
     <string name="dashboard_hr_banner_toggle_cd">Show or hide heart rate sensor bar</string>
     <string name="hr_dialog_title">Bluetooth heart rate</string>
     <string name="hr_dialog_body">Use a standard BLE heart rate monitor (e.g. Polar Verity Sense, chest strap). HR is shown live here; averages and min/max are saved only when you finish a live cardio timer or live weight workout.</string>
     <string name="hr_dialog_scan">Scan for sensor</string>
-    <string name="hr_dialog_disconnect">Forget sensor</string>
+    <string name="hr_dialog_disconnect">Disconnect</string>
     <string name="hr_dialog_close">Close</string>
     <string name="hr_scan_dialog_title">Select a sensor</string>
     <string name="hr_scan_empty">No sensors found yet. Wake the device, wear it, and keep it close to the phone.</string>

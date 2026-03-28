@@ -54,7 +54,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.key
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -93,6 +92,8 @@ import com.erv.app.nostr.EventSigner
 import com.erv.app.nostr.LocalKeyManager
 import com.erv.app.nostr.RelayPool
 import com.erv.app.SectionLogDateFilter
+import com.erv.app.data.UserPreferences
+import com.erv.app.programs.decodeHeatColdLaunch
 import com.erv.app.heatcold.heatColdTimelineForSectionLog
 import com.erv.app.ui.dashboard.SectionLogCalendarSheet
 import com.erv.app.ui.dashboard.SectionLogFilterBar
@@ -109,10 +110,10 @@ import com.erv.app.ui.theme.ErvDarkTherapyRedMid
 import com.erv.app.ui.theme.ErvLightTherapyRedDark
 import com.erv.app.ui.theme.ErvLightTherapyRedGlow
 import com.erv.app.ui.theme.ErvLightTherapyRedMid
+import com.erv.app.ui.components.CompactIntWheel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.abs
-import kotlin.math.roundToInt
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -121,10 +122,6 @@ import java.util.Locale
 
 private val SAUNA_MINUTE_OPTIONS = (5..30 step 5).toList()
 private val COLD_SECOND_OPTIONS = (30..300 step 30).toList()
-
-/** Compact wheel: fewer / shorter rows than Light therapy timer wheel. */
-private const val COMPACT_WHEEL_ITEM_DP = 40
-private const val COMPACT_WHEEL_VISIBLE_ITEMS = 3
 
 private val SAUNA_TEMP_FAHRENHEIT = (130..200).toList()
 private val SAUNA_TEMP_CELSIUS = (54..93).toList()
@@ -141,6 +138,7 @@ private const val COLD_TEMP_DEFAULT_C = 7
 fun HeatColdCategoryScreen(
     initialMode: HeatColdMode,
     repository: HeatColdRepository,
+    userPreferences: UserPreferences,
     relayPool: RelayPool?,
     signer: EventSigner?,
     onBack: () -> Unit,
@@ -195,21 +193,34 @@ fun HeatColdCategoryScreen(
         }
     }
 
-    LaunchedEffect(relayPool, signer?.publicKey) {
-        if (relayPool != null && signer != null) {
-            HeatColdSync.fetchFromNetwork(relayPool, signer, signer.publicKey)?.let { remote ->
-                val merged = LibraryStateMerge.mergeHeatCold(repository.currentState(), remote)
-                repository.replaceAll(merged)
-                RelayPayloadDigestStore.reconcileIdenticalRemoteMerged(
-                    appContext,
-                    HeatColdSync.fullOutboxEntries(remote),
-                    HeatColdSync.fullOutboxEntries(merged),
-                )
+    LaunchedEffect(Unit) {
+        val raw = userPreferences.consumeProgramDashboardHeatColdLaunchJson()
+        if (!raw.isNullOrBlank()) {
+            val payload = decodeHeatColdLaunch(raw)
+            val parsedMode = payload?.let { p -> runCatching { HeatColdMode.valueOf(p.mode) }.getOrNull() }
+            if (payload != null && parsedMode != null) {
+                mode = parsedMode
+                val secs = payload.durationSeconds.coerceIn(30, 2 * 60 * 60)
+                when (parsedMode) {
+                    HeatColdMode.SAUNA -> {
+                        val minuteOptions = (5..30 step 5).toList()
+                        val wantMin = ((secs + 59) / 60).coerceIn(5, 30)
+                        val snappedMin = minuteOptions.minByOrNull { kotlin.math.abs(it - wantMin) } ?: wantMin
+                        saunaMinutes = snappedMin
+                        timerTotalSeconds = snappedMin * 60
+                    }
+                    HeatColdMode.COLD_PLUNGE -> {
+                        val secondOptions = (30..300 step 30).toList()
+                        val snappedSec =
+                            secondOptions.minByOrNull { kotlin.math.abs(it - secs) } ?: secs.coerceIn(30, 300)
+                        coldSeconds = snappedSec
+                        timerTotalSeconds = snappedSec
+                    }
+                }
+                timerRunning = true
+                return@LaunchedEffect
             }
         }
-    }
-
-    LaunchedEffect(Unit) {
         coldSeconds = COLD_SECOND_OPTIONS.minByOrNull { abs(it - coldSeconds) } ?: coldSeconds
         saunaMinutes = SAUNA_MINUTE_OPTIONS.minByOrNull { abs(it - saunaMinutes) } ?: saunaMinutes
         when (tempUnit) {
@@ -555,81 +566,6 @@ private fun BinarySegmentedSlider(
                     }
                 }
         )
-    }
-}
-
-@Composable
-private fun CompactIntWheel(
-    values: List<Int>,
-    currentValue: Int,
-    onCommitted: (Int) -> Unit,
-    formatLabel: (Int) -> String,
-    modifier: Modifier = Modifier,
-) {
-    if (values.isEmpty()) return
-
-    // Reset scroll state when `values` changes; do not key on every committed value or the wheel freezes.
-    key(values) {
-        val exact = values.indexOf(currentValue)
-        val ix =
-            if (exact >= 0) exact
-            else values.indices.minByOrNull { abs(values[it] - currentValue) } ?: 0
-        val listState = rememberLazyListState(
-            initialFirstVisibleItemIndex = ix.coerceIn(0, values.lastIndex)
-        )
-
-        val itemHeightPx = with(LocalDensity.current) { COMPACT_WHEEL_ITEM_DP.dp.toPx() }
-        val selectedIndex by remember {
-            derivedStateOf {
-                val offset = listState.firstVisibleItemScrollOffset.toFloat()
-                val index = listState.firstVisibleItemIndex + (offset / itemHeightPx).roundToInt()
-                index.coerceIn(0, values.lastIndex)
-            }
-        }
-
-        LaunchedEffect(listState.isScrollInProgress) {
-            if (!listState.isScrollInProgress) {
-                listState.animateScrollToItem(selectedIndex)
-            }
-        }
-
-        LaunchedEffect(selectedIndex, listState.isScrollInProgress) {
-            if (!listState.isScrollInProgress) {
-                onCommitted(values[selectedIndex])
-            }
-        }
-
-        Box(
-            modifier = modifier
-                .height((COMPACT_WHEEL_ITEM_DP * COMPACT_WHEEL_VISIBLE_ITEMS).dp)
-                .fillMaxWidth()
-        ) {
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(
-                    vertical = (COMPACT_WHEEL_ITEM_DP * (COMPACT_WHEEL_VISIBLE_ITEMS / 2)).dp
-                )
-            ) {
-                items(values.size, key = { values[it] }) { index ->
-                    val v = values[index]
-                    val isSelected = index == selectedIndex
-                    Box(
-                        modifier = Modifier
-                            .height(COMPACT_WHEEL_ITEM_DP.dp)
-                            .fillMaxWidth(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = formatLabel(v),
-                            style = if (isSelected) MaterialTheme.typography.titleLarge else MaterialTheme.typography.titleMedium,
-                            color = if (isSelected) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
-                        )
-                    }
-                }
-            }
-        }
     }
 }
 

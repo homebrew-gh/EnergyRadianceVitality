@@ -49,6 +49,7 @@ import com.erv.app.ui.reminders.RoutineReminderFormSection
 import com.erv.app.supplements.OpenFoodFactsClient
 import com.erv.app.supplements.SupplementApiClient
 import com.erv.app.supplements.SupplementApiResult
+import com.erv.app.supplements.parseNihServingSizeToDosage
 import com.erv.app.supplements.SupplementBarcodeLookup
 import com.erv.app.supplements.SupplementActivityRow
 import com.erv.app.supplements.SupplementDosagePlan
@@ -186,31 +187,6 @@ fun SupplementCategoryScreen(
                 log,
                 keyManager.relayUrlsForKind30078Publish(),
             )
-        }
-    }
-
-    LaunchedEffect(relayPool, signer?.publicKey) {
-        if (relayPool != null && signer != null) {
-            SupplementSync.fetchFromNetwork(relayPool, signer, signer.publicKey)?.let { remote ->
-                val local = repository.currentState()
-                val preferLocalDates = repository.getRecentlyPublishedLogDates()
-                val mergedBase = LibraryStateMerge.mergeSupplement(local, remote)
-                val merged = if (preferLocalDates.isEmpty()) mergedBase else {
-                    val remoteDates = mergedBase.logs.map { it.date }.toSet()
-                    val replaced = mergedBase.logs.map { log ->
-                        if (log.date in preferLocalDates) local.logFor(LocalDate.parse(log.date)) ?: log else log
-                    }
-                    val localOnly =
-                        preferLocalDates.filter { it !in remoteDates }.mapNotNull { local.logFor(LocalDate.parse(it)) }
-                    mergedBase.copy(logs = (replaced + localOnly).sortedBy { it.date })
-                }
-                repository.replaceAll(merged)
-                RelayPayloadDigestStore.reconcileIdenticalRemoteMerged(
-                    context.applicationContext,
-                    SupplementSync.fullOutboxEntries(remote),
-                    SupplementSync.fullOutboxEntries(merged),
-                )
-            }
         }
     }
 
@@ -516,10 +492,7 @@ fun SupplementCategoryScreen(
                             onClick = {
                                 createBootstrap = CreateSupplementBootstrap(
                                     sessionKey = UUID.randomUUID().toString(),
-                                    initialDraft = SupplementDraft(
-                                        name = result.productName,
-                                        brand = result.brand?.trim().orEmpty()
-                                    ),
+                                    initialDraft = supplementDraftFromNihSearchResult(result),
                                     pendingNih = result
                                 )
                                 creatingSupplement = true
@@ -1880,6 +1853,19 @@ private fun <T> EnumDropdownField(
             }
         }
     }
+}
+
+private fun supplementDraftFromNihSearchResult(result: SupplementApiResult): SupplementDraft {
+    val label = result.info.servingSize?.trim().orEmpty()
+    val parsed = parseNihServingSizeToDosage(result.info.servingSize)
+    return SupplementDraft(
+        name = result.productName,
+        brand = result.brand?.trim().orEmpty(),
+        servingSize = label,
+        form = parsed?.form ?: SupplementForm.POWDER,
+        servingAmount = parsed?.amount?.toDisplayNumber().orEmpty(),
+        servingUnit = parsed?.unit ?: SupplementUnit.MG,
+    )
 }
 
 private fun SupplementEntry.toSupplementDraft(): SupplementDraft = SupplementDraft(

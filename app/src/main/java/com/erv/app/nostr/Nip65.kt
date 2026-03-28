@@ -1,9 +1,11 @@
 package com.erv.app.nostr
 
+import com.erv.app.data.UserPreferences
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /**
@@ -60,5 +62,44 @@ object Nip65 {
         relayPool.unsubscribe(subId)
         val latest = events.maxByOrNull { it.createdAt }
         latest?.let { parseRelayListFromEvent(it) } ?: emptyList()
+    }
+
+    /**
+     * Publishes kind **10002** (NIP-65) with current [KeyManager] relay roles when
+     * [UserPreferences.neverPublishNip65RelayList] is false. When that preference is true, returns **true**
+     * without publishing.
+     *
+     * @return false only if publishing was attempted and all target relays rejected the event; true if skipped or any relay accepted.
+     */
+    suspend fun publishRelayListIfAllowed(
+        userPreferences: UserPreferences,
+        relayPool: RelayPool,
+        signer: EventSigner,
+        keyManager: KeyManager,
+    ): Boolean {
+        if (userPreferences.neverPublishNip65RelayList.first()) return true
+        val urls = keyManager.allRelayUrls()
+        if (urls.isEmpty()) return true
+        val tags = urls.map { url ->
+            val data = keyManager.isDataRelay(url)
+            val social = keyManager.isSocialRelay(url)
+            when {
+                data && social -> listOf("r", url)
+                data -> listOf("r", url, "write")
+                social -> listOf("r", url, "read")
+                else -> listOf("r", url)
+            }
+        }
+        val unsigned = UnsignedEvent(
+            pubkey = signer.publicKey,
+            createdAt = System.currentTimeMillis() / 1000,
+            kind = 10002,
+            tags = tags,
+            content = "",
+        )
+        val signed = signer.sign(unsigned)
+        val dest = keyManager.relayUrlsForKind0Publish()
+        if (dest.isEmpty()) return false
+        return relayPool.publishToRelayUrls(signed, dest)
     }
 }

@@ -1,5 +1,6 @@
 package com.erv.app.ui.weighttraining
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -7,6 +8,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -18,12 +20,14 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -35,10 +39,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.unit.dp
 import com.erv.app.data.BodyWeightUnit
 import com.erv.app.nostr.EventSigner
@@ -64,10 +73,18 @@ import com.erv.app.weighttraining.kgToPounds
 import com.erv.app.weighttraining.totalVolumeLoadTimesReps
 import com.erv.app.weighttraining.weightLoadUnitSuffix
 import java.time.Instant
+import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.launch
+
+private enum class ExerciseProgressMetric { EstimatedOneRm, Volume }
+
+private data class ExerciseProgressPoint(
+    val date: String,
+    val value: Double
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -99,6 +116,10 @@ fun WeightExerciseDetailScreen(
         val s = repository.currentState()
         WeightSync.publishExercises(appContext, relayPool, signer, s.exercises, urls)
         WeightSync.publishRoutines(appContext, relayPool, signer, s.routines, urls)
+    }
+
+    var selectedProgressMetric by remember(exerciseId) {
+        mutableStateOf(ExerciseProgressMetric.EstimatedOneRm)
     }
 
     Scaffold(
@@ -205,6 +226,124 @@ fun WeightExerciseDetailScreen(
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
+                        }
+                    }
+                }
+            }
+            item {
+                val sums = exercise?.sessionSummaries.orEmpty()
+                val oneRmPoints = remember(sums, loadUnit) {
+                    sums.mapNotNull { summary ->
+                        val valueKg = summary.bestEstOneRmKg ?: return@mapNotNull null
+                        ExerciseProgressPoint(
+                            date = summary.date,
+                            value = when (loadUnit) {
+                                BodyWeightUnit.KG -> valueKg
+                                BodyWeightUnit.LB -> kgToPounds(valueKg)
+                            }
+                        )
+                    }
+                }
+                val volumePoints = remember(sums, loadUnit) {
+                    sums.mapNotNull { summary ->
+                        if (summary.volumeKg <= 0.0) return@mapNotNull null
+                        ExerciseProgressPoint(
+                            date = summary.date,
+                            value = when (loadUnit) {
+                                BodyWeightUnit.KG -> summary.volumeKg
+                                BodyWeightUnit.LB -> kgToPounds(summary.volumeKg)
+                            }
+                        )
+                    }
+                }
+                val availableMetrics = buildList {
+                    if (oneRmPoints.size >= 3) add(ExerciseProgressMetric.EstimatedOneRm)
+                    if (volumePoints.size >= 3) add(ExerciseProgressMetric.Volume)
+                }
+                if (availableMetrics.isNotEmpty()) {
+                    if (selectedProgressMetric !in availableMetrics) {
+                        selectedProgressMetric = availableMetrics.first()
+                    }
+                    val chartPoints = when (selectedProgressMetric) {
+                        ExerciseProgressMetric.EstimatedOneRm -> oneRmPoints
+                        ExerciseProgressMetric.Volume -> volumePoints
+                    }
+                    val metricLabel = when (selectedProgressMetric) {
+                        ExerciseProgressMetric.EstimatedOneRm -> "Estimated 1RM"
+                        ExerciseProgressMetric.Volume -> "Session volume"
+                    }
+                    val metricUnit = when (selectedProgressMetric) {
+                        ExerciseProgressMetric.EstimatedOneRm -> loadSuffix
+                        ExerciseProgressMetric.Volume -> "${loadSuffix}·reps"
+                    }
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                    ) {
+                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Text("Progress", style = MaterialTheme.typography.titleSmall)
+                            Text(
+                                "Compact trend view from your logged history. Switch metrics when a visual is more useful than scanning raw entries.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                if (ExerciseProgressMetric.EstimatedOneRm in availableMetrics) {
+                                    FilterChip(
+                                        selected = selectedProgressMetric == ExerciseProgressMetric.EstimatedOneRm,
+                                        onClick = { selectedProgressMetric = ExerciseProgressMetric.EstimatedOneRm },
+                                        label = { Text("1RM") }
+                                    )
+                                }
+                                if (ExerciseProgressMetric.Volume in availableMetrics) {
+                                    FilterChip(
+                                        selected = selectedProgressMetric == ExerciseProgressMetric.Volume,
+                                        onClick = { selectedProgressMetric = ExerciseProgressMetric.Volume },
+                                        label = { Text("Volume") }
+                                    )
+                                }
+                            }
+                            ExerciseProgressLineChart(
+                                points = chartPoints,
+                                lineColor = MaterialTheme.colorScheme.primary,
+                                gridColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Text(
+                                "$metricLabel over ${chartPoints.size} logged session(s)",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    "Latest ${formatProgressMetricValue(chartPoints.last().value)} $metricUnit",
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                                Text(
+                                    "Best ${formatProgressMetricValue(chartPoints.maxOf { it.value })} $metricUnit",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    chartDateLabel(chartPoints.first().date),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    chartDateLabel(chartPoints.last().date),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                     }
                 }
@@ -386,3 +525,77 @@ private fun historySessionTimeLabel(session: WeightWorkoutSession): String? {
     val t = LocalTime.ofInstant(Instant.ofEpochSecond(sec), ZoneId.systemDefault())
     return t.format(DateTimeFormatter.ofLocalizedTime(java.time.format.FormatStyle.SHORT))
 }
+
+@Composable
+private fun ExerciseProgressLineChart(
+    points: List<ExerciseProgressPoint>,
+    lineColor: Color,
+    gridColor: Color,
+    modifier: Modifier = Modifier
+) {
+    if (points.size < 2) return
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.45f)
+    ) {
+        Canvas(
+            modifier = modifier
+                .fillMaxWidth()
+                .height(180.dp)
+                .padding(8.dp)
+        ) {
+            val w = size.width
+            val h = size.height
+            val padL = 4f
+            val padR = 8f
+            val padT = 8f
+            val padB = 12f
+            val chartW = (w - padL - padR).coerceAtLeast(1f)
+            val chartH = (h - padT - padB).coerceAtLeast(1f)
+            val minV = points.minOf { it.value }
+            val maxV = points.maxOf { it.value }
+            val span = (maxV - minV).coerceAtLeast(1.0)
+
+            for (i in 0..3) {
+                val gy = padT + chartH * i / 3f
+                drawLine(
+                    color = gridColor,
+                    start = Offset(padL, gy),
+                    end = Offset(padL + chartW, gy),
+                    strokeWidth = 1f
+                )
+            }
+
+            val path = Path()
+            points.forEachIndexed { idx, point ->
+                val x = if (points.size == 1) {
+                    padL + chartW / 2f
+                } else {
+                    padL + idx.toFloat() / (points.lastIndex.coerceAtLeast(1)) * chartW
+                }
+                val yNorm = ((point.value - minV) / span).toFloat()
+                val y = padT + chartH * (1f - yNorm)
+                if (idx == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                drawCircle(
+                    color = lineColor,
+                    radius = 4f,
+                    center = Offset(x, y)
+                )
+            }
+            drawPath(
+                path = path,
+                color = lineColor,
+                style = Stroke(width = 3f, cap = StrokeCap.Round)
+            )
+        }
+    }
+}
+
+private fun chartDateLabel(date: String): String =
+    runCatching {
+        LocalDate.parse(date).format(DateTimeFormatter.ofPattern("M/d"))
+    }.getOrDefault(date)
+
+private fun formatProgressMetricValue(value: Double): String =
+    if (value == value.toLong().toDouble()) value.toLong().toString()
+    else String.format("%.1f", value)

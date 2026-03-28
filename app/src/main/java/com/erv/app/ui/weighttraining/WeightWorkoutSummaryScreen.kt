@@ -24,6 +24,8 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -39,20 +41,28 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.collectAsState
+import com.erv.app.R
 import com.erv.app.data.BodyWeightUnit
 import com.erv.app.data.UserPreferences
 import com.erv.app.hr.HeartRateSessionAnalyticsSection
 import com.erv.app.nostr.EventSigner
 import com.erv.app.nostr.RelayPool
 import com.erv.app.nostr.UnsignedEvent
+import com.erv.app.nostr.buildWorkoutShareHashtagContentLineFromTopics
+import com.erv.app.nostr.parseWorkoutShareTopics
+import com.erv.app.nostr.workoutShareBaseTopicTags
+import com.erv.app.nostr.workoutShareKind1TopicTagsFromTopics
 import com.erv.app.weighttraining.WeightEquipment
 import com.erv.app.weighttraining.WeightLibraryState
 import com.erv.app.weighttraining.WeightRepository
 import com.erv.app.weighttraining.WeightRoutine
 import com.erv.app.weighttraining.WeightWorkoutSession
 import com.erv.app.weighttraining.WeightWorkoutSource
+import com.erv.app.weighttraining.displayLabel
+import com.erv.app.weighttraining.formatSetSummaryLine
 import com.erv.app.weighttraining.totalSetCount
 import com.erv.app.weighttraining.formatHiitBlockSummaryLine
 import com.erv.app.weighttraining.formatWeightLoadNumber
@@ -75,15 +85,21 @@ internal fun buildWeightWorkoutNoteContent(
     session: WeightWorkoutSession,
     library: WeightLibraryState,
     logDate: LocalDate,
-    displayUnit: BodyWeightUnit
+    displayUnit: BodyWeightUnit,
+    personalMessage: String = "",
+    topics: List<String> = emptyList()
 ): String = buildString {
     val unitSfx = weightLoadUnitSuffix(displayUnit)
     val headline = when (session.source) {
-        WeightWorkoutSource.LIVE -> "\uD83C\uDFCB\uFE0F Weight workout (live)"
+        WeightWorkoutSource.LIVE -> "\uD83C\uDFCB\uFE0F Weight workout"
         WeightWorkoutSource.MANUAL -> "\uD83C\uDFCB\uFE0F Weight workout"
         WeightWorkoutSource.IMPORTED -> "\uD83C\uDFCB\uFE0F Weight workout (imported)"
     }
     append("$headline\n")
+    personalMessage.trim().takeIf { it.isNotEmpty() }?.let { message ->
+        append(message)
+        append("\n\n")
+    }
     append("Date: ${logDate.format(DateTimeFormatter.ISO_LOCAL_DATE)}\n")
     val dur = session.displayElapsedSeconds()
     if (dur > 0) {
@@ -91,6 +107,7 @@ internal fun buildWeightWorkoutNoteContent(
         val s = (dur % 60).toInt()
         append("Duration: %d:%02d\n".format(m, s))
     }
+    append("Exercises: ${session.entries.size}\n")
     val sets = session.totalSetCount()
     if (sets > 0) append("Sets: $sets\n")
     session.heartRate?.avgBpm?.let { avg ->
@@ -98,25 +115,32 @@ internal fun buildWeightWorkoutNoteContent(
     }
     val vol = session.totalVolumeLoadTimesReps(displayUnit)
     if (vol > 0.5) append("Volume (${unitSfx}×reps): ~${vol.toInt()}\n")
+    append("\n")
     append("Exercises:\n")
     session.entries.forEach { e ->
-        val name = library.exerciseById(e.exerciseId)?.name ?: e.exerciseId
-        val addedLoad = library.exerciseById(e.exerciseId)?.equipment == WeightEquipment.OTHER
-        val detailLine = e.hiitBlock?.let { b ->
-            formatHiitBlockSummaryLine(b, displayUnit, unitSfx, addedLoad)
-        } ?: e.sets.joinToString(", ") { st ->
-            buildString {
-                append("${st.reps} reps")
-                st.weightKg?.let { w ->
-                    val num = formatWeightLoadNumber(w, displayUnit)
-                    if (addedLoad) append(" @ +$num$unitSfx")
-                    else append(" @ $num$unitSfx")
-                }
-            }
+        val exercise = library.exerciseById(e.exerciseId)
+        val name = exercise?.name ?: e.exerciseId
+        val equipSuffix = exercise?.equipment?.displayLabel()?.let { " · $it" }.orEmpty()
+        val addedLoad = exercise?.equipment == WeightEquipment.OTHER
+        append("• $name$equipSuffix\n")
+        e.hiitBlock?.let { b ->
+            append("  - ${formatHiitBlockSummaryLine(b, displayUnit, unitSfx, addedLoad)}\n")
+        } ?: e.sets.forEachIndexed { idx, st ->
+            append(
+                "  - " + formatSetSummaryLine(
+                    set = st,
+                    setNumber = idx + 1,
+                    loadUnit = displayUnit,
+                    loadSuffix = unitSfx,
+                    weightIsAddedLoad = addedLoad
+                ) + "\n"
+            )
         }
-        append("• $name: $detailLine\n")
     }
-    append("\n#erv #workout #fitness")
+    if (topics.isNotEmpty()) {
+        append("\n")
+        append(buildWorkoutShareHashtagContentLineFromTopics(topics))
+    }
 }
 
 internal suspend fun publishWeightWorkoutNote(
@@ -125,18 +149,24 @@ internal suspend fun publishWeightWorkoutNote(
     session: WeightWorkoutSession,
     library: WeightLibraryState,
     logDate: LocalDate,
-    displayUnit: BodyWeightUnit
+    displayUnit: BodyWeightUnit,
+    personalMessage: String = "",
+    hashtagsInput: String = "",
 ): Boolean {
-    val content = buildWeightWorkoutNoteContent(session, library, logDate, displayUnit)
+    val topics = parseWorkoutShareTopics(hashtagsInput)
+    val content = buildWeightWorkoutNoteContent(
+        session = session,
+        library = library,
+        logDate = logDate,
+        displayUnit = displayUnit,
+        personalMessage = personalMessage,
+        topics = topics
+    )
     val unsigned = UnsignedEvent(
         pubkey = signer.publicKey,
         createdAt = System.currentTimeMillis() / 1000,
         kind = 1,
-        tags = listOf(
-            listOf("t", "erv"),
-            listOf("t", "workout"),
-            listOf("t", "fitness")
-        ),
+        tags = workoutShareKind1TopicTagsFromTopics(topics),
         content = content
     )
     val signed = signer.sign(unsigned)
@@ -159,6 +189,7 @@ fun WeightWorkoutSummaryFullScreen(
     onAfterRoutineSync: () -> Unit,
     /** Remove this session from [logDate] and close (e.g. user regrets saving). */
     onRemoveFromLog: (() -> Unit)? = null,
+    onOpenLog: (() -> Unit)? = null,
     onDone: () -> Unit
 ) {
     val maxHrPref by userPreferences.heartRateMaxBpm.collectAsState(initial = null)
@@ -166,6 +197,10 @@ fun WeightWorkoutSummaryFullScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     var sharing by remember { mutableStateOf(false) }
     var shared by remember { mutableStateOf(false) }
+    var sharePersonalMessage by remember { mutableStateOf("") }
+    var shareHashtags by remember {
+        mutableStateOf(buildWorkoutShareHashtagContentLineFromTopics(workoutShareBaseTopicTags))
+    }
     var showRoutineConfirm by remember { mutableStateOf(false) }
     var routineUpdating by remember { mutableStateOf(false) }
     var showDiscardLogConfirm by remember { mutableStateOf(false) }
@@ -235,12 +270,21 @@ fun WeightWorkoutSummaryFullScreen(
             val sfx = weightLoadUnitSuffix(loadUnit)
             Text(
                 if (vol > 0.5) {
-                    "${session.totalSetCount()} sets • Volume ~${vol.toInt()} ${sfx}×reps"
+                    "${session.entries.size} exercises • ${session.totalSetCount()} sets • Volume ~${vol.toInt()} ${sfx}×reps"
                 } else {
-                    "${session.totalSetCount()} sets"
+                    "${session.entries.size} exercises • ${session.totalSetCount()} sets"
                 },
                 style = MaterialTheme.typography.bodyLarge,
                 color = Color.White.copy(alpha = 0.85f)
+            )
+            Text(
+                when (session.source) {
+                    WeightWorkoutSource.LIVE -> "Source: live workout"
+                    WeightWorkoutSource.MANUAL -> "Source: manual log"
+                    WeightWorkoutSource.IMPORTED -> "Source: imported history"
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color.White.copy(alpha = 0.72f)
             )
             HorizontalDivider(
                 modifier = Modifier.padding(vertical = 8.dp),
@@ -249,24 +293,37 @@ fun WeightWorkoutSummaryFullScreen(
             session.entries.forEach { e ->
                 val name = library.exerciseById(e.exerciseId)?.name ?: e.exerciseId
                 val addedLoad = library.exerciseById(e.exerciseId)?.equipment == WeightEquipment.OTHER
-                val line = e.hiitBlock?.let { b ->
-                    formatHiitBlockSummaryLine(b, loadUnit, sfx, addedLoad)
-                } ?: e.sets.joinToString(" · ") { st ->
-                    buildString {
-                        append(st.reps)
-                        st.weightKg?.let { w ->
-                            val num = formatWeightLoadNumber(w, loadUnit)
-                            if (addedLoad) append("×+$num$sfx")
-                            else append("×$num$sfx")
-                        }
-                    }
-                }
                 Text(
-                    "• $name: $line",
-                    style = MaterialTheme.typography.bodyMedium,
+                    "• $name",
+                    style = MaterialTheme.typography.titleSmall,
                     color = Color.White.copy(alpha = 0.82f),
                     modifier = Modifier.fillMaxWidth()
                 )
+                e.hiitBlock?.let { block ->
+                    Text(
+                        formatHiitBlockSummaryLine(block, loadUnit, sfx, addedLoad),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White.copy(alpha = 0.78f),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 16.dp, top = 2.dp)
+                    )
+                } ?: e.sets.forEachIndexed { idx, st ->
+                    Text(
+                        formatSetSummaryLine(
+                            set = st,
+                            setNumber = idx + 1,
+                            loadUnit = loadUnit,
+                            loadSuffix = sfx,
+                            weightIsAddedLoad = addedLoad
+                        ),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White.copy(alpha = 0.78f),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 16.dp, top = 2.dp)
+                    )
+                }
             }
             Spacer(Modifier.height(8.dp))
             if (routineToUpdate != null && session.routineId != null) {
@@ -281,13 +338,84 @@ fun WeightWorkoutSummaryFullScreen(
                 }
             }
             if (relayPool != null && signer != null) {
+                OutlinedTextField(
+                    value = sharePersonalMessage,
+                    onValueChange = { sharePersonalMessage = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !sharing && !shared,
+                    label = { Text(stringResource(R.string.weight_workout_share_personal_message_label)) },
+                    placeholder = { Text(stringResource(R.string.weight_workout_share_personal_message_placeholder)) },
+                    supportingText = {
+                        Text(
+                            stringResource(R.string.weight_workout_share_personal_message_helper),
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    },
+                    minLines = 2,
+                    maxLines = 5,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        disabledTextColor = Color.White.copy(alpha = 0.6f),
+                        focusedLabelColor = Color.White.copy(alpha = 0.85f),
+                        unfocusedLabelColor = Color.White.copy(alpha = 0.72f),
+                        disabledLabelColor = Color.White.copy(alpha = 0.5f),
+                        focusedBorderColor = Color.White.copy(alpha = 0.9f),
+                        unfocusedBorderColor = Color.White.copy(alpha = 0.5f),
+                        disabledBorderColor = Color.White.copy(alpha = 0.35f),
+                        cursorColor = Color.White,
+                        focusedSupportingTextColor = Color.White.copy(alpha = 0.65f),
+                        unfocusedSupportingTextColor = Color.White.copy(alpha = 0.6f),
+                        focusedPlaceholderColor = Color.White.copy(alpha = 0.45f),
+                        unfocusedPlaceholderColor = Color.White.copy(alpha = 0.45f),
+                    )
+                )
+                OutlinedTextField(
+                    value = shareHashtags,
+                    onValueChange = { shareHashtags = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !sharing && !shared,
+                    label = { Text(stringResource(R.string.weight_workout_share_hashtags_label)) },
+                    placeholder = { Text(stringResource(R.string.weight_workout_share_hashtags_placeholder)) },
+                    supportingText = {
+                        Text(
+                            stringResource(R.string.weight_workout_share_hashtags_helper),
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    },
+                    minLines = 2,
+                    maxLines = 4,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        disabledTextColor = Color.White.copy(alpha = 0.6f),
+                        focusedLabelColor = Color.White.copy(alpha = 0.85f),
+                        unfocusedLabelColor = Color.White.copy(alpha = 0.72f),
+                        disabledLabelColor = Color.White.copy(alpha = 0.5f),
+                        focusedBorderColor = Color.White.copy(alpha = 0.9f),
+                        unfocusedBorderColor = Color.White.copy(alpha = 0.5f),
+                        disabledBorderColor = Color.White.copy(alpha = 0.35f),
+                        cursorColor = Color.White,
+                        focusedSupportingTextColor = Color.White.copy(alpha = 0.65f),
+                        unfocusedSupportingTextColor = Color.White.copy(alpha = 0.6f),
+                        focusedPlaceholderColor = Color.White.copy(alpha = 0.45f),
+                        unfocusedPlaceholderColor = Color.White.copy(alpha = 0.45f),
+                    )
+                )
                 OutlinedButton(
                     onClick = {
                         if (sharing || shared) return@OutlinedButton
                         sharing = true
                         scope.launch {
                             val ok = publishWeightWorkoutNote(
-                                relayPool, signer, session, library, logDate, loadUnit
+                                relayPool,
+                                signer,
+                                session,
+                                library,
+                                logDate,
+                                loadUnit,
+                                personalMessage = sharePersonalMessage,
+                                hashtagsInput = shareHashtags
                             )
                             sharing = false
                             shared = ok
@@ -320,6 +448,16 @@ fun WeightWorkoutSummaryFullScreen(
                     border = ButtonDefaults.outlinedButtonBorder.copy(brush = SolidColor(Color.White.copy(alpha = 0.6f)))
                 ) {
                     Text("Discard workout (remove from log)")
+                }
+            }
+            onOpenLog?.let { openLog ->
+                OutlinedButton(
+                    onClick = openLog,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                    border = ButtonDefaults.outlinedButtonBorder.copy(brush = SolidColor(Color.White))
+                ) {
+                    Text("Open log")
                 }
             }
             Button(

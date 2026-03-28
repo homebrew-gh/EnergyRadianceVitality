@@ -101,6 +101,8 @@ fun WeightExerciseInlineSetsCard(
     hiitBlock: WeightHiitBlockLog? = null,
     onClearHiitBlock: (() -> Unit)? = null,
     onStartHiitTimer: ((WeightHiitIntervalPlan) -> Unit)? = null,
+    /** Live workout: optional hook when the user adds another set row (e.g. rest timer). */
+    onAfterAddSet: (() -> Unit)? = null,
 ) {
     val loadSuffix = weightLoadUnitSuffix(loadUnit)
     val weightIsAddedLoad = equipment == WeightEquipment.OTHER
@@ -420,6 +422,7 @@ fun WeightExerciseInlineSetsCard(
                 }
                 TextButton(
                     onClick = {
+                        onAfterAddSet?.invoke()
                         onSetsChange(
                             sets + WeightSet(reps = 0, weightKg = null, rpe = null)
                         )

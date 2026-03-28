@@ -1,5 +1,6 @@
 package com.erv.app.ui.weighttraining
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -46,6 +47,7 @@ fun WeightLogTabContent(
     emptyRangeLabel: String,
     library: WeightLibraryState,
     loadUnit: BodyWeightUnit,
+    onOpen: (logDate: LocalDate, session: WeightWorkoutSession) -> Unit,
     onEdit: (logDate: LocalDate, session: WeightWorkoutSession) -> Unit,
     onDelete: (logDate: LocalDate, session: WeightWorkoutSession) -> Unit,
     onShare: (logDate: LocalDate, session: WeightWorkoutSession) -> Unit,
@@ -92,7 +94,9 @@ fun WeightLogTabContent(
         items(datedWorkouts, key = { "${it.logDate}-${it.workout.id}" }) { dated ->
             val session = dated.workout
             Card(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onOpen(dated.logDate, session) },
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.surfaceVariant
                 )

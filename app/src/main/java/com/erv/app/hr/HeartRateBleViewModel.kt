@@ -22,6 +22,8 @@ import android.util.Log
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.erv.app.data.SavedBluetoothDevice
+import com.erv.app.data.SavedBluetoothDeviceKind
 import com.erv.app.cardio.CardioHrSample
 import com.erv.app.cardio.CardioHrScaffolding
 import com.erv.app.data.UserPreferences
@@ -31,6 +33,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.util.UUID
@@ -40,6 +43,8 @@ import kotlin.math.min
 
 private val HR_SERVICE_UUID: UUID = UUID.fromString("0000180D-0000-1000-8000-00805f9b34fb")
 private val HR_MEASUREMENT_UUID: UUID = UUID.fromString("00002A37-0000-1000-8000-00805f9b34fb")
+private val BATTERY_SERVICE_UUID: UUID = UUID.fromString("0000180F-0000-1000-8000-00805f9b34fb")
+private val BATTERY_LEVEL_UUID: UUID = UUID.fromString("00002A19-0000-1000-8000-00805f9b34fb")
 private val CCCD_UUID: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
 
 enum class HeartRateBleConnectionState {
@@ -82,15 +87,31 @@ class HeartRateBleViewModel(application: Application) : AndroidViewModel(applica
     private val _scanRows = MutableStateFlow<List<HeartRateBleScanRow>>(emptyList())
     val scanRows: StateFlow<List<HeartRateBleScanRow>> = _scanRows.asStateFlow()
 
+    private val _savedDevices = MutableStateFlow<List<SavedBluetoothDevice>>(emptyList())
+    val savedDevices: StateFlow<List<SavedBluetoothDevice>> = _savedDevices.asStateFlow()
+
+    private val _preferredDeviceAddress = MutableStateFlow<String?>(null)
+    val preferredDeviceAddress: StateFlow<String?> = _preferredDeviceAddress.asStateFlow()
+
+    private val _activeDeviceAddress = MutableStateFlow<String?>(null)
+    val activeDeviceAddress: StateFlow<String?> = _activeDeviceAddress.asStateFlow()
+
     /** Live BPM from the sensor (UI); updated whenever connected. */
     private val _displayBpm = MutableStateFlow<Int?>(null)
     val displayBpm: StateFlow<Int?> = _displayBpm.asStateFlow()
+
+    /** Sensor battery 0–100 when the device exposes standard BLE Battery Service; null if unknown. */
+    private val _displayBatteryPercent = MutableStateFlow<Int?>(null)
+    val displayBatteryPercent: StateFlow<Int?> = _displayBatteryPercent.asStateFlow()
 
     private val _connectedLabel = MutableStateFlow<String?>(null)
     val connectedLabel: StateFlow<String?> = _connectedLabel.asStateFlow()
 
     private val _statusMessage = MutableStateFlow<String?>(null)
     val statusMessage: StateFlow<String?> = _statusMessage.asStateFlow()
+
+    @Volatile
+    private var batteryNotifySetupDone = false
 
     @Volatile
     private var liveWorkoutRecording = false
@@ -109,6 +130,23 @@ class HeartRateBleViewModel(application: Application) : AndroidViewModel(applica
 
     private val workoutHrSamples = mutableListOf<CardioHrSample>()
 
+    @Volatile
+    private var unifiedWorkoutRecording = false
+
+    @Volatile
+    private var unifiedWorkoutSamples = 0
+
+    @Volatile
+    private var unifiedWorkoutBpmSum = 0L
+
+    @Volatile
+    private var unifiedWorkoutMinBpm: Int? = null
+
+    @Volatile
+    private var unifiedWorkoutMaxBpm: Int? = null
+
+    private val unifiedWorkoutHrSamples = mutableListOf<CardioHrSample>()
+
     val bleHardwareAvailable: Boolean
         get() = getApplication<Application>().packageManager.hasSystemFeature(PackageManager.FEATURE_BLUETOOTH_LE) &&
             bluetoothAdapter != null
@@ -116,6 +154,18 @@ class HeartRateBleViewModel(application: Application) : AndroidViewModel(applica
     fun bluetoothEnabled(): Boolean = bluetoothAdapter?.isEnabled == true
 
     init {
+        viewModelScope.launch {
+            userPreferences.savedBleDevices.collect { saved ->
+                _savedDevices.value = saved.filter {
+                    it.kind == SavedBluetoothDeviceKind.HEART_RATE_MONITOR
+                }
+            }
+        }
+        viewModelScope.launch {
+            userPreferences.bleHeartRateDeviceAddress.collect { address ->
+                _preferredDeviceAddress.value = address
+            }
+        }
         viewModelScope.launch {
             val saved = userPreferences.bleHeartRateDeviceAddress.first()
             if (!saved.isNullOrBlank() && bleHardwareAvailable && bluetoothEnabled()) {
@@ -170,6 +220,46 @@ class HeartRateBleViewModel(application: Application) : AndroidViewModel(applica
         workoutMinBpm = null
         workoutMaxBpm = null
         workoutHrSamples.clear()
+    }
+
+    fun startUnifiedWorkoutRecording() {
+        if (unifiedWorkoutRecording) return
+        unifiedWorkoutRecording = true
+        unifiedWorkoutSamples = 0
+        unifiedWorkoutBpmSum = 0L
+        unifiedWorkoutMinBpm = null
+        unifiedWorkoutMaxBpm = null
+        unifiedWorkoutHrSamples.clear()
+    }
+
+    fun discardUnifiedWorkoutRecording() {
+        unifiedWorkoutRecording = false
+        unifiedWorkoutSamples = 0
+        unifiedWorkoutBpmSum = 0L
+        unifiedWorkoutMinBpm = null
+        unifiedWorkoutMaxBpm = null
+        unifiedWorkoutHrSamples.clear()
+    }
+
+    fun takeUnifiedWorkoutHeartRateSummary(): CardioHrScaffolding? {
+        unifiedWorkoutRecording = false
+        val n = unifiedWorkoutSamples
+        val sum = unifiedWorkoutBpmSum
+        val minB = unifiedWorkoutMinBpm
+        val maxB = unifiedWorkoutMaxBpm
+        val samplesCopy = unifiedWorkoutHrSamples.toList()
+        unifiedWorkoutSamples = 0
+        unifiedWorkoutBpmSum = 0L
+        unifiedWorkoutMinBpm = null
+        unifiedWorkoutMaxBpm = null
+        unifiedWorkoutHrSamples.clear()
+        if (n <= 0 || minB == null || maxB == null) return null
+        return CardioHrScaffolding(
+            avgBpm = (sum / n).toInt(),
+            minBpm = minB,
+            maxBpm = maxB,
+            samples = samplesCopy
+        )
     }
 
     /**
@@ -263,8 +353,31 @@ class HeartRateBleViewModel(application: Application) : AndroidViewModel(applica
     fun connectToScannedRow(row: HeartRateBleScanRow) {
         stopScanInternal()
         viewModelScope.launch {
+            rememberHeartRateDevice(row.address, row.name)
             userPreferences.setBleHeartRateDeviceAddress(row.address)
             connectToAddress(row.address, auto = false, label = row.name)
+        }
+    }
+
+    fun connectToSavedDevice(device: SavedBluetoothDevice) {
+        stopScanInternal()
+        viewModelScope.launch {
+            rememberHeartRateDevice(device.address, device.name)
+            userPreferences.setBleHeartRateDeviceAddress(device.address)
+            connectToAddress(device.address, auto = false, label = device.name)
+        }
+    }
+
+    fun forgetSavedDevice(address: String) {
+        viewModelScope.launch {
+            val normalizedAddress = normalizeBleAddress(address)
+            userPreferences.removeSavedBleDevice(normalizedAddress)
+            if (_preferredDeviceAddress.value == normalizedAddress) {
+                userPreferences.setBleHeartRateDeviceAddress(null)
+            }
+            if (_activeDeviceAddress.value == normalizedAddress) {
+                disconnectUser()
+            }
         }
     }
 
@@ -286,6 +399,7 @@ class HeartRateBleViewModel(application: Application) : AndroidViewModel(applica
             Log.w(TAG, "Bad BLE address", e)
             return
         }
+        _activeDeviceAddress.value = normalizeBleAddress(device.address)
         _connectionState.value = HeartRateBleConnectionState.Connecting
         _statusMessage.value = null
         _connectedLabel.value = label ?: device.name ?: address
@@ -298,6 +412,7 @@ class HeartRateBleViewModel(application: Application) : AndroidViewModel(applica
             }
         } catch (t: Throwable) {
             Log.e(TAG, "connectGatt failed", t)
+            _activeDeviceAddress.value = null
             _connectionState.value = HeartRateBleConnectionState.Error
             _statusMessage.value = "Could not connect to the sensor."
         }
@@ -305,19 +420,15 @@ class HeartRateBleViewModel(application: Application) : AndroidViewModel(applica
 
     @SuppressLint("MissingPermission")
     fun disconnectUser() {
-        viewModelScope.launch {
-            userPreferences.setBleHeartRateDeviceAddress(null)
-        }
         stopScanInternal()
         disconnectGatt()
-        _displayBpm.value = null
-        _connectedLabel.value = null
-        _connectionState.value = HeartRateBleConnectionState.Idle
-        _statusMessage.value = null
+        clearConnectionUiState()
     }
 
     @SuppressLint("MissingPermission")
     private fun disconnectGatt() {
+        batteryNotifySetupDone = false
+        _displayBatteryPercent.value = null
         val g = gatt ?: return
         gatt = null
         try {
@@ -344,6 +455,56 @@ class HeartRateBleViewModel(application: Application) : AndroidViewModel(applica
         }
     }
 
+    @SuppressLint("MissingPermission")
+    private fun requestBatteryLevelRead(gatt: BluetoothGatt) {
+        if (this.gatt !== gatt) return
+        val batSvc = gatt.getService(BATTERY_SERVICE_UUID) ?: return
+        val batChar = batSvc.getCharacteristic(BATTERY_LEVEL_UUID) ?: return
+        val props = batChar.properties
+        val canRead = (props and BluetoothGattCharacteristic.PROPERTY_READ) != 0
+        val canNotify = (props and BluetoothGattCharacteristic.PROPERTY_NOTIFY) != 0
+        if (canRead) {
+            if (!gatt.readCharacteristic(batChar) && canNotify) {
+                subscribeBatteryNotifications(gatt, batChar)
+            }
+        } else if (canNotify) {
+            subscribeBatteryNotifications(gatt, batChar)
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun subscribeBatteryNotifications(gatt: BluetoothGatt, batChar: BluetoothGattCharacteristic) {
+        if (this.gatt !== gatt || batteryNotifySetupDone) return
+        val d = batChar.getDescriptor(CCCD_UUID) ?: return
+        batteryNotifySetupDone = true
+        gatt.setCharacteristicNotification(batChar, true)
+        d.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+        gatt.writeDescriptor(d)
+    }
+
+    private fun handleBatteryCharacteristicRead(
+        gatt: BluetoothGatt,
+        characteristic: BluetoothGattCharacteristic,
+        value: ByteArray?,
+        status: Int
+    ) {
+        if (this.gatt !== gatt) return
+        if (characteristic.uuid != BATTERY_LEVEL_UUID) return
+        if (status != BluetoothGatt.GATT_SUCCESS) {
+            if ((characteristic.properties and BluetoothGattCharacteristic.PROPERTY_NOTIFY) != 0 && !batteryNotifySetupDone) {
+                subscribeBatteryNotifications(gatt, characteristic)
+            }
+            return
+        }
+        val pct = parseBatteryPercent(value) ?: return
+        viewModelScope.launch(Dispatchers.Main) {
+            _displayBatteryPercent.value = pct
+        }
+        if ((characteristic.properties and BluetoothGattCharacteristic.PROPERTY_NOTIFY) != 0 && !batteryNotifySetupDone) {
+            subscribeBatteryNotifications(gatt, characteristic)
+        }
+    }
+
     private val gattCallback = object : BluetoothGattCallback() {
         @SuppressLint("MissingPermission")
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
@@ -359,6 +520,9 @@ class HeartRateBleViewModel(application: Application) : AndroidViewModel(applica
                         if (this@HeartRateBleViewModel.gatt === gatt) {
                             _connectionState.value = HeartRateBleConnectionState.Idle
                             _displayBpm.value = null
+                            _displayBatteryPercent.value = null
+                            _connectedLabel.value = null
+                            _activeDeviceAddress.value = null
                         }
                     }
                 }
@@ -374,6 +538,7 @@ class HeartRateBleViewModel(application: Application) : AndroidViewModel(applica
         override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
             if (status != BluetoothGatt.GATT_SUCCESS) {
                 viewModelScope.launch(Dispatchers.Main) {
+                    _activeDeviceAddress.value = null
                     _connectionState.value = HeartRateBleConnectionState.Error
                     _statusMessage.value = "Could not read services from the sensor."
                 }
@@ -383,6 +548,7 @@ class HeartRateBleViewModel(application: Application) : AndroidViewModel(applica
             val ch = svc?.getCharacteristic(HR_MEASUREMENT_UUID)
             if (ch == null) {
                 viewModelScope.launch(Dispatchers.Main) {
+                    _activeDeviceAddress.value = null
                     _connectionState.value = HeartRateBleConnectionState.Error
                     _statusMessage.value = "This device does not expose standard heart rate data."
                 }
@@ -393,14 +559,48 @@ class HeartRateBleViewModel(application: Application) : AndroidViewModel(applica
             if (cccd != null) {
                 cccd.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
                 gatt.writeDescriptor(cccd)
+            } else {
+                requestBatteryLevelRead(gatt)
             }
+        }
+
+        @SuppressLint("MissingPermission")
+        override fun onDescriptorWrite(gatt: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
+            if (this@HeartRateBleViewModel.gatt !== gatt) return
+            val ch = descriptor.characteristic ?: return
+            if (descriptor.uuid == CCCD_UUID && ch.uuid == HR_MEASUREMENT_UUID && status == BluetoothGatt.GATT_SUCCESS) {
+                requestBatteryLevelRead(gatt)
+            }
+        }
+
+        @SuppressLint("MissingPermission")
+        override fun onCharacteristicRead(
+            gatt: BluetoothGatt,
+            characteristic: BluetoothGattCharacteristic,
+            value: ByteArray,
+            status: Int
+        ) {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+            handleBatteryCharacteristicRead(gatt, characteristic, value, status)
+        }
+
+        @SuppressLint("MissingPermission")
+        @Suppress("DEPRECATION")
+        override fun onCharacteristicRead(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, status: Int) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) return
+            handleBatteryCharacteristicRead(gatt, characteristic, characteristic.value, status)
         }
 
         @SuppressLint("MissingPermission")
         override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) return
-            if (characteristic.uuid != HR_MEASUREMENT_UUID) return
-            applyHeartRateSample(parseHeartRateBpm(characteristic.value) ?: return)
+            when (characteristic.uuid) {
+                HR_MEASUREMENT_UUID ->
+                    applyHeartRateSample(parseHeartRateBpm(characteristic.value) ?: return)
+                BATTERY_LEVEL_UUID ->
+                    applyBatteryPercent(parseBatteryPercent(characteristic.value) ?: return)
+                else -> Unit
+            }
         }
 
         @SuppressLint("MissingPermission")
@@ -410,8 +610,19 @@ class HeartRateBleViewModel(application: Application) : AndroidViewModel(applica
             value: ByteArray
         ) {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
-            if (characteristic.uuid != HR_MEASUREMENT_UUID) return
-            applyHeartRateSample(parseHeartRateBpm(value) ?: return)
+            when (characteristic.uuid) {
+                HR_MEASUREMENT_UUID ->
+                    applyHeartRateSample(parseHeartRateBpm(value) ?: return)
+                BATTERY_LEVEL_UUID ->
+                    applyBatteryPercent(parseBatteryPercent(value) ?: return)
+                else -> Unit
+            }
+        }
+
+        private fun applyBatteryPercent(percent: Int) {
+            viewModelScope.launch(Dispatchers.Main) {
+                _displayBatteryPercent.value = percent
+            }
         }
 
         private fun applyHeartRateSample(bpm: Int) {
@@ -426,6 +637,15 @@ class HeartRateBleViewModel(application: Application) : AndroidViewModel(applica
                         CardioHrSample(epochSeconds = System.currentTimeMillis() / 1000, bpm = bpm)
                     )
                 }
+                if (unifiedWorkoutRecording) {
+                    unifiedWorkoutSamples++
+                    unifiedWorkoutBpmSum += bpm
+                    unifiedWorkoutMinBpm = unifiedWorkoutMinBpm?.let { min(it, bpm) } ?: bpm
+                    unifiedWorkoutMaxBpm = unifiedWorkoutMaxBpm?.let { max(it, bpm) } ?: bpm
+                    unifiedWorkoutHrSamples.add(
+                        CardioHrSample(epochSeconds = System.currentTimeMillis() / 1000, bpm = bpm)
+                    )
+                }
             }
         }
     }
@@ -435,6 +655,28 @@ class HeartRateBleViewModel(application: Application) : AndroidViewModel(applica
         disconnectGatt()
         super.onCleared()
     }
+
+    private suspend fun rememberHeartRateDevice(address: String, name: String?) {
+        userPreferences.upsertSavedBleDevice(
+            SavedBluetoothDevice(
+                address = address,
+                name = name,
+                kind = SavedBluetoothDeviceKind.HEART_RATE_MONITOR,
+                lastConnectedEpochMillis = System.currentTimeMillis(),
+            )
+        )
+    }
+
+    private fun clearConnectionUiState() {
+        _displayBpm.value = null
+        _displayBatteryPercent.value = null
+        _connectedLabel.value = null
+        _activeDeviceAddress.value = null
+        _connectionState.value = HeartRateBleConnectionState.Idle
+        _statusMessage.value = null
+    }
+
+    private fun normalizeBleAddress(address: String): String = address.trim().uppercase()
 }
 
 internal fun parseHeartRateBpm(value: ByteArray?): Int? {
@@ -448,4 +690,10 @@ internal fun parseHeartRateBpm(value: ByteArray?): Int? {
         if (value.size < 2) return null
         value[1].toInt() and 0xFF
     }
+}
+
+internal fun parseBatteryPercent(value: ByteArray?): Int? {
+    if (value == null || value.isEmpty()) return null
+    val p = value[0].toInt() and 0xFF
+    return p.takeIf { it in 0..100 }
 }

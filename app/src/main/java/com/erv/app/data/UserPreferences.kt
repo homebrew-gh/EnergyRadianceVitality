@@ -6,11 +6,14 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.json.Json
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "erv_prefs")
 
@@ -22,6 +25,15 @@ enum class BodyWeightUnit {
 
 enum class TemperatureUnit {
     FAHRENHEIT, CELSIUS
+}
+
+/** Between-set rest during live weight workout (timer next to workout clock). */
+enum class WeightLiveRestTimerMode {
+    OFF,
+    /** Start countdown when you tap Add set on an exercise. */
+    AUTO,
+    /** After Add set, tap Start next to the workout timer to begin the countdown. */
+    MANUAL
 }
 
 /** Guided stretching “Next stretch” TTS voice; actual voices depend on the device TTS engine. */
@@ -46,6 +58,9 @@ enum class WorkoutMediaUploadBackend {
 }
 
 class UserPreferences(private val context: Context) {
+    private val json = Json {
+        ignoreUnknownKeys = true
+    }
 
     private object Keys {
         val THEME = stringPreferencesKey("theme_mode")
@@ -54,6 +69,7 @@ class UserPreferences(private val context: Context) {
         val CARDIO_DISTANCE_UNIT = stringPreferencesKey("cardio_distance_unit")
         val WEIGHT_TRAINING_LOAD_UNIT = stringPreferencesKey("weight_training_load_unit")
         val SELECTED_GOAL_IDS = stringPreferencesKey("selected_goal_ids")
+        val GOALS_JSON_V1 = stringPreferencesKey("goals_json_v1")
         val TEMPERATURE_UNIT = stringPreferencesKey("temperature_unit")
         val WORKOUT_BUBBLE_ENABLED = booleanPreferencesKey("workout_bubble_enabled")
         val WEIGHT_LIVE_FGS_DISCLOSURE_SEEN = booleanPreferencesKey("weight_live_fgs_disclosure_seen")
@@ -71,12 +87,42 @@ class UserPreferences(private val context: Context) {
         val STRETCH_GUIDED_TTS_VOICE = stringPreferencesKey("stretch_guided_tts_voice")
         /** MAC address of last paired BLE heart rate sensor (standard Heart Rate GATT service). */
         val BLE_HEART_RATE_DEVICE_ADDRESS = stringPreferencesKey("ble_heart_rate_device_address_v1")
+        /** MAC address of preferred Cycling Speed and Cadence sensor for live cycling workouts. */
+        val BLE_CSC_DEVICE_ADDRESS = stringPreferencesKey("ble_csc_device_address_v1")
+        /** Saved BLE devices list for quick reconnects from Settings. */
+        val BLE_SAVED_DEVICES_JSON_V1 = stringPreferencesKey("ble_saved_devices_json_v1")
+        /** Wheel circumference used to convert CSC wheel revolutions into distance and speed. */
+        val CYCLING_WHEEL_CIRCUMFERENCE_MM = intPreferencesKey("cycling_wheel_circumference_mm_v1")
         /** Optional max HR (bpm) for heart rate zone breakdown; empty = use workout peak as proxy. */
         val HEART_RATE_MAX_BPM = stringPreferencesKey("heart_rate_max_bpm_v1")
         /** Global BLE heart-rate strip above navigation; cardio screens hide it regardless. */
         val HEART_RATE_BANNER_EXPANDED = booleanPreferencesKey("heart_rate_banner_expanded_v1")
         /** User chose to use the app without creating a Nostr identity yet (local-only shell). */
         val USE_APP_WITHOUT_NOSTR_ACCOUNT_V1 = booleanPreferencesKey("use_app_without_nostr_account_v1")
+        /** First-run setup / onboarding has been skipped or completed on this device. */
+        val FIRST_RUN_SETUP_COMPLETED_V1 = booleanPreferencesKey("first_run_setup_completed_v1")
+        /** One-shot: dashboard Programs tile → Start stretch; consumed when Stretching opens. */
+        val PROGRAM_DASHBOARD_STRETCH_LAUNCH_JSON_V1 = stringPreferencesKey("program_dashboard_stretch_launch_json_v1")
+        /** One-shot: dashboard Programs tile → Start sauna/cold; consumed when Hot + Cold opens. */
+        val PROGRAM_DASHBOARD_HEAT_COLD_LAUNCH_JSON_V1 = stringPreferencesKey("program_dashboard_heat_cold_launch_json_v1")
+        /** One-shot: dashboard Programs tile → Start unified routine; consumed when Unified Routines opens. */
+        val PROGRAM_DASHBOARD_UNIFIED_ROUTINE_LAUNCH_JSON_V1 =
+            stringPreferencesKey("program_dashboard_unified_routine_launch_json_v1")
+        val WEIGHT_LIVE_REST_TIMER_MODE = stringPreferencesKey("weight_live_rest_timer_mode_v1")
+        val WEIGHT_LIVE_REST_TIMER_SECONDS = intPreferencesKey("weight_live_rest_timer_seconds_v1")
+        val WEIGHT_LIVE_REST_TIMER_COUNTDOWN_SOUND_ENABLED =
+            booleanPreferencesKey("weight_live_rest_timer_countdown_sound_enabled_v1")
+        val WEIGHT_LIVE_REST_TIMER_END_SOUND_ENABLED =
+            booleanPreferencesKey("weight_live_rest_timer_end_sound_enabled_v1")
+        /** Shown in Identity when using ERV without a Nostr key; not published to relays. */
+        val LOCAL_PROFILE_DISPLAY_NAME_V1 = stringPreferencesKey("local_profile_display_name_v1")
+        val LOCAL_PROFILE_PICTURE_URL_V1 = stringPreferencesKey("local_profile_picture_url_v1")
+        val LOCAL_PROFILE_BIO_V1 = stringPreferencesKey("local_profile_bio_v1")
+        val LAUNCH_PAD_TILE_ORDER_JSON_V1 = stringPreferencesKey("launch_pad_tile_order_json_v1")
+        /**
+         * When true (default), ERV does not publish NIP-65 kind 10002 relay list metadata.
+         */
+        val NEVER_PUBLISH_NIP65_RELAY_LIST_V1 = booleanPreferencesKey("never_publish_nip65_relay_list_v1")
     }
 
     val themeMode: Flow<ThemeMode> = context.dataStore.data.map { prefs ->
@@ -187,7 +233,10 @@ class UserPreferences(private val context: Context) {
         }
     }
 
-    /** User-selected goals from [AllUserGoalOptions]; empty until they configure on Edit goals. */
+    /**
+     * Legacy fixed-goal selection kept for one-version migration into [goals].
+     * New writes should use [setGoals].
+     */
     val selectedGoalIds: Flow<Set<String>> = context.dataStore.data.map { prefs ->
         parseGoalIdsFromStorage(prefs[Keys.SELECTED_GOAL_IDS])
     }
@@ -196,6 +245,40 @@ class UserPreferences(private val context: Context) {
         context.dataStore.edit { prefs ->
             prefs[Keys.SELECTED_GOAL_IDS] = encodeGoalIdsForStorage(ids)
         }
+    }
+
+    /** User-authored weekly goals; migrates legacy goal ids on first read if needed. */
+    val goals: Flow<List<UserGoalDefinition>> = context.dataStore.data.map { prefs ->
+        decodeGoals(
+            goalsJson = prefs[Keys.GOALS_JSON_V1],
+            legacyGoalIds = prefs[Keys.SELECTED_GOAL_IDS],
+        )
+    }
+
+    suspend fun setGoals(goals: List<UserGoalDefinition>) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.GOALS_JSON_V1] = json.encodeToString(ListSerializer(UserGoalDefinition.serializer()), goals)
+            prefs[Keys.SELECTED_GOAL_IDS] = ""
+        }
+    }
+
+    private fun decodeGoals(
+        goalsJson: String?,
+        legacyGoalIds: String?,
+    ): List<UserGoalDefinition> {
+        if (!goalsJson.isNullOrBlank()) {
+            return runCatching {
+                json.decodeFromString(ListSerializer(UserGoalDefinition.serializer()), goalsJson)
+                    .map { goal ->
+                        goal.copy(
+                            title = goal.title.trim(),
+                            target = goal.target.coerceAtLeast(1),
+                        )
+                    }
+                    .filter { it.title.isNotBlank() }
+            }.getOrDefault(emptyList())
+        }
+        return migrateLegacyGoalIds(parseGoalIdsFromStorage(legacyGoalIds))
     }
 
     /**
@@ -220,6 +303,50 @@ class UserPreferences(private val context: Context) {
     suspend fun setWeightLiveWorkoutFgsDisclosureSeen(seen: Boolean) {
         context.dataStore.edit { prefs ->
             prefs[Keys.WEIGHT_LIVE_FGS_DISCLOSURE_SEEN] = seen
+        }
+    }
+
+    val weightLiveRestTimerMode: Flow<WeightLiveRestTimerMode> = context.dataStore.data.map { prefs ->
+        when (prefs[Keys.WEIGHT_LIVE_REST_TIMER_MODE]?.uppercase()) {
+            "AUTO" -> WeightLiveRestTimerMode.AUTO
+            "MANUAL" -> WeightLiveRestTimerMode.MANUAL
+            else -> WeightLiveRestTimerMode.OFF
+        }
+    }
+
+    val weightLiveRestTimerSeconds: Flow<Int> = context.dataStore.data.map { prefs ->
+        (prefs[Keys.WEIGHT_LIVE_REST_TIMER_SECONDS] ?: 90).coerceIn(10, 600)
+    }
+
+    val weightLiveRestTimerCountdownSoundEnabled: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[Keys.WEIGHT_LIVE_REST_TIMER_COUNTDOWN_SOUND_ENABLED] ?: true
+    }
+
+    val weightLiveRestTimerEndSoundEnabled: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[Keys.WEIGHT_LIVE_REST_TIMER_END_SOUND_ENABLED] ?: true
+    }
+
+    suspend fun setWeightLiveRestTimerMode(mode: WeightLiveRestTimerMode) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.WEIGHT_LIVE_REST_TIMER_MODE] = mode.name
+        }
+    }
+
+    suspend fun setWeightLiveRestTimerSeconds(seconds: Int) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.WEIGHT_LIVE_REST_TIMER_SECONDS] = seconds.coerceIn(10, 600)
+        }
+    }
+
+    suspend fun setWeightLiveRestTimerCountdownSoundEnabled(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.WEIGHT_LIVE_REST_TIMER_COUNTDOWN_SOUND_ENABLED] = enabled
+        }
+    }
+
+    suspend fun setWeightLiveRestTimerEndSoundEnabled(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.WEIGHT_LIVE_REST_TIMER_END_SOUND_ENABLED] = enabled
         }
     }
 
@@ -321,6 +448,20 @@ class UserPreferences(private val context: Context) {
         }
     }
 
+    /**
+     * When true (default), ERV does not publish NIP-65 relay list metadata (kind 10002), so relay URLs are not
+     * advertised on the network. Turn off only if you want other Nostr clients to discover your relay set.
+     */
+    val neverPublishNip65RelayList: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[Keys.NEVER_PUBLISH_NIP65_RELAY_LIST_V1] ?: true
+    }
+
+    suspend fun setNeverPublishNip65RelayList(neverPublish: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.NEVER_PUBLISH_NIP65_RELAY_LIST_V1] = neverPublish
+        }
+    }
+
     /** Commercial or other gym access; useful for AI / workout planning. */
     val gymMembership: Flow<Boolean> = context.dataStore.data.map { prefs ->
         prefs[Keys.GYM_MEMBERSHIP] == true
@@ -373,14 +514,98 @@ class UserPreferences(private val context: Context) {
     }
 
     val bleHeartRateDeviceAddress: Flow<String?> = context.dataStore.data.map { prefs ->
-        prefs[Keys.BLE_HEART_RATE_DEVICE_ADDRESS]?.trim()?.takeIf { it.isNotEmpty() }
+        normalizeBluetoothAddressOrNull(prefs[Keys.BLE_HEART_RATE_DEVICE_ADDRESS])
     }
 
     suspend fun setBleHeartRateDeviceAddress(address: String?) {
         context.dataStore.edit { prefs ->
-            val t = address?.trim().orEmpty()
-            if (t.isEmpty()) prefs.remove(Keys.BLE_HEART_RATE_DEVICE_ADDRESS)
-            else prefs[Keys.BLE_HEART_RATE_DEVICE_ADDRESS] = t
+            val normalized = normalizeBluetoothAddressOrNull(address)
+            if (normalized == null) prefs.remove(Keys.BLE_HEART_RATE_DEVICE_ADDRESS)
+            else prefs[Keys.BLE_HEART_RATE_DEVICE_ADDRESS] = normalized
+        }
+    }
+
+    val bleCscDeviceAddress: Flow<String?> = context.dataStore.data.map { prefs ->
+        normalizeBluetoothAddressOrNull(prefs[Keys.BLE_CSC_DEVICE_ADDRESS])
+    }
+
+    suspend fun setBleCscDeviceAddress(address: String?) {
+        context.dataStore.edit { prefs ->
+            val normalized = normalizeBluetoothAddressOrNull(address)
+            if (normalized == null) prefs.remove(Keys.BLE_CSC_DEVICE_ADDRESS)
+            else prefs[Keys.BLE_CSC_DEVICE_ADDRESS] = normalized
+        }
+    }
+
+    val savedBleDevices: Flow<List<SavedBluetoothDevice>> = context.dataStore.data.map { prefs ->
+        sanitizeSavedBluetoothDevices(
+            decodeSavedBluetoothDevices(prefs[Keys.BLE_SAVED_DEVICES_JSON_V1])
+        )
+    }
+
+    suspend fun setSavedBleDevices(devices: List<SavedBluetoothDevice>) {
+        context.dataStore.edit { prefs ->
+            val sanitized = sanitizeSavedBluetoothDevices(devices)
+            if (sanitized.isEmpty()) {
+                prefs.remove(Keys.BLE_SAVED_DEVICES_JSON_V1)
+            } else {
+                prefs[Keys.BLE_SAVED_DEVICES_JSON_V1] = encodeSavedBluetoothDevices(sanitized)
+            }
+        }
+    }
+
+    suspend fun upsertSavedBleDevice(device: SavedBluetoothDevice) {
+        context.dataStore.edit { prefs ->
+            val sanitized = sanitizeSavedBluetoothDevices(
+                decodeSavedBluetoothDevices(prefs[Keys.BLE_SAVED_DEVICES_JSON_V1]) + device
+            )
+            if (sanitized.isEmpty()) {
+                prefs.remove(Keys.BLE_SAVED_DEVICES_JSON_V1)
+            } else {
+                prefs[Keys.BLE_SAVED_DEVICES_JSON_V1] = encodeSavedBluetoothDevices(sanitized)
+            }
+        }
+    }
+
+    suspend fun removeSavedBleDevice(address: String) {
+        context.dataStore.edit { prefs ->
+            val normalized = normalizeBluetoothAddressOrNull(address)
+            val filtered = sanitizeSavedBluetoothDevices(
+                decodeSavedBluetoothDevices(prefs[Keys.BLE_SAVED_DEVICES_JSON_V1]).filterNot {
+                    it.address == normalized
+                }
+            )
+            if (filtered.isEmpty()) {
+                prefs.remove(Keys.BLE_SAVED_DEVICES_JSON_V1)
+            } else {
+                prefs[Keys.BLE_SAVED_DEVICES_JSON_V1] = encodeSavedBluetoothDevices(filtered)
+            }
+        }
+    }
+
+    suspend fun ensureBleSavedDevicesMigration() {
+        context.dataStore.edit { prefs ->
+            if (!prefs[Keys.BLE_SAVED_DEVICES_JSON_V1].isNullOrBlank()) return@edit
+            val legacyAddress = normalizeBluetoothAddressOrNull(prefs[Keys.BLE_HEART_RATE_DEVICE_ADDRESS])
+                ?: return@edit
+            prefs[Keys.BLE_SAVED_DEVICES_JSON_V1] = encodeSavedBluetoothDevices(
+                listOf(
+                    SavedBluetoothDevice(
+                        address = legacyAddress,
+                        kind = SavedBluetoothDeviceKind.HEART_RATE_MONITOR,
+                    )
+                )
+            )
+        }
+    }
+
+    val cyclingWheelCircumferenceMm: Flow<Int> = context.dataStore.data.map { prefs ->
+        (prefs[Keys.CYCLING_WHEEL_CIRCUMFERENCE_MM] ?: 2105).coerceIn(500, 4000)
+    }
+
+    suspend fun setCyclingWheelCircumferenceMm(mm: Int) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.CYCLING_WHEEL_CIRCUMFERENCE_MM] = mm.coerceIn(500, 4000)
         }
     }
 
@@ -411,10 +636,125 @@ class UserPreferences(private val context: Context) {
         prefs[Keys.USE_APP_WITHOUT_NOSTR_ACCOUNT_V1] == true
     }
 
+    val firstRunSetupCompleted: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[Keys.FIRST_RUN_SETUP_COMPLETED_V1] == true
+    }
+
+    /** Local-only profile (no Nostr identity). */
+    val localProfileDisplayName: Flow<String> = context.dataStore.data.map { prefs ->
+        prefs[Keys.LOCAL_PROFILE_DISPLAY_NAME_V1].orEmpty()
+    }
+
+    val localProfilePictureUrl: Flow<String> = context.dataStore.data.map { prefs ->
+        prefs[Keys.LOCAL_PROFILE_PICTURE_URL_V1].orEmpty()
+    }
+
+    val localProfileBio: Flow<String> = context.dataStore.data.map { prefs ->
+        prefs[Keys.LOCAL_PROFILE_BIO_V1].orEmpty()
+    }
+
+    val launchPadTileOrder: Flow<List<LaunchPadTileId>> = context.dataStore.data.map { prefs ->
+        decodeLaunchPadTileOrder(prefs[Keys.LAUNCH_PAD_TILE_ORDER_JSON_V1])
+    }
+
+    suspend fun setLocalProfileDisplayName(value: String) {
+        context.dataStore.edit { prefs ->
+            val t = value.trim()
+            if (t.isEmpty()) prefs.remove(Keys.LOCAL_PROFILE_DISPLAY_NAME_V1)
+            else prefs[Keys.LOCAL_PROFILE_DISPLAY_NAME_V1] = t
+        }
+    }
+
+    suspend fun setLocalProfilePictureUrl(value: String) {
+        context.dataStore.edit { prefs ->
+            val t = value.trim()
+            if (t.isEmpty()) prefs.remove(Keys.LOCAL_PROFILE_PICTURE_URL_V1)
+            else prefs[Keys.LOCAL_PROFILE_PICTURE_URL_V1] = t
+        }
+    }
+
+    suspend fun setLocalProfileBio(value: String) {
+        context.dataStore.edit { prefs ->
+            val t = value.trim()
+            if (t.isEmpty()) prefs.remove(Keys.LOCAL_PROFILE_BIO_V1)
+            else prefs[Keys.LOCAL_PROFILE_BIO_V1] = t
+        }
+    }
+
+    suspend fun setLaunchPadTileOrder(order: List<LaunchPadTileId>) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.LAUNCH_PAD_TILE_ORDER_JSON_V1] = encodeLaunchPadTileOrder(order)
+        }
+    }
+
     suspend fun setUseAppWithoutNostrAccount(enabled: Boolean) {
         context.dataStore.edit { prefs ->
             prefs[Keys.USE_APP_WITHOUT_NOSTR_ACCOUNT_V1] = enabled
         }
+    }
+
+    suspend fun setFirstRunSetupCompleted(completed: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.FIRST_RUN_SETUP_COMPLETED_V1] = completed
+        }
+    }
+
+    suspend fun setProgramDashboardStretchLaunchJson(json: String?) {
+        context.dataStore.edit { prefs ->
+            if (json.isNullOrBlank()) prefs.remove(Keys.PROGRAM_DASHBOARD_STRETCH_LAUNCH_JSON_V1)
+            else prefs[Keys.PROGRAM_DASHBOARD_STRETCH_LAUNCH_JSON_V1] = json
+        }
+    }
+
+    /** Returns payload and clears the key (at most once). */
+    suspend fun consumeProgramDashboardStretchLaunchJson(): String? {
+        var out: String? = null
+        context.dataStore.edit { prefs ->
+            val v = prefs[Keys.PROGRAM_DASHBOARD_STRETCH_LAUNCH_JSON_V1]
+            if (!v.isNullOrBlank()) {
+                out = v
+                prefs.remove(Keys.PROGRAM_DASHBOARD_STRETCH_LAUNCH_JSON_V1)
+            }
+        }
+        return out
+    }
+
+    suspend fun setProgramDashboardHeatColdLaunchJson(json: String?) {
+        context.dataStore.edit { prefs ->
+            if (json.isNullOrBlank()) prefs.remove(Keys.PROGRAM_DASHBOARD_HEAT_COLD_LAUNCH_JSON_V1)
+            else prefs[Keys.PROGRAM_DASHBOARD_HEAT_COLD_LAUNCH_JSON_V1] = json
+        }
+    }
+
+    suspend fun consumeProgramDashboardHeatColdLaunchJson(): String? {
+        var out: String? = null
+        context.dataStore.edit { prefs ->
+            val v = prefs[Keys.PROGRAM_DASHBOARD_HEAT_COLD_LAUNCH_JSON_V1]
+            if (!v.isNullOrBlank()) {
+                out = v
+                prefs.remove(Keys.PROGRAM_DASHBOARD_HEAT_COLD_LAUNCH_JSON_V1)
+            }
+        }
+        return out
+    }
+
+    suspend fun setProgramDashboardUnifiedRoutineLaunchJson(json: String?) {
+        context.dataStore.edit { prefs ->
+            if (json.isNullOrBlank()) prefs.remove(Keys.PROGRAM_DASHBOARD_UNIFIED_ROUTINE_LAUNCH_JSON_V1)
+            else prefs[Keys.PROGRAM_DASHBOARD_UNIFIED_ROUTINE_LAUNCH_JSON_V1] = json
+        }
+    }
+
+    suspend fun consumeProgramDashboardUnifiedRoutineLaunchJson(): String? {
+        var out: String? = null
+        context.dataStore.edit { prefs ->
+            val v = prefs[Keys.PROGRAM_DASHBOARD_UNIFIED_ROUTINE_LAUNCH_JSON_V1]
+            if (!v.isNullOrBlank()) {
+                out = v
+                prefs.remove(Keys.PROGRAM_DASHBOARD_UNIFIED_ROUTINE_LAUNCH_JSON_V1)
+            }
+        }
+        return out
     }
 }
 
@@ -426,3 +766,20 @@ private fun parseWeightKg(raw: String?, unitKey: String?): Double? {
         else -> v * 0.453592
     }
 }
+
+private fun normalizeBluetoothAddressOrNull(address: String?): String? =
+    address?.trim()?.uppercase()?.takeIf { it.isNotEmpty() }
+
+private fun sanitizeSavedBluetoothDevices(
+    devices: List<SavedBluetoothDevice>
+): List<SavedBluetoothDevice> =
+    devices
+        .mapNotNull { device ->
+            val normalizedAddress = normalizeBluetoothAddressOrNull(device.address) ?: return@mapNotNull null
+            device.copy(
+                address = normalizedAddress,
+                name = device.name?.trim()?.takeIf { it.isNotEmpty() }
+            )
+        }
+        .sortedByDescending { it.lastConnectedEpochMillis ?: 0L }
+        .distinctBy { it.address }

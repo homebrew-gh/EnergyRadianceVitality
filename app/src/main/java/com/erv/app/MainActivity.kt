@@ -38,6 +38,10 @@ import com.erv.app.data.WorkoutMediaUploadBackend
 import com.erv.app.nostr.*
 import com.erv.app.cardio.CardioRepository
 import com.erv.app.heatcold.HeatColdRepository
+import com.erv.app.programs.ProgramRepository
+import com.erv.app.programs.ProgramSync
+import com.erv.app.bodytracker.BodyTrackerRepository
+import com.erv.app.bodytracker.BodyTrackerSync
 import com.erv.app.stretching.StretchingRepository
 import com.erv.app.stretching.StretchingSync
 import com.erv.app.heatcold.HeatColdSync
@@ -46,6 +50,7 @@ import com.erv.app.cardio.CardioLiveWorkoutConstants
 import com.erv.app.weighttraining.WeightLiveWorkoutConstants
 import com.erv.app.weighttraining.WeightRepository
 import com.erv.app.weighttraining.WeightSync
+import com.erv.app.unifiedroutines.UnifiedRoutineRepository
 import com.erv.app.lighttherapy.LightSync
 import com.erv.app.lighttherapy.LightTherapyRepository
 import com.erv.app.supplements.SupplementRepository
@@ -58,12 +63,16 @@ import com.erv.app.ui.navigation.LocalRelayDataSyncInProgress
 import com.erv.app.ui.dashboard.DashboardViewModel
 import com.erv.app.ui.weighttraining.WeightLiveWorkoutViewModel
 import com.erv.app.ui.cardio.CardioLiveWorkoutViewModel
+import com.erv.app.cycling.CyclingCscBleViewModel
 import com.erv.app.hr.HeartRateBleViewModel
 import com.erv.app.hr.HeartRateTopBar
+import com.erv.app.cycling.LocalCyclingCsc
 import com.erv.app.hr.LocalHeartRateBle
 import com.erv.app.hr.requiredBlePermissionsForHeartRate
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.erv.app.ui.onboarding.FirstRunSetupScreen
 import com.erv.app.ui.onboarding.RelaySetupScreen
+import com.erv.app.ui.onboarding.shouldShowFirstRunSetup
 import com.erv.app.ui.theme.ErvTheme
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.async
@@ -75,7 +84,10 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 
 class MainActivity : AppCompatActivity() {
 
@@ -162,6 +174,7 @@ private fun ErvApp(
         }
     }
     var onboardingLoading by remember { mutableStateOf(false) }
+    var firstRunSetupRequired by remember { mutableStateOf<Boolean?>(null) }
 
     fun resolveSigner(): EventSigner? {
         return keyManager.createLocalSigner()
@@ -179,7 +192,17 @@ private fun ErvApp(
 
     LaunchedEffect(Unit) {
         userPreferences.ensureMediaKeysSplitV1()
+        userPreferences.ensureBleSavedDevicesMigration()
         userPreferences.ensureCardioDistanceDefaultMiles()
+    }
+    LaunchedEffect(appState) {
+        firstRunSetupRequired = if (appState == AppState.Ready) {
+            withContext(Dispatchers.IO) {
+                shouldShowFirstRunSetup(context.applicationContext, userPreferences)
+            }
+        } else {
+            null
+        }
     }
 
     when (appState) {
@@ -250,29 +273,38 @@ private fun ErvApp(
                 )
             }
         }
-        AppState.Ready -> MainAppShell(
-            keyManager = keyManager,
-            amberHost = amberHost,
-            userPreferences = userPreferences,
-            pendingReminderRoutineId = pendingReminderRoutineId,
-            consumePendingReminderRoutineId = consumePendingReminderRoutineId,
-            navigateToWeightLiveWorkout = navigateToWeightLiveWorkout,
-            navigateToCardioLiveWorkout = navigateToCardioLiveWorkout,
-            onRequestNostrLogin = {
-                scope.launch {
-                    userPreferences.setUseAppWithoutNostrAccount(false)
-                    appState = AppState.LoggedOut
-                }
-            },
-            onLogout = {
-                scope.launch {
-                    RelayPayloadDigestStore.get(context.applicationContext).clear()
-                    userPreferences.setUseAppWithoutNostrAccount(false)
-                    keyManager.logout()
-                    appState = AppState.LoggedOut
-                }
+        AppState.Ready -> when (firstRunSetupRequired) {
+            null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
             }
-        )
+            true -> FirstRunSetupScreen(
+                userPreferences = userPreferences,
+                onDone = { firstRunSetupRequired = false },
+            )
+            false -> MainAppShell(
+                keyManager = keyManager,
+                amberHost = amberHost,
+                userPreferences = userPreferences,
+                pendingReminderRoutineId = pendingReminderRoutineId,
+                consumePendingReminderRoutineId = consumePendingReminderRoutineId,
+                navigateToWeightLiveWorkout = navigateToWeightLiveWorkout,
+                navigateToCardioLiveWorkout = navigateToCardioLiveWorkout,
+                onRequestNostrLogin = {
+                    scope.launch {
+                        userPreferences.setUseAppWithoutNostrAccount(false)
+                        appState = AppState.LoggedOut
+                    }
+                },
+                onLogout = {
+                    scope.launch {
+                        RelayPayloadDigestStore.get(context.applicationContext).clear()
+                        userPreferences.setUseAppWithoutNostrAccount(false)
+                        keyManager.logout()
+                        appState = AppState.LoggedOut
+                    }
+                }
+            )
+        }
     }
 }
 
@@ -360,6 +392,9 @@ private fun MainAppShell(
     val weightRepository = remember(context) { WeightRepository(context) }
     val heatColdRepository = remember(context) { HeatColdRepository(context) }
     val stretchingRepository = remember(context) { StretchingRepository(context) }
+    val programRepository = remember(context) { ProgramRepository(context) }
+    val unifiedRoutineRepository = remember(context) { UnifiedRoutineRepository(context) }
+    val bodyTrackerRepository = remember(context) { BodyTrackerRepository(context) }
     val reminderRepository = remember(context) { RoutineReminderRepository(context) }
     val signer = remember(keyManager, amberHost) {
         keyManager.createLocalSigner()
@@ -398,7 +433,9 @@ private fun MainAppShell(
         cardioRepository,
         weightRepository,
         heatColdRepository,
-        stretchingRepository
+        stretchingRepository,
+        programRepository,
+        bodyTrackerRepository
     ) {
         if (relayPool == null || signer == null) {
             return@LaunchedEffect
@@ -408,16 +445,11 @@ private fun MainAppShell(
             delay(1500)
             val pubkey = signer.publicKey
             val appCtx = context.applicationContext
-            coroutineScope {
-                val supR = async { SupplementSync.fetchFromNetwork(relayPool, signer, pubkey, timeoutMs = 8000) }
-                val lightR = async { LightSync.fetchFromNetwork(relayPool, signer, pubkey, timeoutMs = 8000) }
-                val cardioR = async { CardioSync.fetchFromNetwork(relayPool, signer, pubkey, timeoutMs = 8000) }
-                val weightR = async { WeightSync.fetchFromNetwork(relayPool, signer, pubkey, timeoutMs = 8000) }
-                val heatR = async { HeatColdSync.fetchFromNetwork(relayPool, signer, pubkey, timeoutMs = 8000) }
-                val stretchR = async { StretchingSync.fetchFromNetwork(relayPool, signer, pubkey, timeoutMs = 8000) }
-                val equipR = async { FitnessEquipmentSync.fetchFromNetwork(relayPool, signer, pubkey, timeoutMs = 8000) }
-                awaitAll(supR, lightR, cardioR, weightR, heatR, stretchR, equipR)
-                supR.await()?.let { remote ->
+            val latestByTag = withContext(Dispatchers.IO) {
+                fetchLatestKind30078ByDTag(relayPool, pubkey, timeoutMs = 8000)
+            }
+            if (latestByTag.isNotEmpty()) {
+                SupplementSync.fromLatestByTag(latestByTag, signer).let { remote ->
                     val merged = LibraryStateMerge.mergeSupplement(supplementRepository.currentState(), remote)
                     supplementRepository.replaceAll(merged)
                     RelayPayloadDigestStore.reconcileIdenticalRemoteMerged(
@@ -426,7 +458,7 @@ private fun MainAppShell(
                         SupplementSync.fullOutboxEntries(merged),
                     )
                 }
-                lightR.await()?.let { remote ->
+                LightSync.fromLatestByTag(latestByTag, signer).let { remote ->
                     val merged = LibraryStateMerge.mergeLight(lightTherapyRepository.currentState(), remote)
                     lightTherapyRepository.replaceAll(merged)
                     RelayPayloadDigestStore.reconcileIdenticalRemoteMerged(
@@ -435,7 +467,7 @@ private fun MainAppShell(
                         LightSync.fullOutboxEntries(merged),
                     )
                 }
-                cardioR.await()?.let { remote ->
+                CardioSync.fromLatestByTag(latestByTag, signer).let { remote ->
                     val merged = LibraryStateMerge.mergeCardio(cardioRepository.currentState(), remote)
                     cardioRepository.replaceAll(merged)
                     RelayPayloadDigestStore.reconcileIdenticalRemoteMerged(
@@ -444,7 +476,7 @@ private fun MainAppShell(
                         CardioSync.fullOutboxEntries(merged),
                     )
                 }
-                weightR.await()?.let { remote ->
+                WeightSync.fromLatestByTag(latestByTag, signer).let { remote ->
                     val merged = LibraryStateMerge.mergeWeight(weightRepository.currentState(), remote)
                     weightRepository.replaceAll(merged)
                     RelayPayloadDigestStore.reconcileIdenticalRemoteMerged(
@@ -453,7 +485,7 @@ private fun MainAppShell(
                         WeightSync.fullOutboxEntries(merged),
                     )
                 }
-                heatR.await()?.let { remote ->
+                HeatColdSync.fromLatestByTag(latestByTag, signer).let { remote ->
                     val merged = LibraryStateMerge.mergeHeatCold(heatColdRepository.currentState(), remote)
                     heatColdRepository.replaceAll(merged)
                     RelayPayloadDigestStore.reconcileIdenticalRemoteMerged(
@@ -462,7 +494,7 @@ private fun MainAppShell(
                         HeatColdSync.fullOutboxEntries(merged),
                     )
                 }
-                stretchR.await()?.let { remote ->
+                StretchingSync.fromLatestByTag(latestByTag, signer).let { remote ->
                     val merged = LibraryStateMerge.mergeStretch(stretchingRepository.currentState(), remote)
                     stretchingRepository.replaceAll(merged)
                     RelayPayloadDigestStore.reconcileIdenticalRemoteMerged(
@@ -471,7 +503,27 @@ private fun MainAppShell(
                         StretchingSync.fullOutboxEntries(merged),
                     )
                 }
-                equipR.await()?.let { remote ->
+                ProgramSync.fromLatestByTag(latestByTag, signer)?.let { remote ->
+                    val merged = LibraryStateMerge.mergePrograms(programRepository.currentState(), remote)
+                    programRepository.replaceAll(merged)
+                    RelayPayloadDigestStore.reconcileIdenticalRemoteMerged(
+                        appCtx,
+                        ProgramSync.fullOutboxEntries(remote),
+                        ProgramSync.fullOutboxEntries(merged),
+                    )
+                }
+                BodyTrackerSync.fromLatestByTag(latestByTag, signer).let { remote ->
+                    val merged = LibraryStateMerge.mergeBodyTracker(bodyTrackerRepository.currentState(), remote)
+                    bodyTrackerRepository.replaceAll(merged)
+                    RelayPayloadDigestStore.reconcileIdenticalRemoteMerged(
+                        appCtx,
+                        BodyTrackerSync.fullOutboxEntries(remote),
+                        BodyTrackerSync.fullOutboxEntries(merged),
+                    )
+                }
+                latestByTag["erv/equipment"]?.let { event ->
+                    FitnessEquipmentSync.fromLatestEvent(event, signer)
+                }?.let { remote ->
                     val gym = userPreferences.gymMembership.first()
                     val equip = userPreferences.ownedEquipment.first()
                     val merged = LibraryStateMerge.mergeFitnessEquipment(gym, equip, remote)
@@ -512,6 +564,27 @@ private fun MainAppShell(
             )
         }
     }
+    LaunchedEffect(relayPool, signer, relayUrlsVersion) {
+        val pool = relayPool ?: return@LaunchedEffect
+        val sig = signer ?: return@LaunchedEffect
+        pool.relayStates
+            .map { states ->
+                keyManager.relayUrlsForKind30078Publish().any { url ->
+                    states[url].let { it is ConnectionState.Connected || it is ConnectionState.Authenticated }
+                }
+            }
+            .distinctUntilChanged()
+            .collect { anyDataRelayConnected ->
+                if (!anyDataRelayConnected) return@collect
+                withContext(Dispatchers.IO) {
+                    RelayPublishOutbox.get(context.applicationContext).kickDrain(
+                        pool,
+                        sig,
+                        keyManager.relayUrlsForKind30078Publish(),
+                    )
+                }
+            }
+    }
 
     Box(Modifier.fillMaxSize()) {
         val weightLiveWorkoutViewModel =
@@ -520,12 +593,15 @@ private fun MainAppShell(
             viewModel<CardioLiveWorkoutViewModel>(viewModelStoreOwner = activityForLifecycle)
         val heartRateBleViewModel =
             viewModel<HeartRateBleViewModel>(viewModelStoreOwner = activityForLifecycle)
+        val cyclingCscBleViewModel =
+            viewModel<CyclingCscBleViewModel>(viewModelStoreOwner = activityForLifecycle)
         val activeWeightWorkout by weightLiveWorkoutViewModel.activeDraft.collectAsState()
         val activeCardioTimer by cardioLiveWorkoutViewModel.activeTimer.collectAsState()
         val liveWorkoutActive = activeWeightWorkout != null || activeCardioTimer != null
         LaunchedEffect(liveWorkoutActive) {
             if (liveWorkoutActive) {
                 heartRateBleViewModel.resetWorkoutRecordingOnLiveStart()
+                cyclingCscBleViewModel.resetWorkoutRecordingOnLiveStart()
             }
         }
         val keepScreenAwakeForLiveWorkout = liveWorkoutActive
@@ -544,6 +620,7 @@ private fun MainAppShell(
         CompositionLocalProvider(
             LocalRelayDataSyncInProgress provides relayDataSyncInProgress,
             LocalHeartRateBle provides heartRateBleViewModel,
+            LocalCyclingCsc provides cyclingCscBleViewModel,
             LocalKeyManager provides keyManager,
         ) {
             Column(Modifier.fillMaxSize()) {
@@ -568,6 +645,9 @@ private fun MainAppShell(
                     weightRepository = weightRepository,
                     heatColdRepository = heatColdRepository,
                     stretchingRepository = stretchingRepository,
+                    programRepository = programRepository,
+                    unifiedRoutineRepository = unifiedRoutineRepository,
+                    bodyTrackerRepository = bodyTrackerRepository,
                     weightLiveWorkoutViewModel = weightLiveWorkoutViewModel,
                     cardioLiveWorkoutViewModel = cardioLiveWorkoutViewModel,
                     relayPool = relayPool,

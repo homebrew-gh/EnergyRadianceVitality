@@ -70,6 +70,12 @@ import com.erv.app.weighttraining.WeightRepository
 import com.erv.app.heatcold.HeatColdRepository
 import com.erv.app.lighttherapy.LightTherapyRepository
 import com.erv.app.stretching.StretchingRepository
+import com.erv.app.programs.FitnessProgram
+import com.erv.app.programs.ProgramImport
+import com.erv.app.programs.ProgramImportEnvelope
+import com.erv.app.programs.ProgramRepository
+import com.erv.app.programs.ProgramSync
+import com.erv.app.programs.ProgramsLibraryState
 import com.erv.app.supplements.SupplementRepository
 import com.erv.app.weighttraining.WeightSync
 import com.erv.app.weighttraining.WeightWorkoutEntry
@@ -85,6 +91,7 @@ import java.nio.charset.StandardCharsets
 import java.time.LocalDate
 import java.time.ZoneId
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -93,6 +100,7 @@ private const val PREVIEW_SESSION_SAMPLE_MAX = 5
 private enum class ImportSilo {
     WEIGHT,
     CARDIO,
+    PROGRAMS,
 }
 
 private data class PendingWeightImport(
@@ -104,6 +112,11 @@ private data class PendingWeightImport(
 private data class PendingCardioImport(
     val outcome: CardioImportOutcome.Success,
     val libraryBeforePreview: CardioLibraryState,
+)
+
+private data class PendingProgramImport(
+    val envelope: ProgramImportEnvelope,
+    val libraryBeforePreview: ProgramsLibraryState,
 )
 
 private data class ImportPreviewBlock(
@@ -118,6 +131,8 @@ internal object ImportExportDocAssets {
     const val KEY_CARDIO_AI = "cardio_ai"
     const val KEY_CARDIO_CSV = "cardio_csv"
     const val KEY_CARDIO_NOSTR = "cardio_nostr"
+    const val KEY_PROGRAM_AI = "program_ai"
+    const val KEY_PRIVACY_POLICY = "privacy_policy"
 
     fun pathForKey(docKey: String): String? = when (docKey) {
         KEY_WEIGHT_AI -> "import_export/weight_training_import_ai_guide.md"
@@ -126,6 +141,8 @@ internal object ImportExportDocAssets {
         KEY_CARDIO_AI -> "import_export/cardio_training_import_ai_guide.md"
         KEY_CARDIO_CSV -> "import_export/cardio_training_import_csv_guide.md"
         KEY_CARDIO_NOSTR -> "import_export/cardio_training_nostr_events_reference.md"
+        KEY_PROGRAM_AI -> "import_export/programs_import_ai_guide.md"
+        KEY_PRIVACY_POLICY -> "privacy_policy.md"
         else -> null
     }
 
@@ -136,12 +153,16 @@ internal object ImportExportDocAssets {
         KEY_CARDIO_AI -> "Cardio Training Import AI Guide"
         KEY_CARDIO_CSV -> "Cardio Training Import CSV Guide"
         KEY_CARDIO_NOSTR -> "Cardio Training Nostr Events Reference"
+        KEY_PROGRAM_AI -> "Programs Import AI / Coach Guide"
+        KEY_PRIVACY_POLICY -> "Privacy Policy"
         else -> "Reference"
     }
 
     val weightReferenceKeys: List<String> = listOf(KEY_WEIGHT_AI, KEY_WEIGHT_CSV, KEY_WEIGHT_BUILTIN)
 
     val cardioReferenceKeys: List<String> = listOf(KEY_CARDIO_AI, KEY_CARDIO_CSV, KEY_CARDIO_NOSTR)
+
+    val programReferenceKeys: List<String> = listOf(KEY_PROGRAM_AI)
 }
 
 private fun readAssetUtf8(context: Context, assetPath: String): String =
@@ -234,6 +255,7 @@ fun SettingsDataImportExportScreen(
     heatColdRepository: HeatColdRepository,
     lightTherapyRepository: LightTherapyRepository,
     supplementRepository: SupplementRepository,
+    programRepository: ProgramRepository,
     relayPool: RelayPool?,
     signer: EventSigner?,
 ) {
@@ -282,9 +304,11 @@ fun SettingsDataImportExportScreen(
     var activeImportSilo by remember { mutableStateOf<ImportSilo?>(null) }
     var pendingWeightImport by remember { mutableStateOf<PendingWeightImport?>(null) }
     var pendingCardioImport by remember { mutableStateOf<PendingCardioImport?>(null) }
+    var pendingProgramImport by remember { mutableStateOf<PendingProgramImport?>(null) }
     var parseErrorMessages by remember { mutableStateOf<List<String>?>(null) }
     var weightReferenceExpanded by remember { mutableStateOf(false) }
     var cardioReferenceExpanded by remember { mutableStateOf(false) }
+    var programReferenceExpanded by remember { mutableStateOf(false) }
 
     val pickLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
@@ -330,6 +354,18 @@ fun SettingsDataImportExportScreen(
                                 libraryBeforePreview = librarySnapshot,
                             )
                         }
+                    }
+                }
+                ImportSilo.PROGRAMS -> {
+                    val librarySnapshot = programRepository.currentState()
+                    val (envelope, errs) = ProgramImport.parse(text)
+                    if (envelope == null) {
+                        parseErrorMessages = errs
+                    } else {
+                        pendingProgramImport = PendingProgramImport(
+                            envelope = envelope,
+                            libraryBeforePreview = librarySnapshot,
+                        )
                     }
                 }
             }
@@ -420,6 +456,38 @@ fun SettingsDataImportExportScreen(
                         snackbarHostState.showSnackbar(relayMsg)
                     } else {
                         snackbarHostState.showSnackbar("$baseMsg (not signed in — local only)")
+                    }
+                }
+            },
+        )
+    }
+
+    pendingProgramImport?.let { pending ->
+        ProgramImportPreviewDialog(
+            pending = pending,
+            onDismiss = { pendingProgramImport = null },
+            onConfirm = {
+                val toApply = pending
+                pendingProgramImport = null
+                scope.launch {
+                    programRepository.mergeImportedPrograms(
+                        imported = toApply.envelope.programs,
+                        setActiveFromImport = toApply.envelope.activeProgramId,
+                    )
+                    val n = toApply.envelope.programs.size
+                    val activeNote =
+                        toApply.envelope.activeProgramId?.let { " Active program updated." } ?: ""
+                    if (relayPool != null && signer != null) {
+                        ProgramSync.publishMaster(
+                            appContext = context.applicationContext,
+                            relayPool = relayPool,
+                            signer = signer,
+                            state = programRepository.currentState(),
+                            dataRelayUrls = keyManager.relayUrlsForKind30078Publish(),
+                        )
+                        snackbarHostState.showSnackbar("Merged $n program(s).$activeNote Synced to relays.")
+                    } else {
+                        snackbarHostState.showSnackbar("Merged $n program(s).$activeNote")
                     }
                 }
             },
@@ -580,6 +648,8 @@ fun SettingsDataImportExportScreen(
                                 val hc = heatColdRepository.currentState()
                                 val lt = lightTherapyRepository.currentState()
                                 val sup = supplementRepository.currentState()
+                                val gymMember = userPreferences.gymMembership.first()
+                                val equipment = userPreferences.ownedEquipment.first()
                                 when (exportFormat) {
                                     DataExportFormat.JSON -> {
                                         val bundle = ErvAppDataExport.buildBundle(
@@ -591,6 +661,8 @@ fun SettingsDataImportExportScreen(
                                             hc,
                                             lt,
                                             sup,
+                                            gymMember,
+                                            equipment,
                                         )
                                         ErvAppDataExport.toJsonString(bundle).toByteArray(StandardCharsets.UTF_8)
                                     }
@@ -764,9 +836,66 @@ fun SettingsDataImportExportScreen(
                     onClick = { onOpenDoc(ImportExportDocAssets.KEY_CARDIO_CSV) }
                 )
                 DocLinkRow(
-                title = ImportExportDocAssets.titleForKey(ImportExportDocAssets.KEY_CARDIO_NOSTR),
-                subtitle = "Optional: Relay Kind 30078 And Cardio D-Tags When Sync Is On",
+                    title = ImportExportDocAssets.titleForKey(ImportExportDocAssets.KEY_CARDIO_NOSTR),
+                    subtitle = "Optional: Relay Kind 30078 And Cardio D-Tags When Sync Is On",
                     onClick = { onOpenDoc(ImportExportDocAssets.KEY_CARDIO_NOSTR) }
+                )
+            }
+
+            Spacer(Modifier.height(8.dp))
+            HorizontalDivider()
+            ImportSectionTitle("Programs")
+            Text(
+                "Weekly Plans Merge By Program Id. JSON Envelope Or Single Program — See The AI Guide For Block Kinds And Day Numbers.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 10.dp)
+            )
+            OutlinedButton(
+                onClick = {
+                    activeImportSilo = ImportSilo.PROGRAMS
+                    pickLauncher.launch(arrayOf("application/json", "text/plain", "*/*"))
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Default.Upload, contentDescription = null)
+                Text("Import Programs File", modifier = Modifier.padding(start = 8.dp))
+            }
+            ImportReferenceCollapsibleSection(
+                sectionTitle = "Reference Files (Programs)",
+                summaryWhenCollapsed = "Tap To Open The Coach / AI JSON Guide Or Save A Copy For Your Assistant.",
+                expanded = programReferenceExpanded,
+                onExpandedChange = { programReferenceExpanded = it },
+                modifier = Modifier.padding(top = 14.dp),
+                onShareBundle = {
+                    scope.launch {
+                        try {
+                            val text = withContext(Dispatchers.IO) {
+                                buildCombinedImportReferenceMarkdown(
+                                    context,
+                                    ImportExportDocAssets.programReferenceKeys,
+                                    "Programs — Combined Import Reference",
+                                )
+                            }
+                            val file = withContext(Dispatchers.IO) {
+                                val dir = File(context.cacheDir, "share").apply { mkdirs() }
+                                val out = File(dir, "programs_import_reference_for_ai.md")
+                                out.writeText(text, StandardCharsets.UTF_8)
+                                out
+                            }
+                            if (!shareMarkdownFromCache(context, file)) {
+                                snackbarHostState.showSnackbar("Could Not Open Save Or Share")
+                            }
+                        } catch (_: Exception) {
+                            snackbarHostState.showSnackbar("Could Not Prepare Reference Bundle")
+                        }
+                    }
+                },
+            ) {
+                DocLinkRow(
+                    title = ImportExportDocAssets.titleForKey(ImportExportDocAssets.KEY_PROGRAM_AI),
+                    subtitle = "JSON Shape, Block Kinds, ISO Weekdays, And Examples",
+                    onClick = { onOpenDoc(ImportExportDocAssets.KEY_PROGRAM_AI) }
                 )
             }
 
@@ -1046,6 +1175,91 @@ private fun CardioImportPreviewDialog(
                 }
                 Text(
                     "Existing logs are kept; these sessions are appended per day.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 12.dp)
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) { Text("Import") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        },
+    )
+}
+
+private fun programTotalScheduledBlocks(program: FitnessProgram): Int =
+    program.weeklySchedule.sumOf { it.blocks.size }
+
+@Composable
+private fun ProgramImportPreviewDialog(
+    pending: PendingProgramImport,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    val env = pending.envelope
+    val active = env.activeProgramId
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Programs Import Preview") },
+        text = {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 420.dp)
+                    .verticalScroll(rememberScrollState())
+            ) {
+                val before = pending.libraryBeforePreview
+                val replaced = env.programs.count { before.programById(it.id) != null }
+                val added = env.programs.size - replaced
+                Text(
+                    buildString {
+                        append("${env.programs.size} program(s) will merge: ")
+                        append("$added new")
+                        if (replaced > 0) append(", $replaced replace existing (same id)")
+                        append(".")
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+                if (active != null) {
+                    Text(
+                        "Active program after import: id $active",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                } else {
+                    Text(
+                        "Active program unchanged (no activeProgramId in file).",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                }
+                Text(
+                    "Programs In File",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(bottom = 4.dp)
+                )
+                env.programs.forEachIndexed { idx, p ->
+                    val blocks = programTotalScheduledBlocks(p)
+                    Text(
+                        "${idx + 1}. ${p.name}",
+                        style = MaterialTheme.typography.titleSmall,
+                        modifier = Modifier.padding(top = if (idx == 0) 0.dp else 8.dp, bottom = 2.dp)
+                    )
+                    Text(
+                        "id: ${p.id} · $blocks scheduled block(s)" +
+                            (p.sourceLabel?.let { " · $it" } ?: ""),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Text(
+                    "Programs sync through your encrypted data relays when signed in.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 12.dp)

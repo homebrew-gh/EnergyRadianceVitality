@@ -1,5 +1,8 @@
 package com.erv.app.nostr
 
+import com.erv.app.bodytracker.BodyTrackerDayLog
+import com.erv.app.bodytracker.BodyTrackerLibraryState
+import com.erv.app.bodytracker.isNostrEmpty
 import com.erv.app.cardio.CardioCustomActivityType
 import com.erv.app.cardio.CardioDayLog
 import com.erv.app.cardio.CardioLibraryState
@@ -16,6 +19,10 @@ import com.erv.app.lighttherapy.LightDevice
 import com.erv.app.lighttherapy.LightLibraryState
 import com.erv.app.lighttherapy.LightRoutine
 import com.erv.app.lighttherapy.withStableSessionIds
+import com.erv.app.programs.FitnessProgram
+import com.erv.app.programs.ProgramCompletionMark
+import com.erv.app.programs.ProgramsLibraryState
+import com.erv.app.programs.sanitized
 import com.erv.app.stretching.StretchDayLog
 import com.erv.app.stretching.StretchLibraryState
 import com.erv.app.stretching.StretchRoutine
@@ -260,6 +267,59 @@ object LibraryStateMerge {
         )
     }
 
+    fun mergeBodyTracker(local: BodyTrackerLibraryState, remote: BodyTrackerLibraryState): BodyTrackerLibraryState {
+        val localWinsSettings = local.lengthUnitUpdatedAtEpochSeconds >= remote.lengthUnitUpdatedAtEpochSeconds
+        val lengthUnit = if (localWinsSettings) local.lengthUnit else remote.lengthUnit
+        val lengthUnitUpdatedAt = if (localWinsSettings) {
+            local.lengthUnitUpdatedAtEpochSeconds
+        } else {
+            remote.lengthUnitUpdatedAtEpochSeconds
+        }
+        val dates = (local.logs.map { it.date } + remote.logs.map { it.date }).distinct().sorted()
+        val logs = dates.mapNotNull { d ->
+            val l = local.logs.firstOrNull { it.date == d }
+            val r = remote.logs.firstOrNull { it.date == d }
+            mergeBodyTrackerDay(l, r)
+        }
+        return BodyTrackerLibraryState(
+            lengthUnit = lengthUnit,
+            lengthUnitUpdatedAtEpochSeconds = lengthUnitUpdatedAt,
+            logs = logs.sortedBy { it.date }
+        )
+    }
+
+    /**
+     * Relay payloads never carry photos; [remote] always has empty [BodyTrackerDayLog.photos].
+     * Local photos are preserved from [local] unless a newer relay snapshot wins the numeric fields,
+     * in which case local photos are still kept.
+     */
+    private fun mergeBodyTrackerDay(local: BodyTrackerDayLog?, remote: BodyTrackerDayLog?): BodyTrackerDayLog? {
+        when {
+            local == null && remote == null -> return null
+            local == null -> {
+                val r = remote!!
+                if (r.isNostrEmpty()) return null
+                return r.copy(photos = emptyList())
+            }
+            remote == null -> {
+                if (local.isNostrEmpty() && local.photos.isEmpty()) return null
+                return local
+            }
+            else -> {
+                val localNet = local.copy(photos = emptyList())
+                val remoteNet = remote.copy(photos = emptyList())
+                val mergedNet = if (localNet.updatedAtEpochSeconds >= remoteNet.updatedAtEpochSeconds) {
+                    localNet
+                } else {
+                    remoteNet
+                }
+                val out = mergedNet.copy(photos = local.photos)
+                if (out.isNostrEmpty() && out.photos.isEmpty()) return null
+                return out
+            }
+        }
+    }
+
     fun mergeStretch(local: StretchLibraryState, remote: StretchLibraryState): StretchLibraryState {
         val la = local.withStableSessionIds()
         val ra = remote.withStableSessionIds()
@@ -277,6 +337,31 @@ object LibraryStateMerge {
         return StretchLibraryState(routines = routines, logs = logs.sortedBy { it.date })
     }
 
+    fun mergePrograms(local: ProgramsLibraryState, remote: ProgramsLibraryState): ProgramsLibraryState {
+        val localState = local.sanitized()
+        val remoteState = remote.sanitized()
+        val useLegacyMerge = localState.masterUpdatedAtEpochSeconds == 0L || remoteState.masterUpdatedAtEpochSeconds == 0L
+        val mergedMaster = if (useLegacyMerge) {
+            val programs = mergeProgramsByLastModified(remoteState.programs, localState.programs)
+            val activeProgramId = localState.activeProgramId
+                ?: remoteState.activeProgramId?.takeIf { id -> programs.any { it.id == id } }
+            ProgramsLibraryState(
+                programs = programs,
+                activeProgramId = activeProgramId,
+                masterUpdatedAtEpochSeconds = max(localState.masterUpdatedAtEpochSeconds, remoteState.masterUpdatedAtEpochSeconds)
+            )
+        } else if (localState.masterUpdatedAtEpochSeconds >= remoteState.masterUpdatedAtEpochSeconds) {
+            localState.copy(completionState = emptyMap())
+        } else {
+            remoteState.copy(completionState = emptyMap())
+        }
+        val completionKeys = (localState.completionState.keys + remoteState.completionState.keys).toSet()
+        val mergedCompletion = completionKeys.associateWith { key ->
+            mergeProgramCompletionMark(localState.completionState[key], remoteState.completionState[key])
+        }
+        return mergedMaster.copy(completionState = mergedCompletion).sanitized()
+    }
+
     private fun mergeStretchDay(local: StretchDayLog, remote: StretchDayLog): StretchDayLog {
         val byId = remote.sessions.associateBy { it.id }.toMutableMap()
         for (s in local.sessions) {
@@ -288,6 +373,32 @@ object LibraryStateMerge {
             }
         }
         return StretchDayLog(date = local.date, sessions = byId.values.sortedWith(compareBy({ it.loggedAtEpochSeconds }, { it.id })))
+    }
+
+    private fun mergeProgramsByLastModified(remote: List<FitnessProgram>, local: List<FitnessProgram>): List<FitnessProgram> {
+        val ids = (local.map { it.id } + remote.map { it.id }).toSet()
+        return ids.map { id ->
+            val l = local.firstOrNull { it.id == id }
+            val r = remote.firstOrNull { it.id == id }
+            when {
+                l == null -> r!!
+                r == null -> l
+                l.lastModifiedEpochSeconds >= r.lastModifiedEpochSeconds -> l
+                else -> r
+            }
+        }.sortedBy { it.name.lowercase() }
+    }
+
+    private fun mergeProgramCompletionMark(
+        local: ProgramCompletionMark?,
+        remote: ProgramCompletionMark?,
+    ): ProgramCompletionMark {
+        return when {
+            local == null -> remote!!
+            remote == null -> local
+            local.updatedAtEpochSeconds >= remote.updatedAtEpochSeconds -> local
+            else -> remote
+        }
     }
 
     fun mergeFitnessEquipment(

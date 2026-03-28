@@ -2,9 +2,13 @@
 package com.erv.app.ui.settings
 
 import android.content.Intent
+import android.graphics.BitmapFactory
 import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -19,6 +23,8 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.automirrored.filled.DirectionsRun
 import androidx.compose.material.icons.filled.FitnessCenter
 import androidx.compose.material.icons.filled.Inventory2
@@ -34,7 +40,11 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
@@ -52,31 +62,49 @@ import com.erv.app.R
 import com.erv.app.cardio.CardioDistanceUnit
 import com.erv.app.data.BodyWeightUnit
 import com.erv.app.data.OwnedEquipmentItem
+import com.erv.app.data.SavedBluetoothDevice
+import com.erv.app.data.SavedBluetoothDeviceKind
 import com.erv.app.data.StretchGuidedTtsVoice
 import com.erv.app.data.ThemeMode
 import com.erv.app.data.UserPreferences
 import com.erv.app.data.WorkoutMediaUploadBackend
-import com.erv.app.nostr.AmberLauncherHost
-import com.erv.app.nostr.AmberSigner
+import com.erv.app.data.displayLabel
+import com.erv.app.data.displayName
+import com.erv.app.cycling.CyclingCscBleConnectionState
+import com.erv.app.cycling.LocalCyclingCsc
+import com.erv.app.hr.HeartRateBleConnectionState
+import com.erv.app.hr.LocalHeartRateBle
+import com.erv.app.hr.requiredBlePermissionsForHeartRate
 import com.erv.app.nostr.ConnectionState
 import com.erv.app.nostr.EventSigner
 import com.erv.app.nostr.FitnessEquipmentSync
 import com.erv.app.nostr.KeyManager
+import com.erv.app.nostr.Nip01Metadata
+import com.erv.app.nostr.Nip65
 import com.erv.app.nostr.Nip96Uploader
 import com.erv.app.nostr.NipB7
+import com.erv.app.nostr.ProfileMetadata
 import com.erv.app.nostr.RelayPool
+import com.erv.app.nostr.RelayOutboxStatus
+import com.erv.app.nostr.RelayOutboxItemFailure
+import com.erv.app.nostr.RelayOutboxStatusStore
 import com.erv.app.nostr.RelayPublishOutbox
+import com.erv.app.nostr.RelayPublishOutbox.PendingItemStatus
 import com.erv.app.nostr.SettingsSync
 import com.erv.app.cardio.CardioRepository
 import com.erv.app.heatcold.HeatColdRepository
 import com.erv.app.lighttherapy.LightTherapyRepository
 import com.erv.app.stretching.StretchingRepository
 import com.erv.app.supplements.SupplementRepository
+import com.erv.app.programs.ProgramRepository
 import com.erv.app.weighttraining.WeightRepository
 import com.erv.app.ui.navigation.RelayDataSyncTopBarIcon
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
+import java.net.URL
 
 private const val WSS_PREFIX = "wss://"
 
@@ -90,6 +118,7 @@ private object SettingsRoutes {
     const val RELAYS = "settings_relays"
     const val EQUIPMENT = "settings_equipment"
     const val STRETCHING = "settings_stretching"
+    const val SAVED_DEVICES = "settings_saved_devices"
     const val DATA_IMPORT_EXPORT = "settings_data_import_export"
     const val IMPORT_DOC = "settings_import_doc/{docKey}"
 
@@ -99,7 +128,6 @@ private object SettingsRoutes {
 @Composable
 fun SettingsScreen(
     keyManager: KeyManager,
-    amberHost: AmberLauncherHost,
     userPreferences: UserPreferences,
     weightRepository: WeightRepository,
     cardioRepository: CardioRepository,
@@ -107,6 +135,9 @@ fun SettingsScreen(
     heatColdRepository: HeatColdRepository,
     lightTherapyRepository: LightTherapyRepository,
     supplementRepository: SupplementRepository,
+    programRepository: ProgramRepository,
+    relayPool: RelayPool?,
+    signer: EventSigner?,
     onBack: () -> Unit,
     onRelaysChanged: () -> Unit = {},
     showDeferNostrLoginEntry: Boolean = false,
@@ -117,6 +148,12 @@ fun SettingsScreen(
     val pendingRelayUploadCount by remember(context.applicationContext) {
         RelayPublishOutbox.get(context.applicationContext).pendingCountFlow()
     }.collectAsState(initial = 0)
+    val relayOutboxStatus by remember(context.applicationContext) {
+        RelayOutboxStatusStore.get(context.applicationContext).statusFlow()
+    }.collectAsState(initial = RelayOutboxStatus())
+    val pendingRelayItems by remember(context.applicationContext) {
+        RelayPublishOutbox.get(context.applicationContext).pendingItemsFlow()
+    }.collectAsState(initial = emptyList())
     val scope = rememberCoroutineScope()
     val themeMode by userPreferences.themeMode.collectAsState(initial = ThemeMode.SYSTEM)
     val bodyWeightValue by userPreferences.bodyWeightValue.collectAsState(initial = "")
@@ -132,6 +169,7 @@ fun SettingsScreen(
         initial = WorkoutMediaUploadBackend.NIP96
     )
     val attachRouteToNostr by userPreferences.attachRouteImageToWorkoutNostrShare.collectAsState(initial = true)
+    val neverPublishNip65RelayList by userPreferences.neverPublishNip65RelayList.collectAsState(initial = true)
     var nip96Draft by remember { mutableStateOf("") }
     var blossomPublicDraft by remember { mutableStateOf("") }
     var blossomPrivateDraft by remember { mutableStateOf("") }
@@ -146,23 +184,13 @@ fun SettingsScreen(
         initial = StretchGuidedTtsVoice.SYSTEM_DEFAULT
     )
 
-    val signer = remember(keyManager, amberHost) {
-        keyManager.createLocalSigner()
-            ?: (if (keyManager.loginMethod == KeyManager.LOGIN_AMBER && keyManager.publicKeyHex != null && keyManager.amberPackageName != null)
-                AmberSigner(keyManager.publicKeyHex!!, amberHost, context.contentResolver, keyManager.amberPackageName!!)
-            else null)
-    }
-
-    val relayPool = remember(signer) { signer?.let { RelayPool(it) } }
     var relayRevision by remember { mutableIntStateOf(0) }
     val allRelays = remember(relayRevision) { keyManager.allRelayUrls() }
+    val dataRelayUrls = remember(allRelays, relayRevision) { allRelays.filter { keyManager.isDataRelay(it) } }
     var snackbarMessage by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(allRelays, relayPool) {
         relayPool?.setRelays(keyManager.relayUrlsForPool())
-    }
-    DisposableEffect(relayPool) {
-        onDispose { relayPool?.disconnect() }
     }
 
     val relayStates by (relayPool?.relayStates ?: snapshotFlow { emptyMap<String, ConnectionState>() })
@@ -217,6 +245,7 @@ fun SettingsScreen(
                     heatColdRepository = heatColdRepository,
                     lightTherapyRepository = lightTherapyRepository,
                     supplementRepository = supplementRepository,
+                    programRepository = programRepository,
                     relayPool = relayPool,
                     signer = signer
                 )
@@ -268,7 +297,7 @@ fun SettingsScreen(
             }
             composable(SettingsRoutes.CARDIO) {
                 SettingsSubScreenScaffold(
-                    title = "Cardio & Sharing",
+                    title = "Cardio",
                     onBack = { nestedNav.popBackStack() }
                 ) {
                     CardioGpsSettingsSection(
@@ -285,43 +314,16 @@ fun SettingsScreen(
                         maxBpm = heartRateMaxBpm,
                         onSave = { v -> scope.launch { userPreferences.setHeartRateMaxBpm(v) } }
                     )
-                    Spacer(Modifier.height(12.dp))
-                    CardioNostrRouteShareSection(
-                        uploadBackend = workoutMediaBackend,
-                        onUploadBackendChange = { b -> scope.launch { userPreferences.setWorkoutMediaUploadBackend(b) } },
-                        attachRouteImage = attachRouteToNostr,
-                        onAttachChange = { v -> scope.launch { userPreferences.setAttachRouteImageToWorkoutNostrShare(v) } },
-                        nip96Draft = nip96Draft,
-                        onNip96DraftChange = { nip96Draft = it },
-                        onSaveNip96Origin = {
-                            scope.launch {
-                                val n = Nip96Uploader.normalizeMediaServerOrigin(nip96Draft)
-                                userPreferences.setNip96MediaServerOrigin(n)
-                                nip96Draft = n
-                            }
-                        },
-                        blossomPublicDraft = blossomPublicDraft,
-                        onBlossomPublicDraftChange = { blossomPublicDraft = it },
-                        blossomPrivateDraft = blossomPrivateDraft,
-                        onBlossomPrivateDraftChange = { blossomPrivateDraft = it },
-                        onSaveBlossomServers = {
-                            scope.launch {
-                                val pub = Nip96Uploader.normalizeMediaServerOrigin(blossomPublicDraft)
-                                val priv = Nip96Uploader.normalizeMediaServerOrigin(blossomPrivateDraft)
-                                userPreferences.setBlossomPublicServerOrigin(pub)
-                                userPreferences.setBlossomPrivateServerOrigin(priv)
-                                blossomPublicDraft = pub
-                                blossomPrivateDraft = priv
-                            }
-                        },
-                        relayPool = relayPool,
-                        blossomFetchPubkeyHex = keyManager.publicKeyHex,
-                        fetchScope = scope,
-                        onUserMessage = { snackbarMessage = it },
-                        onApplyFetchedBlossomPublic = { normalized ->
-                            blossomPublicDraft = normalized
-                            scope.launch { userPreferences.setBlossomPublicServerOrigin(normalized) }
-                        }
+                }
+            }
+            composable(SettingsRoutes.SAVED_DEVICES) {
+                SettingsSubScreenScaffold(
+                    title = "Saved Devices",
+                    onBack = { nestedNav.popBackStack() }
+                ) {
+                    SavedBluetoothDevicesSection(
+                        userPreferences = userPreferences,
+                        scope = scope
                     )
                 }
             }
@@ -359,6 +361,11 @@ fun SettingsScreen(
                 ) {
                     IdentitySection(
                         keyManager = keyManager,
+                        userPreferences = userPreferences,
+                        relayPool = relayPool,
+                        signer = signer,
+                        scope = scope,
+                        onShowMessage = { snackbarMessage = it },
                         onLogout = onLogout
                     )
                 }
@@ -412,11 +419,54 @@ fun SettingsScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(bottom = 8.dp)
                     )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = stringResource(R.string.settings_relays_never_publish_nip65_switch),
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            Text(
+                                text = stringResource(R.string.settings_relays_never_publish_nip65_helper),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(top = 4.dp)
+                            )
+                        }
+                        Switch(
+                            checked = neverPublishNip65RelayList,
+                            onCheckedChange = { v ->
+                                scope.launch { userPreferences.setNeverPublishNip65RelayList(v) }
+                            }
+                        )
+                    }
                     if (pendingRelayUploadCount > 0) {
                         Text(
                             relayUploadQueueHint(pendingRelayUploadCount),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(bottom = 10.dp)
+                        )
+                        relayUploadDiagnosticsText(
+                            count = pendingRelayUploadCount,
+                            status = relayOutboxStatus,
+                            dataRelayUrls = dataRelayUrls,
+                            relayStates = relayStates,
+                        )?.let { detail ->
+                            Text(
+                                detail,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(bottom = 10.dp)
+                            )
+                        }
+                        PendingRelayItemsDebugList(
+                            items = pendingRelayItems,
+                            failuresByDTag = relayOutboxStatus.failuresByDTag,
                             modifier = Modifier.padding(bottom = 10.dp)
                         )
                     }
@@ -482,15 +532,28 @@ fun SettingsScreen(
                                 scope.launch {
                                     saving = true
                                     try {
-                                        val ok = SettingsSync.saveToNetwork(
+                                        val settingsOk = SettingsSync.saveToNetwork(
                                             context.applicationContext,
                                             relayPool,
                                             signer,
                                             keyManager,
                                         )
-                                        if (ok) {
+                                        val nip65Ok = if (settingsOk) {
+                                            Nip65.publishRelayListIfAllowed(
+                                                userPreferences,
+                                                relayPool,
+                                                signer,
+                                                keyManager,
+                                            )
+                                        } else {
+                                            false
+                                        }
+                                        if (settingsOk) {
                                             hasUnsavedChanges = false
-                                            snackbarMessage = "Settings saved"
+                                            snackbarMessage = when {
+                                                nip65Ok -> "Settings saved"
+                                                else -> context.getString(R.string.settings_relays_save_nip65_failed)
+                                            }
                                         } else {
                                             snackbarMessage = "Save failed — check relay connections"
                                         }
@@ -508,6 +571,43 @@ fun SettingsScreen(
                         }
                     }
                     Spacer(Modifier.height(16.dp))
+                    CardioNostrRouteShareSection(
+                        uploadBackend = workoutMediaBackend,
+                        onUploadBackendChange = { b -> scope.launch { userPreferences.setWorkoutMediaUploadBackend(b) } },
+                        attachRouteImage = attachRouteToNostr,
+                        onAttachChange = { v -> scope.launch { userPreferences.setAttachRouteImageToWorkoutNostrShare(v) } },
+                        nip96Draft = nip96Draft,
+                        onNip96DraftChange = { nip96Draft = it },
+                        onSaveNip96Origin = {
+                            scope.launch {
+                                val n = Nip96Uploader.normalizeMediaServerOrigin(nip96Draft)
+                                userPreferences.setNip96MediaServerOrigin(n)
+                                nip96Draft = n
+                            }
+                        },
+                        blossomPublicDraft = blossomPublicDraft,
+                        onBlossomPublicDraftChange = { blossomPublicDraft = it },
+                        blossomPrivateDraft = blossomPrivateDraft,
+                        onBlossomPrivateDraftChange = { blossomPrivateDraft = it },
+                        onSaveBlossomServers = {
+                            scope.launch {
+                                val pub = Nip96Uploader.normalizeMediaServerOrigin(blossomPublicDraft)
+                                val priv = Nip96Uploader.normalizeMediaServerOrigin(blossomPrivateDraft)
+                                userPreferences.setBlossomPublicServerOrigin(pub)
+                                userPreferences.setBlossomPrivateServerOrigin(priv)
+                                blossomPublicDraft = pub
+                                blossomPrivateDraft = priv
+                            }
+                        },
+                        relayPool = relayPool,
+                        blossomFetchPubkeyHex = keyManager.publicKeyHex,
+                        fetchScope = scope,
+                        onUserMessage = { snackbarMessage = it },
+                        onApplyFetchedBlossomPublic = { normalized ->
+                            blossomPublicDraft = normalized
+                            scope.launch { userPreferences.setBlossomPublicServerOrigin(normalized) }
+                        }
+                    )
                 }
             }
         }
@@ -521,6 +621,82 @@ private fun relayUploadQueueHint(count: Int): String {
         else -> "$count encrypted activity updates are"
     }
     return "$head queued for relay upload. Keep the app open online; they retry automatically."
+}
+
+private fun relayUploadDiagnosticsText(
+    count: Int,
+    status: RelayOutboxStatus,
+    dataRelayUrls: List<String>,
+    relayStates: Map<String, ConnectionState>,
+): String? {
+    if (count <= 0) return null
+    if (dataRelayUrls.isEmpty()) {
+        return "No data relays are enabled, so queued uploads cannot be sent yet."
+    }
+    val connectedCount = dataRelayUrls.count { url ->
+        relayStates[url].let { it is ConnectionState.Connected || it is ConnectionState.Authenticated }
+    }
+    if (connectedCount == 0) {
+        return "No data relays are connected right now, so uploads remain queued until a relay reconnects."
+    }
+    if (status.lastFailureMessage.isNotBlank()) {
+        return "Last relay upload failure: ${status.lastFailureMessage}. Connected data relays: $connectedCount/${dataRelayUrls.size}."
+    }
+    return "Connected data relays: $connectedCount/${dataRelayUrls.size}. The app will keep retrying queued uploads."
+}
+
+@Composable
+private fun PendingRelayItemsDebugList(
+    items: List<PendingItemStatus>,
+    failuresByDTag: Map<String, RelayOutboxItemFailure>,
+    modifier: Modifier = Modifier,
+) {
+    if (items.isEmpty()) return
+    val now = System.currentTimeMillis()
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(
+            "Pending relay items:",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        for (item in items.take(8)) {
+            Text(
+                relayPendingItemText(item, now, failuresByDTag[item.dTag]),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (items.size > 8) {
+            Text(
+                "Plus ${items.size - 8} more queued item(s).",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+private fun relayPendingItemText(
+    item: PendingItemStatus,
+    nowEpochMs: Long,
+    failure: RelayOutboxItemFailure?,
+): String {
+    val retryText = if (item.nextAttemptAtEpochMs <= nowEpochMs) {
+        "ready to retry now"
+    } else {
+        "retries in ${formatRetryDelay(item.nextAttemptAtEpochMs - nowEpochMs)}"
+    }
+    val failureText = failure?.message?.takeIf { it.isNotBlank() }?.let { " — last failure: $it" }.orEmpty()
+    return "${item.dTag} — attempts ${item.attempts}, $retryText$failureText"
+}
+
+private fun formatRetryDelay(ms: Long): String {
+    val seconds = (ms / 1000L).coerceAtLeast(1L)
+    return when {
+        seconds < 60L -> "${seconds}s"
+        seconds < 3600L -> "${seconds / 60L}m"
+        else -> "${seconds / 3600L}h"
+    }
 }
 
 @Composable
@@ -569,6 +745,7 @@ private fun SettingsHomeScreen(
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
             }
+            SettingsHubSectionLabel("Personal")
             SettingsHubRow(
                 title = "Appearance",
                 subtitle = "Light, dark, or system theme",
@@ -581,12 +758,7 @@ private fun SettingsHomeScreen(
                 icon = Icons.Default.Speed,
                 onClick = { onOpenSection(SettingsRoutes.UNITS) }
             )
-            SettingsHubRow(
-                title = "Cardio & Sharing",
-                subtitle = "GPS tracking and workout route uploads",
-                icon = Icons.AutoMirrored.Filled.DirectionsRun,
-                onClick = { onOpenSection(SettingsRoutes.CARDIO) }
-            )
+            SettingsHubSectionLabel("Training")
             SettingsHubRow(
                 title = "Strength Training",
                 subtitle = "Live workouts: ongoing notification, optional bubble",
@@ -594,10 +766,23 @@ private fun SettingsHomeScreen(
                 onClick = { onOpenSection(SettingsRoutes.STRENGTH) }
             )
             SettingsHubRow(
+                title = "Cardio",
+                subtitle = "GPS tracking, zones, and local route retention",
+                icon = Icons.AutoMirrored.Filled.DirectionsRun,
+                onClick = { onOpenSection(SettingsRoutes.CARDIO) }
+            )
+            SettingsHubRow(
                 title = stringResource(R.string.settings_stretch_guided_voice_hub_title),
                 subtitle = stringResource(R.string.settings_stretch_guided_voice_hub_subtitle),
                 icon = Icons.Default.Timer,
                 onClick = { onOpenSection(SettingsRoutes.STRETCHING) }
+            )
+            SettingsHubSectionLabel("Devices & Equipment")
+            SettingsHubRow(
+                title = "Saved Devices",
+                subtitle = "Remember Bluetooth sensors for faster reconnects",
+                icon = Icons.Default.Favorite,
+                onClick = { onOpenSection(SettingsRoutes.SAVED_DEVICES) }
             )
             SettingsHubRow(
                 title = "Equipment & Gym",
@@ -605,6 +790,7 @@ private fun SettingsHomeScreen(
                 icon = Icons.Default.Inventory2,
                 onClick = { onOpenSection(SettingsRoutes.EQUIPMENT) }
             )
+            SettingsHubSectionLabel("Account & Data")
             SettingsHubRow(
                 title = "Account",
                 subtitle = "Keys and logout",
@@ -613,7 +799,7 @@ private fun SettingsHomeScreen(
             )
             SettingsHubRow(
                 title = "Relays",
-                subtitle = "Nostr data and social sync",
+                subtitle = "Nostr relays, sync, and social workout posts",
                 icon = Icons.Default.Cloud,
                 pendingBadgeCount = pendingRelayUploadCount,
                 onClick = { onOpenSection(SettingsRoutes.RELAYS) }
@@ -624,8 +810,24 @@ private fun SettingsHomeScreen(
                 icon = Icons.Default.Upload,
                 onClick = { onOpenSection(SettingsRoutes.DATA_IMPORT_EXPORT) }
             )
+            SettingsHubRow(
+                title = "Privacy Policy",
+                subtitle = "What ERV can and cannot guarantee",
+                icon = Icons.Default.Description,
+                onClick = { onOpenSection(SettingsRoutes.importDocRoute(ImportExportDocAssets.KEY_PRIVACY_POLICY)) }
+            )
         }
     }
+}
+
+@Composable
+private fun SettingsHubSectionLabel(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(top = 12.dp, bottom = 2.dp)
+    )
 }
 
 @Composable
@@ -746,6 +948,482 @@ private fun normalizeRelayUrl(input: String): String? {
     val s = input.trim()
     if (s.isEmpty()) return null
     return if (s.startsWith("wss://") || s.startsWith("ws://")) s else "$WSS_PREFIX$s"
+}
+
+@Composable
+private fun SavedBluetoothDevicesSection(
+    userPreferences: UserPreferences,
+    scope: CoroutineScope,
+) {
+    val heartRateBle = LocalHeartRateBle.current
+    val cyclingCscBle = LocalCyclingCsc.current
+    val savedHeartRateDevices by heartRateBle.savedDevices.collectAsState()
+    val preferredHeartRateAddress by heartRateBle.preferredDeviceAddress.collectAsState()
+    val activeHeartRateAddress by heartRateBle.activeDeviceAddress.collectAsState()
+    val heartRateConnectionState by heartRateBle.connectionState.collectAsState()
+    val heartRateScanRows by heartRateBle.scanRows.collectAsState()
+    val heartRateStatusMessage by heartRateBle.statusMessage.collectAsState()
+    val savedCyclingDevices by cyclingCscBle.savedDevices.collectAsState()
+    val preferredCyclingAddress by cyclingCscBle.preferredDeviceAddress.collectAsState()
+    val activeCyclingAddress by cyclingCscBle.activeDeviceAddress.collectAsState()
+    val cyclingConnectionState by cyclingCscBle.connectionState.collectAsState()
+    val cyclingScanRows by cyclingCscBle.scanRows.collectAsState()
+    val cyclingStatusMessage by cyclingCscBle.statusMessage.collectAsState()
+    val cyclingWheelCircumferenceMm by userPreferences.cyclingWheelCircumferenceMm.collectAsState(initial = 2105)
+    var wheelCircumferenceDraft by remember(cyclingWheelCircumferenceMm) {
+        mutableStateOf(cyclingWheelCircumferenceMm.toString())
+    }
+    var heartRateScanDialogOpen by remember { mutableStateOf(false) }
+    var cyclingScanDialogOpen by remember { mutableStateOf(false) }
+    var pendingHeartRateConnectDevice by remember { mutableStateOf<SavedBluetoothDevice?>(null) }
+    var pendingCyclingConnectDevice by remember { mutableStateOf<SavedBluetoothDevice?>(null) }
+    var pendingScanTarget by remember { mutableStateOf<SavedBluetoothDeviceKind?>(null) }
+
+    val requestBlePermissions = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) {
+        if (heartRateBle.hasScanPermission() && heartRateBle.hasConnectPermission()) {
+            val heartRateConnect = pendingHeartRateConnectDevice
+            val cyclingConnect = pendingCyclingConnectDevice
+            val scanTarget = pendingScanTarget
+            pendingHeartRateConnectDevice = null
+            pendingCyclingConnectDevice = null
+            pendingScanTarget = null
+            when {
+                heartRateConnect != null -> heartRateBle.connectToSavedDevice(heartRateConnect)
+                cyclingConnect != null -> cyclingCscBle.connectToSavedDevice(cyclingConnect)
+                scanTarget == SavedBluetoothDeviceKind.HEART_RATE_MONITOR -> {
+                    cyclingScanDialogOpen = false
+                    heartRateScanDialogOpen = true
+                    heartRateBle.startScanForSensors()
+                }
+                scanTarget == SavedBluetoothDeviceKind.CYCLING_SPEED_CADENCE_SENSOR -> {
+                    heartRateScanDialogOpen = false
+                    cyclingScanDialogOpen = true
+                    cyclingCscBle.startScanForSensors()
+                }
+            }
+        }
+    }
+
+    fun startHeartRateScan() {
+        pendingHeartRateConnectDevice = null
+        pendingCyclingConnectDevice = null
+        pendingScanTarget = SavedBluetoothDeviceKind.HEART_RATE_MONITOR
+        if (!heartRateBle.hasScanPermission() || !heartRateBle.hasConnectPermission()) {
+            requestBlePermissions.launch(requiredBlePermissionsForHeartRate())
+        } else {
+            cyclingScanDialogOpen = false
+            heartRateScanDialogOpen = true
+            heartRateBle.startScanForSensors()
+        }
+    }
+
+    fun startCyclingScan() {
+        pendingHeartRateConnectDevice = null
+        pendingCyclingConnectDevice = null
+        pendingScanTarget = SavedBluetoothDeviceKind.CYCLING_SPEED_CADENCE_SENSOR
+        if (!cyclingCscBle.hasScanPermission() || !cyclingCscBle.hasConnectPermission()) {
+            requestBlePermissions.launch(requiredBlePermissionsForHeartRate())
+        } else {
+            heartRateScanDialogOpen = false
+            cyclingScanDialogOpen = true
+            cyclingCscBle.startScanForSensors()
+        }
+    }
+
+    Text(
+        "Saved Bluetooth devices",
+        style = MaterialTheme.typography.titleMedium,
+        modifier = Modifier.padding(bottom = 8.dp)
+    )
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(
+                "ERV remembers sensors you connect so future sessions are faster. The last device you choose becomes the auto-connect device when Bluetooth is on and permission is already granted.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                "Compatible smartwatches can connect when they expose the standard BLE heart rate service. Cycling Speed and Cadence (CSC) sensors can feed live bike workouts.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            if (heartRateStatusMessage != null && savedHeartRateDevices.isEmpty()) {
+                Text(
+                    heartRateStatusMessage!!,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            if (cyclingStatusMessage != null && savedCyclingDevices.isEmpty()) {
+                Text(
+                    cyclingStatusMessage!!,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = { startHeartRateScan() },
+                    modifier = Modifier.weight(1f),
+                    enabled = heartRateBle.bleHardwareAvailable
+                ) {
+                    Text("Scan HR")
+                }
+                Button(
+                    onClick = { startCyclingScan() },
+                    modifier = Modifier.weight(1f),
+                    enabled = cyclingCscBle.bleHardwareAvailable
+                ) {
+                    Text("Scan CSC")
+                }
+            }
+            if (!heartRateBle.bleHardwareAvailable) {
+                Text(
+                    "This phone does not report Bluetooth Low Energy support.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
+        }
+    }
+
+    Spacer(Modifier.height(12.dp))
+
+    Text(
+        "Cycling wheel circumference",
+        style = MaterialTheme.typography.titleMedium,
+        modifier = Modifier.padding(bottom = 8.dp)
+    )
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                "Used to convert CSC wheel revolutions into bike speed and distance. A common road bike value is around 2105 mm.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            OutlinedTextField(
+                value = wheelCircumferenceDraft,
+                onValueChange = { wheelCircumferenceDraft = it.filter { ch -> ch.isDigit() }.take(4) },
+                label = { Text("Wheel circumference (mm)") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.fillMaxWidth()
+            )
+            Button(
+                onClick = {
+                    val mm = wheelCircumferenceDraft.toIntOrNull()?.coerceIn(500, 4000) ?: 2105
+                    wheelCircumferenceDraft = mm.toString()
+                    scope.launch { userPreferences.setCyclingWheelCircumferenceMm(mm) }
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Save wheel size")
+            }
+        }
+    }
+
+    Spacer(Modifier.height(12.dp))
+
+    Text(
+        "Heart rate devices",
+        style = MaterialTheme.typography.titleMedium,
+        modifier = Modifier.padding(bottom = 8.dp)
+    )
+    if (savedHeartRateDevices.isEmpty()) {
+        ElevatedCard(
+            modifier = Modifier.fillMaxWidth(),
+            elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
+        ) {
+            Text(
+                "No saved heart rate devices yet. Compatible chest straps and smartwatches that advertise the standard BLE heart rate service will appear here after you connect once.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(12.dp)
+            )
+        }
+    } else {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            savedHeartRateDevices.forEach { device ->
+                SavedBluetoothDeviceCard(
+                    device = device,
+                    isPreferred = preferredHeartRateAddress == device.address,
+                    isConnected = activeHeartRateAddress == device.address &&
+                        heartRateConnectionState == HeartRateBleConnectionState.Connected,
+                    isConnecting = activeHeartRateAddress == device.address &&
+                        heartRateConnectionState == HeartRateBleConnectionState.Connecting,
+                    statusMessage = heartRateStatusMessage,
+                    onConnect = {
+                        if (!heartRateBle.hasConnectPermission()) {
+                            pendingHeartRateConnectDevice = device
+                            pendingCyclingConnectDevice = null
+                            pendingScanTarget = null
+                            requestBlePermissions.launch(requiredBlePermissionsForHeartRate())
+                        } else {
+                            heartRateBle.connectToSavedDevice(device)
+                        }
+                    },
+                    onDisconnect = { heartRateBle.disconnectUser() },
+                    onForget = { heartRateBle.forgetSavedDevice(device.address) }
+                )
+            }
+        }
+    }
+
+    Spacer(Modifier.height(12.dp))
+
+    Text(
+        "Cycling speed/cadence sensors",
+        style = MaterialTheme.typography.titleMedium,
+        modifier = Modifier.padding(bottom = 8.dp)
+    )
+    if (savedCyclingDevices.isEmpty()) {
+        ElevatedCard(
+            modifier = Modifier.fillMaxWidth(),
+            elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
+        ) {
+            Text(
+                "No saved CSC sensors yet. Connect a standard Cycling Speed and Cadence sensor to use wheel speed, cadence, and sensor distance in cycling live workouts.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(12.dp)
+            )
+        }
+    } else {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            savedCyclingDevices.forEach { device ->
+                SavedBluetoothDeviceCard(
+                    device = device,
+                    isPreferred = preferredCyclingAddress == device.address,
+                    isConnected = activeCyclingAddress == device.address &&
+                        cyclingConnectionState == CyclingCscBleConnectionState.Connected,
+                    isConnecting = activeCyclingAddress == device.address &&
+                        cyclingConnectionState == CyclingCscBleConnectionState.Connecting,
+                    statusMessage = cyclingStatusMessage,
+                    onConnect = {
+                        if (!cyclingCscBle.hasConnectPermission()) {
+                            pendingHeartRateConnectDevice = null
+                            pendingCyclingConnectDevice = device
+                            pendingScanTarget = null
+                            requestBlePermissions.launch(requiredBlePermissionsForHeartRate())
+                        } else {
+                            cyclingCscBle.connectToSavedDevice(device)
+                        }
+                    },
+                    onDisconnect = { cyclingCscBle.disconnectUser() },
+                    onForget = { cyclingCscBle.forgetSavedDevice(device.address) }
+                )
+            }
+        }
+    }
+
+    if (heartRateScanDialogOpen) {
+        AlertDialog(
+            onDismissRequest = {
+                heartRateScanDialogOpen = false
+                heartRateBle.stopScanInternal()
+            },
+            title = { Text(stringResource(R.string.hr_scan_dialog_title)) },
+            text = {
+                if (heartRateScanRows.isEmpty()) {
+                    Text(stringResource(R.string.hr_scan_empty))
+                } else {
+                    Column {
+                        heartRateScanRows.forEachIndexed { index, row ->
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        heartRateScanDialogOpen = false
+                                        heartRateBle.connectToScannedRow(row)
+                                    }
+                                    .padding(vertical = 10.dp)
+                            ) {
+                                Text(
+                                    text = row.name?.takeIf { it.isNotBlank() }
+                                        ?: stringResource(R.string.hr_scan_unknown_name),
+                                    style = MaterialTheme.typography.bodyLarge
+                                )
+                                Text(
+                                    text = row.address,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            if (index < heartRateScanRows.lastIndex) {
+                                HorizontalDivider()
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        heartRateScanDialogOpen = false
+                        heartRateBle.stopScanInternal()
+                    }
+                ) { Text(stringResource(R.string.hr_scan_done)) }
+            }
+        )
+    }
+
+    if (cyclingScanDialogOpen) {
+        AlertDialog(
+            onDismissRequest = {
+                cyclingScanDialogOpen = false
+                cyclingCscBle.stopScanInternal()
+            },
+            title = { Text("Select a cycling sensor") },
+            text = {
+                if (cyclingScanRows.isEmpty()) {
+                    Text("No CSC sensors found yet. Wake the sensor and spin the wheel or crank to advertise.")
+                } else {
+                    Column {
+                        cyclingScanRows.forEachIndexed { index, row ->
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        cyclingScanDialogOpen = false
+                                        cyclingCscBle.connectToScannedRow(row)
+                                    }
+                                    .padding(vertical = 10.dp)
+                            ) {
+                                Text(
+                                    text = row.name?.takeIf { it.isNotBlank() } ?: "Cycling sensor",
+                                    style = MaterialTheme.typography.bodyLarge
+                                )
+                                Text(
+                                    text = row.address,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            if (index < cyclingScanRows.lastIndex) {
+                                HorizontalDivider()
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        cyclingScanDialogOpen = false
+                        cyclingCscBle.stopScanInternal()
+                    }
+                ) { Text("Stop scanning") }
+            }
+        )
+    }
+}
+
+@Composable
+private fun SavedBluetoothDeviceCard(
+    device: SavedBluetoothDevice,
+    isPreferred: Boolean,
+    isConnected: Boolean,
+    isConnecting: Boolean,
+    statusMessage: String?,
+    onConnect: () -> Unit,
+    onDisconnect: () -> Unit,
+    onForget: () -> Unit,
+) {
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                device.displayName(),
+                style = MaterialTheme.typography.titleSmall
+            )
+            Text(
+                device.kind.displayLabel(),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                device.address,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            if (isPreferred) {
+                Text(
+                    "Auto-connect device",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+            if (isConnected) {
+                Text(
+                    "Connected now",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            } else if (isConnecting) {
+                Text(
+                    "Connecting…",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            } else if (isPreferred) {
+                Text(
+                    "ERV will try this device first next time the app starts.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            if ((isConnected || isConnecting) && statusMessage != null) {
+                Text(
+                    statusMessage,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (isConnected) {
+                    OutlinedButton(
+                        onClick = onDisconnect,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Disconnect")
+                    }
+                } else {
+                    Button(
+                        onClick = onConnect,
+                        modifier = Modifier.weight(1f),
+                        enabled = !isConnecting
+                    ) {
+                        Text(if (isConnecting) "Connecting…" else "Connect")
+                    }
+                }
+                OutlinedButton(
+                    onClick = onForget,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("Forget")
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -1450,10 +2128,45 @@ private fun ThemeSection(
 @Composable
 private fun IdentitySection(
     keyManager: KeyManager,
+    userPreferences: UserPreferences,
+    relayPool: RelayPool?,
+    signer: EventSigner?,
+    scope: CoroutineScope,
+    onShowMessage: (String) -> Unit,
     onLogout: () -> Unit
 ) {
+    val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
     var copiedLabel by remember { mutableStateOf<String?>(null) }
+
+    val pubkey = keyManager.publicKeyHex
+    val nostrReady = pubkey != null && signer != null && relayPool != null
+
+    val localName by userPreferences.localProfileDisplayName.collectAsState(initial = null)
+    val localPic by userPreferences.localProfilePictureUrl.collectAsState(initial = null)
+    val localBio by userPreferences.localProfileBio.collectAsState(initial = null)
+
+    var localDraftName by remember { mutableStateOf("") }
+    var localDraftPic by remember { mutableStateOf("") }
+    var localDraftBio by remember { mutableStateOf("") }
+    LaunchedEffect(localName, localPic, localBio) {
+        localDraftName = localName.orEmpty()
+        localDraftPic = localPic.orEmpty()
+        localDraftBio = localBio.orEmpty()
+    }
+
+    val cachedProfile = remember(localName, localPic, localBio) {
+        ProfileMetadata(
+            picture = localPic.orEmpty().trim(),
+            about = localBio.orEmpty(),
+        ).withUnifiedDisplayName(localName.orEmpty().trim())
+    }
+    var metaOverride by remember(pubkey) { mutableStateOf<ProfileMetadata?>(null) }
+    val meta = metaOverride ?: cachedProfile
+    var loadingProfile by remember(pubkey, relayPool, signer) {
+        mutableStateOf(false)
+    }
+    var publishing by remember { mutableStateOf(false) }
 
     LaunchedEffect(copiedLabel) {
         if (copiedLabel != null) {
@@ -1484,7 +2197,7 @@ private fun IdentitySection(
                 text = if (copiedLabel == "npub") "Copied!" else npub ?: "Not logged in",
                 style = MaterialTheme.typography.bodySmall,
                 color = if (copiedLabel == "npub") MaterialTheme.colorScheme.primary
-                       else MaterialTheme.colorScheme.onSurface,
+                    else MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier
                     .padding(bottom = 8.dp)
                     .then(
@@ -1504,7 +2217,7 @@ private fun IdentitySection(
                 text = if (copiedLabel == "hex") "Copied!" else hex ?: "Not logged in",
                 style = MaterialTheme.typography.bodySmall,
                 color = if (copiedLabel == "hex") MaterialTheme.colorScheme.primary
-                       else MaterialTheme.colorScheme.onSurface,
+                    else MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier
                     .padding(bottom = 8.dp)
                     .then(
@@ -1527,12 +2240,251 @@ private fun IdentitySection(
         }
     }
 
-    Spacer(Modifier.height(12.dp))
-    OutlinedButton(
-        onClick = onLogout,
-        modifier = Modifier.fillMaxWidth()
+    Spacer(Modifier.height(16.dp))
+    Text(
+        text = stringResource(R.string.settings_identity_profile_title),
+        style = MaterialTheme.typography.titleMedium,
+        modifier = Modifier.padding(bottom = 8.dp)
+    )
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 4.dp)
     ) {
-        Text("Logout")
+        Column(modifier = Modifier.padding(16.dp)) {
+            if (nostrReady) {
+                Text(
+                    text = stringResource(R.string.settings_identity_profile_helper_nostr),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 12.dp)
+                )
+                if (loadingProfile) {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp))
+                }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.padding(bottom = 12.dp)
+                ) {
+                    ProfilePicturePreview(
+                        url = meta.picture,
+                        modifier = Modifier.size(72.dp)
+                    )
+                    FilledTonalButton(
+                        onClick = {
+                            scope.launch {
+                                loadingProfile = true
+                                try {
+                                    relayPool!!.awaitAtLeastOneConnected(10_000)
+                                    val remote = Nip01Metadata.fetchLatestFromNetwork(
+                                        relayPool!!,
+                                        pubkey!!,
+                                        timeoutMs = 8000
+                                    )
+                                    if (remote != null && remote.hasPublicTextOrPicture()) {
+                                        metaOverride = remote
+                                        userPreferences.setLocalProfileDisplayName(remote.primaryLabel())
+                                        userPreferences.setLocalProfilePictureUrl(remote.picture)
+                                        userPreferences.setLocalProfileBio(remote.about)
+                                        onShowMessage(context.getString(R.string.settings_identity_fetch_loaded))
+                                    } else {
+                                        onShowMessage(context.getString(R.string.settings_identity_fetch_none))
+                                    }
+                                } catch (_: Exception) {
+                                    onShowMessage(context.getString(R.string.settings_identity_fetch_failed))
+                                } finally {
+                                    loadingProfile = false
+                                }
+                            }
+                        },
+                        enabled = !loadingProfile && !publishing
+                    ) {
+                        Text(stringResource(R.string.settings_identity_fetch_profile))
+                    }
+                }
+                OutlinedTextField(
+                    value = meta.primaryLabel(),
+                    onValueChange = { metaOverride = meta.withUnifiedDisplayName(it) },
+                    label = { Text(stringResource(R.string.settings_identity_display_name)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !loadingProfile && !publishing,
+                    singleLine = true
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = meta.picture,
+                    onValueChange = { metaOverride = meta.copy(picture = it) },
+                    label = { Text(stringResource(R.string.settings_identity_picture_url)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !loadingProfile && !publishing,
+                    singleLine = true
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = meta.about,
+                    onValueChange = { metaOverride = meta.copy(about = it) },
+                    label = { Text(stringResource(R.string.settings_identity_bio)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !loadingProfile && !publishing,
+                    minLines = 3
+                )
+                Spacer(Modifier.height(12.dp))
+                Button(
+                    onClick = {
+                        scope.launch {
+                            publishing = true
+                            try {
+                                val metaOk = Nip01Metadata.publish(
+                                    relayPool = relayPool!!,
+                                    signer = signer!!,
+                                    meta = meta,
+                                    relayUrls = keyManager.relayUrlsForKind0Publish()
+                                )
+                                val nip65Ok = if (metaOk) {
+                                    Nip65.publishRelayListIfAllowed(
+                                        userPreferences,
+                                        relayPool!!,
+                                        signer!!,
+                                        keyManager,
+                                    )
+                                } else {
+                                    false
+                                }
+                                if (metaOk) {
+                                    userPreferences.setLocalProfileDisplayName(meta.primaryLabel())
+                                    userPreferences.setLocalProfilePictureUrl(meta.picture.trim())
+                                    userPreferences.setLocalProfileBio(meta.about)
+                                    onShowMessage(
+                                        if (nip65Ok) {
+                                            context.getString(R.string.settings_identity_saved_nostr)
+                                        } else {
+                                            context.getString(R.string.settings_identity_saved_nostr_relay_list_failed)
+                                        }
+                                    )
+                                } else {
+                                    onShowMessage(context.getString(R.string.settings_identity_publish_failed))
+                                }
+                            } catch (_: Exception) {
+                                onShowMessage(context.getString(R.string.settings_identity_publish_failed))
+                            } finally {
+                                publishing = false
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !loadingProfile && !publishing
+                ) {
+                    Text(stringResource(R.string.settings_identity_save_nostr))
+                }
+            } else {
+                Text(
+                    text = stringResource(R.string.settings_identity_profile_helper_local),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 12.dp)
+                )
+                ProfilePicturePreview(
+                    url = localDraftPic,
+                    modifier = Modifier
+                        .size(72.dp)
+                        .padding(bottom = 12.dp)
+                )
+                OutlinedTextField(
+                    value = localDraftName,
+                    onValueChange = { localDraftName = it },
+                    label = { Text(stringResource(R.string.settings_identity_display_name)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = localDraftPic,
+                    onValueChange = { localDraftPic = it },
+                    label = { Text(stringResource(R.string.settings_identity_picture_url)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = localDraftBio,
+                    onValueChange = { localDraftBio = it },
+                    label = { Text(stringResource(R.string.settings_identity_bio)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 3
+                )
+                Spacer(Modifier.height(12.dp))
+                Button(
+                    onClick = {
+                        scope.launch {
+                            userPreferences.setLocalProfileDisplayName(localDraftName)
+                            userPreferences.setLocalProfilePictureUrl(localDraftPic)
+                            userPreferences.setLocalProfileBio(localDraftBio)
+                            onShowMessage(context.getString(R.string.settings_identity_saved_local))
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(stringResource(R.string.settings_identity_save_local))
+                }
+            }
+        }
+    }
+
+    if (keyManager.isLoggedIn) {
+        Spacer(Modifier.height(12.dp))
+        OutlinedButton(
+            onClick = onLogout,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Logout")
+        }
+    }
+}
+
+@Composable
+private fun ProfilePicturePreview(
+    url: String,
+    modifier: Modifier = Modifier
+) {
+    var bitmap by remember { mutableStateOf<ImageBitmap?>(null) }
+    LaunchedEffect(url) {
+        bitmap = null
+        val u = url.trim()
+        if (u.isEmpty()) return@LaunchedEffect
+        bitmap = withContext(Dispatchers.IO) {
+            try {
+                URL(u).openConnection().apply {
+                    connectTimeout = 12_000
+                    readTimeout = 12_000
+                }.getInputStream().use { stream ->
+                    BitmapFactory.decodeStream(stream)?.asImageBitmap()
+                }
+            } catch (_: Exception) {
+                null
+            }
+        }
+    }
+    Box(
+        modifier = modifier
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.surfaceVariant),
+        contentAlignment = Alignment.Center
+    ) {
+        if (bitmap != null) {
+            Image(
+                bitmap = bitmap!!,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+        } else {
+            Icon(
+                imageVector = Icons.Default.Person,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(36.dp)
+            )
+        }
     }
 }
 
@@ -1603,6 +2555,17 @@ private fun RelayRow(
                     modifier = Modifier.size(18.dp)
                 )
             }
+        }
+        when (connectionState) {
+            is ConnectionState.Error -> {
+                Text(
+                    text = connectionState.message,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(start = 18.dp, top = 2.dp)
+                )
+            }
+            else -> Unit
         }
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),

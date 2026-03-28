@@ -107,6 +107,44 @@ class WeightModelsSerializationTest {
     }
 
     @Test
+    fun weightImportOutboxEntries_omitHeartRateExerciseSegments_fromRelayPayload() {
+        val state = WeightLibraryState(
+            logs = listOf(
+                WeightDayLog(
+                    date = "2026-03-27",
+                    workouts = listOf(
+                        WeightWorkoutSession(
+                            id = "w1",
+                            source = WeightWorkoutSource.LIVE,
+                            entries = listOf(
+                                WeightWorkoutEntry(
+                                    exerciseId = "bench",
+                                    sets = listOf(WeightSet(reps = 5, weightKg = 100.0))
+                                )
+                            ),
+                            heartRateExerciseSegments = listOf(
+                                WeightExerciseHrSegment(
+                                    exerciseId = "bench",
+                                    startEpochSeconds = 100L,
+                                    endEpochSeconds = 130L,
+                                    sampleCount = 5,
+                                    avgBpm = 140,
+                                )
+                            )
+                        )
+                    )
+                )
+            )
+        )
+
+        val entries = WeightSync.weightImportOutboxEntries(state, listOf("2026-03-27"))
+        val dayPayload = entries.first { it.first == "erv/weight/2026-03-27" }.second
+
+        assertFalse(dayPayload.contains("heartRateExerciseSegments"))
+        assertTrue(dayPayload.contains("\"exerciseId\":\"bench\""))
+    }
+
+    @Test
     fun weightDayLog_unknownKeys_ignored() {
         val raw = """{"date":"2026-01-01","workouts":[],"futureField":true}"""
         val parsed = json.decodeFromString(WeightDayLog.serializer(), raw)

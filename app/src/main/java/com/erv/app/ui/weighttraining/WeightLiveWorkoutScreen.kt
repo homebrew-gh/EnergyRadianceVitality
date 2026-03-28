@@ -28,19 +28,25 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.erv.app.R
 import com.erv.app.data.BodyWeightUnit
+import com.erv.app.data.UserPreferences
+import com.erv.app.data.WeightLiveRestTimerMode
 import com.erv.app.ui.media.WorkoutMediaControlSheet
+import com.erv.app.ui.media.playHiitWorkCountdownTickCue
+import com.erv.app.ui.media.playHiitWorkSegmentEndCue
 import com.erv.app.ui.theme.ErvDarkTherapyRedDark
 import com.erv.app.ui.theme.ErvDarkTherapyRedMid
 import com.erv.app.ui.theme.ErvLightTherapyRedDark
@@ -53,6 +59,7 @@ import com.erv.app.weighttraining.displayLabel
 import com.erv.app.weighttraining.WeightWorkoutDraft
 import com.erv.app.weighttraining.weightNowEpochSeconds
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -60,6 +67,7 @@ fun WeightLiveWorkoutScreen(
     draft: WeightWorkoutDraft,
     library: WeightLibraryState,
     loadUnit: BodyWeightUnit,
+    userPreferences: UserPreferences,
     /** When the user expands an exercise, logs sets, or starts HIIT — for HR correlation. */
     onRecordExerciseActivity: (String) -> Unit = {},
     /** Back arrow: leave this screen; workout keeps running (notification). Parent may clear an empty draft. */
@@ -77,13 +85,6 @@ fun WeightLiveWorkoutScreen(
     modifier: Modifier = Modifier
 ) {
     var tick by remember { mutableIntStateOf(0) }
-    LaunchedEffect(draft.startedAtEpochSeconds) {
-        tick = 0
-        while (true) {
-            tick++
-            delay(1_000L)
-        }
-    }
     var showPickExercise by remember { mutableStateOf(false) }
     var showDiscardConfirm by remember { mutableStateOf(false) }
     var showFinishBlocked by remember { mutableStateOf(false) }
@@ -94,6 +95,78 @@ fun WeightLiveWorkoutScreen(
     var recentWorkoutsExerciseId by remember { mutableStateOf<String?>(null) }
     var showMediaSheet by remember { mutableStateOf(false) }
     var hiitTimerTarget by remember { mutableStateOf<Pair<String, WeightHiitIntervalPlan>?>(null) }
+    var restEndAtEpochSeconds by remember(draft.startedAtEpochSeconds) { mutableStateOf<Long?>(null) }
+    var restManualPending by remember(draft.startedAtEpochSeconds) { mutableStateOf(false) }
+    var showRestTimerSettings by remember { mutableStateOf(false) }
+
+    val restTimerMode by userPreferences.weightLiveRestTimerMode.collectAsState(
+        initial = WeightLiveRestTimerMode.OFF
+    )
+    val restTimerDurationSec by userPreferences.weightLiveRestTimerSeconds.collectAsState(initial = 90)
+    val restTimerCountdownSoundEnabled by userPreferences.weightLiveRestTimerCountdownSoundEnabled.collectAsState(initial = true)
+    val restTimerEndSoundEnabled by userPreferences.weightLiveRestTimerEndSoundEnabled.collectAsState(initial = true)
+    val scope = rememberCoroutineScope()
+    val latestCountdownSoundEnabled by rememberUpdatedState(restTimerCountdownSoundEnabled)
+    val latestEndSoundEnabled by rememberUpdatedState(restTimerEndSoundEnabled)
+    var previousRestRemainingSec by remember(draft.startedAtEpochSeconds) { mutableStateOf<Int?>(null) }
+
+    LaunchedEffect(draft.startedAtEpochSeconds) {
+        tick = 0
+        while (true) {
+            tick++
+            delay(1_000L)
+        }
+    }
+
+    LaunchedEffect(restEndAtEpochSeconds, tick) {
+        val end = restEndAtEpochSeconds ?: return@LaunchedEffect
+        if (weightNowEpochSeconds() >= end) {
+            if (latestEndSoundEnabled) {
+                playHiitWorkSegmentEndCue()
+            }
+            restEndAtEpochSeconds = null
+        }
+    }
+
+    fun clearRestTimerUi() {
+        restEndAtEpochSeconds = null
+        restManualPending = false
+    }
+
+    val restRemainingSec = remember(tick, restEndAtEpochSeconds) {
+        val end = restEndAtEpochSeconds ?: return@remember null
+        val left = (end - weightNowEpochSeconds()).toInt().coerceAtLeast(0)
+        if (left <= 0) null else left
+    }
+
+    LaunchedEffect(restRemainingSec) {
+        val current = restRemainingSec
+        val previous = previousRestRemainingSec
+        if (
+            latestCountdownSoundEnabled &&
+            current != null &&
+            current in 1..5 &&
+            current != previous
+        ) {
+            playHiitWorkCountdownTickCue()
+        }
+        previousRestRemainingSec = current
+    }
+
+    fun onAddSetPressedForRest() {
+        clearRestTimerUi()
+        if (hiitTimerTarget != null) return
+        val mode = restTimerMode
+        val duration = restTimerDurationSec
+        if (mode == WeightLiveRestTimerMode.OFF || duration <= 0) return
+        when (mode) {
+            WeightLiveRestTimerMode.OFF -> Unit
+            WeightLiveRestTimerMode.AUTO ->
+                restEndAtEpochSeconds = weightNowEpochSeconds() + duration
+            WeightLiveRestTimerMode.MANUAL ->
+                restManualPending = true
+        }
+    }
 
     val darkTheme = isSystemInDarkTheme()
     val headerMid = if (darkTheme) ErvDarkTherapyRedMid else ErvLightTherapyRedMid
@@ -157,6 +230,24 @@ fun WeightLiveWorkoutScreen(
         )
     }
 
+    if (showRestTimerSettings) {
+        WeightLiveRestTimerSettingsDialog(
+            initialMode = restTimerMode,
+            initialSeconds = restTimerDurationSec,
+            initialCountdownSoundEnabled = restTimerCountdownSoundEnabled,
+            initialEndSoundEnabled = restTimerEndSoundEnabled,
+            onDismiss = { showRestTimerSettings = false },
+            onSave = { mode, seconds, countdownEnabled, endEnabled ->
+                scope.launch {
+                    userPreferences.setWeightLiveRestTimerMode(mode)
+                    userPreferences.setWeightLiveRestTimerSeconds(seconds)
+                    userPreferences.setWeightLiveRestTimerCountdownSoundEnabled(countdownEnabled)
+                    userPreferences.setWeightLiveRestTimerEndSoundEnabled(endEnabled)
+                }
+            }
+        )
+    }
+
     if (showFinishBlocked) {
         AlertDialog(
             onDismissRequest = { showFinishBlocked = false },
@@ -174,7 +265,7 @@ fun WeightLiveWorkoutScreen(
     )
 
     Surface(modifier = modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-        Scaffold(
+            Scaffold(
             topBar = {
                 TopAppBar(
                     title = { Text(stringResource(R.string.weight_live_screen_title)) },
@@ -226,7 +317,7 @@ fun WeightLiveWorkoutScreen(
                 )
             },
             containerColor = headerDark.copy(alpha = 0.08f)
-        ) { padding ->
+            ) { padding ->
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -236,13 +327,18 @@ fun WeightLiveWorkoutScreen(
                 val elapsedSec = remember(tick, draft.startedAtEpochSeconds) {
                     (weightNowEpochSeconds() - draft.startedAtEpochSeconds).coerceAtLeast(0)
                 }
-                Text(
-                    text = formatElapsed(elapsedSec),
-                    style = MaterialTheme.typography.displaySmall,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 16.dp),
-                    textAlign = TextAlign.Center
+                WeightLiveRestTimerHeaderRow(
+                    restMode = restTimerMode,
+                    workoutElapsedText = formatElapsed(elapsedSec),
+                    restSecondsRemaining = restRemainingSec,
+                    restManualPending = restManualPending && restEndAtEpochSeconds == null,
+                    onStartManualRest = {
+                        restManualPending = false
+                        restEndAtEpochSeconds = weightNowEpochSeconds() + restTimerDurationSec
+                    },
+                    onSkipRest = { clearRestTimerUi() },
+                    onRestZoneLongPress = { showRestTimerSettings = true },
+                    modifier = Modifier.padding(vertical = 16.dp)
                 )
                 if (draft.routineName != null) {
                     Text(
@@ -303,6 +399,7 @@ fun WeightLiveWorkoutScreen(
                                 onExpandSets = {
                                     onRecordExerciseActivity(exerciseId)
                                     setsCollapsedIds = setsCollapsedIds - exerciseId
+                                    clearRestTimerUi()
                                 },
                                 onRecentWorkouts = { recentWorkoutsExerciseId = exerciseId },
                                 hiitCapable = ex?.hiitCapable == true,
@@ -310,14 +407,16 @@ fun WeightLiveWorkoutScreen(
                                 onClearHiitBlock = { onClearHiitBlock(exerciseId) },
                                 onStartHiitTimer = { plan ->
                                     onRecordExerciseActivity(exerciseId)
+                                    clearRestTimerUi()
                                     hiitTimerTarget = exerciseId to plan
-                                }
+                                },
+                                onAfterAddSet = { onAddSetPressedForRest() }
                             )
                         }
                     }
                 }
             }
-        }
+            }
     }
 }
 

@@ -263,7 +263,7 @@ class RelayPublishOutbox private constructor(private val appContext: Context) {
                         }
                     }
                     if (ok) {
-                        RelayOutboxStatusStore.get(appContext).recordSuccess()
+                        RelayOutboxStatusStore.get(appContext).recordSuccess(item.dTag)
                         RelayPayloadDigestStore.get(appContext)
                             .recordPublishedPlaintext(item.dTag, item.plaintextPayload)
                     } else {

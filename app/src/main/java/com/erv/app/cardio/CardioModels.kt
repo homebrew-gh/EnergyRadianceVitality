@@ -1,6 +1,7 @@
 package com.erv.app.cardio
 
 import com.erv.app.SectionLogDateFilter
+import com.erv.app.unifiedroutines.UnifiedSessionLink
 import kotlinx.serialization.Serializable
 import java.time.LocalDate
 import java.util.UUID
@@ -246,6 +247,14 @@ fun CardioActivitySnapshot.supportsPhoneGpsTracking(): Boolean {
     }
 }
 
+fun CardioActivitySnapshot.isCyclingActivity(): Boolean =
+    when (builtin) {
+        CardioBuiltinActivity.BIKE,
+        CardioBuiltinActivity.STATIONARY_BIKE,
+        CardioBuiltinActivity.AIR_BIKE -> true
+        else -> false
+    }
+
 @Serializable
 data class CardioGpsPoint(
     val lat: Double,
@@ -318,7 +327,8 @@ data class CardioSession(
      * Null if unknown; [resolvedElevationMeters] can recompute from [gpsTrack] for older sessions.
      */
     val elevationGainMeters: Double? = null,
-    val elevationLossMeters: Double? = null
+    val elevationLossMeters: Double? = null,
+    val unifiedLink: UnifiedSessionLink? = null
 )
 
 /** Prefer stored values; otherwise derive from [CardioSession.gpsTrack] points. */
@@ -618,10 +628,14 @@ data class CardioTimerSessionDraft(
         durationMinutes: Int,
         endEpoch: Long,
         elapsedSecondsForDistance: Int? = null,
-        gpsPoints: List<CardioGpsPoint> = emptyList()
+        gpsPoints: List<CardioGpsPoint> = emptyList(),
+        preferredDistanceMeters: Double? = null
     ): CardioSession {
         val elapsed = elapsedSecondsForDistance ?: (durationMinutes * 60)
-        var dist = treadmill?.distanceMeters
+        var dist = preferredDistanceMeters
+        if (dist == null) {
+            dist = treadmill?.distanceMeters
+        }
         if (dist == null && treadmill != null) {
             dist = derivedTreadmillDistanceMeters(treadmill, max(1, (elapsed + 59) / 60))
         }
@@ -890,8 +904,12 @@ fun outdoorDistanceMetersAtElapsed(speed: Double, unit: CardioSpeedUnit, elapsed
     return kmh * hours * 1000.0
 }
 
-fun CardioTimerSessionDraft.liveDistanceMeters(elapsedSeconds: Int): Double? {
+fun CardioTimerSessionDraft.liveDistanceMeters(
+    elapsedSeconds: Int,
+    preferredDistanceMeters: Double? = null
+): Double? {
     if (elapsedSeconds <= 0) return null
+    preferredDistanceMeters?.let { return it.takeIf { meters -> meters >= 0.0 } }
     if (modality == CardioModality.INDOOR_TREADMILL && treadmill != null) {
         return treadmillLiveDistanceMeters(treadmill, elapsedSeconds)
     }

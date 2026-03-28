@@ -3,6 +3,7 @@ package com.erv.app.ui.weighttraining
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -13,6 +14,7 @@ import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -31,6 +33,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.erv.app.data.BodyWeightUnit
 import com.erv.app.data.UserPreferences
@@ -39,11 +42,16 @@ import com.erv.app.nostr.LibraryStateMerge
 import com.erv.app.nostr.LocalKeyManager
 import com.erv.app.nostr.RelayPayloadDigestStore
 import com.erv.app.nostr.RelayPool
+import com.erv.app.R
 import com.erv.app.SectionLogDateFilter
 import com.erv.app.ui.dashboard.SectionLogCalendarSheet
 import com.erv.app.ui.dashboard.SectionLogFilterBar
 import com.erv.app.ui.dashboard.datesWithWeightActivity
+import com.erv.app.ui.theme.ErvDarkTherapyRedDark
+import com.erv.app.ui.theme.ErvDarkTherapyRedGlow
 import com.erv.app.ui.theme.ErvDarkTherapyRedMid
+import com.erv.app.ui.theme.ErvLightTherapyRedDark
+import com.erv.app.ui.theme.ErvLightTherapyRedGlow
 import com.erv.app.ui.theme.ErvLightTherapyRedMid
 import com.erv.app.weighttraining.WeightLibraryState
 import com.erv.app.weighttraining.WeightRepository
@@ -87,10 +95,14 @@ fun WeightTrainingLogScreen(
         mutableStateOf(openCalendarInitially)
     }
     var manualLogEditor by remember { mutableStateOf<WeightLogEditorState>(WeightLogEditorState.Hidden) }
+    var selectedWorkoutForSummary by remember { mutableStateOf<Pair<LocalDate, WeightWorkoutSession>?>(null) }
     var workoutPendingDelete by remember { mutableStateOf<Pair<LocalDate, WeightWorkoutSession>?>(null) }
+    var nostrWeightShare by remember { mutableStateOf<Pair<LocalDate, WeightWorkoutSession>?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val darkTheme = isSystemInDarkTheme()
+    val headerDark = if (darkTheme) ErvDarkTherapyRedDark else ErvLightTherapyRedDark
+    val headerGlow = if (darkTheme) ErvDarkTherapyRedGlow else ErvLightTherapyRedGlow
     val headerMid = if (darkTheme) ErvDarkTherapyRedMid else ErvLightTherapyRedMid
     val keyManager = LocalKeyManager.current
     val appContext = LocalContext.current.applicationContext
@@ -101,18 +113,12 @@ fun WeightTrainingLogScreen(
         WeightSync.publishDayLog(appContext, relayPool, signer, log, keyManager.relayUrlsForKind30078Publish())
     }
 
-    LaunchedEffect(relayPool, signer?.publicKey) {
-        if (relayPool != null && signer != null) {
-            WeightSync.fetchFromNetwork(relayPool, signer, signer.publicKey)?.let { remote ->
-                val merged = LibraryStateMerge.mergeWeight(repository.currentState(), remote)
-                repository.replaceAll(merged)
-                RelayPayloadDigestStore.reconcileIdenticalRemoteMerged(
-                    appContext,
-                    WeightSync.fullOutboxEntries(remote),
-                    WeightSync.fullOutboxEntries(merged),
-                )
-            }
-        }
+    suspend fun pushMasters() {
+        if (relayPool == null || signer == null) return
+        val urls = keyManager.relayUrlsForKind30078Publish()
+        val current = repository.currentState()
+        WeightSync.publishExercises(appContext, relayPool, signer, current.exercises, urls)
+        WeightSync.publishRoutines(appContext, relayPool, signer, current.routines, urls)
     }
 
     when (val logEditor = manualLogEditor) {
@@ -156,6 +162,33 @@ fun WeightTrainingLogScreen(
             )
             return
         }
+    }
+
+    selectedWorkoutForSummary?.let { (summaryDate, summarySession) ->
+        WeightWorkoutSummaryFullScreen(
+            session = summarySession,
+            logDate = summaryDate,
+            library = state,
+            loadUnit = loadUnit,
+            userPreferences = userPreferences,
+            dark = headerDark,
+            mid = headerMid,
+            glow = headerGlow,
+            relayPool = relayPool,
+            signer = signer,
+            repository = repository,
+            onAfterRoutineSync = { scope.launch { pushMasters() } },
+            onRemoveFromLog = {
+                scope.launch {
+                    repository.deleteWorkout(summaryDate, summarySession.id)
+                    pushDayLog(summaryDate)
+                    selectedWorkoutForSummary = null
+                    snackbarHostState.showSnackbar("Workout removed")
+                }
+            },
+            onDone = { selectedWorkoutForSummary = null }
+        )
+        return
     }
 
     Scaffold(
@@ -209,23 +242,14 @@ fun WeightTrainingLogScreen(
                 },
                 library = state,
                 loadUnit = loadUnit,
+                onOpen = { logDate, w -> selectedWorkoutForSummary = logDate to w },
                 onEdit = { logDate, w -> manualLogEditor = WeightLogEditorState.Editing(logDate, w) },
                 onDelete = { logDate, w -> workoutPendingDelete = logDate to w },
                 onShare = { logDate, session ->
-                    scope.launch {
-                        if (relayPool != null && signer != null) {
-                            val ok = publishWeightWorkoutNote(
-                                relayPool,
-                                signer,
-                                session,
-                                state,
-                                logDate,
-                                loadUnit
-                            )
-                            snackbarHostState.showSnackbar(
-                                if (ok) "Shared to your relays!" else "Failed to share — check relay connection"
-                            )
-                        } else {
+                    if (relayPool != null && signer != null) {
+                        nostrWeightShare = logDate to session
+                    } else {
+                        scope.launch {
                             snackbarHostState.showSnackbar("Connect relays and sign in to share.")
                         }
                     }
@@ -235,6 +259,60 @@ fun WeightTrainingLogScreen(
                     .padding(horizontal = 16.dp)
             )
         }
+    }
+
+    nostrWeightShare?.let { (shareDate, shareSession) ->
+        var extraHashtags by remember(shareDate, shareSession.id) { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { nostrWeightShare = null },
+            title = { Text(stringResource(R.string.workout_share_dialog_title)) },
+            text = {
+                OutlinedTextField(
+                    value = extraHashtags,
+                    onValueChange = { extraHashtags = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text(stringResource(R.string.workout_share_extra_hashtags_label)) },
+                    placeholder = { Text(stringResource(R.string.workout_share_extra_hashtags_placeholder)) },
+                    supportingText = {
+                        Text(
+                            stringResource(R.string.workout_share_extra_hashtags_helper),
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    },
+                    minLines = 2,
+                    maxLines = 4
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val d = shareDate
+                        val s = shareSession
+                        val input = extraHashtags
+                        nostrWeightShare = null
+                        scope.launch {
+                            if (relayPool != null && signer != null) {
+                                val ok = publishWeightWorkoutNote(
+                                    relayPool,
+                                    signer,
+                                    s,
+                                    state,
+                                    d,
+                                    loadUnit,
+                                    input
+                                )
+                                snackbarHostState.showSnackbar(
+                                    if (ok) "Shared to your relays!" else "Failed to share — check relay connection"
+                                )
+                            }
+                        }
+                    }
+                ) { Text("Share") }
+            },
+            dismissButton = {
+                TextButton(onClick = { nostrWeightShare = null }) { Text("Cancel") }
+            }
+        )
     }
 
     workoutPendingDelete?.let { (deleteDate, w) ->

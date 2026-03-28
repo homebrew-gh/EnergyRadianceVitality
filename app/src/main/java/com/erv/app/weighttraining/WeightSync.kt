@@ -33,6 +33,13 @@ object WeightSync {
         prettyPrint = false
     }
 
+    private fun relaySafeDayLog(log: WeightDayLog): WeightDayLog =
+        log.copy(
+            workouts = log.workouts.map { workout ->
+                workout.copy(heartRateExerciseSegments = emptyList())
+            }
+        )
+
     suspend fun publishExercises(
         appContext: Context,
         relayPool: RelayPool,
@@ -66,7 +73,7 @@ object WeightSync {
         log: WeightDayLog,
         dataRelayUrls: List<String>,
     ): Boolean {
-        val content = json.encodeToString(WeightDayLog.serializer(), log)
+        val content = json.encodeToString(WeightDayLog.serializer(), relaySafeDayLog(log))
         return publishEvent(appContext, relayPool, signer, dailyTag(log.date), content, dataRelayUrls)
     }
 
@@ -87,7 +94,7 @@ object WeightSync {
             val log = state.logFor(LocalDate.parse(dateIso)) ?: continue
             pairs += dailyTag(dateIso) to json.encodeToString(
                 WeightDayLog.serializer(),
-                log
+                relaySafeDayLog(log)
             )
         }
         return pairs

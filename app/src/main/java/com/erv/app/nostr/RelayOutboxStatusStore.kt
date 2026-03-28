@@ -44,24 +44,33 @@ class RelayOutboxStatusStore private constructor(private val appContext: Context
             decodeStatus(prefs[Keys.STATUS_JSON])
         }
 
-    suspend fun recordSuccess() {
+    suspend fun recordSuccess(dTag: String) {
         updateStatus { current ->
             current.copy(
                 lastSuccessAtEpochMs = System.currentTimeMillis(),
                 consecutiveFailureCount = 0,
                 lastFailureMessage = "",
-                lastFailureDTag = ""
+                lastFailureDTag = "",
+                failuresByDTag = current.failuresByDTag - dTag,
             )
         }
     }
 
     suspend fun recordFailure(dTag: String, message: String) {
         updateStatus { current ->
+            val prior = current.failuresByDTag[dTag]
             current.copy(
                 lastFailureAtEpochMs = System.currentTimeMillis(),
                 lastFailureMessage = message,
                 lastFailureDTag = dTag,
-                consecutiveFailureCount = current.consecutiveFailureCount + 1
+                consecutiveFailureCount = current.consecutiveFailureCount + 1,
+                failuresByDTag = current.failuresByDTag + (
+                    dTag to RelayOutboxItemFailure(
+                        message = message,
+                        lastFailureAtEpochMs = System.currentTimeMillis(),
+                        failureCount = (prior?.failureCount ?: 0) + 1,
+                    )
+                ),
             )
         }
     }
@@ -95,4 +104,12 @@ data class RelayOutboxStatus(
     val lastFailureDTag: String = "",
     val lastSuccessAtEpochMs: Long = 0L,
     val consecutiveFailureCount: Int = 0,
+    val failuresByDTag: Map<String, RelayOutboxItemFailure> = emptyMap(),
+)
+
+@Serializable
+data class RelayOutboxItemFailure(
+    val message: String = "",
+    val lastFailureAtEpochMs: Long = 0L,
+    val failureCount: Int = 0,
 )

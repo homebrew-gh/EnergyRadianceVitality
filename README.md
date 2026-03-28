@@ -41,6 +41,8 @@ A [GitHub Actions](.github/workflows/android-build.yml) workflow runs on every p
 ## Documentation
 
 - [Plan of action](docs/PLAN_OF_ACTION.md) — Data model, Nostr event design, and implementation roadmap. **Phase 1 (scaffold and docs)** is complete: Kotlin + Compose + Gradle, README/CONTRIBUTING/CODE_OF_CONDUCT/SECURITY/LICENSE, GitHub Action (build + unit tests), and `UserFeedback` toast helper for publish/sync.
+- [Privacy policy](docs/PRIVACY_POLICY.md) — What ERV can guarantee, what depends on the user device, and what third-party relays or tools may still observe or retain.
+- [Zapstore release checklist](docs/ZAPSTORE_RELEASE_CHECKLIST.md) — Prioritized trust, privacy, deletion, and release-readiness work for the open-source app store launch.
 - [Protocol graph (WOT + sharing)](docs/PROTOCOL_GRAPH.md) — Trust-filtered routine discovery, forking, and why a full website may complement the app.
 - [Companion web: community benefits & pitfalls](docs/COMPANION_WEB_COMMUNITY_PITFALLS_BENEFITS.md) — Tradeoffs for fitness promotion and community if a companion site imports routines into user profiles.
 

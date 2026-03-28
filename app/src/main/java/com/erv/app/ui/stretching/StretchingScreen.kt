@@ -116,8 +116,13 @@ import com.erv.app.stretching.StretchDayLog
 import com.erv.app.stretching.StretchLibraryState
 import com.erv.app.stretching.StretchRoutine
 import com.erv.app.stretching.StretchSession
+import com.erv.app.programs.decodeStretchLaunch
 import com.erv.app.stretching.StretchingRepository
 import com.erv.app.stretching.StretchingSync
+import com.erv.app.unifiedroutines.UnifiedRoutineBlockType
+import com.erv.app.unifiedroutines.UnifiedRoutineLibraryState
+import com.erv.app.unifiedroutines.UnifiedRoutineRepository
+import com.erv.app.unifiedroutines.linkFor
 import com.erv.app.nostr.LibraryStateMerge
 import com.erv.app.nostr.RelayPayloadDigestStore
 import com.erv.app.stretching.applyStretchGuidedTtsVoice
@@ -179,7 +184,11 @@ private fun Context.findActivity(): Activity? {
     return null
 }
 
-private const val TRANSITION_SECONDS = 5
+/** Between different stretches (or same stretch again later in the routine). */
+private const val TRANSITION_SECONDS_NEW_STRETCH = 10
+
+/** Same catalog stretch: right side → left side only. */
+private const val TRANSITION_SECONDS_BILATERAL_SIDE = 5
 
 /** Prep time before the first hold (longer than between-stretch transitions so there is time to get into position). */
 private const val FIRST_STRETCH_PREP_SECONDS = 10
@@ -269,6 +278,14 @@ private fun requestTtsAudioFocusForPlayback(context: Context): AudioManager.OnAu
     return listener
 }
 
+private fun transitionSecondsBetweenSteps(prev: GuidedStretchStep, next: GuidedStretchStep): Int {
+    val bilateralSideChange =
+        prev.side == StretchSide.RIGHT &&
+            next.side == StretchSide.LEFT &&
+            prev.entry.id == next.entry.id
+    return if (bilateralSideChange) TRANSITION_SECONDS_BILATERAL_SIDE else TRANSITION_SECONDS_NEW_STRETCH
+}
+
 private fun speakNextGuidedStep(
     context: Context,
     tts: TextToSpeech?,
@@ -305,6 +322,9 @@ private fun buildFirstStretchIntroSpeech(entry: StretchCatalogEntry): String {
 
 private const val FIRST_INTRO_UTTERANCE_ID = "stretchFirst"
 private const val FIRST_INTRO_SPEAK_WAIT_MS = 120_000L
+
+private const val COMPLETE_UTTERANCE_ID = "stretchComplete"
+private const val COMPLETE_SPEAK_WAIT_MS = 60_000L
 
 /**
  * Plays the first-stretch intro and suspends until the engine reports the utterance finished
@@ -360,6 +380,53 @@ private suspend fun awaitFirstStretchIntroUtterance(
     }
 }
 
+private suspend fun awaitStretchingCompleteUtterance(
+    context: Context,
+    tts: TextToSpeech,
+    engineReady: Boolean
+) {
+    if (!engineReady) return
+    withTimeoutOrNull(COMPLETE_SPEAK_WAIT_MS) {
+        suspendCancellableCoroutine { cont ->
+            val finished = AtomicBoolean(false)
+            fun finishOnce() {
+                if (finished.compareAndSet(false, true)) {
+                    try {
+                        tts.setOnUtteranceProgressListener(null)
+                    } catch (_: Exception) {
+                    }
+                    cont.resume(Unit)
+                }
+            }
+            val listener = object : UtteranceProgressListener() {
+                override fun onStart(utteranceId: String?) {}
+                override fun onDone(utteranceId: String?) {
+                    if (utteranceId == COMPLETE_UTTERANCE_ID) finishOnce()
+                }
+                @Deprecated("Deprecated in Android UtteranceProgressListener; kept for older API levels.")
+                override fun onError(utteranceId: String?) {
+                    if (utteranceId == COMPLETE_UTTERANCE_ID) finishOnce()
+                }
+                override fun onError(utteranceId: String?, errorCode: Int) {
+                    if (utteranceId == COMPLETE_UTTERANCE_ID) finishOnce()
+                }
+            }
+            tts.setOnUtteranceProgressListener(listener)
+            requestTtsAudioFocusForPlayback(context)
+            val code = runStretchTtsSpeak(tts, "Stretching complete.", COMPLETE_UTTERANCE_ID, engineReady)
+            if (code == TextToSpeech.ERROR) {
+                finishOnce()
+            }
+            cont.invokeOnCancellation {
+                try {
+                    tts.setOnUtteranceProgressListener(null)
+                } catch (_: Exception) {
+                }
+            }
+        }
+    }
+}
+
 /**
  * Language, voice, rate, and [AudioAttributes] for speech playback (required for correct routing on many devices).
  * Call only after [TextToSpeech] init reports [TextToSpeech.SUCCESS].
@@ -379,10 +446,12 @@ private fun applyStretchingTtsLayerConfig(
     )
 }
 
-private fun guidedSessionTotalMinutes(nStretches: Int, holdSeconds: Int): Int {
-    if (nStretches <= 0) return 0
-    val holdTotal = nStretches * holdSeconds
-    val transitions = max(0, nStretches - 1) * TRANSITION_SECONDS
+private fun guidedSessionTotalMinutes(sessionSteps: List<GuidedStretchStep>, holdSeconds: Int): Int {
+    if (sessionSteps.isEmpty()) return 0
+    val holdTotal = sessionSteps.size * holdSeconds
+    val transitions = sessionSteps
+        .zipWithNext()
+        .sumOf { (a, b) -> transitionSecondsBetweenSteps(a, b) }
     val firstPrep = FIRST_STRETCH_PREP_SECONDS
     return max(1, (holdTotal + transitions + firstPrep + 59) / 60)
 }
@@ -405,6 +474,7 @@ private fun resolveStretchEntries(
 @Composable
 fun StretchingCategoryScreen(
     repository: StretchingRepository,
+    unifiedRoutineRepository: UnifiedRoutineRepository,
     userPreferences: UserPreferences,
     relayPool: RelayPool?,
     signer: EventSigner?,
@@ -415,6 +485,7 @@ fun StretchingCategoryScreen(
         initial = StretchGuidedTtsVoice.SYSTEM_DEFAULT
     )
     val state by repository.state.collectAsState(initial = StretchLibraryState())
+    val unifiedState by unifiedRoutineRepository.state.collectAsState(initial = UnifiedRoutineLibraryState())
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     var activeTab by rememberSaveable { mutableIntStateOf(0) }
@@ -423,6 +494,29 @@ fun StretchingCategoryScreen(
     var creatingRoutine by remember { mutableStateOf(false) }
     val keyManager = LocalKeyManager.current
     val appContext = LocalContext.current.applicationContext
+
+    LaunchedEffect(Unit) {
+        val raw = userPreferences.consumeProgramDashboardStretchLaunchJson() ?: return@LaunchedEffect
+        val payload = decodeStretchLaunch(raw) ?: return@LaunchedEffect
+        if (!payload.routineId.isNullOrBlank()) {
+            for (attempt in 0..30) {
+                val r = repository.currentState().routines.firstOrNull { it.id == payload.routineId }
+                if (r != null) {
+                    guidedRoutine = r
+                    return@LaunchedEffect
+                }
+                delay(80)
+            }
+            snackbarHostState.showSnackbar("Stretch routine not found — open Programs to fix this block.")
+        } else if (payload.stretchIds.isNotEmpty()) {
+            guidedRoutine = StretchRoutine(
+                id = java.util.UUID.randomUUID().toString(),
+                name = payload.title?.trim()?.takeIf { it.isNotEmpty() } ?: "Program stretch",
+                stretchIds = payload.stretchIds,
+                holdSecondsPerStretch = payload.holdSecondsPerStretch.coerceIn(5, 300)
+            )
+        }
+    }
 
     suspend fun syncRoutines() {
         if (relayPool != null && signer != null) {
@@ -445,20 +539,6 @@ fun StretchingCategoryScreen(
                 log,
                 keyManager.relayUrlsForKind30078Publish(),
             )
-        }
-    }
-
-    LaunchedEffect(relayPool, signer?.publicKey) {
-        if (relayPool != null && signer != null) {
-            StretchingSync.fetchFromNetwork(relayPool, signer, signer.publicKey)?.let { remote ->
-                val merged = LibraryStateMerge.mergeStretch(repository.currentState(), remote)
-                repository.replaceAll(merged)
-                RelayPayloadDigestStore.reconcileIdenticalRemoteMerged(
-                    appContext,
-                    StretchingSync.fullOutboxEntries(remote),
-                    StretchingSync.fullOutboxEntries(merged),
-                )
-            }
         }
     }
 
@@ -490,15 +570,45 @@ fun StretchingCategoryScreen(
             onFinished = { totalMinutes ->
                 scope.launch {
                     val today = LocalDate.now()
+                    val activeUnifiedSession = unifiedState.activeSession
+                    val activeUnifiedBlockId = activeUnifiedSession?.lastLaunchedBlockId?.takeIf { blockId ->
+                        unifiedState
+                            .routineById(activeUnifiedSession.routineId)
+                            ?.blocks
+                            ?.firstOrNull { it.id == blockId }
+                            ?.type == UnifiedRoutineBlockType.STRETCH
+                    }
+                    val unifiedLink = if (activeUnifiedSession != null && activeUnifiedBlockId != null) {
+                        unifiedState.sessionById(activeUnifiedSession.sessionId)?.linkFor(activeUnifiedBlockId)
+                    } else {
+                        null
+                    }
                     repository.logSession(
                         date = today,
                         routineId = routine.id,
                         routineName = routine.name,
                         stretchIds = routine.stretchIds,
-                        totalMinutes = totalMinutes
+                        totalMinutes = totalMinutes,
+                        unifiedLink = unifiedLink
                     )
-                    repository.currentState().logFor(today)?.let { syncDailyLog(it) }
-                    snackbarHostState.showSnackbar("Logged stretching session")
+                    val log = repository.currentState().logFor(today)
+                    if (activeUnifiedSession != null && activeUnifiedBlockId != null) {
+                        val savedId = log?.sessions?.lastOrNull()?.id
+                        if (!savedId.isNullOrBlank()) {
+                            unifiedRoutineRepository.attachLoggedBlock(
+                                routineId = activeUnifiedSession.routineId,
+                                blockId = activeUnifiedBlockId,
+                                logDate = today.toString(),
+                                entryId = savedId
+                            )
+                        }
+                    }
+                    log?.let { syncDailyLog(it) }
+                    if (activeUnifiedSession != null && activeUnifiedBlockId != null) {
+                        onBack()
+                    } else {
+                        snackbarHostState.showSnackbar("Logged stretching session")
+                    }
                 }
                 guidedRoutine = null
             },
@@ -909,7 +1019,7 @@ private fun StretchGuidedSessionOverlay(
         if (!ttsInitSettled) return@LaunchedEffect
         val sessionSteps = stretchEntries.toGuidedSessionSteps()
         if (stretchEntries.isEmpty() || sessionSteps.isEmpty()) {
-            onFinished(guidedSessionTotalMinutes(sessionSteps.size, holdSeconds))
+            onFinished(guidedSessionTotalMinutes(sessionSteps, holdSeconds))
             return@LaunchedEffect
         }
         if (ttsEngineOkState.value) {
@@ -951,7 +1061,7 @@ private fun StretchGuidedSessionOverlay(
             playStretchEndTone()
             if (i == sessionSteps.lastIndex) break
             phaseHold = false
-            secondsLeft = TRANSITION_SECONDS
+            secondsLeft = transitionSecondsBetweenSteps(sessionSteps[i], sessionSteps[i + 1])
             speakNextGuidedStep(
                 context,
                 tts,
@@ -966,7 +1076,10 @@ private fun StretchGuidedSessionOverlay(
             i++
             index = i
         }
-        onFinished(guidedSessionTotalMinutes(sessionSteps.size, holdSeconds))
+        if (voiceEnabledState.value && ttsEngineOkState.value) {
+            awaitStretchingCompleteUtterance(context, tts, ttsEngineOkState.value)
+        }
+        onFinished(guidedSessionTotalMinutes(sessionSteps, holdSeconds))
     }
 
     val gradientBottom = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f)
