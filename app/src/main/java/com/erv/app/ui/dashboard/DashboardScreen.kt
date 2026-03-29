@@ -1453,7 +1453,7 @@ fun DashboardScreen(
                             requestDashboardCardioLocation.launch(Manifest.permission.ACCESS_FINE_LOCATION)
                         },
                         onLeaveTimerUi = { cardioLiveWorkoutViewModel.setCardioLiveUiExpanded(false) },
-                        onStop = { elapsedSeconds ->
+                        onStop = { elapsedSeconds, splits ->
                             val gpsPoints = drainCardioGpsIfNeeded(recordGps, context.applicationContext)
                             scope.launch {
                                 val durationMinutes = max(1, (elapsedSeconds + 59) / 60)
@@ -1467,7 +1467,8 @@ fun DashboardScreen(
                                         cyclingCscBle.takeWorkoutSummary()?.distanceMeters
                                     } else {
                                         null
-                                    }
+                                    },
+                                    splits = splits
                                 )
                                 val hrSummary = heartRateBle.takeWorkoutHeartRateSummary()
                                 val withHr = hrSummary?.let { raw.copy(heartRate = it) } ?: raw

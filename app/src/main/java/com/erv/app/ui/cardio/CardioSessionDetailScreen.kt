@@ -49,12 +49,15 @@ import com.erv.app.cardio.CardioLibraryState
 import com.erv.app.cardio.CardioModality
 import com.erv.app.cardio.CardioSession
 import com.erv.app.cardio.CardioSessionSource
+import com.erv.app.cardio.CardioWorkoutSplit
 import com.erv.app.cardio.formatCardioAveragePaceForSession
 import com.erv.app.cardio.formatCardioDistanceFromMeters
+import com.erv.app.cardio.formatCardioElapsedClock
 import com.erv.app.cardio.formatCardioElevationGainLoss
 import com.erv.app.cardio.resolvedElevationMeters
 import com.erv.app.cardio.formatCardioPackWeightFromKg
 import com.erv.app.cardio.ruckLoadKgResolved
+import com.erv.app.cardio.segmentPace
 import com.erv.app.cardio.supportsPhoneGpsTracking
 import com.erv.app.cardio.summaryLine
 import com.erv.app.cardio.label
@@ -236,6 +239,19 @@ private fun CardioSessionDetailBody(
             }
         }
 
+        if (session.splits.isNotEmpty()) {
+            item {
+                Text(stringResource(R.string.cardio_split_history_title), style = MaterialTheme.typography.titleMedium)
+                session.splits.sortedBy { it.orderIndex }.forEach { split ->
+                    CardioSplitDetailLine(
+                        split = split,
+                        distanceUnit = distanceUnit,
+                        modifier = Modifier.padding(vertical = 4.dp)
+                    )
+                }
+            }
+        }
+
         session.gpsTrack?.points?.takeIf { it.isNotEmpty() }?.let { pts ->
             item {
                 Text(stringResource(R.string.cardio_summary_gps_track_title), style = MaterialTheme.typography.titleMedium)
@@ -286,6 +302,45 @@ private fun DetailLine(label: String, value: String) {
     Column(Modifier.padding(vertical = 2.dp)) {
         Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(value, style = MaterialTheme.typography.bodyLarge)
+    }
+}
+
+@Composable
+private fun CardioSplitDetailLine(
+    split: CardioWorkoutSplit,
+    distanceUnit: CardioDistanceUnit,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier) {
+        Text(
+            stringResource(R.string.cardio_split_label, split.orderIndex + 1),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            if (split.segmentDistanceMeters != null) {
+                stringResource(
+                    R.string.cardio_split_summary,
+                    formatCardioElapsedClock(split.segmentElapsedSeconds),
+                    formatCardioDistanceFromMeters(split.segmentDistanceMeters, distanceUnit),
+                    split.segmentPace(distanceUnit) ?: "—"
+                )
+            } else {
+                stringResource(
+                    R.string.cardio_split_summary_time_only,
+                    formatCardioElapsedClock(split.segmentElapsedSeconds)
+                )
+            },
+            style = MaterialTheme.typography.bodyLarge
+        )
+        Text(
+            stringResource(
+                R.string.cardio_split_elapsed_summary,
+                formatCardioElapsedClock(split.elapsedSeconds)
+            ),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 

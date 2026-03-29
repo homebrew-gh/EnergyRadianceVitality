@@ -54,6 +54,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -74,6 +75,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import com.erv.app.heatcold.HeatColdLibraryState
 import com.erv.app.heatcold.HeatColdMode
@@ -580,7 +582,15 @@ fun HeatColdTimerFullScreen(
     onComplete: () -> Unit,
     onCancel: () -> Unit
 ) {
+    val view = LocalView.current
     var remainingSeconds by remember(totalSeconds) { mutableIntStateOf(totalSeconds) }
+
+    DisposableEffect(view) {
+        view.keepScreenOn = true
+        onDispose {
+            view.keepScreenOn = false
+        }
+    }
 
     LaunchedEffect(remainingSeconds) {
         if (remainingSeconds <= 0) {

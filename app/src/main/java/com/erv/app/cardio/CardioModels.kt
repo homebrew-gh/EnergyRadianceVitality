@@ -235,14 +235,15 @@ data class CardioActivitySnapshot(
     val displayLabel: String
 )
 
-/** Outdoor walk, run, hike, ruck — phone GPS is offered when modality is outdoor and user opts in. */
+/** Outdoor walk, run, hike, ruck, and cycling — phone GPS is offered when modality is outdoor and user opts in. */
 fun CardioActivitySnapshot.supportsPhoneGpsTracking(): Boolean {
     val b = builtin ?: return false
     return when (b) {
         CardioBuiltinActivity.WALK,
         CardioBuiltinActivity.RUN,
         CardioBuiltinActivity.HIKE,
-        CardioBuiltinActivity.RUCK -> true
+        CardioBuiltinActivity.RUCK,
+        CardioBuiltinActivity.BIKE -> true
         else -> false
     }
 }
@@ -295,6 +296,15 @@ data class CardioSessionSegment(
 )
 
 @Serializable
+data class CardioWorkoutSplit(
+    val orderIndex: Int,
+    val elapsedSeconds: Int,
+    val segmentElapsedSeconds: Int,
+    val totalDistanceMeters: Double? = null,
+    val segmentDistanceMeters: Double? = null
+)
+
+@Serializable
 data class CardioSession(
     val id: String = UUID.randomUUID().toString(),
     val activity: CardioActivitySnapshot,
@@ -313,6 +323,8 @@ data class CardioSession(
     val heartRate: CardioHrScaffolding? = null,
     /** Non-empty = multi-activity workout (brick, tri prep, etc.); top-level fields are rollups. */
     val segments: List<CardioSessionSegment> = emptyList(),
+    /** Manual live-workout split marks captured during GPS-recorded outdoor sessions. */
+    val splits: List<CardioWorkoutSplit> = emptyList(),
     /**
      * Local-only detailed path; omitted when publishing daily logs to Nostr.
      * May be cleared on save when the user turns off “Keep detailed GPS track” in Settings.
@@ -343,6 +355,21 @@ fun CardioSession.resolvedElevationMeters(): Pair<Double, Double>? {
 /** Pack weight for display / MET: outdoor field or treadmill load. */
 fun CardioSession.ruckLoadKgResolved(): Double? =
     (ruckLoadKg ?: treadmill?.loadKg)?.takeIf { it > 0.0 }
+
+fun CardioWorkoutSplit.segmentPace(distanceUnit: CardioDistanceUnit): String? =
+    segmentDistanceMeters?.let { formatCardioAveragePace(segmentElapsedSeconds, it, distanceUnit) }
+
+fun formatCardioElapsedClock(totalSeconds: Int): String {
+    val safeSeconds = totalSeconds.coerceAtLeast(0)
+    val hours = safeSeconds / 3600
+    val minutes = (safeSeconds % 3600) / 60
+    val seconds = safeSeconds % 60
+    return if (hours > 0) {
+        "%d:%02d:%02d".format(hours, minutes, seconds)
+    } else {
+        "%d:%02d".format(minutes, seconds)
+    }
+}
 
 fun formatCardioPackWeightFromKg(kg: Double): String {
     val lb = kg / 0.453592
@@ -635,7 +662,8 @@ data class CardioTimerSessionDraft(
         endEpoch: Long,
         elapsedSecondsForDistance: Int? = null,
         gpsPoints: List<CardioGpsPoint> = emptyList(),
-        preferredDistanceMeters: Double? = null
+        preferredDistanceMeters: Double? = null,
+        splits: List<CardioWorkoutSplit> = emptyList()
     ): CardioSession {
         val elapsed = elapsedSecondsForDistance ?: (durationMinutes * 60)
         var dist = preferredDistanceMeters
@@ -676,6 +704,7 @@ data class CardioTimerSessionDraft(
             heartRate = CardioHrScaffolding(),
             estimatedKcal = null,
             segments = emptyList(),
+            splits = splits,
             gpsTrack = track,
             ruckLoadKg = ruckLoadKg,
             elevationGainMeters = elevPair?.first,

@@ -621,7 +621,9 @@ private fun MainAppShell(
             viewModel<CyclingCscBleViewModel>(viewModelStoreOwner = activityForLifecycle)
         val activeWeightWorkout by weightLiveWorkoutViewModel.activeDraft.collectAsState()
         val activeCardioTimer by cardioLiveWorkoutViewModel.activeTimer.collectAsState()
-        val liveWorkoutActive = activeWeightWorkout != null || activeCardioTimer != null
+        val activeUnifiedWorkout = unifiedState.activeSession != null
+        val liveWorkoutActive =
+            activeWeightWorkout != null || activeCardioTimer != null || activeUnifiedWorkout
         LaunchedEffect(liveWorkoutActive) {
             if (liveWorkoutActive) {
                 heartRateBleViewModel.resetWorkoutRecordingOnLiveStart()

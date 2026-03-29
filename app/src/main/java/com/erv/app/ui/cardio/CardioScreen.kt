@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -38,6 +39,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.DateRange
@@ -136,6 +138,7 @@ import com.erv.app.cardio.CardioRoutine
 import com.erv.app.cardio.CardioRoutineStep
 import com.erv.app.cardio.CardioSession
 import com.erv.app.cardio.CardioSessionSource
+import com.erv.app.cardio.CardioWorkoutSplit
 import com.erv.app.cardio.CardioSpeedUnit
 import com.erv.app.cardio.CardioTreadmillParams
 import com.erv.app.cardio.CardioWeekday
@@ -158,6 +161,7 @@ import com.erv.app.cardio.formatCardioAveragePaceForSession
 import com.erv.app.cardio.formatCardioElevationGainLoss
 import com.erv.app.cardio.resolvedElevationMeters
 import com.erv.app.cardio.formatCardioDistanceFromMeters
+import com.erv.app.cardio.formatCardioElapsedClock
 import com.erv.app.cardio.metersToCardioDistanceInputString
 import com.erv.app.cardio.parseCardioDistanceInputToMeters
 import com.erv.app.cardio.defaultSprintIndoorTreadmillParams
@@ -166,11 +170,13 @@ import com.erv.app.cardio.isCyclingActivity
 import com.erv.app.cardio.label
 import com.erv.app.cardio.nowEpochSeconds
 import com.erv.app.cardio.resolveSnapshot
+import com.erv.app.cardio.segmentPace
 import com.erv.app.cardio.shortLabel
 import com.erv.app.cardio.summaryLine
 import com.erv.app.cardio.summaryLabel
 import com.erv.app.cardio.needsOutdoorRuckWeightPrompt
 import com.erv.app.cardio.supportsTreadmillModality
+import com.erv.app.data.CardioLiveSplitMode
 import com.erv.app.data.UserPreferences
 import com.erv.app.data.WorkoutMediaUploadBackend
 import com.erv.app.nostr.BlossomUploader
@@ -225,6 +231,17 @@ import java.util.UUID
 import kotlin.math.max
 
 private enum class CardioTab { Activities, Routines }
+
+private val cardioAutoSplitQuarterMileOptions = (1..12).toList()
+
+private fun formatCardioSplitDistanceMiles(quarterMiles: Int): String =
+    String.format(Locale.US, "%.2f mi", quarterMiles.coerceIn(1, 12) / 4.0)
+
+private fun cardioSplitModeLabel(mode: CardioLiveSplitMode): Int = when (mode) {
+    CardioLiveSplitMode.OFF -> R.string.cardio_split_mode_off
+    CardioLiveSplitMode.MANUAL -> R.string.cardio_split_mode_manual
+    CardioLiveSplitMode.AUTO -> R.string.cardio_split_mode_auto
+}
 
 @Composable
 fun CardioCategoryScreen(
@@ -558,7 +575,7 @@ fun CardioCategoryScreen(
                                 onBack()
                             }
                         },
-                        onStop = { elapsedSeconds ->
+                        onStop = { elapsedSeconds, splits ->
                             val gpsPoints = drainCardioGpsIfNeeded(recordGps, timerAppContext)
                             scope.launch {
                                 val durationMinutes = max(1, (elapsedSeconds + 59) / 60)
@@ -572,7 +589,8 @@ fun CardioCategoryScreen(
                                         cyclingCscBle.takeWorkoutSummary()?.distanceMeters
                                     } else {
                                         null
-                                    }
+                                    },
+                                    splits = splits
                                 )
                                 val hrSummary = heartRateBle.takeWorkoutHeartRateSummary()
                                 val withHr = hrSummary?.let { raw.copy(heartRate = it) } ?: raw
@@ -2561,6 +2579,191 @@ private fun CardioLiveAveragePaceBlock(
 }
 
 @Composable
+private fun CardioLatestSplitCard(
+    split: CardioWorkoutSplit,
+    distanceUnit: CardioDistanceUnit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        color = Color.White.copy(alpha = 0.12f)
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text(
+                text = stringResource(R.string.cardio_split_latest_title),
+                style = MaterialTheme.typography.labelLarge,
+                color = Color.White.copy(alpha = 0.75f)
+            )
+            Text(
+                text = stringResource(R.string.cardio_split_label, split.orderIndex + 1),
+                style = MaterialTheme.typography.titleMedium,
+                color = Color.White
+            )
+            Text(
+                text = cardioSplitSummaryLine(split, distanceUnit),
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color.White.copy(alpha = 0.92f)
+            )
+            Text(
+                text = stringResource(
+                    R.string.cardio_split_elapsed_summary,
+                    formatCardioElapsedClock(split.elapsedSeconds)
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.White.copy(alpha = 0.7f)
+            )
+        }
+    }
+}
+
+@Composable
+private fun cardioSplitSummaryLine(split: CardioWorkoutSplit, distanceUnit: CardioDistanceUnit): String =
+    if (split.segmentDistanceMeters != null) {
+        stringResource(
+            R.string.cardio_split_summary,
+            formatCardioElapsedClock(split.segmentElapsedSeconds),
+            formatCardioDistanceFromMeters(split.segmentDistanceMeters, distanceUnit),
+            split.segmentPace(distanceUnit) ?: "—"
+        )
+    } else {
+        stringResource(
+            R.string.cardio_split_summary_time_only,
+            formatCardioElapsedClock(split.segmentElapsedSeconds)
+        )
+    }
+
+@Composable
+private fun CardioSplitHistoryDialog(
+    splits: List<CardioWorkoutSplit>,
+    distanceUnit: CardioDistanceUnit,
+    splitMode: CardioLiveSplitMode,
+    autoSplitQuarterMiles: Int,
+    gpsRecordingActive: Boolean,
+    waitingForGps: Boolean,
+    onModeSelected: (CardioLiveSplitMode) -> Unit,
+    onAutoSplitDistanceSelected: (Int) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.cardio_split_history_title)) },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = stringResource(R.string.cardio_split_settings_title),
+                    style = MaterialTheme.typography.titleSmall
+                )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    CardioLiveSplitMode.entries.forEach { mode ->
+                        FilterChip(
+                            selected = splitMode == mode,
+                            onClick = { onModeSelected(mode) },
+                            label = { Text(stringResource(cardioSplitModeLabel(mode))) }
+                        )
+                    }
+                }
+                when (splitMode) {
+                    CardioLiveSplitMode.OFF -> {
+                        Text(
+                            text = stringResource(R.string.cardio_split_mode_off_helper),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    CardioLiveSplitMode.MANUAL -> {
+                        Text(
+                            text = stringResource(R.string.cardio_split_mode_manual_helper),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    CardioLiveSplitMode.AUTO -> {
+                        Text(
+                            text = if (gpsRecordingActive) {
+                                stringResource(
+                                    R.string.cardio_split_auto_distance_helper,
+                                    formatCardioSplitDistanceMiles(autoSplitQuarterMiles)
+                                )
+                            } else {
+                                stringResource(R.string.cardio_split_auto_requires_gps)
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        if (gpsRecordingActive) {
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                cardioAutoSplitQuarterMileOptions.forEach { option ->
+                                    FilterChip(
+                                        selected = autoSplitQuarterMiles == option,
+                                        onClick = { onAutoSplitDistanceSelected(option) },
+                                        label = { Text(formatCardioSplitDistanceMiles(option)) }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+                HorizontalDivider()
+                if (splits.isEmpty()) {
+                    Text(
+                        text = stringResource(
+                            when {
+                                splitMode == CardioLiveSplitMode.OFF -> R.string.cardio_split_history_off
+                                splitMode == CardioLiveSplitMode.AUTO && !gpsRecordingActive ->
+                                    R.string.cardio_split_auto_requires_gps
+                                waitingForGps -> R.string.cardio_split_waiting_for_gps
+                                else -> R.string.cardio_split_history_empty
+                            }
+                        )
+                    )
+                } else {
+                    splits.sortedBy { it.orderIndex }.forEach { split ->
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(
+                                text = stringResource(R.string.cardio_split_label, split.orderIndex + 1),
+                                style = MaterialTheme.typography.titleSmall
+                            )
+                            Text(
+                                text = cardioSplitSummaryLine(split, distanceUnit),
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            Text(
+                                text = stringResource(
+                                    R.string.cardio_split_elapsed_summary,
+                                    formatCardioElapsedClock(split.elapsedSeconds)
+                                ),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.hr_dialog_close))
+            }
+        }
+    )
+}
+
+@Composable
 fun CardioElapsedTimerFullScreen(
     draft: CardioTimerSessionDraft,
     userPreferences: UserPreferences,
@@ -2577,7 +2780,7 @@ fun CardioElapsedTimerFullScreen(
     onRequestLocationPermission: () -> Unit = {},
     /** Back arrow: leave full-screen UI; timer and optional GPS keep running (like weight training). */
     onLeaveTimerUi: (() -> Unit)? = null,
-    onStop: (elapsedSeconds: Int) -> Unit,
+    onStop: (elapsedSeconds: Int, splits: List<CardioWorkoutSplit>) -> Unit,
     onCancel: () -> Unit
 ) {
     val context = LocalContext.current
@@ -2585,6 +2788,8 @@ fun CardioElapsedTimerFullScreen(
     val heartRateBle = LocalHeartRateBle.current
     val isCyclingWorkout = draft.activity.isCyclingActivity()
     val heartRateBannerExpanded by userPreferences.heartRateBannerExpanded.collectAsState(initial = true)
+    val splitMode by userPreferences.cardioLiveSplitMode.collectAsState(initial = CardioLiveSplitMode.OFF)
+    val autoSplitQuarterMiles by userPreferences.cardioLiveAutoSplitQuarterMiles.collectAsState(initial = 4)
     val cyclingBleConnectionState by cyclingCscBle.connectionState.collectAsState()
     val savedCyclingDevices by cyclingCscBle.savedDevices.collectAsState()
     val preferredCyclingAddress by cyclingCscBle.preferredDeviceAddress.collectAsState()
@@ -2599,9 +2804,11 @@ fun CardioElapsedTimerFullScreen(
     var showMediaSheet by remember(tickKey) { mutableStateOf(false) }
     var showCyclingSensorDialog by remember(tickKey) { mutableStateOf(false) }
     var showCyclingScanDialog by remember(tickKey) { mutableStateOf(false) }
+    var showSplitHistoryDialog by remember(tickKey) { mutableStateOf(false) }
     var running by remember(tickKey) { mutableStateOf(true) }
     var finished by remember(tickKey) { mutableStateOf(false) }
     var tick by remember(tickKey) { mutableIntStateOf(0) }
+    var workoutSplits by remember(tickKey) { mutableStateOf(emptyList<CardioWorkoutSplit>()) }
     var pendingCyclingConnectDevice by remember { mutableStateOf<SavedBluetoothDevice?>(null) }
     var pendingCyclingScan by remember { mutableStateOf(false) }
 
@@ -2658,7 +2865,7 @@ fun CardioElapsedTimerFullScreen(
         if (finished) return
         finished = true
         running = false
-        onStop(elapsed)
+        onStop(elapsed, workoutSplits)
     }
 
     LaunchedEffect(gpsRecordingActive, tickKey) {
@@ -2705,6 +2912,64 @@ fun CardioElapsedTimerFullScreen(
         if (timeCountdownCap != null) max(0, timeCountdownCap - workoutElapsedSeconds)
         else workoutElapsedSeconds
     val distM = draft.liveDistanceMeters(workoutElapsedSeconds, preferredLiveDistanceMeters)
+    val latestSplit = workoutSplits.lastOrNull()
+    val autoSplitMeters = remember(autoSplitQuarterMiles) { (autoSplitQuarterMiles / 4.0) * 1609.344 }
+    val splitControlsEnabled = when (splitMode) {
+        CardioLiveSplitMode.OFF -> false
+        CardioLiveSplitMode.MANUAL -> true
+        CardioLiveSplitMode.AUTO -> gpsRecordingActive
+    }
+    val splitWaitingForGps = splitMode == CardioLiveSplitMode.AUTO && gpsRecordingActive &&
+        (liveGpsMeters == null || liveGpsMeters <= 1.0)
+
+    fun recordSplit(totalMetersInput: Double? = null): Boolean {
+        val previousSplit = workoutSplits.lastOrNull()
+        val elapsedAtLastSplit = previousSplit?.elapsedSeconds ?: 0
+        val segmentElapsed = workoutElapsedSeconds - elapsedAtLastSplit
+        if (segmentElapsed <= 0) return false
+        val totalMeters = when {
+            totalMetersInput != null -> totalMetersInput
+            gpsRecordingActive -> liveGpsMeters ?: return false
+            else -> null
+        }
+        if (totalMeters != null && (!totalMeters.isFinite() || totalMeters <= 1.0)) return false
+        val distanceAtLastSplit = previousSplit?.totalDistanceMeters ?: 0.0
+        val segmentDistance = totalMeters?.let { (it - distanceAtLastSplit).coerceAtLeast(0.0) }
+        if (gpsRecordingActive && (segmentDistance == null || segmentDistance <= 0.0)) return false
+        workoutSplits = workoutSplits + CardioWorkoutSplit(
+            orderIndex = workoutSplits.size,
+            elapsedSeconds = workoutElapsedSeconds,
+            segmentElapsedSeconds = segmentElapsed,
+            totalDistanceMeters = totalMeters,
+            segmentDistanceMeters = segmentDistance
+        )
+        return true
+    }
+
+    val nextAutoSplitMeters = remember(splitMode, autoSplitMeters, workoutSplits) {
+        if (splitMode != CardioLiveSplitMode.AUTO) {
+            null
+        } else {
+            (workoutSplits.lastOrNull()?.totalDistanceMeters ?: 0.0) + autoSplitMeters
+        }
+    }
+
+    LaunchedEffect(
+        gpsRecordingActive,
+        splitMode,
+        nextAutoSplitMeters,
+        liveGpsMeters,
+        workoutElapsedSeconds,
+        running,
+        finished
+    ) {
+        if (!gpsRecordingActive || splitMode != CardioLiveSplitMode.AUTO || !running || finished) return@LaunchedEffect
+        val threshold = nextAutoSplitMeters ?: return@LaunchedEffect
+        val totalMeters = liveGpsMeters ?: return@LaunchedEffect
+        if (totalMeters >= threshold) {
+            recordSplit(totalMetersInput = threshold)
+        }
+    }
 
     LaunchedEffect(tickKey, isCyclingWorkout) {
         if (isCyclingWorkout) {
@@ -2785,6 +3050,19 @@ fun CardioElapsedTimerFullScreen(
                                 Icons.Filled.MusicNote,
                                 contentDescription = stringResource(R.string.media_control_cd_music),
                                 tint = Color.White.copy(alpha = if (showMediaSheet) 1f else 0.88f)
+                            )
+                        }
+                        IconButton(onClick = { showSplitHistoryDialog = true }) {
+                            Icon(
+                                Icons.Filled.AccessTime,
+                                contentDescription = stringResource(R.string.cardio_split_stopwatch_cd),
+                                tint = Color.White.copy(
+                                    alpha = if (
+                                        showSplitHistoryDialog ||
+                                        workoutSplits.isNotEmpty() ||
+                                        splitMode != CardioLiveSplitMode.OFF
+                                    ) 1f else 0.88f
+                                )
                             )
                         }
                     }
@@ -2956,6 +3234,22 @@ fun CardioElapsedTimerFullScreen(
                         )
                     }
                 }
+                if (splitMode != CardioLiveSplitMode.OFF || latestSplit != null) {
+                    Spacer(Modifier.height(16.dp))
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 88.dp),
+                        contentAlignment = Alignment.TopCenter
+                    ) {
+                        latestSplit?.let { split ->
+                            CardioLatestSplitCard(
+                                split = split,
+                                distanceUnit = distanceUnit
+                            )
+                        }
+                    }
+                }
             }
             Column(
                 modifier = Modifier.fillMaxWidth(),
@@ -2974,6 +3268,45 @@ fun CardioElapsedTimerFullScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(12.dp)
+                        )
+                    }
+                }
+                if (splitMode == CardioLiveSplitMode.MANUAL) {
+                    OutlinedButton(
+                        onClick = { recordSplit() },
+                        enabled = running && !finished && (!gpsRecordingActive || !splitWaitingForGps),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                        border = ButtonDefaults.outlinedButtonBorder.copy(brush = SolidColor(Color.White))
+                    ) {
+                        Icon(Icons.Filled.Add, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text(stringResource(R.string.cardio_split_record))
+                    }
+                }
+                if (splitControlsEnabled) {
+                    Text(
+                        text = when (splitMode) {
+                            CardioLiveSplitMode.AUTO -> stringResource(
+                                R.string.cardio_split_auto_status,
+                                formatCardioSplitDistanceMiles(autoSplitQuarterMiles)
+                            )
+                            CardioLiveSplitMode.MANUAL -> stringResource(
+                                if (gpsRecordingActive) {
+                                    R.string.cardio_split_manual_status
+                                } else {
+                                    R.string.cardio_split_manual_status_time_only
+                                }
+                            )
+                            CardioLiveSplitMode.OFF -> ""
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.White.copy(alpha = 0.72f)
+                    )
+                    if (splitWaitingForGps) {
+                        Text(
+                            text = stringResource(R.string.cardio_split_waiting_for_gps),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.White.copy(alpha = 0.72f)
                         )
                     }
                 }
@@ -3007,6 +3340,24 @@ fun CardioElapsedTimerFullScreen(
                 }
             }
         }
+    }
+
+    if (showSplitHistoryDialog) {
+        CardioSplitHistoryDialog(
+            splits = workoutSplits,
+            distanceUnit = distanceUnit,
+            splitMode = splitMode,
+            autoSplitQuarterMiles = autoSplitQuarterMiles,
+            gpsRecordingActive = gpsRecordingActive,
+            waitingForGps = splitWaitingForGps,
+            onModeSelected = { mode ->
+                scope.launch { userPreferences.setCardioLiveSplitMode(mode) }
+            },
+            onAutoSplitDistanceSelected = { quarterMiles ->
+                scope.launch { userPreferences.setCardioLiveAutoSplitQuarterMiles(quarterMiles) }
+            },
+            onDismiss = { showSplitHistoryDialog = false }
+        )
     }
 
     if (showCyclingSensorDialog && isCyclingWorkout) {
@@ -3299,6 +3650,50 @@ fun CardioWorkoutSummaryFullScreen(
                     style = MaterialTheme.typography.bodyLarge,
                     color = Color.White.copy(alpha = 0.88f)
                 )
+            }
+            if (session.splits.isNotEmpty()) {
+                Text(
+                    text = stringResource(R.string.cardio_split_history_title),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Color.White.copy(alpha = 0.92f)
+                )
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    session.splits.sortedBy { it.orderIndex }.forEach { split ->
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = Color.White.copy(alpha = 0.12f)
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                                verticalArrangement = Arrangement.spacedBy(2.dp)
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.cardio_split_label, split.orderIndex + 1),
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = Color.White
+                                )
+                                Text(
+                                    text = cardioSplitSummaryLine(split, distanceUnit),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = Color.White.copy(alpha = 0.92f)
+                                )
+                                Text(
+                                    text = stringResource(
+                                        R.string.cardio_split_elapsed_summary,
+                                        formatCardioElapsedClock(split.elapsedSeconds)
+                                    ),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color.White.copy(alpha = 0.7f)
+                                )
+                            }
+                        }
+                    }
+                }
             }
             Text(
                 "Calories (estimate)",

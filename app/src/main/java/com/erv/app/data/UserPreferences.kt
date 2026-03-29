@@ -28,6 +28,12 @@ enum class TemperatureUnit {
     FAHRENHEIT, CELSIUS
 }
 
+enum class CardioLiveSplitMode {
+    OFF,
+    MANUAL,
+    AUTO
+}
+
 /** Between-set rest during live weight workout (timer next to workout clock). */
 enum class WeightLiveRestTimerMode {
     OFF,
@@ -76,6 +82,8 @@ class UserPreferences(private val context: Context) {
         val WEIGHT_LIVE_FGS_DISCLOSURE_SEEN = booleanPreferencesKey("weight_live_fgs_disclosure_seen")
         val CARDIO_GPS_RECORDING_PREFERRED = booleanPreferencesKey("cardio_gps_recording_preferred")
         val CARDIO_GPS_TRACK_RETAIN_ON_DEVICE = booleanPreferencesKey("cardio_gps_track_retain_on_device")
+        val CARDIO_LIVE_SPLIT_MODE_V1 = stringPreferencesKey("cardio_live_split_mode_v1")
+        val CARDIO_LIVE_AUTO_SPLIT_QUARTER_MILES_V1 = intPreferencesKey("cardio_live_auto_split_quarter_miles_v1")
         val NIP96_MEDIA_SERVER_ORIGIN = stringPreferencesKey("nip96_media_server_origin")
         val BLOSSOM_PUBLIC_SERVER_ORIGIN = stringPreferencesKey("blossom_public_server_origin")
         val BLOSSOM_PRIVATE_SERVER_ORIGIN = stringPreferencesKey("blossom_private_server_origin")
@@ -360,8 +368,9 @@ class UserPreferences(private val context: Context) {
     }
 
     /**
-     * When true (default), outdoor walk / run / hike / ruck timer sessions may record GPS if the user
-     * grants location permission. Does not affect manual logs or indoor (treadmill) activities.
+     * When true (default), supported outdoor timer sessions such as walk / run / hike / ruck / cycling
+     * may record GPS if the user grants location permission. Does not affect manual logs or indoor
+     * (treadmill) activities.
      */
     val cardioGpsRecordingPreferred: Flow<Boolean> = context.dataStore.data.map { prefs ->
         prefs[Keys.CARDIO_GPS_RECORDING_PREFERRED] ?: true
@@ -384,6 +393,32 @@ class UserPreferences(private val context: Context) {
     suspend fun setCardioGpsTrackRetainOnDevice(retain: Boolean) {
         context.dataStore.edit { prefs ->
             prefs[Keys.CARDIO_GPS_TRACK_RETAIN_ON_DEVICE] = retain
+        }
+    }
+
+    /** GPS-only live workout split behavior; default off until the user opts in. */
+    val cardioLiveSplitMode: Flow<CardioLiveSplitMode> = context.dataStore.data.map { prefs ->
+        when (prefs[Keys.CARDIO_LIVE_SPLIT_MODE_V1]?.uppercase()) {
+            "MANUAL" -> CardioLiveSplitMode.MANUAL
+            "AUTO" -> CardioLiveSplitMode.AUTO
+            else -> CardioLiveSplitMode.OFF
+        }
+    }
+
+    suspend fun setCardioLiveSplitMode(mode: CardioLiveSplitMode) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.CARDIO_LIVE_SPLIT_MODE_V1] = mode.name
+        }
+    }
+
+    /** Stored as quarter-mile units: 1 = 0.25 mi, 4 = 1.0 mi, 12 = 3.0 mi. */
+    val cardioLiveAutoSplitQuarterMiles: Flow<Int> = context.dataStore.data.map { prefs ->
+        (prefs[Keys.CARDIO_LIVE_AUTO_SPLIT_QUARTER_MILES_V1] ?: 4).coerceIn(1, 12)
+    }
+
+    suspend fun setCardioLiveAutoSplitQuarterMiles(quarterMiles: Int) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.CARDIO_LIVE_AUTO_SPLIT_QUARTER_MILES_V1] = quarterMiles.coerceIn(1, 12)
         }
     }
 

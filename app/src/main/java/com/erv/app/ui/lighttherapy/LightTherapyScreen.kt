@@ -32,6 +32,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
@@ -337,7 +338,15 @@ fun LightTherapyTimerFullScreen(
     onComplete: () -> Unit,
     onCancel: () -> Unit
 ) {
+    val view = LocalView.current
     var remainingSeconds by remember(durationMinutes) { mutableIntStateOf(durationMinutes * 60) }
+
+    DisposableEffect(view) {
+        view.keepScreenOn = true
+        onDispose {
+            view.keepScreenOn = false
+        }
+    }
 
     LaunchedEffect(remainingSeconds) {
         if (remainingSeconds <= 0) {
