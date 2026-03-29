@@ -1,38 +1,38 @@
 [
     {
-        "merged": "/home/samcornwell/.gradle/daemon/8.5/com.erv.app-merged_res-69:/drawable-v26_ic_launcher.xml.flat",
-        "source": "/home/samcornwell/.gradle/daemon/8.5/com.erv.app-main-71:/drawable-v26/ic_launcher.xml"
+        "merged": "/tmp/cursor-sandbox-cache/38d86c361a04fdce5eb090e80bccd1dd/gradle/daemon/8.5/com.erv.app-merged_res-4:/font_varela_round_regular.ttf.flat",
+        "source": "/tmp/cursor-sandbox-cache/38d86c361a04fdce5eb090e80bccd1dd/gradle/daemon/8.5/com.erv.app-main-6:/font/varela_round_regular.ttf"
     },
     {
-        "merged": "/home/samcornwell/.gradle/daemon/8.5/com.erv.app-merged_res-69:/font_varela_round_regular.ttf.flat",
-        "source": "/home/samcornwell/.gradle/daemon/8.5/com.erv.app-main-71:/font/varela_round_regular.ttf"
+        "merged": "/tmp/cursor-sandbox-cache/38d86c361a04fdce5eb090e80bccd1dd/gradle/daemon/8.5/com.erv.app-merged_res-4:/drawable-v26_ic_launcher.xml.flat",
+        "source": "/tmp/cursor-sandbox-cache/38d86c361a04fdce5eb090e80bccd1dd/gradle/daemon/8.5/com.erv.app-main-6:/drawable-v26/ic_launcher.xml"
     },
     {
-        "merged": "/home/samcornwell/.gradle/daemon/8.5/com.erv.app-merged_res-69:/drawable_ic_sun.xml.flat",
-        "source": "/home/samcornwell/.gradle/daemon/8.5/com.erv.app-main-71:/drawable/ic_sun.xml"
+        "merged": "/tmp/cursor-sandbox-cache/38d86c361a04fdce5eb090e80bccd1dd/gradle/daemon/8.5/com.erv.app-merged_res-4:/drawable_ic_launcher_foreground.xml.flat",
+        "source": "/tmp/cursor-sandbox-cache/38d86c361a04fdce5eb090e80bccd1dd/gradle/daemon/8.5/com.erv.app-main-6:/drawable/ic_launcher_foreground.xml"
     },
     {
-        "merged": "com.erv.app-merged_res-69:/xml_backup_rules.xml.flat",
-        "source": "com.erv.app-main-71:/xml/backup_rules.xml"
+        "merged": "/tmp/cursor-sandbox-cache/38d86c361a04fdce5eb090e80bccd1dd/gradle/daemon/8.5/com.erv.app-merged_res-4:/drawable_ic_sun.xml.flat",
+        "source": "/tmp/cursor-sandbox-cache/38d86c361a04fdce5eb090e80bccd1dd/gradle/daemon/8.5/com.erv.app-main-6:/drawable/ic_sun.xml"
     },
     {
-        "merged": "/home/samcornwell/.gradle/daemon/8.5/com.erv.app-merged_res-69:/drawable_ic_stat_erv.xml.flat",
-        "source": "/home/samcornwell/.gradle/daemon/8.5/com.erv.app-main-71:/drawable/ic_stat_erv.xml"
+        "merged": "/tmp/cursor-sandbox-cache/38d86c361a04fdce5eb090e80bccd1dd/gradle/daemon/8.5/com.erv.app-merged_res-4:/xml_backup_rules.xml.flat",
+        "source": "/tmp/cursor-sandbox-cache/38d86c361a04fdce5eb090e80bccd1dd/gradle/daemon/8.5/com.erv.app-main-6:/xml/backup_rules.xml"
     },
     {
-        "merged": "/home/samcornwell/.gradle/daemon/8.5/com.erv.app-merged_res-69:/drawable_ic_stat_routine.xml.flat",
-        "source": "/home/samcornwell/.gradle/daemon/8.5/com.erv.app-main-71:/drawable/ic_stat_routine.xml"
+        "merged": "/tmp/cursor-sandbox-cache/38d86c361a04fdce5eb090e80bccd1dd/gradle/daemon/8.5/com.erv.app-merged_res-4:/xml_data_extraction_rules.xml.flat",
+        "source": "/tmp/cursor-sandbox-cache/38d86c361a04fdce5eb090e80bccd1dd/gradle/daemon/8.5/com.erv.app-main-6:/xml/data_extraction_rules.xml"
     },
     {
-        "merged": "com.erv.app-merged_res-69:/xml_data_extraction_rules.xml.flat",
-        "source": "com.erv.app-main-71:/xml/data_extraction_rules.xml"
+        "merged": "/tmp/cursor-sandbox-cache/38d86c361a04fdce5eb090e80bccd1dd/gradle/daemon/8.5/com.erv.app-merged_res-4:/drawable_ic_stat_erv.xml.flat",
+        "source": "/tmp/cursor-sandbox-cache/38d86c361a04fdce5eb090e80bccd1dd/gradle/daemon/8.5/com.erv.app-main-6:/drawable/ic_stat_erv.xml"
     },
     {
-        "merged": "/home/samcornwell/.gradle/daemon/8.5/com.erv.app-merged_res-69:/xml_file_paths.xml.flat",
-        "source": "/home/samcornwell/.gradle/daemon/8.5/com.erv.app-main-71:/xml/file_paths.xml"
+        "merged": "/tmp/cursor-sandbox-cache/38d86c361a04fdce5eb090e80bccd1dd/gradle/daemon/8.5/com.erv.app-merged_res-4:/xml_file_paths.xml.flat",
+        "source": "/tmp/cursor-sandbox-cache/38d86c361a04fdce5eb090e80bccd1dd/gradle/daemon/8.5/com.erv.app-main-6:/xml/file_paths.xml"
     },
     {
-        "merged": "/home/samcornwell/.gradle/daemon/8.5/com.erv.app-merged_res-69:/drawable_ic_launcher_foreground.xml.flat",
-        "source": "/home/samcornwell/.gradle/daemon/8.5/com.erv.app-main-71:/drawable/ic_launcher_foreground.xml"
+        "merged": "/tmp/cursor-sandbox-cache/38d86c361a04fdce5eb090e80bccd1dd/gradle/daemon/8.5/com.erv.app-merged_res-4:/drawable_ic_stat_routine.xml.flat",
+        "source": "/tmp/cursor-sandbox-cache/38d86c361a04fdce5eb090e80bccd1dd/gradle/daemon/8.5/com.erv.app-main-6:/drawable/ic_stat_routine.xml"
     }
 ]

@@ -344,23 +344,6 @@ private fun BodyTrackerLogEntryCard(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    Spacer(Modifier.height(8.dp))
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        BodyTrackerPhotoPreviewThumb(
-                            file = repository.photoFile(log.photos.first().id),
-                            onOpen = { onOpenPhoto(log.photos.first().id) }
-                        )
-                        if (log.photos.size > 1) {
-                            Text(
-                                "+${log.photos.size - 1} more",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
                     if (photosExpanded) {
                         Spacer(Modifier.height(10.dp))
                         LazyRow(

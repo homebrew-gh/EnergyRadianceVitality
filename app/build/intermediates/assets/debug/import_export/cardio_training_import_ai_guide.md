@@ -54,7 +54,7 @@ Unknown top-level keys should be omitted.
 - **Dates:** `date` on each day log is **`YYYY-MM-DD`** (calendar day in the user’s intended timezone for that activity’s **start**).
 - **Duration:** `durationMinutes` is **integer** minutes (round sensibly from seconds: `(seconds + 30) / 60` or floor, but **be consistent** and state your rule in a side note if the user cares).
 
-**`activity.builtin` (fixed vocabulary — like weight’s built-in exercise ids):** use **exactly** one of these strings, or omit `builtin` and use a **custom** activity type instead (`customTypeId` / `customActivityTypes`). If Strava’s sport does not map cleanly, prefer `OTHER` plus a custom type (see §6).
+**`activity.builtin` (fixed vocabulary - like weight's built-in exercise ids):** use one of these strings, or omit `builtin` and use a **custom** activity type instead (`customTypeId` / `customActivityTypes`). If Strava’s sport does not map cleanly, prefer `OTHER` plus a custom type (see §6). Avoid `ACTIVE_RECOVERY` for ordinary single-session imports; it is mainly for interval-template legs.
 
 | `builtin` value | Typical use |
 | --- | --- |
@@ -69,6 +69,12 @@ Unknown top-level keys should be omitted.
 | `ROWING` | Rowing (machine or boat—user context) |
 | `STATIONARY_BIKE` | Indoor spin / stationary bike |
 | `JUMP_ROPE` | Jump rope |
+| `BATTLE_ROPE` | Battle ropes / rope intervals |
+| `BURPEES` | Burpees as conditioning work |
+| `JUMPING_JACKS` | Jumping jacks / calisthenic cardio |
+| `AIR_BIKE` | Assault / fan bike |
+| `SKI_ERG` | SkiErg |
+| `ACTIVE_RECOVERY` | Special recovery leg for interval-style segments; usually omit for ordinary imports |
 | `OTHER` | Anything else; pair with **custom** type name/id when possible |
 
 - **`CardioModality`** (`modality`): `OUTDOOR` or `INDOOR_TREADMILL`. Treadmill modality in ERV is only meaningful for **walk, run, sprint, ruck**; for other built-ins, use **`OUTDOOR`** (non-treadmill indoor bike/rower is still `OUTDOOR` in the app model).
