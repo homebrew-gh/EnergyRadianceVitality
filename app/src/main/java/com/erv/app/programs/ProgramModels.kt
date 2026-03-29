@@ -75,6 +75,7 @@ data class ProgramCompletionMark(
 data class ProgramsLibraryState(
     val programs: List<FitnessProgram> = emptyList(),
     val activeProgramId: String? = null,
+    val strategy: ProgramStrategy = ProgramStrategy(),
     /** Whole-library snapshot timestamp for synced program master data and active selection. */
     val masterUpdatedAtEpochSeconds: Long = 0L,
     /**

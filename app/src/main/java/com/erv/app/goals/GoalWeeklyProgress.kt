@@ -8,9 +8,10 @@ import com.erv.app.data.UserGoalMetricType
 import com.erv.app.lighttherapy.LightLibraryState
 import com.erv.app.programs.ProgramBlockKind
 import com.erv.app.programs.ProgramsLibraryState
+import com.erv.app.programs.programBlocksForDate
 import com.erv.app.programs.programBlockCompletionKey
-import com.erv.app.programs.programBlocksForCalendarDay
 import com.erv.app.programs.programChecklistCompletionKey
+import com.erv.app.programs.resolveProgramStrategyForDate
 import com.erv.app.stretching.StretchLibraryState
 import com.erv.app.supplements.SupplementLibraryState
 import com.erv.app.weighttraining.WeightLibraryState
@@ -75,8 +76,9 @@ fun computeWeeklyGoalProgress(
     }
 
     val programAdherenceDays = weekDays.count { day ->
-        val activeProgram = programsState.activeProgramId?.let(programsState::programById) ?: return@count false
-        val blocks = programBlocksForCalendarDay(activeProgram, day.dayOfWeek.value)
+        val resolved = programsState.resolveProgramStrategyForDate(day)
+        val activeProgram = resolved.program ?: return@count false
+        val blocks = programsState.programBlocksForDate(day)
         if (blocks.isEmpty()) return@count false
         blocks.all { block ->
             if (block.kind == ProgramBlockKind.OTHER && block.checklistItems.isNotEmpty()) {

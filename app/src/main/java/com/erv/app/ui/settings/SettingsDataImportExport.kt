@@ -1092,6 +1092,7 @@ private fun ProgramImportPreviewDialog(
 ) {
     val env = pending.envelope
     val active = env.activeProgramId
+    val strategy = env.strategy
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Programs Import Preview") },
@@ -1124,6 +1125,21 @@ private fun ProgramImportPreviewDialog(
                 } else {
                     Text(
                         "Active program unchanged (no activeProgramId in file).",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                }
+                if (strategy != null) {
+                    Text(
+                        "Program strategy after import: ${strategy.mode.name.lowercase().replaceFirstChar(Char::titlecase)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                } else {
+                    Text(
+                        "Program strategy unchanged (no strategy in file).",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(bottom = 8.dp)

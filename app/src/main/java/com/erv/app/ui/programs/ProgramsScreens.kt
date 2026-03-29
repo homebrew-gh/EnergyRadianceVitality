@@ -53,7 +53,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
@@ -63,7 +62,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -84,7 +82,6 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import com.erv.app.cardio.CardioBuiltinActivity
 import com.erv.app.cardio.CardioLibraryState
-import com.erv.app.cardio.CardioRoutine
 import com.erv.app.cardio.cardioBuiltinActivitiesForUserSelection
 import com.erv.app.nostr.EventSigner
 import com.erv.app.nostr.LocalKeyManager
@@ -97,18 +94,22 @@ import com.erv.app.programs.ProgramDayBlock
 import com.erv.app.programs.ProgramImport
 import com.erv.app.programs.ProgramImportEnvelope
 import com.erv.app.programs.ProgramRepository
+import com.erv.app.programs.ProgramRotationEntry
+import com.erv.app.programs.ProgramStrategy
+import com.erv.app.programs.ProgramStrategyMode
 import com.erv.app.programs.ProgramSync
 import com.erv.app.programs.ProgramTemplateOption
 import com.erv.app.programs.ProgramWeekDay
 import com.erv.app.programs.ProgramsLibraryState
 import com.erv.app.programs.isoDayOfWeekLabel
 import com.erv.app.programs.normalizedWeek
+import com.erv.app.programs.resolveProgramStrategyForDate
+import com.erv.app.programs.sanitized
 import com.erv.app.programs.summaryLine
+import com.erv.app.programs.strategySummaryForDate
 import com.erv.app.programs.withWeekDayUpdated
 import com.erv.app.stretching.StretchLibraryState
-import com.erv.app.stretching.StretchRoutine
 import com.erv.app.ui.theme.ErvHeaderRed
-import com.erv.app.unifiedroutines.UnifiedRoutine
 import com.erv.app.unifiedroutines.UnifiedRoutineLibraryState
 import com.erv.app.weighttraining.WeightLibraryState
 import com.erv.app.weighttraining.WeightRepository
@@ -118,6 +119,8 @@ import com.erv.app.weighttraining.displayLabel
 import java.io.BufferedWriter
 import java.io.OutputStreamWriter
 import java.nio.charset.StandardCharsets
+import java.time.LocalDate
+import java.time.format.DateTimeParseException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -150,6 +153,10 @@ fun ProgramsCategoryScreen(
     var pendingImport by remember { mutableStateOf<ProgramImportEnvelope?>(null) }
     var importErrors by remember { mutableStateOf<List<String>?>(null) }
     var pendingDeleteFromList by remember { mutableStateOf<FitnessProgram?>(null) }
+    var showStrategyEditor by remember { mutableStateOf(false) }
+    val today = remember { LocalDate.now() }
+    val todayStrategy = remember(state, today) { state.resolveProgramStrategyForDate(today) }
+    val todayStrategySummary = remember(state, today) { state.strategySummaryForDate(today) }
 
     val importLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
@@ -182,9 +189,12 @@ fun ProgramsCategoryScreen(
     fun createProgramAndOpen(program: FitnessProgram, setActive: Boolean) {
         scope.launch {
             programRepository.upsertProgram(program)
-            if (setActive) {
-                programRepository.setActiveProgram(program.id)
-            }
+            val autoStrategy =
+                if (setActive) {
+                    programRepository.activateProgramForDate(program.id)
+                } else {
+                    null
+                }
             if (relayPool != null && signer != null) {
                 ProgramSync.publishMaster(
                     appContext = context.applicationContext,
@@ -195,7 +205,13 @@ fun ProgramsCategoryScreen(
                 )
             }
             programRepository.state.first { it.programById(program.id) != null }
-            snackbarHostState.showSnackbar("Created \"${program.name}\"")
+            snackbarHostState.showSnackbar(
+                if (autoStrategy?.mode == ProgramStrategyMode.CHALLENGE) {
+                    "Created \"${program.name}\" and started a 75-day challenge strategy"
+                } else {
+                    "Created \"${program.name}\""
+                }
+            )
             onOpenProgram(program.id)
         }
     }
@@ -218,7 +234,8 @@ fun ProgramsCategoryScreen(
             text = {
                 Text(
                     "Merge ${env.programs.size} program(s) into your library?" +
-                        (env.activeProgramId?.let { "\nSet active: $it" } ?: "")
+                        (env.activeProgramId?.let { "\nSet active: $it" } ?: "") +
+                        (env.strategy?.let { "\nApply strategy: ${programStrategyModeLabel(it.mode)}" } ?: "")
                 )
             },
             confirmButton = {
@@ -229,7 +246,8 @@ fun ProgramsCategoryScreen(
                         scope.launch {
                             programRepository.mergeImportedPrograms(
                                 imported = toApply.programs,
-                                setActiveFromImport = toApply.activeProgramId
+                                setActiveFromImport = toApply.activeProgramId,
+                                strategyFromImport = toApply.strategy,
                             )
                             if (relayPool != null && signer != null) {
                                 ProgramSync.publishMaster(
@@ -279,6 +297,30 @@ fun ProgramsCategoryScreen(
             },
             dismissButton = {
                 TextButton(onClick = { pendingDeleteFromList = null }) { Text("Cancel") }
+            }
+        )
+    }
+
+    if (showStrategyEditor) {
+        ProgramStrategyEditorDialog(
+            current = state.strategy,
+            programs = state.programs.sortedBy { it.name.lowercase() },
+            onDismiss = { showStrategyEditor = false },
+            onSave = { strategy ->
+                showStrategyEditor = false
+                scope.launch {
+                    programRepository.setProgramStrategy(strategy)
+                    if (relayPool != null && signer != null) {
+                        ProgramSync.publishMaster(
+                            appContext = context.applicationContext,
+                            relayPool = relayPool,
+                            signer = signer,
+                            state = programRepository.currentState(),
+                            dataRelayUrls = keyManager.relayUrlsForKind30078Publish(),
+                        )
+                    }
+                    snackbarHostState.showSnackbar("Program strategy saved")
+                }
             }
         )
     }
@@ -417,11 +459,44 @@ fun ProgramsCategoryScreen(
                         )
                     }
                 }
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+                        )
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text("Program Strategy", style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                todayStrategySummary,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            todayStrategy.detail?.takeIf { it.isNotBlank() && it != todayStrategySummary }?.let { detail ->
+                                Text(
+                                    detail,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            FilledTonalButton(
+                                onClick = { showStrategyEditor = true },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Edit Strategy")
+                            }
+                        }
+                    }
+                }
                 items(state.programs, key = { it.id }) { p ->
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         colors = CardDefaults.cardColors(
-                            containerColor = if (p.id == state.activeProgramId) {
+                            containerColor = if (todayStrategy.program?.id == p.id) {
                                 MaterialTheme.colorScheme.primaryContainer
                             } else {
                                 MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
@@ -445,9 +520,9 @@ fun ProgramsCategoryScreen(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text(p.name, style = MaterialTheme.typography.titleMedium)
-                                    if (p.id == state.activeProgramId) {
+                                    if (todayStrategy.program?.id == p.id) {
                                         Text(
-                                            "Active",
+                                            if (state.strategy.mode == ProgramStrategyMode.MANUAL) "Active" else "Today",
                                             style = MaterialTheme.typography.labelMedium,
                                             color = MaterialTheme.colorScheme.primary
                                         )
@@ -480,6 +555,284 @@ fun ProgramsCategoryScreen(
         }
     }
 }
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+private fun ProgramStrategyEditorDialog(
+    current: ProgramStrategy,
+    programs: List<FitnessProgram>,
+    onDismiss: () -> Unit,
+    onSave: (ProgramStrategy) -> Unit,
+) {
+    var mode by rememberSaveable { mutableStateOf(current.mode.name) }
+    var repeatProgramId by rememberSaveable { mutableStateOf(current.repeatProgramId.orEmpty()) }
+    var rotationStartDate by rememberSaveable { mutableStateOf(current.rotationStartDate.orEmpty()) }
+    var rotationRepeats by rememberSaveable { mutableStateOf(current.rotationRepeats) }
+    var rotationEntries by remember {
+        mutableStateOf(
+            if (current.rotationEntries.isEmpty()) {
+                listOf(ProgramRotationEntry())
+            } else {
+                current.rotationEntries
+            }
+        )
+    }
+    var challengeName by rememberSaveable { mutableStateOf(current.challengeName.orEmpty()) }
+    var challengeProgramId by rememberSaveable { mutableStateOf(current.challengeProgramId.orEmpty()) }
+    var challengeStartDate by rememberSaveable { mutableStateOf(current.challengeStartDate.orEmpty()) }
+    var challengeLengthDays by rememberSaveable { mutableStateOf(current.challengeLengthDays.toString()) }
+    val selectedMode = ProgramStrategyMode.entries.firstOrNull { it.name == mode } ?: ProgramStrategyMode.MANUAL
+    val canSave = when (selectedMode) {
+        ProgramStrategyMode.MANUAL -> true
+        ProgramStrategyMode.REPEAT -> programs.any { it.id == repeatProgramId }
+        ProgramStrategyMode.ROTATION ->
+            parseIsoDateOrNull(rotationStartDate) != null &&
+                rotationEntries.isNotEmpty() &&
+                rotationEntries.all { entry ->
+                    entry.programId?.let { id -> programs.any { it.id == id } } == true && entry.repeatWeeks > 0
+                }
+        ProgramStrategyMode.CHALLENGE ->
+            programs.any { it.id == challengeProgramId } &&
+                parseIsoDateOrNull(challengeStartDate) != null &&
+                challengeLengthDays.toIntOrNull()?.let { it in 1..365 } == true
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Program Strategy") },
+        text = {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 520.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    "Choose how ERV decides which weekly program is active for a given date.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    ProgramStrategyMode.entries.forEach { entry ->
+                        FilterChip(
+                            selected = selectedMode == entry,
+                            onClick = { mode = entry.name },
+                            label = { Text(programStrategyModeLabel(entry)) }
+                        )
+                    }
+                }
+                when (selectedMode) {
+                    ProgramStrategyMode.MANUAL -> {
+                        Text(
+                            "Manual mode uses the program you mark active in the list below. Change it any time.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    ProgramStrategyMode.REPEAT -> {
+                        ProgramStrategyProgramSelector(
+                            label = "Program to repeat every week",
+                            selectedProgramId = repeatProgramId,
+                            programs = programs,
+                            onSelected = { repeatProgramId = it }
+                        )
+                    }
+                    ProgramStrategyMode.ROTATION -> {
+                        OutlinedTextField(
+                            value = rotationStartDate,
+                            onValueChange = { rotationStartDate = it },
+                            label = { Text("Rotation start date (YYYY-MM-DD)") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Repeat cycle", style = MaterialTheme.typography.bodyMedium)
+                            FilterChip(
+                                selected = rotationRepeats,
+                                onClick = { rotationRepeats = !rotationRepeats },
+                                label = { Text(if (rotationRepeats) "Yes" else "No") }
+                            )
+                        }
+                        rotationEntries.forEachIndexed { index, entry ->
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                )
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Text("Phase ${index + 1}", style = MaterialTheme.typography.titleSmall)
+                                    ProgramStrategyProgramSelector(
+                                        label = "Program",
+                                        selectedProgramId = entry.programId.orEmpty(),
+                                        programs = programs,
+                                        onSelected = { programId ->
+                                            rotationEntries = rotationEntries.map {
+                                                if (it.id == entry.id) it.copy(programId = programId) else it
+                                            }
+                                        }
+                                    )
+                                    OutlinedTextField(
+                                        value = entry.repeatWeeks.toString(),
+                                        onValueChange = { raw ->
+                                            val weeks = raw.filter(Char::isDigit).toIntOrNull()?.coerceIn(1, 52) ?: 1
+                                            rotationEntries = rotationEntries.map {
+                                                if (it.id == entry.id) it.copy(repeatWeeks = weeks) else it
+                                            }
+                                        },
+                                        label = { Text("Weeks") },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        singleLine = true
+                                    )
+                                    if (rotationEntries.size > 1) {
+                                        TextButton(
+                                            onClick = { rotationEntries = rotationEntries.filterNot { it.id == entry.id } },
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Text("Remove phase")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        TextButton(
+                            onClick = { rotationEntries = rotationEntries + ProgramRotationEntry() },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Add phase")
+                        }
+                    }
+                    ProgramStrategyMode.CHALLENGE -> {
+                        OutlinedTextField(
+                            value = challengeName,
+                            onValueChange = { challengeName = it },
+                            label = { Text("Challenge name") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true
+                        )
+                        ProgramStrategyProgramSelector(
+                            label = "Weekly program for the challenge",
+                            selectedProgramId = challengeProgramId,
+                            programs = programs,
+                            onSelected = { challengeProgramId = it }
+                        )
+                        OutlinedTextField(
+                            value = challengeStartDate,
+                            onValueChange = { challengeStartDate = it },
+                            label = { Text("Start date (YYYY-MM-DD)") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true
+                        )
+                        OutlinedTextField(
+                            value = challengeLengthDays,
+                            onValueChange = { challengeLengthDays = it.filter(Char::isDigit) },
+                            label = { Text("Duration days") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val strategy = when (selectedMode) {
+                        ProgramStrategyMode.MANUAL -> ProgramStrategy()
+                        ProgramStrategyMode.REPEAT -> ProgramStrategy(
+                            mode = ProgramStrategyMode.REPEAT,
+                            repeatProgramId = repeatProgramId.ifBlank { null },
+                        )
+                        ProgramStrategyMode.ROTATION -> ProgramStrategy(
+                            mode = ProgramStrategyMode.ROTATION,
+                            rotationStartDate = rotationStartDate.ifBlank { null },
+                            rotationEntries = rotationEntries,
+                            rotationRepeats = rotationRepeats,
+                        )
+                        ProgramStrategyMode.CHALLENGE -> ProgramStrategy(
+                            mode = ProgramStrategyMode.CHALLENGE,
+                            challengeName = challengeName.ifBlank { null },
+                            challengeProgramId = challengeProgramId.ifBlank { null },
+                            challengeStartDate = challengeStartDate.ifBlank { null },
+                            challengeLengthDays = challengeLengthDays.toIntOrNull() ?: 75,
+                        )
+                    }
+                    onSave(strategy)
+                },
+                enabled = canSave
+            ) {
+                Text("Save")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ProgramStrategyProgramSelector(
+    label: String,
+    selectedProgramId: String,
+    programs: List<FitnessProgram>,
+    onSelected: (String) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    ExposedDropdownMenuBox(
+        expanded = expanded,
+        onExpandedChange = { expanded = it }
+    ) {
+        OutlinedTextField(
+            value = programs.firstOrNull { it.id == selectedProgramId }?.name ?: "Choose program",
+            onValueChange = {},
+            readOnly = true,
+            label = { Text(label) },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            modifier = Modifier
+                .fillMaxWidth()
+                .menuAnchor()
+        )
+        ExposedDropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false }
+        ) {
+            programs.forEach { program ->
+                DropdownMenuItem(
+                    text = { Text(program.name) },
+                    onClick = {
+                        onSelected(program.id)
+                        expanded = false
+                    }
+                )
+            }
+        }
+    }
+}
+
+private fun programStrategyModeLabel(mode: ProgramStrategyMode): String = when (mode) {
+    ProgramStrategyMode.MANUAL -> "Manual"
+    ProgramStrategyMode.REPEAT -> "Repeat"
+    ProgramStrategyMode.ROTATION -> "Rotation"
+    ProgramStrategyMode.CHALLENGE -> "Challenge"
+}
+
+private fun parseIsoDateOrNull(raw: String): LocalDate? =
+    try {
+        LocalDate.parse(raw.trim())
+    } catch (_: DateTimeParseException) {
+        null
+    }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -534,7 +887,7 @@ fun ProgramDetailScreen(
     var addBlockForDay by remember { mutableIntStateOf(1) }
     var showAddBlock by remember { mutableStateOf(false) }
     var editBlock by remember { mutableStateOf<ProgramDayBlock?>(null) }
-    var showQuickAttach by remember { mutableStateOf(false) }
+    var editContentBlock by remember { mutableStateOf<ProgramDayBlock?>(null) }
     val weekPlanListState = rememberLazyListState()
 
     val exportJson = remember {
@@ -550,7 +903,12 @@ fun ProgramDetailScreen(
         val d = draft ?: return@rememberLauncherForActivityResult
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
-            val envelope = ProgramImportEnvelope(programs = listOf(d), activeProgramId = d.id)
+            val exportedStrategy = programsState.strategy.sanitized(setOf(d.id)).takeIf { it != ProgramStrategy() }
+            val envelope = ProgramImportEnvelope(
+                programs = listOf(d),
+                activeProgramId = d.id,
+                strategy = exportedStrategy,
+            )
             val text = exportJson.encodeToString(ProgramImportEnvelope.serializer(), envelope)
             val ok = withContext(Dispatchers.IO) {
                 runCatching {
@@ -581,6 +939,23 @@ fun ProgramDetailScreen(
         val current = draft ?: return
         val day = current.normalizedWeek().first { it.dayOfWeek == dayOfWeek }
         draft = current.withWeekDayUpdated(day.copy(blocks = transform(day.blocks)))
+    }
+
+    suspend fun persistProgramEdits(program: FitnessProgram, snackbarMessage: String? = null) {
+        programRepository.upsertProgram(program)
+        if (relayPool != null && signer != null) {
+            ProgramSync.publishMaster(
+                appContext = context.applicationContext,
+                relayPool = relayPool,
+                signer = signer,
+                state = programRepository.currentState(),
+                dataRelayUrls = keyManager.relayUrlsForKind30078Publish(),
+            )
+        }
+        draft = programRepository.currentState().programById(program.id)
+        if (!snackbarMessage.isNullOrBlank()) {
+            snackbarHostState.showSnackbar(snackbarMessage)
+        }
     }
 
     if (pendingDelete) {
@@ -614,11 +989,16 @@ fun ProgramDetailScreen(
         )
     }
 
-    if (showAddBlock || editBlock != null) {
-        key(editBlock?.id ?: "new", showAddBlock) {
+    if (showAddBlock || editBlock != null || editContentBlock != null) {
+        key(editBlock?.id ?: editContentBlock?.id ?: "new", showAddBlock) {
             BlockEditorDialog(
                 initialDay = addBlockForDay,
-                existing = editBlock,
+                existing = editBlock ?: editContentBlock,
+                editorMode = if (editContentBlock != null) {
+                    ProgramBlockEditorMode.CONTENT
+                } else {
+                    ProgramBlockEditorMode.STRUCTURE
+                },
                 weightRepository = weightRepository,
                 weightState = weightState,
                 cardioState = cardioState,
@@ -630,46 +1010,29 @@ fun ProgramDetailScreen(
                 onDismiss = {
                     showAddBlock = false
                     editBlock = null
+                    editContentBlock = null
                 },
                 onSave = { day, block ->
-                    var nextProgram = d
-                    val oldId = editBlock?.id
-                    if (oldId != null) {
-                        d.normalizedWeek().forEach { wd ->
-                            if (wd.blocks.any { it.id == oldId }) {
-                                nextProgram = nextProgram.withWeekDayUpdated(
-                                    wd.copy(blocks = wd.blocks.filterNot { it.id == oldId })
-                                )
+                    scope.launch {
+                        var nextProgram = d
+                        val oldId = editBlock?.id ?: editContentBlock?.id
+                        if (oldId != null) {
+                            d.normalizedWeek().forEach { wd ->
+                                if (wd.blocks.any { it.id == oldId }) {
+                                    nextProgram = nextProgram.withWeekDayUpdated(
+                                        wd.copy(blocks = wd.blocks.filterNot { it.id == oldId })
+                                    )
+                                }
                             }
                         }
+                        val weekDay = nextProgram.normalizedWeek().first { it.dayOfWeek == day }
+                        val updatedDay = weekDay.copy(blocks = weekDay.blocks + block)
+                        val savedProgram = nextProgram.withWeekDayUpdated(updatedDay)
+                        persistProgramEdits(savedProgram)
+                        showAddBlock = false
+                        editBlock = null
+                        editContentBlock = null
                     }
-                    val weekDay = nextProgram.normalizedWeek().first { it.dayOfWeek == day }
-                    val updatedDay = weekDay.copy(blocks = weekDay.blocks + block)
-                    draft = nextProgram.withWeekDayUpdated(updatedDay)
-                    showAddBlock = false
-                    editBlock = null
-                }
-            )
-        }
-    }
-
-    if (showQuickAttach) {
-        val attachSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        ModalBottomSheet(
-            onDismissRequest = { showQuickAttach = false },
-            sheetState = attachSheetState
-        ) {
-            QuickAttachRoutineSheet(
-                weightLibrary = weightState,
-                weightRoutines = weightState.routines.sortedBy { it.name.lowercase() },
-                cardioRoutines = cardioState.routines.sortedBy { it.name.lowercase() },
-                stretchRoutines = stretchState.routines.sortedBy { it.name.lowercase() },
-                unifiedRoutines = unifiedRoutineState.routines.sortedBy { it.name.lowercase() },
-                onDismiss = { showQuickAttach = false },
-                onAttach = { day, block ->
-                    val weekDay = d.normalizedWeek().first { it.dayOfWeek == day }
-                    draft = d.withWeekDayUpdated(weekDay.copy(blocks = weekDay.blocks + block))
-                    showQuickAttach = false
                 }
             )
         }
@@ -787,7 +1150,11 @@ fun ProgramDetailScreen(
                                 role = Role.Checkbox,
                                 onValueChange = { checked ->
                                     scope.launch {
-                                        programRepository.setActiveProgram(if (checked) d.id else null)
+                                        if (checked) {
+                                            programRepository.activateProgramForDate(d.id)
+                                        } else {
+                                            programRepository.setActiveProgram(null)
+                                        }
                                         if (relayPool != null && signer != null) {
                                             ProgramSync.publishMaster(
                                                 appContext = context.applicationContext,
@@ -807,37 +1174,26 @@ fun ProgramDetailScreen(
                                 checked = programsState.activeProgramId == d.id,
                                 onCheckedChange = null
                             )
-                            Text("Active program (shown in your list)", modifier = Modifier.padding(start = 8.dp))
+                            Text(
+                                if (programsState.strategy.mode == ProgramStrategyMode.MANUAL) {
+                                    "Active program (shown in your list)"
+                                } else {
+                                    "Manual fallback program"
+                                },
+                                modifier = Modifier.padding(start = 8.dp)
+                            )
                         }
                         Spacer(Modifier.height(8.dp))
                         FilledTonalButton(
                             onClick = {
                                 scope.launch {
                                     val toSave = draft ?: return@launch
-                                    programRepository.upsertProgram(toSave)
-                                    if (relayPool != null && signer != null) {
-                                        ProgramSync.publishMaster(
-                                            appContext = context.applicationContext,
-                                            relayPool = relayPool,
-                                            signer = signer,
-                                            state = programRepository.currentState(),
-                                            dataRelayUrls = keyManager.relayUrlsForKind30078Publish(),
-                                        )
-                                    }
-                                    draft = programRepository.currentState().programById(programId)
-                                    snackbarHostState.showSnackbar("Saved")
+                                    persistProgramEdits(toSave, "Saved")
                                 }
                             },
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text("Save changes")
-                        }
-                        Spacer(Modifier.height(8.dp))
-                        FilledTonalButton(
-                            onClick = { showQuickAttach = true },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("Attach saved routine to a day")
                         }
                     }
                 }
@@ -847,7 +1203,7 @@ fun ProgramDetailScreen(
                 HorizontalDivider()
                 Text("Weekly plan", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    "Each day uses ISO Monday–Sunday. Tap a day chip to scroll. Use the arrows to reorder blocks, duplicate to reuse them, and edit a block to move it to a different day.",
+                    "Each day uses ISO Monday–Sunday. Tap a day chip to scroll. Use Edit Block for day, type, notes, and timing, and use the block-specific content button for exercises, routines, stretches, or cardio setup.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -897,8 +1253,7 @@ fun ProgramDetailScreen(
                                     .fillMaxWidth()
                             ) {
                                 Text(
-                                    block.kind.name.replace('_', ' ').lowercase()
-                                        .replaceFirstChar { it.titlecase() },
+                                    programBlockKindLabel(block.kind),
                                     style = MaterialTheme.typography.labelMedium,
                                     color = MaterialTheme.colorScheme.primary
                                 )
@@ -965,13 +1320,25 @@ fun ProgramDetailScreen(
                                         }
                                     )
                                     ProgramBlockActionButton(
-                                        label = "Edit",
+                                        label = "Edit Block",
                                         icon = { Icon(Icons.Default.Edit, contentDescription = null) },
                                         onClick = {
                                             editBlock = block
+                                            editContentBlock = null
                                             addBlockForDay = day.dayOfWeek
                                         }
                                     )
+                                    programBlockContentActionLabel(block.kind)?.let { contentLabel ->
+                                        ProgramBlockActionButton(
+                                            label = contentLabel,
+                                            icon = { Icon(Icons.Default.Edit, contentDescription = null) },
+                                            onClick = {
+                                                editBlock = null
+                                                editContentBlock = block
+                                                addBlockForDay = day.dayOfWeek
+                                            }
+                                        )
+                                    }
                                     ProgramBlockActionButton(
                                         label = "Remove",
                                         icon = { Icon(Icons.Default.Delete, contentDescription = null) },
@@ -1014,11 +1381,59 @@ private fun ProgramBlockActionButton(
     }
 }
 
+private enum class ProgramBlockEditorMode { STRUCTURE, CONTENT }
+
+private fun programBlockKindLabel(kind: ProgramBlockKind): String = when (kind) {
+    ProgramBlockKind.WEIGHT -> "Weight Training"
+    ProgramBlockKind.CARDIO -> "Cardio"
+    ProgramBlockKind.UNIFIED_ROUTINE -> "Unified Workout"
+    ProgramBlockKind.FLEX_TRAINING -> "Flexible Training"
+    ProgramBlockKind.STRETCH_ROUTINE -> "Stretch Routine"
+    ProgramBlockKind.STRETCH_CATALOG -> "Stretch"
+    ProgramBlockKind.HEAT_COLD -> "Heat / Cold"
+    ProgramBlockKind.REST -> "Rest"
+    ProgramBlockKind.CUSTOM -> "Custom"
+    ProgramBlockKind.OTHER -> "Habits"
+}
+
+private fun programBlockContentActionLabel(kind: ProgramBlockKind): String? = when (kind) {
+    ProgramBlockKind.WEIGHT -> "Exercises"
+    ProgramBlockKind.CARDIO -> "Cardio Setup"
+    ProgramBlockKind.UNIFIED_ROUTINE -> "Routine"
+    ProgramBlockKind.STRETCH_ROUTINE -> "Routine"
+    ProgramBlockKind.STRETCH_CATALOG -> "Stretches"
+    ProgramBlockKind.HEAT_COLD -> "Heat / Cold"
+    ProgramBlockKind.OTHER -> "Checklist"
+    ProgramBlockKind.FLEX_TRAINING, ProgramBlockKind.REST, ProgramBlockKind.CUSTOM -> null
+}
+
+private fun programBlockContentEditorTitle(kind: ProgramBlockKind): String = when (kind) {
+    ProgramBlockKind.WEIGHT -> "Edit Exercises"
+    ProgramBlockKind.CARDIO -> "Edit Cardio Setup"
+    ProgramBlockKind.UNIFIED_ROUTINE -> "Edit Routine"
+    ProgramBlockKind.STRETCH_ROUTINE -> "Edit Stretch Routine"
+    ProgramBlockKind.STRETCH_CATALOG -> "Edit Stretches"
+    ProgramBlockKind.HEAT_COLD -> "Edit Heat / Cold"
+    ProgramBlockKind.OTHER -> "Edit Checklist"
+    else -> "Edit Content"
+}
+
+private fun programBlockSupportsTargetMinutes(kind: ProgramBlockKind): Boolean =
+    kind in setOf(
+        ProgramBlockKind.UNIFIED_ROUTINE,
+        ProgramBlockKind.FLEX_TRAINING,
+        ProgramBlockKind.CARDIO,
+        ProgramBlockKind.STRETCH_ROUTINE,
+        ProgramBlockKind.STRETCH_CATALOG,
+        ProgramBlockKind.HEAT_COLD
+    )
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 private fun BlockEditorDialog(
     initialDay: Int,
     existing: ProgramDayBlock?,
+    editorMode: ProgramBlockEditorMode,
     weightRepository: WeightRepository,
     weightState: WeightLibraryState,
     cardioState: CardioLibraryState,
@@ -1056,6 +1471,8 @@ private fun BlockEditorDialog(
             if (src.isEmpty()) add("") else addAll(src)
         }
     }
+    val isStructureEditor = editorMode == ProgramBlockEditorMode.STRUCTURE
+    val isContentEditor = editorMode == ProgramBlockEditorMode.CONTENT
 
     weightRoutineEditTarget?.let { initial ->
         key(initial.id) {
@@ -1099,73 +1516,97 @@ private fun BlockEditorDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (existing == null) "Add block" else "Edit block") },
+        title = {
+            Text(
+                when {
+                    existing == null -> "Add Block"
+                    isContentEditor -> programBlockContentEditorTitle(kind)
+                    else -> "Edit Block"
+                }
+            )
+        },
         text = {
             Column(
                 Modifier
                     .heightIn(max = 520.dp)
                     .verticalScroll(rememberScrollState())
             ) {
-                Text("Day", style = MaterialTheme.typography.labelMedium)
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    (1..7).forEach { d ->
-                        FilterChip(
-                            selected = dayOfWeek == d,
-                            onClick = { dayOfWeek = d },
-                            label = { Text(isoDayOfWeekLabel(d).take(3)) }
-                        )
-                    }
-                }
-                Spacer(Modifier.height(12.dp))
-                Text("Type", style = MaterialTheme.typography.labelMedium)
-                Column {
-                    ProgramBlockKind.entries.forEach { k ->
-                        Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .toggleable(
-                                    value = kind == k,
-                                    role = Role.RadioButton,
-                                    onValueChange = { if (it) kind = k }
-                                )
-                                .padding(vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            RadioButton(selected = kind == k, onClick = null)
-                            Text(
-                                when (k) {
-                                    ProgramBlockKind.UNIFIED_ROUTINE -> "Unified Workout"
-                                    ProgramBlockKind.FLEX_TRAINING -> "Workout (cardio or weight)"
-                                    ProgramBlockKind.OTHER -> "Other (habit checklist)"
-                                    else -> k.name.replace('_', ' ').lowercase()
-                                        .replaceFirstChar { it.titlecase() }
-                                },
-                                modifier = Modifier.padding(start = 8.dp)
+                if (isStructureEditor) {
+                    Text("Day", style = MaterialTheme.typography.labelMedium)
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        (1..7).forEach { d ->
+                            FilterChip(
+                                selected = dayOfWeek == d,
+                                onClick = { dayOfWeek = d },
+                                label = { Text(isoDayOfWeekLabel(d).take(3)) }
                             )
                         }
                     }
+                    Spacer(Modifier.height(12.dp))
+                    Text("Type", style = MaterialTheme.typography.labelMedium)
+                    Column {
+                        ProgramBlockKind.entries.forEach { k ->
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .toggleable(
+                                        value = kind == k,
+                                        role = Role.RadioButton,
+                                        onValueChange = { if (it) kind = k }
+                                    )
+                                    .padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                RadioButton(selected = kind == k, onClick = null)
+                                Text(
+                                    when (k) {
+                                        ProgramBlockKind.FLEX_TRAINING -> "Flexible Training (cardio or weight)"
+                                        ProgramBlockKind.OTHER -> "Other (habit checklist)"
+                                        else -> programBlockKindLabel(k)
+                                    },
+                                    modifier = Modifier.padding(start = 8.dp)
+                                )
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = title,
+                        onValueChange = { title = it },
+                        label = { Text("Title (optional)") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = notes,
+                        onValueChange = { notes = it },
+                        label = { Text("Notes") },
+                        modifier = Modifier.fillMaxWidth(),
+                        minLines = 2
+                    )
+                    if (programBlockSupportsTargetMinutes(kind)) {
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = targetMin,
+                            onValueChange = { targetMin = it.filter { ch -> ch.isDigit() } },
+                            label = { Text("Target minutes (optional)") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true
+                        )
+                    }
+                } else {
+                    Text(
+                        "Use this screen to edit the content for ${programBlockKindLabel(kind).lowercase()}. Use Edit Block from the main page for day, type, notes, and timing.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
-                Spacer(Modifier.height(12.dp))
-                OutlinedTextField(
-                    value = title,
-                    onValueChange = { title = it },
-                    label = { Text("Title (optional)") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
-                )
-                Spacer(Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = notes,
-                    onValueChange = { notes = it },
-                    label = { Text("Notes") },
-                    modifier = Modifier.fillMaxWidth(),
-                    minLines = 2
-                )
 
-                when (kind) {
+                if (isContentEditor) when (kind) {
                     ProgramBlockKind.WEIGHT -> {
                         Spacer(Modifier.height(12.dp))
                         Text("Exercises", style = MaterialTheme.typography.labelMedium)
@@ -1313,10 +1754,10 @@ private fun BlockEditorDialog(
                         ) {
                             OutlinedTextField(
                                 value = unifiedRoutineState.routines.firstOrNull { it.id == unifiedRoutineId }?.name
-                                    ?: if (unifiedRoutineId.isBlank()) "Choose unified routine" else "Unknown routine",
+                                    ?: if (unifiedRoutineId.isBlank()) "Choose unified workout" else "Unknown workout",
                                 onValueChange = {},
                                 readOnly = true,
-                                label = { Text("Unified routine") },
+                                label = { Text("Unified workout") },
                                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = unifiedExpanded) },
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -1338,7 +1779,7 @@ private fun BlockEditorDialog(
                             }
                         }
                         Text(
-                            "Unified routines can combine saved weight, cardio, and stretch segments in one launcher.",
+                            "Unified workouts can combine saved weight, cardio, and stretch segments in one launcher.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(top = 8.dp)
@@ -1418,7 +1859,7 @@ private fun BlockEditorDialog(
                     ProgramBlockKind.FLEX_TRAINING -> {
                         Spacer(Modifier.height(12.dp))
                         Text(
-                            "This block can be completed with either a cardio session or a weight workout logged through ERV on that day.",
+                            "This flexible training block can be completed with either a cardio session or a weight workout logged through ERV on that day.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -1545,45 +1986,32 @@ private fun BlockEditorDialog(
                     }
                 }
 
-                if (kind in setOf(
-                        ProgramBlockKind.UNIFIED_ROUTINE,
-                        ProgramBlockKind.FLEX_TRAINING,
-                        ProgramBlockKind.CARDIO,
-                        ProgramBlockKind.STRETCH_ROUTINE,
-                        ProgramBlockKind.STRETCH_CATALOG,
-                        ProgramBlockKind.HEAT_COLD
-                    )
-                ) {
-                    Spacer(Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = targetMin,
-                        onValueChange = { targetMin = it.filter { ch -> ch.isDigit() } },
-                        label = { Text("Target minutes (optional)") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
-                }
             }
         },
         confirmButton = {
             TextButton(
                 onClick = {
                     val mins = targetMin.toIntOrNull()
-                    val routineIdOrNull = weightRoutineId.ifBlank { null }
+                    val weightRoutineIdOrNull =
+                        if (kind == ProgramBlockKind.WEIGHT) weightRoutineId.ifBlank { null } else null
                     val block = ProgramDayBlock(
                         id = existing?.id ?: UUID.randomUUID().toString(),
                         kind = kind,
                         title = title.ifBlank { null },
                         notes = notes.ifBlank { null },
-                        weightExerciseIds = if (routineIdOrNull != null) emptyList() else weightIds.toList(),
-                        weightRoutineId = routineIdOrNull,
+                        weightExerciseIds = if (kind == ProgramBlockKind.WEIGHT && weightRoutineIdOrNull == null) {
+                            weightIds.toList()
+                        } else {
+                            emptyList()
+                        },
+                        weightRoutineId = weightRoutineIdOrNull,
                         cardioActivity = if (kind == ProgramBlockKind.CARDIO) cardioAct else null,
-                        cardioRoutineId = cardioRId.ifBlank { null },
+                        cardioRoutineId = if (kind == ProgramBlockKind.CARDIO) cardioRId.ifBlank { null } else null,
                         unifiedRoutineId = if (kind == ProgramBlockKind.UNIFIED_ROUTINE) unifiedRoutineId.ifBlank { null } else null,
-                        stretchRoutineId = stretchRId.ifBlank { null },
-                        stretchCatalogIds = stretchCatIds.toList(),
+                        stretchRoutineId = if (kind == ProgramBlockKind.STRETCH_ROUTINE) stretchRId.ifBlank { null } else null,
+                        stretchCatalogIds = if (kind == ProgramBlockKind.STRETCH_CATALOG) stretchCatIds.toList() else emptyList(),
                         heatColdMode = if (kind == ProgramBlockKind.HEAT_COLD) heatMode else null,
-                        targetMinutes = mins,
+                        targetMinutes = if (programBlockSupportsTargetMinutes(kind)) mins else null,
                         checklistItems = if (kind == ProgramBlockKind.OTHER) {
                             checklistLines.map { it.trim() }.filter { it.isNotBlank() }
                         } else {
@@ -1598,243 +2026,4 @@ private fun BlockEditorDialog(
             TextButton(onClick = onDismiss) { Text("Cancel") }
         }
     )
-}
-
-private enum class QuickAttachKind { WEIGHT, CARDIO, STRETCH, UNIFIED }
-
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
-@Composable
-private fun QuickAttachRoutineSheet(
-    weightLibrary: WeightLibraryState,
-    weightRoutines: List<WeightRoutine>,
-    cardioRoutines: List<CardioRoutine>,
-    stretchRoutines: List<StretchRoutine>,
-    unifiedRoutines: List<UnifiedRoutine>,
-    onDismiss: () -> Unit,
-    onAttach: (day: Int, block: ProgramDayBlock) -> Unit,
-) {
-    var kindName by rememberSaveable { mutableStateOf(QuickAttachKind.WEIGHT.name) }
-    var dayOfWeek by rememberSaveable { mutableIntStateOf(1) }
-    var search by rememberSaveable { mutableStateOf("") }
-    val kind = QuickAttachKind.entries.firstOrNull { it.name == kindName } ?: QuickAttachKind.WEIGHT
-    val q = search.trim().lowercase()
-
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp)
-            .padding(bottom = 32.dp)
-    ) {
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text("Attach saved routine", style = MaterialTheme.typography.titleLarge)
-            TextButton(onClick = onDismiss) { Text("Close") }
-        }
-        Spacer(Modifier.height(12.dp))
-        Text("Day of week", style = MaterialTheme.typography.labelMedium)
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            (1..7).forEach { d ->
-                FilterChip(
-                    selected = dayOfWeek == d,
-                    onClick = { dayOfWeek = d },
-                    label = { Text(isoDayOfWeekLabel(d).take(3)) }
-                )
-            }
-        }
-        Spacer(Modifier.height(12.dp))
-        Text("Library", style = MaterialTheme.typography.labelMedium)
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            FilterChip(
-                selected = kind == QuickAttachKind.WEIGHT,
-                onClick = { kindName = QuickAttachKind.WEIGHT.name },
-                label = { Text("Weight") }
-            )
-            FilterChip(
-                selected = kind == QuickAttachKind.CARDIO,
-                onClick = { kindName = QuickAttachKind.CARDIO.name },
-                label = { Text("Cardio") }
-            )
-            FilterChip(
-                selected = kind == QuickAttachKind.STRETCH,
-                onClick = { kindName = QuickAttachKind.STRETCH.name },
-                label = { Text("Stretch") }
-            )
-            FilterChip(
-                selected = kind == QuickAttachKind.UNIFIED,
-                onClick = { kindName = QuickAttachKind.UNIFIED.name },
-                label = { Text("Unified") }
-            )
-        }
-        Spacer(Modifier.height(12.dp))
-        OutlinedTextField(
-            value = search,
-            onValueChange = { search = it },
-            label = { Text("Search routines") },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true
-        )
-        Spacer(Modifier.height(10.dp))
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(max = 400.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            when (kind) {
-                QuickAttachKind.WEIGHT -> {
-                    val rows = weightRoutines.filter { r -> q.isEmpty() || r.name.lowercase().contains(q) }
-                    if (rows.isEmpty()) {
-                        item {
-                            Text(
-                                "No weight routines match. Create one with “New weight routine” in a weight block, or in Weight Training → Routines.",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    } else {
-                        items(rows, key = { it.id }) { r ->
-                            val preview = r.exerciseIds.mapNotNull { id -> weightLibrary.exerciseById(id)?.name }
-                                .take(4)
-                                .joinToString(" → ")
-                            Card(
-                                onClick = {
-                                    onAttach(
-                                        dayOfWeek,
-                                        ProgramDayBlock(
-                                            kind = ProgramBlockKind.WEIGHT,
-                                            title = r.name,
-                                            weightRoutineId = r.id
-                                        )
-                                    )
-                                },
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Column(Modifier.padding(14.dp)) {
-                                    Text(r.name, style = MaterialTheme.typography.titleSmall)
-                                    if (preview.isNotEmpty()) {
-                                        Spacer(Modifier.height(4.dp))
-                                        Text(
-                                            preview + if (r.exerciseIds.size > 4) "…" else "",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                QuickAttachKind.CARDIO -> {
-                    val rows = cardioRoutines.filter { r -> q.isEmpty() || r.name.lowercase().contains(q) }
-                    if (rows.isEmpty()) {
-                        item {
-                            Text(
-                                "No cardio routines match. Build routines in the Cardio category.",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    } else {
-                        items(rows, key = { it.id }) { r ->
-                            Card(
-                                onClick = {
-                                    onAttach(
-                                        dayOfWeek,
-                                        ProgramDayBlock(
-                                            kind = ProgramBlockKind.CARDIO,
-                                            title = r.name,
-                                            cardioRoutineId = r.id
-                                        )
-                                    )
-                                },
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Column(Modifier.padding(14.dp)) {
-                                    Text(r.name, style = MaterialTheme.typography.titleSmall)
-                                }
-                            }
-                        }
-                    }
-                }
-                QuickAttachKind.STRETCH -> {
-                    val rows = stretchRoutines.filter { r -> q.isEmpty() || r.name.lowercase().contains(q) }
-                    if (rows.isEmpty()) {
-                        item {
-                            Text(
-                                "No stretch routines match. Build routines in Stretching.",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    } else {
-                        items(rows, key = { it.id }) { r ->
-                            Card(
-                                onClick = {
-                                    onAttach(
-                                        dayOfWeek,
-                                        ProgramDayBlock(
-                                            kind = ProgramBlockKind.STRETCH_ROUTINE,
-                                            title = r.name,
-                                            stretchRoutineId = r.id
-                                        )
-                                    )
-                                },
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Column(Modifier.padding(14.dp)) {
-                                    Text(r.name, style = MaterialTheme.typography.titleSmall)
-                                }
-                            }
-                        }
-                    }
-                }
-                QuickAttachKind.UNIFIED -> {
-                    val rows = unifiedRoutines.filter { r -> q.isEmpty() || r.name.lowercase().contains(q) }
-                    if (rows.isEmpty()) {
-                        item {
-                            Text(
-                                "No unified workouts match. Build them in Unified Workouts.",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    } else {
-                        items(rows, key = { it.id }) { r ->
-                            Card(
-                                onClick = {
-                                    onAttach(
-                                        dayOfWeek,
-                                        ProgramDayBlock(
-                                            kind = ProgramBlockKind.UNIFIED_ROUTINE,
-                                            title = r.name,
-                                            unifiedRoutineId = r.id
-                                        )
-                                    )
-                                },
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Column(Modifier.padding(14.dp)) {
-                                    Text(r.name, style = MaterialTheme.typography.titleSmall)
-                                    Text(
-                                        "${r.blocks.size} block(s)",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
 }

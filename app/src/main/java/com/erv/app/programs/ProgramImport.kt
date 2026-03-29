@@ -15,7 +15,8 @@ import kotlinx.serialization.json.decodeFromJsonElement
  * {
  *   "ervImportVersion": 1,
  *   "programs": [ { "name": "My block", "weeklySchedule": [ ... ] } ],
- *   "activeProgramId": "optional-uuid"
+ *   "activeProgramId": "optional-uuid",
+ *   "strategy": { "mode": "REPEAT", "repeatProgramId": "optional-uuid" }
  * }
  * ```
  */
@@ -23,7 +24,8 @@ import kotlinx.serialization.json.decodeFromJsonElement
 data class ProgramImportEnvelope(
     val ervImportVersion: Int = 1,
     val programs: List<FitnessProgram> = emptyList(),
-    val activeProgramId: String? = null
+    val activeProgramId: String? = null,
+    val strategy: ProgramStrategy? = null,
 )
 
 object ProgramImport {
@@ -87,6 +89,30 @@ object ProgramImport {
         val active = envelope.activeProgramId
         if (active != null && envelope.programs.none { it.id == active }) {
             errors += "activeProgramId does not match any imported program id"
+        }
+        envelope.strategy?.let { strategy ->
+            when (strategy.mode) {
+                ProgramStrategyMode.ROTATION -> {
+                    if (strategy.rotationEntries.isEmpty()) {
+                        errors += "strategy.rotationEntries is required for ROTATION mode"
+                    }
+                    if (strategy.rotationEntries.any { it.repeatWeeks <= 0 }) {
+                        errors += "strategy.rotationEntries.repeatWeeks must be >= 1"
+                    }
+                    if (strategy.rotationStartDate.isNullOrBlank()) {
+                        errors += "strategy.rotationStartDate is required for ROTATION mode"
+                    }
+                }
+                ProgramStrategyMode.CHALLENGE -> {
+                    if (strategy.challengeStartDate.isNullOrBlank()) {
+                        errors += "strategy.challengeStartDate is required for CHALLENGE mode"
+                    }
+                    if (strategy.challengeLengthDays !in 1..365) {
+                        errors += "strategy.challengeLengthDays must be between 1 and 365"
+                    }
+                }
+                else -> Unit
+            }
         }
         return errors.distinct()
     }

@@ -345,9 +345,15 @@ object LibraryStateMerge {
             val programs = mergeProgramsByLastModified(remoteState.programs, localState.programs)
             val activeProgramId = localState.activeProgramId
                 ?: remoteState.activeProgramId?.takeIf { id -> programs.any { it.id == id } }
+            val strategy = if (localState.strategy != com.erv.app.programs.ProgramStrategy()) {
+                localState.strategy
+            } else {
+                remoteState.strategy
+            }
             ProgramsLibraryState(
                 programs = programs,
                 activeProgramId = activeProgramId,
+                strategy = strategy,
                 masterUpdatedAtEpochSeconds = max(localState.masterUpdatedAtEpochSeconds, remoteState.masterUpdatedAtEpochSeconds)
             )
         } else if (localState.masterUpdatedAtEpochSeconds >= remoteState.masterUpdatedAtEpochSeconds) {

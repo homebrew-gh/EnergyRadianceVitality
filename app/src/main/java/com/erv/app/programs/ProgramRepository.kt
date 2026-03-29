@@ -120,7 +120,38 @@ class ProgramRepository(context: Context) {
         }
     }
 
-    suspend fun mergeImportedPrograms(imported: List<FitnessProgram>, setActiveFromImport: String?) {
+    suspend fun activateProgramForDate(
+        programId: String,
+        activationDate: LocalDate = LocalDate.now(),
+    ): ProgramStrategy? {
+        val now = System.currentTimeMillis() / 1000
+        var appliedStrategy: ProgramStrategy? = null
+        updateState { lib ->
+            appliedStrategy = lib.programById(programId)?.autoStrategyWhenActivated(activationDate)
+            lib.copy(
+                activeProgramId = programId,
+                strategy = appliedStrategy ?: lib.strategy,
+                masterUpdatedAtEpochSeconds = now
+            )
+        }
+        return appliedStrategy
+    }
+
+    suspend fun setProgramStrategy(strategy: ProgramStrategy) {
+        val now = System.currentTimeMillis() / 1000
+        updateState { lib ->
+            lib.copy(
+                strategy = strategy,
+                masterUpdatedAtEpochSeconds = now
+            )
+        }
+    }
+
+    suspend fun mergeImportedPrograms(
+        imported: List<FitnessProgram>,
+        setActiveFromImport: String?,
+        strategyFromImport: ProgramStrategy? = null,
+    ) {
         val now = System.currentTimeMillis() / 1000
         updateState { lib ->
             var next = lib
@@ -129,6 +160,9 @@ class ProgramRepository(context: Context) {
             }
             if (setActiveFromImport != null && next.programs.any { it.id == setActiveFromImport }) {
                 next = next.copy(activeProgramId = setActiveFromImport)
+            }
+            if (strategyFromImport != null) {
+                next = next.copy(strategy = strategyFromImport)
             }
             next.copy(masterUpdatedAtEpochSeconds = now)
         }
@@ -161,10 +195,12 @@ class ProgramRepository(context: Context) {
 
 fun ProgramsLibraryState.sanitized(): ProgramsLibraryState {
     val validActive = activeProgramId?.takeIf { id -> programs.any { it.id == id } }
+    val validIds = programs.map { it.id }.toSet()
     val completion = syncedCompletionState()
     val fallbackMasterUpdatedAt = programs.maxOfOrNull { it.lastModifiedEpochSeconds } ?: 0L
     return copy(
         activeProgramId = validActive,
+        strategy = strategy.sanitized(validIds),
         masterUpdatedAtEpochSeconds = maxOf(masterUpdatedAtEpochSeconds, fallbackMasterUpdatedAt),
         completionState = completion,
         checklistCompletion = emptyMap()

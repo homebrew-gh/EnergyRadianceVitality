@@ -19,6 +19,7 @@ private const val PROGRAMS_PROGRESS_PREFIX = "erv/programs/progress/"
 private data class ProgramMasterPayload(
     val programs: List<FitnessProgram> = emptyList(),
     val activeProgramId: String? = null,
+    val strategy: ProgramStrategy = ProgramStrategy(),
     val masterUpdatedAtEpochSeconds: Long = 0L
 )
 
@@ -55,6 +56,7 @@ object ProgramSync {
         val masterPayload = ProgramMasterPayload(
             programs = normalized.programs,
             activeProgramId = normalized.activeProgramId,
+            strategy = normalized.strategy,
             masterUpdatedAtEpochSeconds = normalized.masterUpdatedAtEpochSeconds
         )
         pairs += PROGRAMS_MASTER_D_TAG to json.encodeToString(
@@ -105,6 +107,7 @@ object ProgramSync {
         val payload = ProgramMasterPayload(
             programs = normalized.programs,
             activeProgramId = normalized.activeProgramId,
+            strategy = normalized.strategy,
             masterUpdatedAtEpochSeconds = normalized.masterUpdatedAtEpochSeconds
         )
         val content = json.encodeToString(ProgramMasterPayload.serializer(), payload)
@@ -162,6 +165,7 @@ object ProgramSync {
         return ProgramsLibraryState(
             programs = master?.programs ?: emptyList(),
             activeProgramId = master?.activeProgramId,
+            strategy = master?.strategy ?: ProgramStrategy(),
             masterUpdatedAtEpochSeconds = master?.masterUpdatedAtEpochSeconds ?: 0L,
             completionState = progress
                 .flatMap { it.completionState.entries }

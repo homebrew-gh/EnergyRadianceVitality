@@ -55,7 +55,6 @@ import java.util.UUID
 
 private val WizardKinds = listOf(
     ProgramBlockKind.WEIGHT,
-    ProgramBlockKind.FLEX_TRAINING,
     ProgramBlockKind.CARDIO,
     ProgramBlockKind.STRETCH_CATALOG,
     ProgramBlockKind.HEAT_COLD,
@@ -171,7 +170,7 @@ fun CustomProgramWizardSheet(
                 .padding(bottom = 28.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text("Custom program builder", style = MaterialTheme.typography.titleLarge)
+            Text("Custom Program Builder", style = MaterialTheme.typography.titleLarge)
             Text(
                 when (step) {
                     0 -> "Step 1 of 4: name your program and add a short description."
@@ -277,6 +276,13 @@ fun CustomProgramWizardSheet(
                                                     onClick = {
                                                         blockKindsByDay[day] = if (kind in selectedKinds) {
                                                             selectedKinds - kind
+                                                        } else if (kind == ProgramBlockKind.REST) {
+                                                            (selectedKinds - ProgramBlockKind.WEIGHT - ProgramBlockKind.CARDIO) + kind
+                                                        } else if (
+                                                            kind == ProgramBlockKind.WEIGHT ||
+                                                            kind == ProgramBlockKind.CARDIO
+                                                        ) {
+                                                            (selectedKinds - ProgramBlockKind.REST) + kind
                                                         } else {
                                                             selectedKinds + kind
                                                         }
@@ -576,9 +582,9 @@ private fun previewRows(program: FitnessProgram): List<Pair<Int, String>> =
 
 private fun previewBlockLabel(block: ProgramDayBlock): String =
     block.title?.takeIf { it.isNotBlank() } ?: when (block.kind) {
-        ProgramBlockKind.WEIGHT -> "Weight"
+        ProgramBlockKind.WEIGHT -> "Weight Training"
         ProgramBlockKind.UNIFIED_ROUTINE -> "Routine"
-        ProgramBlockKind.FLEX_TRAINING -> "Workout"
+        ProgramBlockKind.FLEX_TRAINING -> "Flexible Training"
         ProgramBlockKind.CARDIO -> block.cardioActivity?.replace('_', ' ')?.lowercase()
             ?.replaceFirstChar { it.titlecase() } ?: "Cardio"
         ProgramBlockKind.STRETCH_ROUTINE -> "Stretch routine"
@@ -594,10 +600,11 @@ private fun previewBlockLabel(block: ProgramDayBlock): String =
     }
 
 private fun wizardKindLabel(kind: ProgramBlockKind): String = when (kind) {
+    ProgramBlockKind.WEIGHT -> "Weight Training"
     ProgramBlockKind.UNIFIED_ROUTINE -> "Routine"
-    ProgramBlockKind.FLEX_TRAINING -> "Workout"
+    ProgramBlockKind.FLEX_TRAINING -> "Flexible Training"
     ProgramBlockKind.STRETCH_CATALOG -> "Stretch"
-    ProgramBlockKind.HEAT_COLD -> "Heat / cold"
+    ProgramBlockKind.HEAT_COLD -> "Heat / Cold"
     ProgramBlockKind.OTHER -> "Habits"
     else -> kind.name.replace('_', ' ').lowercase().replaceFirstChar { it.titlecase() }
 }
@@ -605,17 +612,17 @@ private fun wizardKindLabel(kind: ProgramBlockKind): String = when (kind) {
 private fun defaultWizardBlockForKind(kind: ProgramBlockKind): ProgramDayBlock = when (kind) {
     ProgramBlockKind.WEIGHT -> ProgramDayBlock(
         kind = ProgramBlockKind.WEIGHT,
-        title = "Workout",
+        title = "Weight Training",
         notes = "Choose exercises or a saved routine in the advanced editor."
     )
     ProgramBlockKind.UNIFIED_ROUTINE -> ProgramDayBlock(
         kind = ProgramBlockKind.UNIFIED_ROUTINE,
         title = "Routine",
-        notes = "Attach a saved unified routine in the advanced editor."
+        notes = "Attach a saved unified workout in the advanced editor."
     )
     ProgramBlockKind.FLEX_TRAINING -> ProgramDayBlock(
         kind = ProgramBlockKind.FLEX_TRAINING,
-        title = "Workout",
+        title = "Flexible Training",
         targetMinutes = 45,
         notes = "Complete this with either a cardio session or a weight workout logged through ERV."
     )

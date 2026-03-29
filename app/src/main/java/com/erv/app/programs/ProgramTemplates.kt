@@ -1,11 +1,14 @@
 package com.erv.app.programs
 
+import java.time.LocalDate
 import java.util.UUID
 
 private val benchId = "erv-weight-exercise-bench-v1"
 private val deadliftId = "erv-weight-exercise-deadlift-v1"
 private val squatId = "erv-weight-exercise-squat-v1"
 private val ohpId = "erv-weight-exercise-ohp-v1"
+private const val source75Hard = "Template: 75 Hard-style"
+private const val source75Soft = "Template: 75 Soft-style"
 
 enum class ProgramTemplateCategory {
     STRENGTH,
@@ -88,6 +91,24 @@ object ProgramTemplates {
     )
 
     fun optionById(id: String): ProgramTemplateOption? = allOptions.firstOrNull { it.id == id }
+}
+
+fun FitnessProgram.autoStrategyWhenActivated(activationDate: LocalDate): ProgramStrategy? = when (sourceLabel) {
+    source75Hard -> ProgramStrategy(
+        mode = ProgramStrategyMode.CHALLENGE,
+        challengeName = "75 Hard-style",
+        challengeProgramId = id,
+        challengeStartDate = activationDate.toString(),
+        challengeLengthDays = 75,
+    )
+    source75Soft -> ProgramStrategy(
+        mode = ProgramStrategyMode.CHALLENGE,
+        challengeName = "75 Soft-style",
+        challengeProgramId = id,
+        challengeStartDate = activationDate.toString(),
+        challengeLengthDays = 75,
+    )
+    else -> null
 }
 
 private fun templatePplThreeDay(): FitnessProgram {
@@ -371,7 +392,7 @@ private fun template75HardWeek(): FitnessProgram {
         id = UUID.randomUUID().toString(),
         name = "75 Hard–style (template)",
         description = "Not affiliated with any trademark. Every day: a habit checklist (including Body Tracker progress photos) plus two flex training slots. Each workout is either cardio or weight training when you start it — not preset to runs or walks. Edit the week, then Save.",
-        sourceLabel = "Template: 75 Hard–style",
+        sourceLabel = source75Hard,
         createdAtEpochSeconds = now,
         lastModifiedEpochSeconds = now,
         weeklySchedule = (1..7).map { d -> ProgramWeekDay(dayOfWeek = d, blocks = blocks) }
@@ -407,7 +428,7 @@ private fun template75SoftWeek(): FitnessProgram {
         id = UUID.randomUUID().toString(),
         name = "75 Soft–style (template)",
         description = "Not affiliated with any trademark. Daily flex training is cardio or weight training — not locked to running. Includes a Saturday reminder for a weekly outdoor session; edit to match your rules.",
-        sourceLabel = "Template: 75 Soft–style",
+        sourceLabel = source75Soft,
         createdAtEpochSeconds = now,
         lastModifiedEpochSeconds = now,
         weeklySchedule = (1..7).map { d ->

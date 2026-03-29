@@ -4,7 +4,7 @@ Use this document when an **LLM, coach tool, or script** should output JSON that
 
 The user imports from **Settings → Import And Export → Import Programs File**. The app **parses, validates, shows a preview, then merges** into local program storage (same merge rules as the Programs category upload).
 
-When the user taps **Save Or Share All Reference Docs For AI** in the Programs section, ERV generates a bundle that includes this guide plus a **device-specific context snapshot** (equipment, saved routine ids, existing program ids, active program id, stretch catalog ids, and other reusable values). Prefer those ids over inventing new ones.
+When the user taps **Save Or Share All Reference Docs For AI** in the Programs section, ERV generates a bundle that includes this guide plus a **device-specific context snapshot** (equipment, saved routine ids, existing program ids, current active program id, current strategy summary, stretch catalog ids, and other reusable values). Prefer those ids over inventing new ones.
 
 **Privacy:** Program names and notes may include health or training context. If the user pastes into a **cloud model**, that content may leave the device. Prefer **local/offline** tools or **redacted** copies when appropriate.
 
@@ -25,14 +25,24 @@ When the user taps **Save Or Share All Reference Docs For AI** in the Programs s
 | `ervImportVersion` | No | Integer; use `1` for current parsers |
 | `programs` | **Yes** (envelope path) | Non-empty array of program objects |
 | `activeProgramId` | No | If set, must equal the `id` of one program in `programs`; after merge, that program becomes the **active** program in the Launch Pad |
+| `strategy` | No | Optional `ProgramStrategy` object; updates ERV's higher-level planner after merge |
 
 Unknown top-level keys are ignored where safe.
+
+### 1.3 Optional strategy planner
+
+- JSON import can now include an optional top-level **`strategy`** object.
+- Strategy controls which weekly program ERV uses for a given date.
+- Supported modes are `MANUAL`, `REPEAT`, `ROTATION`, and `CHALLENGE`.
+- `activeProgramId` still controls the manual active program. `strategy` is the higher-level planner.
+- Activating the built-in **75 Hard-style** or **75 Soft-style** templates **inside ERV** still auto-creates a 75-day challenge strategy from the activation date. You can also express a challenge directly in imported JSON with `strategy.mode = "CHALLENGE"`.
 
 ### 1.2 Merge behavior (what the app does)
 
 - Each program is keyed by **`id`**. If a program with the same `id` already exists locally, the **imported** program **replaces** that entry for matching ids.
 - New ids are **added** to the library.
 - If `activeProgramId` is present and valid, it is applied **after** merge.
+- If `strategy` is present, it is applied **after** merge and sanitized against the resulting program library.
 
 If the user is **not signed in**, program imports stay **on device**. If the user **is signed in**, ERV publishes the merged program master to the user's configured data relays after import.
 
@@ -76,6 +86,63 @@ You may supply **multiple** `ProgramWeekDay` rows with the same `dayOfWeek`; the
 
 ---
 
+## 3.1 `ProgramStrategy` (optional envelope field)
+
+Use this only at the top level of the **envelope**.
+
+### Manual
+
+```json
+{
+  "mode": "MANUAL"
+}
+```
+
+### Repeat one weekly program indefinitely
+
+```json
+{
+  "mode": "REPEAT",
+  "repeatProgramId": "550e8400-e29b-41d4-a716-446655440001"
+}
+```
+
+### Rotate phases by week
+
+```json
+{
+  "mode": "ROTATION",
+  "rotationStartDate": "2026-03-29",
+  "rotationRepeats": true,
+  "rotationEntries": [
+    { "programId": "prog-a", "repeatWeeks": 2 },
+    { "programId": "prog-b", "repeatWeeks": 2 }
+  ]
+}
+```
+
+### Timed challenge (e.g. 75 days)
+
+```json
+{
+  "mode": "CHALLENGE",
+  "challengeName": "75 Hard-style",
+  "challengeProgramId": "prog-75-hard",
+  "challengeStartDate": "2026-03-29",
+  "challengeLengthDays": 75
+}
+```
+
+Notes:
+
+- Strategy program ids can reference programs from the same file or programs that already exist locally.
+- Use ISO dates like `YYYY-MM-DD`.
+- For `ROTATION`, each `rotationEntries[].repeatWeeks` must be at least `1`.
+- For `CHALLENGE`, `challengeLengthDays` should be between `1` and `365`.
+- Keep strategy and block definitions at the **program scheduling** level. Do not add unsupported deep workout prescription fields such as per-set reps, load, rest, or RPE inside this programs JSON format.
+
+---
+
 ## 4. `ProgramDayBlock`
 
 | Field | Required | Notes |
@@ -96,6 +163,16 @@ You may supply **multiple** `ProgramWeekDay` rows with the same `dayOfWeek`; the
 | `checklistItems` | For **other** | Array of strings; each line is a habit the user checks off on the **dashboard** for the selected calendar day (diet, water, reading, progress photo reminder, etc.). Not synced as structured “tasks” in JSON import beyond this list. |
 
 **Rule:** For each `kind`, populate the fields that matter for that type; leave others empty or omit them.
+
+Unsupported in this format:
+
+- Per-exercise set schemes inside a program block
+- Target weight per exercise
+- Target reps per set
+- RPE / intensity targets per set
+- Set-by-set rest timers
+
+Those details should be configured later in ERV's workout/routine editors if needed. Keep imported program JSON focused on weekly structure, reusable routine references, and date-based strategy planning.
 
 ---
 
@@ -217,7 +294,7 @@ These are the **wire strings** (lowercase with underscore). They map to ERV `Pro
 | --- | --- |
 | **Weight exercise ids** (e.g. `erv-weight-exercise-bench-v1`) | **Weight Training Built-In Exercise IDs** |
 | **Cardio `cardioActivity` enum strings** | **Cardio Training Import AI Guide** (built-in activity table) |
-| **Saved routine ids, equipment limits, active program id, stretch catalog ids** | **Programs AI bundle** generated from the Programs section |
+| **Saved routine ids, equipment limits, active program id, current strategy summary, stretch catalog ids** | **Programs AI bundle** generated from the Programs section |
 
 Custom user-defined exercise ids from the user’s library are allowed in `weightExerciseIds` if the id exists on the device after merge.
 
@@ -232,9 +309,11 @@ Custom user-defined exercise ids from the user’s library are allowed in `weigh
 5. For **cardio** without a routine, use **exact** enum names such as `RUN`, `BIKE`, `AIR_BIKE`, `SKI_ERG`, etc.
 6. Prefer existing `weightRoutineId`, `cardioRoutineId`, `stretchRoutineId`, and `unifiedRoutineId` values from the generated Programs AI bundle when they already match the request.
 7. Include **`id`** on programs you expect to **update** on re-import.
-8. Set **`activeProgramId`** only when the user should **switch** their active program immediately after import.
+8. Set **`activeProgramId`** only when the user should **switch** their manual active program immediately after import.
 9. For **`other`** blocks, use **`checklistItems`** as an array of short, actionable strings (habits the user checks off in the app per day).
 10. Do **not** fabricate medical claims in `notes`; keep text aligned with what the user or coach provided.
+11. When the user wants multi-week scheduling, include a top-level **`strategy`** object instead of trying to encode rotation logic inside one weekly template.
+12. Do **not** add unsupported per-set prescription fields such as load, reps, rest, or RPE under program blocks; ERV ignores or rejects that level in this import format.
 
 ---
 

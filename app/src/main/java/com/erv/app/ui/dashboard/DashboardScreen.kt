@@ -152,8 +152,11 @@ import com.erv.app.programs.encodeStretchLaunch
 import com.erv.app.programs.encodeUnifiedRoutineLaunch
 import com.erv.app.programs.launchPadLabelsForBlocks
 import com.erv.app.programs.programBlockCompletionKey
-import com.erv.app.programs.programBlocksForCalendarDay
+import com.erv.app.programs.programBlocksForDate
 import com.erv.app.programs.programChecklistCompletionKey
+import com.erv.app.programs.ProgramStrategyMode
+import com.erv.app.programs.resolveProgramStrategyForDate
+import com.erv.app.programs.strategySummaryForDate
 import com.erv.app.programs.weightRoutineForProgramBlock
 import com.erv.app.ui.cardio.CardioElapsedTimerFullScreen
 import com.erv.app.ui.cardio.drainCardioGpsIfNeeded
@@ -489,14 +492,14 @@ fun DashboardScreen(
             }
             ProgramBlockKind.FLEX_TRAINING -> {
                 scope.launch {
-                    snackbarHostState.showSnackbar("Choose Weight or Cardio from the Programs sheet for this workout block.")
+                    snackbarHostState.showSnackbar("Choose Weight Training or Cardio from the Programs sheet for this flexible training block.")
                 }
             }
             ProgramBlockKind.UNIFIED_ROUTINE -> {
                 val routineId = block.unifiedRoutineId?.takeIf { it.isNotBlank() }
                 if (routineId == null || unifiedRoutineState.routines.none { it.id == routineId }) {
                     scope.launch {
-                        snackbarHostState.showSnackbar("No unified routine linked — edit this block in Programs.")
+                        snackbarHostState.showSnackbar("No unified workout linked — edit this block in Programs.")
                     }
                     return
                 }
@@ -2031,12 +2034,17 @@ private fun RoutinesSection(
     var showProgramSheet by remember { mutableStateOf(false) }
     var showAddLaunchPadTileMenu by remember { mutableStateOf(false) }
     val routineSectionScope = rememberCoroutineScope()
-    val activeProgram = programsLibraryState.activeProgramId?.let { id ->
-        programsLibraryState.programs.firstOrNull { it.id == id }
+    val resolvedProgram = remember(programsLibraryState, dashboardSelectedDate) {
+        programsLibraryState.resolveProgramStrategyForDate(dashboardSelectedDate)
     }
-    val dayOfWeekIso = dashboardSelectedDate.dayOfWeek.value
-    val programBlocks = remember(activeProgram?.id, dayOfWeekIso, programsLibraryState.programs) {
-        programBlocksForCalendarDay(activeProgram, dayOfWeekIso)
+    val activeProgram = resolvedProgram.program
+    val isManualProgramSelection = programsLibraryState.strategy.mode == ProgramStrategyMode.MANUAL
+    val usesProgramStrategy = resolvedProgram.isUsingStrategy
+    val programStrategySummary = remember(programsLibraryState, dashboardSelectedDate) {
+        programsLibraryState.strategySummaryForDate(dashboardSelectedDate)
+    }
+    val programBlocks = remember(programsLibraryState, dashboardSelectedDate, activeProgram?.id) {
+        programsLibraryState.programBlocksForDate(dashboardSelectedDate)
     }
     val programRowLabels = remember(programBlocks) { launchPadLabelsForBlocks(programBlocks) }
     val programBlockProgress = remember(
@@ -2134,8 +2142,10 @@ private fun RoutinesSection(
         if (allDone) QuickLogTileStatusBadge.COMPLETE else QuickLogTileStatusBadge.INCOMPLETE
     }
     val programTileSubtitle = when {
-        activeProgram == null -> "Choose a program"
+        activeProgram == null -> programStrategySummary
+        programBlocks.isEmpty() && usesProgramStrategy -> "Rest day · $programStrategySummary"
         programBlocks.isEmpty() -> "Rest day"
+        usesProgramStrategy -> "${programBlocks.size} for this day · $programStrategySummary"
         else -> "${programBlocks.size} for this day"
     }
 
@@ -2388,7 +2398,7 @@ private fun RoutinesSection(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Text(
-                    text = activeProgram?.name ?: "Programs",
+                    text = activeProgram?.name ?: resolvedProgram.title,
                     style = MaterialTheme.typography.titleLarge
                 )
                 Text(
@@ -2396,6 +2406,13 @@ private fun RoutinesSection(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                if (usesProgramStrategy && !resolvedProgram.detail.isNullOrBlank()) {
+                    Text(
+                        text = resolvedProgram.detail,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
                 when {
                     activeProgram == null -> {
                         if (programsLibraryState.programs.isEmpty()) {
@@ -2413,6 +2430,21 @@ private fun RoutinesSection(
                             ) {
                                 Text("Open Programs")
                             }
+                        } else if (!isManualProgramSelection) {
+                            Text(
+                                "This date is controlled by your program strategy. Open Programs to edit the rotation or challenge plan.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            FilledTonalButton(
+                                onClick = {
+                                    showProgramSheet = false
+                                    onOpenProgramsBuilder()
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Manage strategy in Programs")
+                            }
                         } else {
                             Text(
                                 "Tap a program to use it on the Launch Pad for this device. You can change it anytime.",
@@ -2427,7 +2459,7 @@ private fun RoutinesSection(
                                     Card(
                                         onClick = {
                                             routineSectionScope.launch {
-                                                programRepository.setActiveProgram(p.id)
+                                                programRepository.activateProgramForDate(p.id)
                                                 if (relayPool != null && signer != null) {
                                                     ProgramSync.publishMaster(
                                                         appContext = context.applicationContext,
@@ -2490,6 +2522,13 @@ private fun RoutinesSection(
                         }
                     }
                     else -> {
+                        if (usesProgramStrategy) {
+                            Text(
+                                "This schedule comes from your program strategy. Edit the strategy or weekly plan in Programs.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                         LazyColumn(
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                             modifier = Modifier.heightIn(max = 360.dp)
