@@ -7,7 +7,9 @@ ERV handles sensitive health data. Security is a priority.
 If you believe you have found a security vulnerability, please report it responsibly:
 
 - **Do not** open a public GitHub issue for security-sensitive bugs.
-- Email the maintainers or open a **private** security advisory: [GitHub Security Advisories](https://github.com/homebrew-gh/EnergyRadianceVitality/security/advisories/new).
+- **Email:** [erv_contact@proton.me](mailto:erv_contact@proton.me)
+- **Nostr:** NIP-17 private message to the handle **homebrew_bitcoiner**
+- Or open a **private** security advisory: [GitHub Security Advisories](https://github.com/homebrew-gh/EnergyRadianceVitality/security/advisories/new)
 
 We will acknowledge your report and work with you on a fix and disclosure timeline.
 

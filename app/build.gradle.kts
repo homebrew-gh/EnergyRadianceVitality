@@ -1,8 +1,34 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.serialization")
 }
+
+val keystoreProperties = Properties().apply {
+    val propsFile = rootProject.file("keystore.properties")
+    if (propsFile.exists()) {
+        propsFile.inputStream().use(::load)
+    }
+}
+
+fun signingValue(propertyName: String, envName: String): String? {
+    val fromFile = keystoreProperties.getProperty(propertyName)?.trim().orEmpty()
+    if (fromFile.isNotEmpty()) return fromFile
+    val fromEnv = System.getenv(envName)?.trim().orEmpty()
+    return fromEnv.ifEmpty { null }
+}
+
+val releaseStoreFile = signingValue("storeFile", "ERV_RELEASE_STORE_FILE")
+val releaseStorePassword = signingValue("storePassword", "ERV_RELEASE_STORE_PASSWORD")
+val releaseKeyAlias = signingValue("keyAlias", "ERV_RELEASE_KEY_ALIAS")
+val releaseKeyPassword = signingValue("keyPassword", "ERV_RELEASE_KEY_PASSWORD")
+val hasReleaseSigning =
+    !releaseStoreFile.isNullOrBlank() &&
+        !releaseStorePassword.isNullOrBlank() &&
+        !releaseKeyAlias.isNullOrBlank() &&
+        !releaseKeyPassword.isNullOrBlank()
 
 android {
     namespace = "com.erv.app"
@@ -16,11 +42,25 @@ android {
         versionName = "0.1.0"
     }
 
+    signingConfigs {
+        create("release") {
+            if (hasReleaseSigning) {
+                storeFile = rootProject.file(releaseStoreFile!!)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         debug {
             isDebuggable = true
         }
         release {
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
