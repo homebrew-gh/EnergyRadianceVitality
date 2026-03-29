@@ -20,12 +20,33 @@ object CardioGpsElevation {
         val smoothed = movingAverage(alts, SMOOTH_WINDOW)
         var gain = 0.0
         var loss = 0.0
+        var segmentStart = smoothed.first()
+        var previous = smoothed.first()
+        var direction = 0
         for (i in 1 until smoothed.size) {
-            val d = smoothed[i] - smoothed[i - 1]
-            when {
-                d >= MIN_STEP_M -> gain += d
-                d <= -MIN_STEP_M -> loss += -d
+            val current = smoothed[i]
+            val nextDirection = when {
+                current > previous -> 1
+                current < previous -> -1
+                else -> 0
             }
+            if (nextDirection != 0 && direction != 0 && nextDirection != direction) {
+                val segmentDelta = previous - segmentStart
+                when {
+                    segmentDelta >= MIN_STEP_M -> gain += segmentDelta
+                    segmentDelta <= -MIN_STEP_M -> loss += -segmentDelta
+                }
+                segmentStart = previous
+            }
+            if (nextDirection != 0) {
+                direction = nextDirection
+            }
+            previous = current
+        }
+        val finalSegmentDelta = previous - segmentStart
+        when {
+            finalSegmentDelta >= MIN_STEP_M -> gain += finalSegmentDelta
+            finalSegmentDelta <= -MIN_STEP_M -> loss += -finalSegmentDelta
         }
         return gain to loss
     }

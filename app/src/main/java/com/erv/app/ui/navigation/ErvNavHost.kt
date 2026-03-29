@@ -50,6 +50,7 @@ import com.erv.app.heatcold.HeatColdLibraryState
 import com.erv.app.heatcold.HeatColdMode
 import com.erv.app.heatcold.HeatColdRepository
 import com.erv.app.programs.ProgramRepository
+import com.erv.app.reminders.RoutineReminderRepository
 import com.erv.app.unifiedroutines.UnifiedRoutineLibraryState
 import com.erv.app.unifiedroutines.UnifiedRoutineRepository
 import com.erv.app.bodytracker.BodyTrackerRepository
@@ -129,6 +130,7 @@ fun ErvNavHost(
     programRepository: ProgramRepository,
     unifiedRoutineRepository: UnifiedRoutineRepository,
     bodyTrackerRepository: BodyTrackerRepository,
+    reminderRepository: RoutineReminderRepository,
     weightLiveWorkoutViewModel: WeightLiveWorkoutViewModel,
     cardioLiveWorkoutViewModel: CardioLiveWorkoutViewModel,
     relayPool: RelayPool?,
@@ -137,15 +139,18 @@ fun ErvNavHost(
     consumePendingReminderRoutineId: () -> Unit,
     navigateToWeightLiveWorkout: MutableStateFlow<Boolean>,
     navigateToCardioLiveWorkout: MutableStateFlow<Boolean>,
+    navigateToUnifiedLiveWorkout: MutableStateFlow<String?>,
     onRelaysChanged: () -> Unit = {},
     showDeferNostrLoginEntry: Boolean = false,
     onRequestNostrLogin: () -> Unit = {},
     onLogout: () -> Unit,
+    onAllDataDeleted: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val pendingRoutineId = pendingReminderRoutineId.collectAsState(initial = null).value
     val openWeightLive by navigateToWeightLiveWorkout.collectAsState()
     val openCardioLive by navigateToCardioLiveWorkout.collectAsState()
+    val openUnifiedLiveRoutineId by navigateToUnifiedLiveWorkout.collectAsState()
     LaunchedEffect(pendingRoutineId) {
         if (pendingRoutineId != null) {
             navController.navigate(Routes.DASHBOARD) {
@@ -170,6 +175,13 @@ fun ErvNavHost(
             }
             navigateToCardioLiveWorkout.value = false
         }
+    }
+    LaunchedEffect(openUnifiedLiveRoutineId) {
+        val routineId = openUnifiedLiveRoutineId ?: return@LaunchedEffect
+        navController.navigate(Routes.unifiedRoutineRun(routineId)) {
+            launchSingleTop = true
+        }
+        navigateToUnifiedLiveWorkout.value = null
     }
     NavHost(
         navController = navController,
@@ -216,6 +228,11 @@ fun ErvNavHost(
                 onOpenHeatColdLog = {
                     navController.navigate(Routes.heatColdLog) { launchSingleTop = true }
                 },
+                onOpenUnifiedRun = { routineId ->
+                    navController.navigate(Routes.unifiedRoutineRun(routineId)) {
+                        launchSingleTop = true
+                    }
+                },
                 heatColdRepository = heatColdRepository,
                 stretchingRepository = stretchingRepository,
                 programRepository = programRepository,
@@ -235,13 +252,17 @@ fun ErvNavHost(
                 lightTherapyRepository = lightTherapyRepository,
                 supplementRepository = supplementRepository,
                 programRepository = programRepository,
+                unifiedRoutineRepository = unifiedRoutineRepository,
+                bodyTrackerRepository = bodyTrackerRepository,
+                reminderRepository = reminderRepository,
                 relayPool = relayPool,
                 signer = signer,
                 onBack = { navController.popBackStack() },
                 onRelaysChanged = onRelaysChanged,
                 showDeferNostrLoginEntry = showDeferNostrLoginEntry,
                 onRequestNostrLogin = onRequestNostrLogin,
-                onLogout = onLogout
+                onLogout = onLogout,
+                onAllDataDeleted = onAllDataDeleted,
             )
         }
 
@@ -313,6 +334,11 @@ fun ErvNavHost(
                 relayPool = relayPool,
                 signer = signer,
                 onBack = { navController.popBackStack() },
+                onReturnToUnifiedRun = { routineId ->
+                    if (!navController.popBackStack(Routes.unifiedRoutineRun(routineId), false)) {
+                        navController.navigate(Routes.unifiedRoutineRun(routineId)) { launchSingleTop = true }
+                    }
+                },
                 onOpenLog = {
                     navController.navigate(Routes.cardioLog) { launchSingleTop = true }
                 },
@@ -331,6 +357,11 @@ fun ErvNavHost(
                 relayPool = relayPool,
                 signer = signer,
                 onBack = { navController.popBackStack() },
+                onReturnToUnifiedRun = { routineId ->
+                    if (!navController.popBackStack(Routes.unifiedRoutineRun(routineId), false)) {
+                        navController.navigate(Routes.unifiedRoutineRun(routineId)) { launchSingleTop = true }
+                    }
+                },
                 onOpenLog = {
                     navController.navigate(Routes.cardioLog) { launchSingleTop = true }
                 },
@@ -406,6 +437,11 @@ fun ErvNavHost(
                 relayPool = relayPool,
                 signer = signer,
                 onBack = { navController.popBackStack() },
+                onReturnToUnifiedRun = { routineId ->
+                    if (!navController.popBackStack(Routes.unifiedRoutineRun(routineId), false)) {
+                        navController.navigate(Routes.unifiedRoutineRun(routineId)) { launchSingleTop = true }
+                    }
+                },
                 onOpenLog = {
                     navController.navigate(Routes.weightTrainingLog) { launchSingleTop = true }
                 },
@@ -508,13 +544,9 @@ fun ErvNavHost(
         }
 
         composable(Routes.bodyTracker) {
-            val weightState by weightRepository.state.collectAsState(initial = WeightLibraryState())
-            val cardioState by cardioRepository.state.collectAsState(initial = CardioLibraryState())
             BodyTrackerCategoryScreen(
                 repository = bodyTrackerRepository,
                 userPreferences = userPreferences,
-                weightLibraryState = weightState,
-                cardioLibraryState = cardioState,
                 relayPool = relayPool,
                 signer = signer,
                 onBack = { navController.popBackStack() },
@@ -644,7 +676,10 @@ fun ErvNavHost(
                 cardioLiveWorkoutViewModel = cardioLiveWorkoutViewModel,
                 onBack = { navController.popBackStack() },
                 onOpenSummary = { sessionId ->
-                    navController.navigate(Routes.unifiedWorkoutSummary(sessionId)) { launchSingleTop = true }
+                    navController.navigate(Routes.unifiedWorkoutSummary(sessionId)) {
+                        launchSingleTop = true
+                        popUpTo(Routes.unifiedRoutineRunRoute) { inclusive = true }
+                    }
                 },
                 onOpenWeightCategory = {
                     navController.navigate(Routes.weightTrainingCategory) { launchSingleTop = true }
@@ -676,7 +711,7 @@ fun ErvNavHost(
                 relayPool = relayPool,
                 signer = signer,
                 onDone = {
-                    navController.popBackStack(Routes.unifiedRoutinesCategory, false)
+                    navController.popBackStack()
                 }
             )
         }

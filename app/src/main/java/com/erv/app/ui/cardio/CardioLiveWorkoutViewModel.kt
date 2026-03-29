@@ -33,10 +33,15 @@ class CardioLiveWorkoutViewModel(application: Application) : AndroidViewModel(ap
      * Begins tracking [session], starts the live-timer foreground service, and expands the full-screen UI.
      * Returns false if a session is already active.
      */
-    fun tryStartSession(session: CardioActiveTimerSession): Boolean {
+    fun tryStartSession(
+        session: CardioActiveTimerSession,
+        suppressNotification: Boolean = false,
+    ): Boolean {
         if (_activeTimer.value != null) return false
         return try {
-            CardioLiveWorkoutForegroundService.start(getApplication(), session.timerStartEpochSeconds())
+            if (!suppressNotification) {
+                CardioLiveWorkoutForegroundService.start(getApplication(), session.timerStartEpochSeconds())
+            }
             _activeTimer.value = session
             _cardioLiveUiExpanded.value = true
             true

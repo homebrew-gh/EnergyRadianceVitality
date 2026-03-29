@@ -12,12 +12,20 @@
         "source": "/home/samcornwell/.gradle/daemon/8.5/com.erv.app-main-71:/drawable/ic_sun.xml"
     },
     {
+        "merged": "com.erv.app-merged_res-69:/xml_backup_rules.xml.flat",
+        "source": "com.erv.app-main-71:/xml/backup_rules.xml"
+    },
+    {
         "merged": "/home/samcornwell/.gradle/daemon/8.5/com.erv.app-merged_res-69:/drawable_ic_stat_erv.xml.flat",
         "source": "/home/samcornwell/.gradle/daemon/8.5/com.erv.app-main-71:/drawable/ic_stat_erv.xml"
     },
     {
         "merged": "/home/samcornwell/.gradle/daemon/8.5/com.erv.app-merged_res-69:/drawable_ic_stat_routine.xml.flat",
         "source": "/home/samcornwell/.gradle/daemon/8.5/com.erv.app-main-71:/drawable/ic_stat_routine.xml"
+    },
+    {
+        "merged": "com.erv.app-merged_res-69:/xml_data_extraction_rules.xml.flat",
+        "source": "com.erv.app-main-71:/xml/data_extraction_rules.xml"
     },
     {
         "merged": "/home/samcornwell/.gradle/daemon/8.5/com.erv.app-merged_res-69:/xml_file_paths.xml.flat",

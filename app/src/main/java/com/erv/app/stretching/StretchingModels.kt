@@ -8,19 +8,6 @@ import java.time.LocalDate
 import java.util.Locale
 import java.util.UUID
 
-/** UI grouping for the stretch catalog (JSON `category` field). */
-val STRETCH_CATEGORY_DISPLAY_ORDER: List<String> = listOf(
-    "neck",
-    "shoulders",
-    "arms",
-    "chest",
-    "back",
-    "core",
-    "glutes",
-    "legs",
-    "other"
-)
-
 fun stretchCategoryDisplayLabel(categoryKey: String): String =
     when (categoryKey.lowercase(Locale.getDefault())) {
         "neck" -> "Neck"
@@ -35,22 +22,13 @@ fun stretchCategoryDisplayLabel(categoryKey: String): String =
         else -> categoryKey.replaceFirstChar { it.titlecase(Locale.getDefault()) }
     }
 
-fun stretchCategorySortIndex(categoryKey: String): Int {
-    val k = categoryKey.lowercase(Locale.getDefault())
-    val idx = STRETCH_CATEGORY_DISPLAY_ORDER.indexOf(k)
-    return if (idx >= 0) idx else STRETCH_CATEGORY_DISPLAY_ORDER.size
-}
-
 /** Groups stretches for list UIs; sorts categories and names within each group. */
 fun List<StretchCatalogEntry>.groupedByCategory(): List<Pair<String, List<StretchCatalogEntry>>> {
     val locale = Locale.getDefault()
     fun normCat(e: StretchCatalogEntry): String =
         e.category.trim().lowercase(locale).ifBlank { "other" }
     val byCat = groupBy { normCat(it) }
-    val orderedKeys =
-        (STRETCH_CATEGORY_DISPLAY_ORDER + byCat.keys.filter { it !in STRETCH_CATEGORY_DISPLAY_ORDER }.sorted())
-            .distinct()
-            .filter { byCat.containsKey(it) }
+    val orderedKeys = byCat.keys.sorted()
     return orderedKeys.map { cat ->
         cat to (byCat[cat].orEmpty().sortedBy { it.name.lowercase(locale) })
     }.filter { it.second.isNotEmpty() }

@@ -3850,6 +3850,7 @@ string in_progress
 string indeterminate
 string item_view_role_description
 string live_cardio_in_progress_banner
+string live_unified_in_progress_banner
 string live_workout_in_progress_banner
 string m3_exceed_max_badge_text_suffix
 string m3_ref_typeface_brand_medium
@@ -3952,6 +3953,7 @@ string media_control_cd_skip_previous
 string media_control_listener_hint
 string media_control_messages_privacy_note
 string media_control_no_session
+string media_control_no_session_hint
 string media_control_now_playing_section
 string media_control_open_app_settings
 string media_control_open_listener_settings
@@ -4115,6 +4117,11 @@ string toast_event_published
 string toast_publish_failed
 string tooltip_description
 string tooltip_label
+string unified_live_notification_action_open
+string unified_live_notification_channel_desc
+string unified_live_notification_channel_name
+string unified_live_notification_chronometer_line
+string unified_live_notification_title
 string weight_added_load_info_icon_cd
 string weight_added_load_info_message
 string weight_added_load_info_title
@@ -5443,4 +5450,6 @@ styleable View android_theme android_focusable paddingEnd paddingStart theme
 styleable ViewBackgroundHelper android_background backgroundTint backgroundTintMode
 styleable ViewPager2 android_orientation
 styleable ViewStubCompat android_id android_layout android_inflatedId
+xml backup_rules
+xml data_extraction_rules
 xml file_paths

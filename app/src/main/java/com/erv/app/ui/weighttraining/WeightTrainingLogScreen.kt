@@ -50,9 +50,11 @@ import com.erv.app.ui.dashboard.datesWithWeightActivity
 import com.erv.app.ui.theme.ErvDarkTherapyRedDark
 import com.erv.app.ui.theme.ErvDarkTherapyRedGlow
 import com.erv.app.ui.theme.ErvDarkTherapyRedMid
+import com.erv.app.ui.theme.ErvHeaderRed
 import com.erv.app.ui.theme.ErvLightTherapyRedDark
 import com.erv.app.ui.theme.ErvLightTherapyRedGlow
 import com.erv.app.ui.theme.ErvLightTherapyRedMid
+import com.erv.app.weighttraining.WeightCalorieEstimator
 import com.erv.app.weighttraining.WeightLibraryState
 import com.erv.app.weighttraining.WeightRepository
 import com.erv.app.weighttraining.WeightSync
@@ -83,6 +85,7 @@ fun WeightTrainingLogScreen(
     openCalendarInitially: Boolean = false
 ) {
     val loadUnit by userPreferences.weightTrainingLoadUnit.collectAsState(initial = BodyWeightUnit.LB)
+    val fallbackBodyWeightKg by userPreferences.fallbackBodyWeightKg.collectAsState(initial = null)
     val state by repository.state.collectAsState(initial = WeightLibraryState())
     val datesWithActivity = remember(state) { datesWithWeightActivity(state) }
     var dateFilter by remember(initialSelectedDate) {
@@ -133,7 +136,12 @@ fun WeightTrainingLogScreen(
                 onSave = { session ->
                     scope.launch {
                         val target = LocalDate.now()
-                        repository.addWorkout(target, session)
+                        repository.addWorkout(
+                            target,
+                            session.copy(
+                                estimatedKcal = WeightCalorieEstimator.estimateKcal(session, fallbackBodyWeightKg)
+                            )
+                        )
                         pushDayLog(target)
                         manualLogEditor = WeightLogEditorState.Hidden
                         snackbarHostState.showSnackbar("Workout saved")
@@ -152,7 +160,12 @@ fun WeightTrainingLogScreen(
                 onDismiss = { manualLogEditor = WeightLogEditorState.Hidden },
                 onSave = { session ->
                     scope.launch {
-                        repository.updateWorkout(logEditor.logDate, session)
+                        repository.updateWorkout(
+                            logEditor.logDate,
+                            session.copy(
+                                estimatedKcal = WeightCalorieEstimator.estimateKcal(session, fallbackBodyWeightKg)
+                            )
+                        )
                         pushDayLog(logEditor.logDate)
                         manualLogEditor = WeightLogEditorState.Hidden
                         snackbarHostState.showSnackbar("Workout updated")
@@ -178,6 +191,7 @@ fun WeightTrainingLogScreen(
             signer = signer,
             repository = repository,
             onAfterRoutineSync = { scope.launch { pushMasters() } },
+            showPostWorkoutActions = false,
             onRemoveFromLog = {
                 scope.launch {
                     repository.deleteWorkout(summaryDate, summarySession.id)
@@ -203,7 +217,7 @@ fun WeightTrainingLogScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = headerMid,
+                    containerColor = ErvHeaderRed,
                     titleContentColor = Color.White,
                     navigationIconContentColor = Color.White
                 )

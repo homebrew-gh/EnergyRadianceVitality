@@ -117,14 +117,17 @@ data class WeightActivityExerciseBlock(
 data class WeightActivityRow(
     /** Session summary: source, duration, set count, volume. */
     val headerLine: String,
-    val exerciseBlocks: List<WeightActivityExerciseBlock>
+    val exerciseBlocks: List<WeightActivityExerciseBlock>,
+    val session: WeightWorkoutSession
 )
 
-private fun WeightWorkoutSession.elapsedSecondsForSummary(): Long {
-    val a = startedAtEpochSeconds ?: return 0L
-    val b = finishedAtEpochSeconds ?: return 0L
-    return (b - a).coerceAtLeast(0L)
-}
+fun WeightWorkoutSession.resolvedDurationSeconds(): Int? =
+    durationSeconds?.takeIf { it > 0 }
+        ?: run {
+            val a = startedAtEpochSeconds ?: return@run null
+            val b = finishedAtEpochSeconds ?: return@run null
+            (b - a).toInt().coerceAtLeast(0).takeIf { it > 0 }
+        }
 
 fun WeightWorkoutSession.activityHeaderLine(unit: BodyWeightUnit): String {
     val src = when (source) {
@@ -133,7 +136,7 @@ fun WeightWorkoutSession.activityHeaderLine(unit: BodyWeightUnit): String {
         WeightWorkoutSource.IMPORTED -> "Imported"
     }
     val bits = mutableListOf(src)
-    val elapsed = elapsedSecondsForSummary()
+    val elapsed = resolvedDurationSeconds()?.toLong() ?: 0L
     if (elapsed > 0) {
         val m = (elapsed / 60).toInt()
         val s = (elapsed % 60).toInt()
@@ -142,6 +145,7 @@ fun WeightWorkoutSession.activityHeaderLine(unit: BodyWeightUnit): String {
     bits += "${totalSetCount()} sets"
     val vol = totalVolumeLoadTimesReps(unit)
     if (vol > 0.5) bits += "~${vol.toInt()} ${weightLoadUnitSuffix(unit)}×reps"
+    estimatedKcal?.takeIf { it > 0.5 }?.let { bits += "~${it.toInt()} kcal" }
     return bits.joinToString(" • ")
 }
 
@@ -162,7 +166,8 @@ fun WeightWorkoutSession.buildActivityRow(library: WeightLibraryState, unit: Bod
     }
     return WeightActivityRow(
         headerLine = activityHeaderLine(unit),
-        exerciseBlocks = blocks
+        exerciseBlocks = blocks,
+        session = this
     )
 }
 

@@ -41,6 +41,10 @@ class WeightRepository(context: Context) {
         updateState { state }
     }
 
+    suspend fun clearAllData() {
+        replaceAll(WeightLibraryState())
+    }
+
     suspend fun upsertExercise(exercise: WeightExercise) {
         updateState { it.copy(exercises = it.exercises.upsertById(exercise) { e -> e.id }) }
     }

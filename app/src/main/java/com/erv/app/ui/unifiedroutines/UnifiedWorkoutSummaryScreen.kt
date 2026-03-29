@@ -154,6 +154,11 @@ fun UnifiedWorkoutSummaryScreen(
             resolveCardioSession(cardioState, block.linkedLogDate, block.linkedEntryId)
         }
     }
+    val totalCardioKcal = remember(cardioSessions) { cardioSessions.sumOf { it.estimatedKcal ?: 0.0 } }
+    val totalWeightKcal = remember(weightSessions) { weightSessions.sumOf { it.estimatedKcal ?: 0.0 } }
+    val totalEstimatedKcal = remember(totalCardioKcal, totalWeightKcal) {
+        (totalCardioKcal + totalWeightKcal).takeIf { it > 0.5 }
+    }
 
     Box(
         modifier = Modifier
@@ -178,6 +183,13 @@ fun UnifiedWorkoutSummaryScreen(
             formatUnifiedElapsed(summary.startedAtEpochSeconds, summary.finishedAtEpochSeconds)?.let {
                 Text(it, style = MaterialTheme.typography.titleMedium, color = Color.White.copy(alpha = 0.9f))
             }
+            totalEstimatedKcal?.let { kcal ->
+                Text(
+                    "Est. calories: ~${kcal.toInt()} kcal",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Color.White.copy(alpha = 0.9f)
+                )
+            }
             summary.heartRate?.let { hr ->
                 HeartRateSessionAnalyticsSection(
                     heartRate = hr,
@@ -195,6 +207,9 @@ fun UnifiedWorkoutSummaryScreen(
                         append("$totalCardioMinutes min")
                         if (totalDistanceMeters > 1.0) {
                             append(" • ${formatCardioDistanceFromMeters(totalDistanceMeters, distanceUnit)}")
+                        }
+                        if (totalCardioKcal > 0.5) {
+                            append(" • ~${totalCardioKcal.toInt()} kcal")
                         }
                     },
                     style = MaterialTheme.typography.bodyLarge,
@@ -223,8 +238,15 @@ fun UnifiedWorkoutSummaryScreen(
                 val totalVolume = weightSessions.sumOf { it.totalVolumeLoadTimesReps(loadUnit) }
                 Text("Weight", style = MaterialTheme.typography.titleLarge, color = Color.White)
                 Text(
-                    "${weightSessions.sumOf { it.entries.size }} exercises • $totalSets sets" +
-                        if (totalVolume > 0.5) " • Volume ~${totalVolume.toInt()} ${weightLoadUnitSuffix(loadUnit)}×reps" else "",
+                    buildString {
+                        append("${weightSessions.sumOf { it.entries.size }} exercises • $totalSets sets")
+                        if (totalVolume > 0.5) {
+                            append(" • Volume ~${totalVolume.toInt()} ${weightLoadUnitSuffix(loadUnit)}×reps")
+                        }
+                        if (totalWeightKcal > 0.5) {
+                            append(" • ~${totalWeightKcal.toInt()} kcal")
+                        }
+                    },
                     style = MaterialTheme.typography.bodyLarge,
                     color = Color.White.copy(alpha = 0.86f)
                 )
@@ -493,23 +515,25 @@ private fun buildUnifiedWorkoutNoteContent(
     topics: List<String>,
     routeImageUrl: String?,
 ): String = buildString {
-    append("Completed: ${summary.routineName}\n")
-    append("Ref: ${summary.displayRef}\n")
+    val totalEstimatedKcal =
+        cardioSessions.sumOf { it.estimatedKcal ?: 0.0 } + weightSessions.sumOf { it.estimatedKcal ?: 0.0 }
     personalMessage.trim().takeIf { it.isNotBlank() }?.let {
-        append("\n")
         append(it)
-        append("\n")
+        append("\n\n")
     }
+    append("Completed: ${summary.routineName}\n")
     formatUnifiedElapsed(summary.startedAtEpochSeconds, summary.finishedAtEpochSeconds)?.let {
         append("$it\n")
     }
+    if (totalEstimatedKcal > 0.5) {
+        append("Est. calories: ~${totalEstimatedKcal.toInt()} kcal\n")
+    }
     summary.heartRate?.avgBpm?.let { append("Heart rate (avg): $it bpm\n") }
     if (cardioSessions.isNotEmpty()) {
-        val totalDistanceMeters = cardioSessions.sumOf { it.distanceMeters ?: 0.0 }
         append("\nCardio:\n")
         append("• ${cardioSessions.sumOf { it.durationMinutes }} min")
-        if (totalDistanceMeters > 1.0) {
-            append(" • ${formatCardioDistanceFromMeters(totalDistanceMeters, distanceUnit)}")
+        if (cardioSessions.sumOf { it.estimatedKcal ?: 0.0 } > 0.5) {
+            append(" • ~${cardioSessions.sumOf { it.estimatedKcal ?: 0.0 }.toInt()} kcal")
         }
         append("\n")
         cardioSessions.forEach { session ->
@@ -521,7 +545,7 @@ private fun buildUnifiedWorkoutNoteContent(
         }
     }
     if (weightSessions.isNotEmpty()) {
-        append("\nWeight:\n")
+        append("\nWeight Training:\n")
         append(
             "• ${weightSessions.sumOf { it.entries.size }} exercises · ${weightSessions.sumOf { it.totalSetCount() }} sets"
         )
@@ -529,13 +553,32 @@ private fun buildUnifiedWorkoutNoteContent(
         if (totalVolume > 0.5) {
             append(" · volume ~${totalVolume.toInt()} ${weightLoadUnitSuffix(loadUnit)}×reps")
         }
+        val totalWeightKcal = weightSessions.sumOf { it.estimatedKcal ?: 0.0 }
+        if (totalWeightKcal > 0.5) {
+            append(" · ~${totalWeightKcal.toInt()} kcal")
+        }
         append("\n")
         weightSessions.flatMap { it.entries }.forEach { entry ->
-            append("• ${weightState.exerciseById(entry.exerciseId)?.name ?: entry.exerciseId}\n")
+            val exercise = weightState.exerciseById(entry.exerciseId)
+            val exerciseName = exercise?.name ?: entry.exerciseId
+            val addedLoad = exercise?.equipment == com.erv.app.weighttraining.WeightEquipment.OTHER
+            append("• $exerciseName\n")
+            entry.hiitBlock?.let { block ->
+                append("  - ${formatUnifiedSharedHiitSummaryLine(block, loadUnit, addedLoad)}\n")
+            } ?: entry.sets.forEachIndexed { index, set ->
+                append(
+                    "  - " + formatUnifiedSharedSetSummaryLine(
+                        set = set,
+                        setNumber = index + 1,
+                        loadUnit = loadUnit,
+                        weightIsAddedLoad = addedLoad
+                    ) + "\n"
+                )
+            }
         }
     }
     routeImageUrl?.let {
-        append("\nRoute image: ")
+        append("\n")
         append(it)
         append("\n")
     }
@@ -543,4 +586,32 @@ private fun buildUnifiedWorkoutNoteContent(
         append("\n")
         append(buildWorkoutShareHashtagContentLineFromTopics(topics))
     }
+}
+
+private fun formatUnifiedSharedSetSummaryLine(
+    set: com.erv.app.weighttraining.WeightSet,
+    setNumber: Int,
+    loadUnit: BodyWeightUnit,
+    weightIsAddedLoad: Boolean
+): String {
+    val repsPart = if (set.reps > 0) "${set.reps} reps" else "— reps"
+    val weightPart = set.weightKg?.let { weightKg ->
+        val num = com.erv.app.weighttraining.formatWeightLoadNumber(weightKg, loadUnit)
+        val suffix = weightLoadUnitSuffix(loadUnit)
+        if (weightIsAddedLoad) " @ +$num $suffix" else " @ $num $suffix"
+    }.orEmpty()
+    return "Set $setNumber: $repsPart$weightPart"
+}
+
+private fun formatUnifiedSharedHiitSummaryLine(
+    block: com.erv.app.weighttraining.WeightHiitBlockLog,
+    loadUnit: BodyWeightUnit,
+    weightIsAddedLoad: Boolean
+): String {
+    val weightPart = block.weightKg?.let { weightKg ->
+        val num = com.erv.app.weighttraining.formatWeightLoadNumber(weightKg, loadUnit)
+        val suffix = weightLoadUnitSuffix(loadUnit)
+        if (weightIsAddedLoad) " @ +$num $suffix" else " @ $num $suffix"
+    }.orEmpty()
+    return "${block.intervals}× ${block.workSeconds}s work / ${block.restSeconds}s rest$weightPart"
 }

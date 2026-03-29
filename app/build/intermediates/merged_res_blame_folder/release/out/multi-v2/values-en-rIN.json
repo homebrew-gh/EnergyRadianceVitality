@@ -1,7 +1,7 @@
 {
     "logs": [
         {
-            "outputFile": "com.erv.app-mergeReleaseResources-60:/values-en-rIN/values-en-rIN.xml",
+            "outputFile": "com.erv.app-mergeReleaseResources-67:/values-en-rIN/values-en-rIN.xml",
             "map": [
                 {
                     "source": "/home/samcornwell/.gradle/caches/transforms-3/3a7a9d814b7b82b6f9bbbf606dd203ea/transformed/ui-release/res/values-en-rIN/values-en-rIN.xml",

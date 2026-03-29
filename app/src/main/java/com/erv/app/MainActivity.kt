@@ -50,7 +50,10 @@ import com.erv.app.cardio.CardioLiveWorkoutConstants
 import com.erv.app.weighttraining.WeightLiveWorkoutConstants
 import com.erv.app.weighttraining.WeightRepository
 import com.erv.app.weighttraining.WeightSync
+import com.erv.app.unifiedroutines.UnifiedLiveWorkoutConstants
 import com.erv.app.unifiedroutines.UnifiedRoutineRepository
+import com.erv.app.unifiedroutines.UnifiedRoutineForegroundService
+import com.erv.app.unifiedroutines.UnifiedRoutineLibraryState
 import com.erv.app.lighttherapy.LightSync
 import com.erv.app.lighttherapy.LightTherapyRepository
 import com.erv.app.supplements.SupplementRepository
@@ -96,6 +99,7 @@ class MainActivity : AppCompatActivity() {
     private val pendingReminderRoutineId = MutableStateFlow<String?>(null)
     private val navigateToWeightLiveWorkout = MutableStateFlow(false)
     private val navigateToCardioLiveWorkout = MutableStateFlow(false)
+    private val navigateToUnifiedLiveWorkout = MutableStateFlow<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -107,6 +111,9 @@ class MainActivity : AppCompatActivity() {
         }
         if (intent.getBooleanExtra(CardioLiveWorkoutConstants.EXTRA_OPEN_CARDIO_LIVE, false)) {
             navigateToCardioLiveWorkout.value = true
+        }
+        intent.getStringExtra(UnifiedLiveWorkoutConstants.EXTRA_OPEN_UNIFIED_LIVE_ROUTINE_ID)?.let { routineId ->
+            navigateToUnifiedLiveWorkout.value = routineId
         }
 
         setContent {
@@ -128,7 +135,8 @@ class MainActivity : AppCompatActivity() {
                         pendingReminderRoutineId = pendingReminderRoutineId,
                         consumePendingReminderRoutineId = { pendingReminderRoutineId.value = null },
                         navigateToWeightLiveWorkout = navigateToWeightLiveWorkout,
-                        navigateToCardioLiveWorkout = navigateToCardioLiveWorkout
+                        navigateToCardioLiveWorkout = navigateToCardioLiveWorkout,
+                        navigateToUnifiedLiveWorkout = navigateToUnifiedLiveWorkout,
                     )
                 }
             }
@@ -144,6 +152,9 @@ class MainActivity : AppCompatActivity() {
         }
         if (intent.getBooleanExtra(CardioLiveWorkoutConstants.EXTRA_OPEN_CARDIO_LIVE, false)) {
             navigateToCardioLiveWorkout.value = true
+        }
+        intent.getStringExtra(UnifiedLiveWorkoutConstants.EXTRA_OPEN_UNIFIED_LIVE_ROUTINE_ID)?.let { routineId ->
+            navigateToUnifiedLiveWorkout.value = routineId
         }
     }
 
@@ -162,7 +173,8 @@ private fun ErvApp(
     pendingReminderRoutineId: StateFlow<String?>,
     consumePendingReminderRoutineId: () -> Unit,
     navigateToWeightLiveWorkout: MutableStateFlow<Boolean>,
-    navigateToCardioLiveWorkout: MutableStateFlow<Boolean>
+    navigateToCardioLiveWorkout: MutableStateFlow<Boolean>,
+    navigateToUnifiedLiveWorkout: MutableStateFlow<String?>,
 ) {
     val context = LocalContext.current
     var appState by remember {
@@ -289,6 +301,7 @@ private fun ErvApp(
                 consumePendingReminderRoutineId = consumePendingReminderRoutineId,
                 navigateToWeightLiveWorkout = navigateToWeightLiveWorkout,
                 navigateToCardioLiveWorkout = navigateToCardioLiveWorkout,
+                navigateToUnifiedLiveWorkout = navigateToUnifiedLiveWorkout,
                 onRequestNostrLogin = {
                     scope.launch {
                         userPreferences.setUseAppWithoutNostrAccount(false)
@@ -302,7 +315,10 @@ private fun ErvApp(
                         keyManager.logout()
                         appState = AppState.LoggedOut
                     }
-                }
+                },
+                onAllDataDeleted = {
+                    appState = AppState.LoggedOut
+                },
             )
         }
     }
@@ -376,8 +392,10 @@ private fun MainAppShell(
     consumePendingReminderRoutineId: () -> Unit,
     navigateToWeightLiveWorkout: MutableStateFlow<Boolean>,
     navigateToCardioLiveWorkout: MutableStateFlow<Boolean>,
+    navigateToUnifiedLiveWorkout: MutableStateFlow<String?>,
     onRequestNostrLogin: () -> Unit,
-    onLogout: () -> Unit
+    onLogout: () -> Unit,
+    onAllDataDeleted: () -> Unit,
 ) {
     val context = LocalContext.current
     val navController = rememberNavController()
@@ -411,6 +429,7 @@ private fun MainAppShell(
     val mainScope = rememberCoroutineScope()
     val activityForLifecycle = context as ComponentActivity
     val dashboardViewModel = viewModel<DashboardViewModel>(viewModelStoreOwner = activityForLifecycle)
+    val unifiedState by unifiedRoutineRepository.state.collectAsState(initial = UnifiedRoutineLibraryState())
     DisposableEffect(activityForLifecycle, reminderRepository) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
@@ -423,6 +442,11 @@ private fun MainAppShell(
 
     LaunchedEffect(relayPool, relayUrlsVersion) {
         relayPool?.setRelays(keyManager.relayUrlsForPool())
+    }
+    LaunchedEffect(signer, relayUrlsVersion) {
+        if (signer != null && keyManager.isLoggedIn) {
+            userPreferences.rememberNostrRelayUsage(keyManager.relayUrlsForKind30078Publish())
+        }
     }
     LaunchedEffect(
         relayPool,
@@ -648,6 +672,7 @@ private fun MainAppShell(
                     programRepository = programRepository,
                     unifiedRoutineRepository = unifiedRoutineRepository,
                     bodyTrackerRepository = bodyTrackerRepository,
+                    reminderRepository = reminderRepository,
                     weightLiveWorkoutViewModel = weightLiveWorkoutViewModel,
                     cardioLiveWorkoutViewModel = cardioLiveWorkoutViewModel,
                     relayPool = relayPool,
@@ -656,12 +681,28 @@ private fun MainAppShell(
                     consumePendingReminderRoutineId = consumePendingReminderRoutineId,
                     navigateToWeightLiveWorkout = navigateToWeightLiveWorkout,
                     navigateToCardioLiveWorkout = navigateToCardioLiveWorkout,
+                    navigateToUnifiedLiveWorkout = navigateToUnifiedLiveWorkout,
                     onRelaysChanged = { relayUrlsVersion++ },
                     showDeferNostrLoginEntry = !keyManager.isLoggedIn,
                     onRequestNostrLogin = onRequestNostrLogin,
-                    onLogout = onLogout
+                    onLogout = onLogout,
+                    onAllDataDeleted = onAllDataDeleted,
                 )
             }
+        }
+    }
+    LaunchedEffect(unifiedState.activeSession?.sessionId) {
+        val activeSession = unifiedState.activeSession
+        if (activeSession == null) {
+            UnifiedRoutineForegroundService.stop(context)
+        } else {
+            val activeRoutine = activeSession.routineSnapshot ?: unifiedState.routineById(activeSession.routineId)
+            UnifiedRoutineForegroundService.start(
+                context = context,
+                routineId = activeSession.routineId,
+                routineName = activeRoutine?.name ?: "Unified workout",
+                startedAtEpochSeconds = activeSession.startedAtEpochSeconds,
+            )
         }
     }
 }

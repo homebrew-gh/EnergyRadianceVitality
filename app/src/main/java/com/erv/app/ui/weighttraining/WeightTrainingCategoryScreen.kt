@@ -77,11 +77,14 @@ import com.erv.app.unifiedroutines.linkFor
 import com.erv.app.ui.theme.ErvDarkTherapyRedDark
 import com.erv.app.ui.theme.ErvDarkTherapyRedGlow
 import com.erv.app.ui.theme.ErvDarkTherapyRedMid
+import com.erv.app.ui.theme.ErvHeaderRed
+import com.erv.app.weighttraining.groupExercisesByMuscle
 import com.erv.app.ui.theme.ErvLightTherapyRedDark
 import com.erv.app.ui.theme.ErvLightTherapyRedGlow
 import com.erv.app.ui.theme.ErvLightTherapyRedMid
 import com.erv.app.hr.LocalHeartRateBle
 import com.erv.app.ui.cardio.CardioLiveWorkoutViewModel
+import com.erv.app.weighttraining.WeightCalorieEstimator
 import com.erv.app.weighttraining.WeightEquipment
 import com.erv.app.weighttraining.WeightExercise
 import com.erv.app.weighttraining.WeightExercisePickerFilter
@@ -116,6 +119,7 @@ fun WeightTrainingCategoryScreen(
     relayPool: RelayPool?,
     signer: EventSigner?,
     onBack: () -> Unit,
+    onReturnToUnifiedRun: (String) -> Unit = {},
     onOpenLog: () -> Unit,
     onOpenExerciseDetail: (String) -> Unit,
     modifier: Modifier = Modifier
@@ -123,6 +127,7 @@ fun WeightTrainingCategoryScreen(
     val heartRateBle = LocalHeartRateBle.current
     val unifiedState by unifiedRoutineRepository.state.collectAsState(initial = UnifiedRoutineLibraryState())
     val loadUnit by userPreferences.weightTrainingLoadUnit.collectAsState(initial = BodyWeightUnit.LB)
+    val fallbackBodyWeightKg by userPreferences.fallbackBodyWeightKg.collectAsState(initial = null)
     val liveDraft by liveWorkoutViewModel.activeDraft.collectAsState()
     val liveWorkoutUiExpanded by liveWorkoutViewModel.liveWorkoutUiExpanded.collectAsState()
     val state by repository.state.collectAsState(initial = WeightLibraryState())
@@ -262,7 +267,7 @@ fun WeightTrainingCategoryScreen(
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = headerMid,
+                        containerColor = ErvHeaderRed,
                         titleContentColor = Color.White,
                         navigationIconContentColor = Color.White,
                         actionIconContentColor = Color.White
@@ -354,6 +359,12 @@ fun WeightTrainingCategoryScreen(
                     },
                 onRecordExerciseActivity = { id -> liveWorkoutViewModel.recordExerciseFocus(id) },
                 onLeaveWorkoutUi = {
+                    fun returnToUnifiedRun(): Boolean {
+                        val routineId = activeUnifiedSession?.routineId ?: return false
+                        if (activeUnifiedWeightBlockId == null) return false
+                        onReturnToUnifiedRun(routineId)
+                        return true
+                    }
                     val draft = liveWorkoutViewModel.activeDraft.value
                     if (draft != null) {
                         val noExercises = draft.exerciseOrder.isEmpty()
@@ -362,23 +373,32 @@ fun WeightTrainingCategoryScreen(
                         }
                         val noHiit = draft.hiitBlocksByExerciseId.isEmpty()
                         if (noExercises && noLoggedSets && noHiit) {
+                            val returnedToUnified = returnToUnifiedRun()
                             heartRateBle.discardWorkoutRecording()
                             liveWorkoutViewModel.clearDraft()
-                            if (activeUnifiedSession != null && activeUnifiedWeightBlockId != null) {
+                            if (!returnedToUnified && activeUnifiedSession != null && activeUnifiedWeightBlockId != null) {
                                 onBack()
                             }
                         } else {
+                            val returnedToUnified = returnToUnifiedRun()
                             liveWorkoutViewModel.setLiveWorkoutUiExpanded(false)
-                            if (activeUnifiedSession != null && activeUnifiedWeightBlockId != null) {
+                            if (!returnedToUnified && activeUnifiedSession != null && activeUnifiedWeightBlockId != null) {
                                 onBack()
                             }
                         }
                     }
                 },
                 onDiscardWorkout = {
+                    val returnedToUnified =
+                        if (activeUnifiedSession != null && activeUnifiedWeightBlockId != null) {
+                            onReturnToUnifiedRun(activeUnifiedSession.routineId)
+                            true
+                        } else {
+                            false
+                        }
                     heartRateBle.discardWorkoutRecording()
                     liveWorkoutViewModel.clearDraft()
-                    if (activeUnifiedSession != null && activeUnifiedWeightBlockId != null) {
+                    if (!returnedToUnified && activeUnifiedSession != null && activeUnifiedWeightBlockId != null) {
                         onBack()
                     }
                 },
@@ -397,6 +417,7 @@ fun WeightTrainingCategoryScreen(
                             heartRate = hr,
                             heartRateExerciseSegments = segments
                         ) ?: return@launch
+                        val estimatedKcal = WeightCalorieEstimator.estimateKcal(session, fallbackBodyWeightKg)
                         val today = LocalDate.now()
                         val activeUnifiedSession = unifiedState.activeSession
                         val activeUnifiedBlockId = activeUnifiedSession?.lastLaunchedBlockId?.takeIf { blockId ->
@@ -408,9 +429,12 @@ fun WeightTrainingCategoryScreen(
                         }
                         val storedSession = if (activeUnifiedSession != null && activeUnifiedBlockId != null) {
                             val recap = unifiedState.sessionById(activeUnifiedSession.sessionId)
-                            session.copy(unifiedLink = recap?.linkFor(activeUnifiedBlockId))
+                            session.copy(
+                                estimatedKcal = estimatedKcal,
+                                unifiedLink = recap?.linkFor(activeUnifiedBlockId)
+                            )
                         } else {
-                            session
+                            session.copy(estimatedKcal = estimatedKcal)
                         }
                         repository.addWorkout(today, storedSession)
                         if (activeUnifiedSession != null && activeUnifiedBlockId != null) {
@@ -421,11 +445,12 @@ fun WeightTrainingCategoryScreen(
                                 entryId = storedSession.id
                             )
                         }
-                        liveWorkoutViewModel.clearDraft()
                         pushDayLog(today)
                         if (activeUnifiedSession != null && activeUnifiedBlockId != null) {
-                            onBack()
+                            onReturnToUnifiedRun(activeUnifiedSession.routineId)
+                            liveWorkoutViewModel.clearDraft()
                         } else {
+                            liveWorkoutViewModel.clearDraft()
                             completedSessionForSummary = storedSession
                         }
                     }
@@ -559,6 +584,7 @@ private fun ExercisesTabBody(
     onOpenExerciseDetail: (String) -> Unit
 ) {
     val ownedEquipment by userPreferences.ownedEquipment.collectAsState(initial = emptyList())
+    val enabledExercisePackIds by userPreferences.enabledWeightExercisePackIds.collectAsState(initial = emptySet())
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var loggedBeforeOnly by rememberSaveable { mutableStateOf(false) }
     var equipmentFilter by rememberSaveable { mutableStateOf(WeightExercisePickerFilter.ALL) }
@@ -570,7 +596,8 @@ private fun ExercisesTabBody(
         loggedBeforeOnly,
         loggedIds,
         equipmentFilter,
-        ownedEquipment
+        ownedEquipment,
+        enabledExercisePackIds,
     ) {
         exercisesGroupedFiltered(
             state = state,
@@ -578,7 +605,8 @@ private fun ExercisesTabBody(
             loggedBeforeOnly = loggedBeforeOnly,
             loggedIds = loggedIds,
             equipmentFilter = equipmentFilter,
-            ownedEquipment = ownedEquipment
+            ownedEquipment = ownedEquipment,
+            enabledPackIds = enabledExercisePackIds,
         )
     }
 
@@ -721,28 +749,26 @@ private fun exercisesGroupedFiltered(
     loggedBeforeOnly: Boolean,
     loggedIds: Set<String>,
     equipmentFilter: WeightExercisePickerFilter,
-    ownedEquipment: List<com.erv.app.data.OwnedEquipmentItem>
+    ownedEquipment: List<com.erv.app.data.OwnedEquipmentItem>,
+    enabledPackIds: Set<String>,
 ): List<Pair<String, List<WeightExercise>>> {
     val q = query.trim().lowercase()
-    val equipmentFiltered = filterWeightExercisesForPicker(
+    val visibleExercises = filterWeightExercisesForPicker(
         exercises = state.exercises,
         filter = equipmentFilter,
-        ownedEquipment = ownedEquipment
-    ).associateBy { it.id }
-    return state.exercisesGroupedByMuscle()
-        .map { (muscle, exercises) ->
-            muscle to exercises.filter { ex ->
-                val usedOk = !loggedBeforeOnly || ex.id in loggedIds
-                val equipmentOk = ex.id in equipmentFiltered
-                val matchOk = q.isEmpty() ||
-                    ex.name.lowercase().contains(q) ||
-                    ex.muscleGroup.lowercase().contains(q) ||
-                    ex.equipment.displayLabel().lowercase().contains(q) ||
-                    ex.pushOrPull.displayLabel().lowercase().contains(q)
-                usedOk && equipmentOk && matchOk
-            }
-        }
-        .filter { (_, list) -> list.isNotEmpty() }
+        ownedEquipment = ownedEquipment,
+        enabledPackIds = enabledPackIds,
+    )
+    val filtered = visibleExercises.filter { ex ->
+        val usedOk = !loggedBeforeOnly || ex.id in loggedIds
+        val matchOk = q.isEmpty() ||
+            ex.name.lowercase().contains(q) ||
+            ex.muscleGroup.lowercase().contains(q) ||
+            ex.equipment.displayLabel().lowercase().contains(q) ||
+            ex.pushOrPull.displayLabel().lowercase().contains(q)
+        usedOk && matchOk
+    }
+    return groupExercisesByMuscle(filtered)
 }
 
 @Composable

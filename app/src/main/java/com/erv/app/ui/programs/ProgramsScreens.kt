@@ -78,6 +78,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
@@ -106,6 +107,7 @@ import com.erv.app.programs.summaryLine
 import com.erv.app.programs.withWeekDayUpdated
 import com.erv.app.stretching.StretchLibraryState
 import com.erv.app.stretching.StretchRoutine
+import com.erv.app.ui.theme.ErvHeaderRed
 import com.erv.app.unifiedroutines.UnifiedRoutine
 import com.erv.app.unifiedroutines.UnifiedRoutineLibraryState
 import com.erv.app.weighttraining.WeightLibraryState
@@ -139,13 +141,8 @@ fun ProgramsCategoryScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
     val keyManager = LocalKeyManager.current
-    val darkTheme = isSystemInDarkTheme()
-    val headerColor =
-        if (darkTheme) MaterialTheme.colorScheme.primaryContainer
-        else MaterialTheme.colorScheme.primary
-    val onHeader =
-        if (darkTheme) MaterialTheme.colorScheme.onPrimaryContainer
-        else MaterialTheme.colorScheme.onPrimary
+    val headerColor = ErvHeaderRed
+    val onHeader = Color.White
     var showCreateSheet by remember { mutableStateOf(false) }
     var showTemplatePicker by remember { mutableStateOf(false) }
     var showCustomWizard by remember { mutableStateOf(false) }
@@ -530,13 +527,8 @@ fun ProgramDetailScreen(
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
-    val darkTheme = isSystemInDarkTheme()
-    val headerColor =
-        if (darkTheme) MaterialTheme.colorScheme.primaryContainer
-        else MaterialTheme.colorScheme.primary
-    val onHeader =
-        if (darkTheme) MaterialTheme.colorScheme.onPrimaryContainer
-        else MaterialTheme.colorScheme.onPrimary
+    val headerColor = ErvHeaderRed
+    val onHeader = Color.White
     var showMenu by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf(false) }
     var addBlockForDay by remember { mutableIntStateOf(1) }
@@ -1145,7 +1137,7 @@ private fun BlockEditorDialog(
                             RadioButton(selected = kind == k, onClick = null)
                             Text(
                                 when (k) {
-                                    ProgramBlockKind.UNIFIED_ROUTINE -> "Unified Routine"
+                                    ProgramBlockKind.UNIFIED_ROUTINE -> "Unified Workout"
                                     ProgramBlockKind.FLEX_TRAINING -> "Workout (cardio or weight)"
                                     ProgramBlockKind.OTHER -> "Other (habit checklist)"
                                     else -> k.name.replace('_', ' ').lowercase()
@@ -1810,7 +1802,7 @@ private fun QuickAttachRoutineSheet(
                     if (rows.isEmpty()) {
                         item {
                             Text(
-                                "No unified routines match. Build them in Unified Routines.",
+                                "No unified workouts match. Build them in Unified Workouts.",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )

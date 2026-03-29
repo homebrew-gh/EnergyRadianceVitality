@@ -51,6 +51,23 @@ object HeatColdSync {
         return pairs
     }
 
+    fun clearOutboxEntries(state: HeatColdLibraryState): List<Pair<String, String>> {
+        val pairs = mutableListOf<Pair<String, String>>()
+        for (dateIso in state.saunaLogs.map { it.date }.distinct().sorted()) {
+            pairs += "erv/sauna/$dateIso" to json.encodeToString(
+                HeatColdDayLog.serializer(),
+                HeatColdDayLog(date = dateIso)
+            )
+        }
+        for (dateIso in state.coldLogs.map { it.date }.distinct().sorted()) {
+            pairs += "erv/cold/$dateIso" to json.encodeToString(
+                HeatColdDayLog.serializer(),
+                HeatColdDayLog(date = dateIso)
+            )
+        }
+        return pairs
+    }
+
     suspend fun fetchFromNetwork(
         relayPool: RelayPool,
         signer: EventSigner,

@@ -1,7 +1,7 @@
 {
     "logs": [
         {
-            "outputFile": "com.erv.app-mergeReleaseResources-60:/values-hdpi-v4/values-hdpi-v4.xml",
+            "outputFile": "com.erv.app-mergeReleaseResources-67:/values-hdpi-v4/values-hdpi-v4.xml",
             "map": [
                 {
                     "source": "/home/samcornwell/.gradle/caches/transforms-3/849c9d0bd44968c4ea569c4ee28fcf9d/transformed/appcompat-1.6.1/res/values-hdpi-v4/values-hdpi-v4.xml",

@@ -36,6 +36,11 @@ data class WeightExercise(
     val pushOrPull: WeightPushPull,
     val equipment: WeightEquipment,
     /**
+     * Optional built-in specialty pack gate. Exercises in a pack stay hidden from general library pickers
+     * until the user enables that pack in settings.
+     */
+    val exercisePackId: String? = null,
+    /**
      * When true, live workout can run a guided interval timer for this movement (built-ins set from
      * catalog rules; custom exercises opt in via the exercise editor).
      */
@@ -129,6 +134,7 @@ data class WeightWorkoutSession(
     val routineId: String? = null,
     val routineName: String? = null,
     val entries: List<WeightWorkoutEntry> = emptyList(),
+    val estimatedKcal: Double? = null,
     /** Populated when a live session used a connected BLE HR sensor (avg/min/max over the workout). */
     val heartRate: CardioHrScaffolding? = null,
     /**
@@ -201,11 +207,8 @@ fun WeightLibraryState.datedWeightWorkoutsForSectionLog(filter: SectionLogDateFi
             chronologicalWeightWorkoutsForPeriod(filter.startInclusive, filter.endInclusive).sortedWeightNewestFirst()
     }
 
-private val muscleGroupDisplayOrder: List<String> =
-    listOf("chest", "back", "legs", "shoulders", "biceps", "triceps", "core")
-
 /**
- * Same section order as the exercise library (known muscle keys first, then alpha).
+ * Group exercises by muscle with alphabetical section headers and exercise names.
  * Used by the library list and the workout exercise picker.
  */
 fun groupExercisesByMuscle(exercises: List<WeightExercise>): List<Pair<String, List<WeightExercise>>> {
@@ -213,15 +216,11 @@ fun groupExercisesByMuscle(exercises: List<WeightExercise>): List<Pair<String, L
     val grouped = exercises.groupBy { ex ->
         ex.muscleGroup.trim().lowercase().ifBlank { "other" }
     }
-    val orderedKeys = buildList {
-        val known = muscleGroupDisplayOrder.filter { it in grouped }
-        addAll(known)
-        addAll((grouped.keys - known.toSet()).sorted())
-    }
+    val orderedKeys = grouped.keys.sorted()
     return orderedKeys.map { key -> key to grouped.getValue(key).sortedBy { it.name.lowercase() } }
 }
 
-/** Sticky list sections: known groups first, then remaining alpha. */
+/** Sticky list sections sorted alphabetically by muscle group. */
 fun WeightLibraryState.exercisesGroupedByMuscle(): List<Pair<String, List<WeightExercise>>> =
     groupExercisesByMuscle(exercises)
 

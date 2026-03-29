@@ -3,7 +3,12 @@ package com.erv.app.cardio
 import kotlin.math.max
 
 /**
- * Rough MET estimates for calorie display (MET × kg × hours).
+ * Rough calorie estimates for cardio display.
+ *
+ * MET remains the baseline because it is stable for structured steady-state work. When a session
+ * includes heart-rate data, we blend in a lighter HR-derived estimate to personalize the result
+ * without letting noisy HR dominate.
+ *
  * Treadmill values approximate Compendium-style walking/running by speed.
  */
 object CardioMetEstimator {
@@ -18,7 +23,8 @@ object CardioMetEstimator {
             val customMet = seg.activity.customTypeId?.let { id -> library.customTypeById(id)?.optionalMet }
             seg.copy(estimatedKcal = estimateKcal(mini, customMet, weightKg))
         }
-        val total = updated.mapNotNull { it.estimatedKcal }.sum().takeIf { it > 0 }
+        val metTotal = updated.mapNotNull { it.estimatedKcal }.sum().takeIf { it > 0 }
+        val total = metTotal?.let { blendWithHeartRate(it, session, weightKg) }
         return session.copy(segments = updated, estimatedKcal = total)
     }
 
@@ -43,7 +49,31 @@ object CardioMetEstimator {
         if (weightKg == null || weightKg <= 0) return null
         val met = resolveMet(session, customMet) ?: return null
         val hours = session.durationMinutes / 60.0
-        return met * weightKg * hours
+        val metKcal = met * weightKg * hours
+        return blendWithHeartRate(metKcal, session, weightKg)
+    }
+
+    private fun blendWithHeartRate(metKcal: Double, session: CardioSession, weightKg: Double?): Double {
+        val avgBpm = session.heartRate?.avgBpm?.takeIf { it > 0 } ?: return metKcal
+        val kg = weightKg?.takeIf { it > 0 } ?: return metKcal
+        val hours = session.durationMinutes / 60.0
+        if (hours <= 0.0) return metKcal
+        val hrMet = hrDerivedMet(avgBpm)
+        val hrKcal = hrMet * kg * hours
+        return metKcal * 0.7 + hrKcal * 0.3
+    }
+
+    private fun hrDerivedMet(avgBpm: Int): Double = when {
+        avgBpm >= 180 -> 13.0
+        avgBpm >= 170 -> 12.0
+        avgBpm >= 160 -> 10.8
+        avgBpm >= 150 -> 9.6
+        avgBpm >= 140 -> 8.4
+        avgBpm >= 130 -> 7.2
+        avgBpm >= 120 -> 6.0
+        avgBpm >= 110 -> 4.8
+        avgBpm >= 100 -> 3.9
+        else -> 3.2
     }
 
     private fun resolveMet(session: CardioSession, customMet: Double?): Double? {

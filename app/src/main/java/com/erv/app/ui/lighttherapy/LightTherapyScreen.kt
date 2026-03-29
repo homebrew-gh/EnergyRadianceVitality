@@ -43,6 +43,7 @@ import com.erv.app.nostr.RelayPayloadDigestStore
 import com.erv.app.ui.theme.ErvDarkTherapyRedDark
 import com.erv.app.ui.theme.ErvDarkTherapyRedGlow
 import com.erv.app.ui.theme.ErvDarkTherapyRedMid
+import com.erv.app.ui.theme.ErvHeaderRed
 import com.erv.app.ui.theme.ErvLightTherapyRedDark
 import com.erv.app.ui.theme.ErvLightTherapyRedGlow
 import com.erv.app.ui.theme.ErvLightTherapyRedMid
@@ -175,7 +176,7 @@ fun LightTherapyCategoryScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = therapyRedMid,
+                    containerColor = ErvHeaderRed,
                     titleContentColor = Color.White,
                     actionIconContentColor = Color.White,
                     navigationIconContentColor = Color.White
@@ -612,8 +613,7 @@ fun LightLogScreen(
     val datesWithActivity = remember(state) { datesWithLightActivity(state) }
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
-    val darkTheme = isSystemInDarkTheme()
-    val headerMid = if (darkTheme) ErvDarkTherapyRedMid else ErvLightTherapyRedMid
+    val headerMid = ErvHeaderRed
     val keyManager = LocalKeyManager.current
     val logAppContext = LocalContext.current.applicationContext
 

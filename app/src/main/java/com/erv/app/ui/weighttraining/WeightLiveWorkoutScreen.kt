@@ -1,8 +1,11 @@
 package com.erv.app.ui.weighttraining
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -13,19 +16,26 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.BottomSheetScaffold
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberBottomSheetScaffoldState
+import androidx.compose.material3.rememberStandardBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -37,6 +47,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
@@ -45,13 +56,13 @@ import com.erv.app.R
 import com.erv.app.data.BodyWeightUnit
 import com.erv.app.data.UserPreferences
 import com.erv.app.data.WeightLiveRestTimerMode
-import com.erv.app.ui.media.WorkoutMediaControlSheet
+import com.erv.app.hr.LocalHeartRateBle
+import com.erv.app.ui.media.WorkoutMediaControlPanel
 import com.erv.app.ui.media.playHiitWorkCountdownTickCue
 import com.erv.app.ui.media.playHiitWorkSegmentEndCue
 import com.erv.app.ui.theme.ErvDarkTherapyRedDark
-import com.erv.app.ui.theme.ErvDarkTherapyRedMid
+import com.erv.app.ui.theme.ErvHeaderRed
 import com.erv.app.ui.theme.ErvLightTherapyRedDark
-import com.erv.app.ui.theme.ErvLightTherapyRedMid
 import com.erv.app.weighttraining.WeightHiitBlockLog
 import com.erv.app.weighttraining.WeightHiitIntervalPlan
 import com.erv.app.weighttraining.WeightLibraryState
@@ -97,7 +108,7 @@ fun WeightLiveWorkoutScreen(
         mutableStateOf(draft.exerciseOrder.toSet())
     }
     var recentWorkoutsExerciseId by remember { mutableStateOf<String?>(null) }
-    var showMediaSheet by remember { mutableStateOf(false) }
+    var mediaControlsEnabled by rememberSaveable { mutableStateOf(false) }
     var hiitTimerTarget by remember { mutableStateOf<Pair<String, WeightHiitIntervalPlan>?>(null) }
     var restEndAtEpochSeconds by remember(draft.startedAtEpochSeconds) { mutableStateOf<Long?>(null) }
     var restManualPending by remember(draft.startedAtEpochSeconds) { mutableStateOf(false) }
@@ -109,6 +120,8 @@ fun WeightLiveWorkoutScreen(
     val restTimerDurationSec by userPreferences.weightLiveRestTimerSeconds.collectAsState(initial = 90)
     val restTimerCountdownSoundEnabled by userPreferences.weightLiveRestTimerCountdownSoundEnabled.collectAsState(initial = true)
     val restTimerEndSoundEnabled by userPreferences.weightLiveRestTimerEndSoundEnabled.collectAsState(initial = true)
+    val heartRateBannerExpanded by userPreferences.heartRateBannerExpanded.collectAsState(initial = true)
+    val heartRateBle = LocalHeartRateBle.current
     val scope = rememberCoroutineScope()
     val latestCountdownSoundEnabled by rememberUpdatedState(restTimerCountdownSoundEnabled)
     val latestEndSoundEnabled by rememberUpdatedState(restTimerEndSoundEnabled)
@@ -173,7 +186,7 @@ fun WeightLiveWorkoutScreen(
     }
 
     val darkTheme = isSystemInDarkTheme()
-    val headerMid = if (darkTheme) ErvDarkTherapyRedMid else ErvLightTherapyRedMid
+    val headerMid = ErvHeaderRed
     val headerDark = if (darkTheme) ErvDarkTherapyRedDark else ErvLightTherapyRedDark
     var timerDisplayMode by rememberSaveable(draft.startedAtEpochSeconds, unifiedWorkoutStartedAtEpochSeconds) {
         mutableStateOf(WorkoutTimerDisplayMode.SESSION)
@@ -266,188 +279,268 @@ fun WeightLiveWorkoutScreen(
         )
     }
 
-    WorkoutMediaControlSheet(
-        visible = showMediaSheet,
-        onDismiss = { showMediaSheet = false }
+    val mediaSheetScaffoldState = rememberBottomSheetScaffoldState(
+        bottomSheetState = rememberStandardBottomSheetState(
+            initialValue = SheetValue.PartiallyExpanded,
+            skipHiddenState = true
+        )
     )
+    LaunchedEffect(mediaControlsEnabled) {
+        if (mediaControlsEnabled) {
+            mediaSheetScaffoldState.bottomSheetState.expand()
+        }
+    }
+
+    val topBar: @Composable () -> Unit = {
+        TopAppBar(
+            title = { Text(stringResource(R.string.weight_live_screen_title)) },
+            navigationIcon = {
+                IconButton(onClick = onLeaveWorkoutUi) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Leave workout screen"
+                    )
+                }
+            },
+            actions = {
+                IconButton(
+                    onClick = {
+                        scope.launch {
+                            val showHeartRateBanner = !heartRateBannerExpanded
+                            userPreferences.setHeartRateBannerExpanded(showHeartRateBanner)
+                            if (showHeartRateBanner) {
+                                heartRateBle.tryPreferredDeviceReconnectOnce()
+                            }
+                        }
+                    }
+                ) {
+                    Icon(
+                        imageVector = if (heartRateBannerExpanded) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+                        contentDescription = "Heart rate monitor",
+                        tint = if (heartRateBannerExpanded) Color(0xFFFF8A80) else Color.White.copy(alpha = 0.88f)
+                    )
+                }
+                IconButton(
+                    onClick = { mediaControlsEnabled = !mediaControlsEnabled },
+                    modifier = Modifier.padding(end = 4.dp)
+                ) {
+                    Icon(
+                        Icons.Filled.MusicNote,
+                        contentDescription = stringResource(R.string.media_control_cd_music),
+                        tint = Color.White.copy(alpha = if (mediaControlsEnabled) 1f else 0.88f)
+                    )
+                }
+                TextButton(
+                    onClick = { showDiscardConfirm = true },
+                    modifier = Modifier.padding(end = 4.dp)
+                ) {
+                    Text("Discard", color = Color.White.copy(alpha = 0.92f))
+                }
+                TextButton(
+                    onClick = {
+                        val hasLogged = draft.exerciseOrder.any { id ->
+                            draft.hiitBlocksByExerciseId[id] != null ||
+                                draft.setsByExerciseId[id].orEmpty().any { it.reps > 0 }
+                        }
+                        if (!hasLogged) showFinishBlocked = true
+                        else onFinish()
+                    },
+                    modifier = Modifier.padding(end = 4.dp)
+                ) {
+                    Text("Finish", color = Color.White)
+                }
+            },
+            colors = TopAppBarDefaults.topAppBarColors(
+                containerColor = headerMid,
+                titleContentColor = Color.White,
+                navigationIconContentColor = Color.White,
+                actionIconContentColor = Color.White
+            )
+        )
+    }
+
+    val screenContent: @Composable (PaddingValues) -> Unit = { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .padding(horizontal = 16.dp)
+        ) {
+            val elapsedSec = remember(tick, draft.startedAtEpochSeconds) {
+                (weightNowEpochSeconds() - draft.startedAtEpochSeconds).coerceAtLeast(0)
+            }
+            val unifiedElapsedSec = remember(tick, unifiedWorkoutStartedAtEpochSeconds) {
+                unifiedWorkoutStartedAtEpochSeconds?.let {
+                    (weightNowEpochSeconds() - it).coerceAtLeast(0)
+                }
+            }
+            val showingUnifiedTotal =
+                unifiedElapsedSec != null && timerDisplayMode == WorkoutTimerDisplayMode.TOTAL
+            WeightLiveRestTimerHeaderRow(
+                restMode = restTimerMode,
+                workoutElapsedLabel = if (showingUnifiedTotal) "Total workout" else "Weight session",
+                workoutElapsedText = formatElapsed(if (showingUnifiedTotal) unifiedElapsedSec ?: elapsedSec else elapsedSec),
+                workoutElapsedHint = if (unifiedElapsedSec != null) {
+                    if (showingUnifiedTotal) "Swipe to view weight session"
+                    else "Swipe to view total workout"
+                } else {
+                    null
+                },
+                restSecondsRemaining = restRemainingSec,
+                restManualPending = restManualPending && restEndAtEpochSeconds == null,
+                onStartManualRest = {
+                    restManualPending = false
+                    restEndAtEpochSeconds = weightNowEpochSeconds() + restTimerDurationSec
+                },
+                onSkipRest = { clearRestTimerUi() },
+                onRestZoneLongPress = { showRestTimerSettings = true },
+                onWorkoutTimerSwipe = {
+                    if (unifiedElapsedSec != null) {
+                        timerDisplayMode =
+                            if (timerDisplayMode == WorkoutTimerDisplayMode.SESSION) {
+                                WorkoutTimerDisplayMode.TOTAL
+                            } else {
+                                WorkoutTimerDisplayMode.SESSION
+                            }
+                    }
+                },
+                modifier = Modifier.padding(vertical = 16.dp)
+            )
+            if (draft.routineName != null) {
+                Text(
+                    "From routine: ${draft.routineName}",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+            }
+            Button(
+                onClick = { showPickExercise = true },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Default.Add, contentDescription = null)
+                Spacer(Modifier.padding(horizontal = 8.dp))
+                Text("Add exercise")
+            }
+            Spacer(Modifier.height(12.dp))
+            if (draft.exerciseOrder.isEmpty()) {
+                Text(
+                    "Empty workout — add exercises, then fill in reps, weight, and RPE under each lift. Tap + Add set for more rows.",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 24.dp)
+                )
+            } else {
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                ) {
+                    itemsIndexed(draft.exerciseOrder, key = { _, id -> id }) { index, exerciseId ->
+                        val ex = library.exerciseById(exerciseId)
+                        val sets = weightSetsInDraft(draft, exerciseId)
+                        WeightExerciseInlineSetsCard(
+                            exerciseName = ex?.name ?: exerciseId,
+                            equipmentLabel = ex?.equipment?.displayLabel(),
+                            equipment = ex?.equipment,
+                            sets = sets,
+                            loadUnit = loadUnit,
+                            onSetsChange = {
+                                onRecordExerciseActivity(exerciseId)
+                                onSaveSets(exerciseId, it)
+                            },
+                            canMoveUp = index > 0,
+                            canMoveDown = index < draft.exerciseOrder.lastIndex,
+                            onMoveUp = { onMoveExerciseUp(index) },
+                            onMoveDown = { onMoveExerciseDown(index) },
+                            onRemoveExercise = {
+                                setsCollapsedIds = setsCollapsedIds - exerciseId
+                                onRemoveExerciseAt(index)
+                            },
+                            setsCollapsed = exerciseId in setsCollapsedIds,
+                            onCollapseSets = {
+                                setsCollapsedIds = setsCollapsedIds + exerciseId
+                            },
+                            onExpandSets = {
+                                onRecordExerciseActivity(exerciseId)
+                                setsCollapsedIds = setsCollapsedIds - exerciseId
+                                clearRestTimerUi()
+                            },
+                            onRecentWorkouts = { recentWorkoutsExerciseId = exerciseId },
+                            hiitCapable = ex?.hiitCapable == true,
+                            hiitBlock = draft.hiitBlocksByExerciseId[exerciseId],
+                            onClearHiitBlock = { onClearHiitBlock(exerciseId) },
+                            onStartHiitTimer = { plan ->
+                                onRecordExerciseActivity(exerciseId)
+                                clearRestTimerUi()
+                                hiitTimerTarget = exerciseId to plan
+                            },
+                            onAfterAddSet = { onAddSetPressedForRest() }
+                        )
+                    }
+                }
+            }
+        }
+    }
 
     Surface(modifier = modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-            Scaffold(
-            topBar = {
-                TopAppBar(
-                    title = { Text(stringResource(R.string.weight_live_screen_title)) },
-                    navigationIcon = {
-                        IconButton(onClick = onLeaveWorkoutUi) {
-                            Icon(
-                                Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "Leave workout screen"
-                            )
-                        }
-                    },
-                    actions = {
-                        IconButton(
-                            onClick = { showMediaSheet = !showMediaSheet },
-                            modifier = Modifier.padding(end = 4.dp)
-                        ) {
-                            Icon(
-                                Icons.Filled.MusicNote,
-                                contentDescription = stringResource(R.string.media_control_cd_music),
-                                tint = Color.White.copy(alpha = if (showMediaSheet) 1f else 0.88f)
-                            )
-                        }
-                        TextButton(
-                            onClick = { showDiscardConfirm = true },
-                            modifier = Modifier.padding(end = 4.dp)
-                        ) {
-                            Text("Discard", color = Color.White.copy(alpha = 0.92f))
-                        }
-                        TextButton(
-                            onClick = {
-                                val hasLogged = draft.exerciseOrder.any { id ->
-                                    draft.hiitBlocksByExerciseId[id] != null ||
-                                        draft.setsByExerciseId[id].orEmpty().any { it.reps > 0 }
-                                }
-                                if (!hasLogged) showFinishBlocked = true
-                                else onFinish()
-                            },
-                            modifier = Modifier.padding(end = 4.dp)
-                        ) {
-                            Text("Finish", color = Color.White)
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = headerMid,
-                        titleContentColor = Color.White,
-                        navigationIconContentColor = Color.White,
-                        actionIconContentColor = Color.White
-                    )
-                )
-            },
-            containerColor = headerDark.copy(alpha = 0.08f)
-            ) { padding ->
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .padding(horizontal = 16.dp)
-            ) {
-                val elapsedSec = remember(tick, draft.startedAtEpochSeconds) {
-                    (weightNowEpochSeconds() - draft.startedAtEpochSeconds).coerceAtLeast(0)
-                }
-                val unifiedElapsedSec = remember(tick, unifiedWorkoutStartedAtEpochSeconds) {
-                    unifiedWorkoutStartedAtEpochSeconds?.let {
-                        (weightNowEpochSeconds() - it).coerceAtLeast(0)
-                    }
-                }
-                val showingUnifiedTotal =
-                    unifiedElapsedSec != null && timerDisplayMode == WorkoutTimerDisplayMode.TOTAL
-                WeightLiveRestTimerHeaderRow(
-                    restMode = restTimerMode,
-                    workoutElapsedLabel = if (showingUnifiedTotal) "Total workout" else "Weight session",
-                    workoutElapsedText = formatElapsed(if (showingUnifiedTotal) unifiedElapsedSec ?: elapsedSec else elapsedSec),
-                    workoutElapsedHint = if (unifiedElapsedSec != null) {
-                        if (showingUnifiedTotal) "Swipe to view weight session"
-                        else "Swipe to view total workout"
-                    } else {
-                        null
-                    },
-                    restSecondsRemaining = restRemainingSec,
-                    restManualPending = restManualPending && restEndAtEpochSeconds == null,
-                    onStartManualRest = {
-                        restManualPending = false
-                        restEndAtEpochSeconds = weightNowEpochSeconds() + restTimerDurationSec
-                    },
-                    onSkipRest = { clearRestTimerUi() },
-                    onRestZoneLongPress = { showRestTimerSettings = true },
-                    onWorkoutTimerSwipe = {
-                        if (unifiedElapsedSec != null) {
-                            timerDisplayMode =
-                                if (timerDisplayMode == WorkoutTimerDisplayMode.SESSION) {
-                                    WorkoutTimerDisplayMode.TOTAL
-                                } else {
-                                    WorkoutTimerDisplayMode.SESSION
-                                }
-                        }
-                    },
-                    modifier = Modifier.padding(vertical = 16.dp)
-                )
-                if (draft.routineName != null) {
-                    Text(
-                        "From routine: ${draft.routineName}",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(bottom = 8.dp)
-                    )
-                }
-                Button(
-                    onClick = { showPickExercise = true },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(Icons.Default.Add, contentDescription = null)
-                    Spacer(Modifier.padding(horizontal = 8.dp))
-                    Text("Add exercise")
-                }
-                Spacer(Modifier.height(12.dp))
-                if (draft.exerciseOrder.isEmpty()) {
-                    Text(
-                        "Empty workout — add exercises, then fill in reps, weight, and RPE under each lift. Tap + Add set for more rows.",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 24.dp)
-                    )
-                } else {
-                    LazyColumn(
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
+        if (mediaControlsEnabled) {
+            BottomSheetScaffold(
+                scaffoldState = mediaSheetScaffoldState,
+                sheetPeekHeight = 48.dp,
+                sheetContainerColor = MaterialTheme.colorScheme.surface,
+                sheetTonalElevation = 2.dp,
+                sheetShadowElevation = 4.dp,
+                sheetContent = {
+                    WorkoutMediaControlPanel(
+                        useLightOnDarkBackground = false,
+                        showHeaderTitle = true,
                         modifier = Modifier
-                            .weight(1f)
                             .fillMaxWidth()
-                    ) {
-                        itemsIndexed(draft.exerciseOrder, key = { _, id -> id }) { index, exerciseId ->
-                            val ex = library.exerciseById(exerciseId)
-                            val sets = weightSetsInDraft(draft, exerciseId)
-                            WeightExerciseInlineSetsCard(
-                                exerciseName = ex?.name ?: exerciseId,
-                                equipmentLabel = ex?.equipment?.displayLabel(),
-                                equipment = ex?.equipment,
-                                sets = sets,
-                                loadUnit = loadUnit,
-                                onSetsChange = {
-                                    onRecordExerciseActivity(exerciseId)
-                                    onSaveSets(exerciseId, it)
-                                },
-                                canMoveUp = index > 0,
-                                canMoveDown = index < draft.exerciseOrder.lastIndex,
-                                onMoveUp = { onMoveExerciseUp(index) },
-                                onMoveDown = { onMoveExerciseDown(index) },
-                                onRemoveExercise = {
-                                    setsCollapsedIds = setsCollapsedIds - exerciseId
-                                    onRemoveExerciseAt(index)
-                                },
-                                setsCollapsed = exerciseId in setsCollapsedIds,
-                                onCollapseSets = {
-                                    setsCollapsedIds = setsCollapsedIds + exerciseId
-                                },
-                                onExpandSets = {
-                                    onRecordExerciseActivity(exerciseId)
-                                    setsCollapsedIds = setsCollapsedIds - exerciseId
-                                    clearRestTimerUi()
-                                },
-                                onRecentWorkouts = { recentWorkoutsExerciseId = exerciseId },
-                                hiitCapable = ex?.hiitCapable == true,
-                                hiitBlock = draft.hiitBlocksByExerciseId[exerciseId],
-                                onClearHiitBlock = { onClearHiitBlock(exerciseId) },
-                                onStartHiitTimer = { plan ->
-                                    onRecordExerciseActivity(exerciseId)
-                                    clearRestTimerUi()
-                                    hiitTimerTarget = exerciseId to plan
-                                },
-                                onAfterAddSet = { onAddSetPressedForRest() }
+                            .padding(horizontal = 24.dp)
+                            .padding(bottom = 32.dp)
+                    )
+                },
+                sheetDragHandle = {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(2.dp)
+                                .background(headerMid)
+                        )
+                        HorizontalDivider(
+                            thickness = 2.dp,
+                            color = headerDark
+                        )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 10.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = stringResource(R.string.media_control_sheet_title),
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
-                }
+                },
+                topBar = topBar,
+                containerColor = headerDark.copy(alpha = 0.08f)
+            ) { padding ->
+                screenContent(padding)
             }
+        } else {
+            Scaffold(
+                topBar = topBar,
+                containerColor = headerDark.copy(alpha = 0.08f)
+            ) { padding ->
+                screenContent(padding)
             }
+        }
     }
 }
 

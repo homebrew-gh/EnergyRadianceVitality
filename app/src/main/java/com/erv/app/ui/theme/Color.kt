@@ -80,6 +80,9 @@ val ErvDarkInversePrimary = Color(0xFFC45C26)
 
 val ErvDarkScrim = Color(0xFF000000)
 
+// Shared app header red, matching the dashboard top bar.
+val ErvHeaderRed = Color(0xFFC62828)
+
 // --- Light Therapy accent (theme-aware) ---
 // Light theme: darker red so cards/top bar stand out on light background
 val ErvLightTherapyRedDark = Color(0xFF2E0808)

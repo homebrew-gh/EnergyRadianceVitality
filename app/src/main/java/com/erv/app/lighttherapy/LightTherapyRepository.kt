@@ -41,6 +41,10 @@ class LightTherapyRepository(context: Context) {
         updateState { newState.withStableSessionIds() }
     }
 
+    suspend fun clearAllData() {
+        replaceAll(LightLibraryState())
+    }
+
     suspend fun addDevice(device: LightDevice) {
         updateState { it.copy(devices = it.devices.upsert(device)) }
     }

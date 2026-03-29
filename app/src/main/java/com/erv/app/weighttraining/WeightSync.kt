@@ -80,6 +80,18 @@ object WeightSync {
     fun fullOutboxEntries(state: WeightLibraryState): List<Pair<String, String>> =
         weightImportOutboxEntries(state, state.logs.map { it.date })
 
+    fun clearOutboxEntries(state: WeightLibraryState): List<Pair<String, String>> {
+        val pairs = mutableListOf<Pair<String, String>>()
+        pairs += masterOutboxEntries(WeightLibraryState())
+        for (dateIso in state.logs.map { it.date }.distinct().sorted()) {
+            pairs += dailyTag(dateIso) to json.encodeToString(
+                WeightDayLog.serializer(),
+                WeightDayLog(date = dateIso)
+            )
+        }
+        return pairs
+    }
+
     /**
      * Ordered payloads for [com.erv.app.nostr.RelayPublishOutbox] after a weight import
      * (exercises master, routines master, then each day).

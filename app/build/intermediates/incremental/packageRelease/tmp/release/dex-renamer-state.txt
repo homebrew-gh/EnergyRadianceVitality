@@ -1,13 +1,13 @@
-#Sun Mar 22 09:40:19 EDT 2026
-base.0=/home/samcornwell/Projects/EnergyRadianceVitality/app/build/intermediates/dex/release/mergeDexRelease/classes.dex
-base.1=/home/samcornwell/Projects/EnergyRadianceVitality/app/build/intermediates/dex/release/mergeDexRelease/classes2.dex
-base.2=/home/samcornwell/Projects/EnergyRadianceVitality/app/build/intermediates/dex/release/mergeDexRelease/classes3.dex
-base.3=/home/samcornwell/Projects/EnergyRadianceVitality/app/build/intermediates/dex/release/mergeDexRelease/classes4.dex
-path.0=classes.dex
-path.1=classes2.dex
-path.2=classes3.dex
+#Sun Mar 29 10:46:04 EDT 2026
 path.3=classes4.dex
-renamed.0=classes.dex
-renamed.1=classes2.dex
-renamed.2=classes3.dex
+path.2=classes3.dex
+path.1=classes2.dex
+path.0=classes.dex
+base.3=/home/samcornwell/Projects/EnergyRadianceVitality/app/build/intermediates/dex/release/mergeDexRelease/classes4.dex
+base.2=/home/samcornwell/Projects/EnergyRadianceVitality/app/build/intermediates/dex/release/mergeDexRelease/classes3.dex
+base.1=/home/samcornwell/Projects/EnergyRadianceVitality/app/build/intermediates/dex/release/mergeDexRelease/classes2.dex
+base.0=/home/samcornwell/Projects/EnergyRadianceVitality/app/build/intermediates/dex/release/mergeDexRelease/classes.dex
 renamed.3=classes4.dex
+renamed.2=classes3.dex
+renamed.1=classes2.dex
+renamed.0=classes.dex

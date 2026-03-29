@@ -56,6 +56,21 @@ object SupplementSync {
         return pairs
     }
 
+    fun clearOutboxEntries(state: SupplementLibraryState): List<Pair<String, String>> {
+        val pairs = mutableListOf<Pair<String, String>>()
+        pairs += SUPPLEMENT_MASTER_D_TAG to json.encodeToString(
+            SupplementMasterPayload.serializer(),
+            SupplementMasterPayload()
+        )
+        for (dateIso in state.logs.map { it.date }.distinct().sorted()) {
+            pairs += dailyTag(dateIso) to json.encodeToString(
+                SupplementDayLog.serializer(),
+                SupplementDayLog(date = dateIso)
+            )
+        }
+        return pairs
+    }
+
     suspend fun publishMaster(
         appContext: Context,
         relayPool: RelayPool,

@@ -67,9 +67,10 @@ fun ErvSummarySheet(onDismiss: () -> Unit) {
                     )
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        text = "ERV does not collect your health logs or run company analytics on what you track. " +
-                            "Your information stays on your device. If you turn on Nostr, you choose which relays " +
-                            "receive encrypted backups or public posts—ERV never holds your keys on our servers.",
+                        text = "ERV is local first. Your health logs, routines, reminders, and body-tracker photos " +
+                            "stay on this device unless you choose to export or sync. If you enable Nostr, you pick " +
+                            "which relays receive encrypted activity data or optional public posts. ERV has no " +
+                            "first-party cloud account and never stores your private key on our servers.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onPrimaryContainer,
                     )
@@ -84,14 +85,16 @@ fun ErvSummarySheet(onDismiss: () -> Unit) {
             val bullets = listOf(
                 "Log supplements with routines and reminders.",
                 "Run light therapy sessions and keep a daily log.",
-                "Track cardio with timers, optional GPS routes, routines, and quick starts.",
-                "Record weight training—including live workouts—and browse your history.",
-                "Log sauna and cold plunge sessions with optional timers.",
-                "Track stretching and guided routines.",
+                "Track cardio with timers, live workouts, optional GPS routes, and sensor data when available.",
+                "Record weight training, exercises, routines, and live workouts.",
+                "Log hot and cold sessions with optional timers.",
+                "Track stretching sessions and guided routines.",
+                "Build unified workouts and calendar-style programs.",
+                "Track body weight, measurements, notes, and progress photos stored only on this device.",
                 "Set weekly goals on the dashboard and see progress at a glance.",
                 "Optionally sync encrypted activity to Nostr relays you add in Settings.",
-                "Share workouts or notes socially over Nostr when you enable it—only what you choose to publish.",
-                "Import and manage data from Settings when you want to move or archive it.",
+                "Share workouts or notes socially over Nostr only when you choose to publish them.",
+                "Import, export, delete sections, or fully reset app data from Settings.",
             )
             bullets.forEach { line ->
                 Text(

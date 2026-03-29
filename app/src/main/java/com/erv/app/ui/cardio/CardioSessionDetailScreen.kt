@@ -60,8 +60,7 @@ import com.erv.app.cardio.summaryLine
 import com.erv.app.cardio.label
 import com.erv.app.data.UserPreferences
 import com.erv.app.hr.HeartRateSessionAnalyticsSection
-import com.erv.app.ui.theme.ErvDarkTherapyRedMid
-import com.erv.app.ui.theme.ErvLightTherapyRedMid
+import com.erv.app.ui.theme.ErvHeaderRed
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -86,8 +85,7 @@ fun CardioSessionDetailScreen(
     val session = state.logFor(logDate)?.sessions?.firstOrNull { it.id == sessionId }
     val distanceUnit by userPreferences.cardioDistanceUnit.collectAsState(initial = CardioDistanceUnit.MILES)
     val heartRateMaxPref by userPreferences.heartRateMaxBpm.collectAsState(initial = null)
-    val darkTheme = isSystemInDarkTheme()
-    val headerMid = if (darkTheme) ErvDarkTherapyRedMid else ErvLightTherapyRedMid
+    val headerMid = ErvHeaderRed
 
     Scaffold(
         modifier = modifier,

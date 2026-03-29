@@ -87,6 +87,15 @@ class BodyTrackerRepository(context: Context) {
         }
     }
 
+    suspend fun clearAllData() {
+        withContext(Dispatchers.IO) {
+            photosDir.listFiles()?.forEach { file ->
+                if (file.isFile) file.delete()
+            }
+        }
+        replaceAll(BodyTrackerLibraryState())
+    }
+
     suspend fun addPhotoFromUri(date: LocalDate, uri: Uri) {
         val id = UUID.randomUUID().toString()
         val dest = File(photosDir, "$id.jpg")

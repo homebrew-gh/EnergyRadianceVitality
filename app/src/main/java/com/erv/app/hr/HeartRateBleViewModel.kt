@@ -176,6 +176,23 @@ class HeartRateBleViewModel(application: Application) : AndroidViewModel(applica
         }
     }
 
+    /**
+     * One-shot reconnect attempt for the preferred saved device when UI exposes the HR monitor later
+     * in the app session. Does not start scanning; it only retries the known saved address.
+     */
+    fun tryPreferredDeviceReconnectOnce() {
+        val saved = _preferredDeviceAddress.value
+        if (saved.isNullOrBlank()) return
+        if (!bleHardwareAvailable || !bluetoothEnabled() || !hasConnectPermission()) return
+        if (_connectionState.value == HeartRateBleConnectionState.Connected ||
+            _connectionState.value == HeartRateBleConnectionState.Connecting ||
+            _connectionState.value == HeartRateBleConnectionState.Scanning
+        ) {
+            return
+        }
+        connectToAddress(saved, auto = true)
+    }
+
     fun hasScanPermission(): Boolean =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             ContextCompat.checkSelfPermission(

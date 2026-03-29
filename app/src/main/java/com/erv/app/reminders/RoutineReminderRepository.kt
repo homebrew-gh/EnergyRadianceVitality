@@ -63,6 +63,20 @@ class RoutineReminderRepository(context: Context) {
         }
     }
 
+    suspend fun replaceAll(state: RoutineReminderState) {
+        currentState().reminders.forEach { reminder ->
+            RoutineReminderScheduler.cancel(appContext, reminder.routineId)
+        }
+        updateState { state }
+    }
+
+    suspend fun clearAllData() {
+        currentState().reminders.forEach { reminder ->
+            RoutineReminderScheduler.cancel(appContext, reminder.routineId)
+        }
+        updateState { RoutineReminderState() }
+    }
+
     private suspend fun updateState(transform: (RoutineReminderState) -> RoutineReminderState) {
         appContext.routineReminderDataStore.edit { prefs ->
             val current = decodeState(prefs[Keys.STATE])

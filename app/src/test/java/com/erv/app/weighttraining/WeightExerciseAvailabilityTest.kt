@@ -27,6 +27,38 @@ class WeightExerciseAvailabilityTest {
     }
 
     @Test
+    fun filterWeightExercisesForPicker_hidesPackExercises_untilEnabled() {
+        val regular = WeightExercise(
+            name = "Bench",
+            muscleGroup = "chest",
+            pushOrPull = WeightPushPull.PUSH,
+            equipment = WeightEquipment.BARBELL
+        )
+        val ironNeck = WeightExercise(
+            name = "Iron Neck Flexion",
+            muscleGroup = "neck",
+            pushOrPull = WeightPushPull.PUSH,
+            equipment = WeightEquipment.OTHER,
+            exercisePackId = IRON_NECK_EXERCISE_PACK_ID,
+        )
+
+        val hidden = filterWeightExercisesForPicker(
+            exercises = listOf(regular, ironNeck),
+            filter = WeightExercisePickerFilter.ALL,
+            ownedEquipment = emptyList(),
+        )
+        assertEquals(listOf(regular), hidden)
+
+        val enabled = filterWeightExercisesForPicker(
+            exercises = listOf(regular, ironNeck),
+            filter = WeightExercisePickerFilter.ALL,
+            ownedEquipment = emptyList(),
+            enabledPackIds = setOf(IRON_NECK_EXERCISE_PACK_ID),
+        )
+        assertEquals(listOf(regular, ironNeck), enabled)
+    }
+
+    @Test
     fun isHomeReadyFor_matchesBroadOwnedEquipmentCategories() {
         val owned = listOf(
             OwnedEquipmentItem(
@@ -101,6 +133,25 @@ class WeightExerciseAvailabilityTest {
                 pushOrPull = WeightPushPull.PUSH,
                 equipment = WeightEquipment.OTHER
             ).isHomeReadyFor(owned)
+        )
+    }
+
+    @Test
+    fun isHomeReadyFor_packExercise_requiresPackEnabled() {
+        val exercise = WeightExercise(
+            name = "Reverse Hyper",
+            muscleGroup = "legs",
+            pushOrPull = WeightPushPull.PULL,
+            equipment = WeightEquipment.OTHER,
+            exercisePackId = FREAK_ATHLETE_HYPER_PRO_EXERCISE_PACK_ID,
+        )
+
+        assertFalse(exercise.isHomeReadyFor(emptyList()))
+        assertTrue(
+            exercise.isHomeReadyFor(
+                ownedEquipment = emptyList(),
+                enabledPackIds = setOf(FREAK_ATHLETE_HYPER_PRO_EXERCISE_PACK_ID),
+            )
         )
     }
 }

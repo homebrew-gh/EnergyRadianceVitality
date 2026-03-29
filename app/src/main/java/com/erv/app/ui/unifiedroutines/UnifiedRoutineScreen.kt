@@ -23,6 +23,8 @@ import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
@@ -60,14 +62,17 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.erv.app.cardio.CardioBuiltinActivity
 import com.erv.app.cardio.CardioDistanceUnit
+import com.erv.app.cardio.CardioModality
 import com.erv.app.cardio.CardioLibraryState
 import com.erv.app.cardio.CardioQuickLaunch
 import com.erv.app.cardio.CardioRoutine
+import com.erv.app.cardio.CardioActiveTimerSession
 import com.erv.app.cardio.cardioBuiltinActivitiesForUserSelection
 import com.erv.app.cardio.displayName
 import com.erv.app.cardio.formatCardioAveragePaceForSession
@@ -81,6 +86,8 @@ import com.erv.app.stretching.StretchCatalogEntry
 import com.erv.app.stretching.StretchSession
 import com.erv.app.stretching.StretchLibraryState
 import com.erv.app.stretching.StretchRoutine
+import com.erv.app.ui.cardio.OutdoorRuckPackWeightDialog
+import com.erv.app.ui.theme.ErvHeaderRed
 import com.erv.app.ui.weighttraining.WeightPickExerciseDialog
 import com.erv.app.ui.weighttraining.WeightLiveWorkoutFgsDisclosureDialog
 import com.erv.app.ui.weighttraining.WeightLiveWorkoutViewModel
@@ -165,16 +172,16 @@ fun UnifiedRoutineCategoryScreen(
         },
         topBar = {
             TopAppBar(
-                title = { Text("Unified Routines") },
+                title = { Text("Unified Workouts") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                    navigationIconContentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    containerColor = ErvHeaderRed,
+                    titleContentColor = Color.White,
+                    navigationIconContentColor = Color.White
                 )
             )
         }
@@ -406,6 +413,7 @@ fun UnifiedRoutineRunScreen(
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     val heartRateBle = LocalHeartRateBle.current
+    val heartRateBannerExpanded by userPreferences.heartRateBannerExpanded.collectAsState(initial = true)
     val session = unifiedState.activeSession?.takeIf { it.routineId == routineId }
     val recapSession = session?.let { unifiedState.sessionById(it.sessionId) }
     val routine = session?.routineSnapshot ?: unifiedState.routineById(routineId)
@@ -413,7 +421,10 @@ fun UnifiedRoutineRunScreen(
     val cardioDistanceUnit by userPreferences.cardioDistanceUnit.collectAsState(initial = CardioDistanceUnit.MILES)
     val weightLoadUnit by userPreferences.weightTrainingLoadUnit.collectAsState(initial = BodyWeightUnit.LB)
     var pendingWeightBlock by remember { mutableStateOf<UnifiedRoutineBlock?>(null) }
+    var pendingRuckCardioSession by remember { mutableStateOf<CardioActiveTimerSession.Single?>(null) }
+    var pendingRuckCardioBlockId by remember { mutableStateOf<String?>(null) }
     var tick by remember { mutableStateOf(0) }
+    var showDiscardConfirm by remember { mutableStateOf(false) }
 
     LaunchedEffect(routineId, routine) {
         if (routine != null && (session == null || session.routineId != routineId)) {
@@ -434,12 +445,17 @@ fun UnifiedRoutineRunScreen(
             modifier = modifier.fillMaxSize(),
             topBar = {
                 TopAppBar(
-                    title = { Text("Unified Routine") },
+                    title = { Text("Unified Workout") },
                     navigationIcon = {
                         IconButton(onClick = onBack) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                         }
-                    }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = ErvHeaderRed,
+                        titleContentColor = Color.White,
+                        navigationIconContentColor = Color.White
+                    )
                 )
             }
         ) { padding ->
@@ -477,7 +493,12 @@ fun UnifiedRoutineRunScreen(
             scope.launch { snackbarHostState.showSnackbar("This weight block does not have any usable exercises.") }
             return
         }
-        if (!weightLiveWorkoutViewModel.tryStartFromRoutine(resolved, weightState)) {
+        if (!weightLiveWorkoutViewModel.tryStartFromRoutine(
+                routine = resolved,
+                library = weightState,
+                suppressNotification = true,
+            )
+        ) {
             scope.launch { snackbarHostState.showSnackbar("Finish or cancel your live weight workout first.") }
             return
         }
@@ -486,29 +507,46 @@ fun UnifiedRoutineRunScreen(
         onOpenWeightCategory()
     }
 
-    fun launchCardioBlock(block: UnifiedRoutineBlock) {
+    fun startOrQueueUnifiedCardio(sessionToStart: CardioActiveTimerSession, blockId: String) {
         if (weightLiveWorkoutViewModel.hasLiveSession) {
             scope.launch { snackbarHostState.showSnackbar("Finish or cancel your live weight workout first.") }
             return
         }
         if (cardioLiveWorkoutViewModel.hasActiveTimer) {
             cardioLiveWorkoutViewModel.setCardioLiveUiExpanded(true)
-            scope.launch { repository.setLastLaunchedBlock(routine.id, block.id) }
+            scope.launch { repository.setLastLaunchedBlock(routine.id, blockId) }
             onOpenCardioCategory()
             return
         }
+        if (!cardioLiveWorkoutViewModel.tryStartSession(
+                session = sessionToStart,
+                suppressNotification = true,
+            )
+        ) {
+            scope.launch { snackbarHostState.showSnackbar("Finish or cancel your cardio timer first.") }
+            return
+        }
+        cardioLiveWorkoutViewModel.setCardioLiveUiExpanded(true)
+        scope.launch { repository.setLastLaunchedBlock(routine.id, blockId) }
+        onOpenCardioCategory()
+    }
+
+    fun launchCardioBlock(block: UnifiedRoutineBlock) {
         val sessionToStart = block.resolveCardioLaunch(cardioState)
         if (sessionToStart == null) {
             scope.launch { snackbarHostState.showSnackbar("This cardio block is missing an activity or routine.") }
             return
         }
-        if (!cardioLiveWorkoutViewModel.tryStartSession(sessionToStart)) {
-            scope.launch { snackbarHostState.showSnackbar("Finish or cancel your cardio timer first.") }
+        if (
+            sessionToStart is CardioActiveTimerSession.Single &&
+            sessionToStart.draft.activity.builtin == CardioBuiltinActivity.RUCK &&
+            sessionToStart.draft.modality == CardioModality.OUTDOOR
+        ) {
+            pendingRuckCardioSession = sessionToStart
+            pendingRuckCardioBlockId = block.id
             return
         }
-        cardioLiveWorkoutViewModel.setCardioLiveUiExpanded(true)
-        scope.launch { repository.setLastLaunchedBlock(routine.id, block.id) }
-        onOpenCardioCategory()
+        startOrQueueUnifiedCardio(sessionToStart, block.id)
     }
 
     fun launchStretchBlock(block: UnifiedRoutineBlock) {
@@ -524,6 +562,29 @@ fun UnifiedRoutineRunScreen(
         }
     }
 
+    if (showDiscardConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDiscardConfirm = false },
+            title = { Text("Discard workout?") },
+            text = { Text("Your unified workout will be cleared and not saved.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDiscardConfirm = false
+                        scope.launch {
+                            heartRateBle.discardUnifiedWorkoutRecording()
+                            repository.clearActiveSession()
+                            onBack()
+                        }
+                    }
+                ) { Text("Discard") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDiscardConfirm = false }) { Text("Cancel") }
+            }
+        )
+    }
+
     Scaffold(
         modifier = modifier.fillMaxSize(),
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -535,10 +596,33 @@ fun UnifiedRoutineRunScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
+                actions = {
+                    IconButton(
+                        onClick = {
+                            scope.launch {
+                                val showHeartRateBanner = !heartRateBannerExpanded
+                                userPreferences.setHeartRateBannerExpanded(showHeartRateBanner)
+                                if (showHeartRateBanner) {
+                                    heartRateBle.tryPreferredDeviceReconnectOnce()
+                                }
+                            }
+                        }
+                    ) {
+                        Icon(
+                            imageVector = if (heartRateBannerExpanded) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+                            contentDescription = "Heart rate monitor",
+                            tint = if (heartRateBannerExpanded) Color(0xFFFF8A80) else Color.White
+                        )
+                    }
+                    TextButton(onClick = { showDiscardConfirm = true }) {
+                        Text("Discard", color = Color.White)
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                    navigationIconContentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    containerColor = ErvHeaderRed,
+                    titleContentColor = Color.White,
+                    navigationIconContentColor = Color.White,
+                    actionIconContentColor = Color.White
                 )
             )
         }
@@ -699,6 +783,28 @@ fun UnifiedRoutineRunScreen(
             launchWeightBlock(block)
         }
     )
+
+    pendingRuckCardioSession?.let { pendingSession ->
+        OutdoorRuckPackWeightDialog(
+            quickLaunchName = pendingSession.draft.title,
+            defaultRuckLoadKg = pendingSession.draft.ruckLoadKg,
+            onDismiss = {
+                pendingRuckCardioSession = null
+                pendingRuckCardioBlockId = null
+            },
+            onStart = { kg ->
+                pendingRuckCardioSession = null
+                val blockId = pendingRuckCardioBlockId
+                pendingRuckCardioBlockId = null
+                if (blockId != null) {
+                    startOrQueueUnifiedCardio(
+                        pendingSession.copy(draft = pendingSession.draft.copy(ruckLoadKg = kg)),
+                        blockId
+                    )
+                }
+            }
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -720,7 +826,7 @@ private fun UnifiedRoutineEditorDialog(
     var blockTypeToAdd by remember { mutableStateOf<UnifiedRoutineBlockType?>(null) }
 
     fun buildRoutine(): UnifiedRoutine {
-        val trimmedName = name.trim().ifBlank { "Workout Launcher Session" }
+        val trimmedName = name.trim().ifBlank { "Unified Workout Session" }
         return UnifiedRoutine(
             id = initial?.id ?: UUID.randomUUID().toString(),
             name = trimmedName,

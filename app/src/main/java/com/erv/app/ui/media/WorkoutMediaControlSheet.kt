@@ -41,8 +41,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.erv.app.R
 import com.erv.app.media.ErvMediaControlHelper
 
@@ -58,27 +61,49 @@ fun WorkoutMediaControlPanel(
     showHeaderTitle: Boolean = true,
 ) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
 
-    var listenerEnabled by remember { mutableStateOf(ErvMediaControlHelper.isNotificationListenerEnabled(context)) }
-    LaunchedEffect(Unit) {
-        listenerEnabled = ErvMediaControlHelper.isNotificationListenerEnabled(context)
-    }
-
+    var listenerEnabled by remember { mutableStateOf(false) }
     var metadata by remember { mutableStateOf<MediaMetadata?>(null) }
     var playbackState by remember { mutableStateOf<PlaybackState?>(null) }
     var activeController by remember { mutableStateOf<MediaController?>(null) }
 
-    DisposableEffect(listenerEnabled) {
+    fun refreshMediaState() {
+        listenerEnabled = ErvMediaControlHelper.isNotificationListenerEnabled(context)
         if (Build.VERSION.SDK_INT < 21) {
             activeController = null
             metadata = null
             playbackState = null
-            return@DisposableEffect onDispose { }
+            return
         }
-        val controller = if (listenerEnabled) ErvMediaControlHelper.primaryMediaController(context) else null
+        val controller = if (listenerEnabled) {
+            ErvMediaControlHelper.primaryMediaController(context)
+        } else {
+            null
+        }
         activeController = controller
         metadata = controller?.metadata
         playbackState = controller?.playbackState
+    }
+
+    LaunchedEffect(context) {
+        refreshMediaState()
+    }
+
+    DisposableEffect(lifecycleOwner, context) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                refreshMediaState()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
+    DisposableEffect(activeController) {
+        val controller = activeController
         if (controller == null) {
             return@DisposableEffect onDispose { }
         }
@@ -196,6 +221,11 @@ fun WorkoutMediaControlPanel(
                     Text(
                         stringResource(R.string.media_control_no_session),
                         style = MaterialTheme.typography.bodyMedium,
+                        color = onMuted
+                    )
+                    Text(
+                        stringResource(R.string.media_control_no_session_hint),
+                        style = MaterialTheme.typography.bodySmall,
                         color = onMuted
                     )
                 }

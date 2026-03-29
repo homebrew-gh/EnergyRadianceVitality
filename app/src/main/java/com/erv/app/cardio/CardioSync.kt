@@ -59,6 +59,22 @@ object CardioSync {
     fun fullOutboxEntries(state: CardioLibraryState): List<Pair<String, String>> =
         cardioImportOutboxEntries(state, state.logs.map { it.date })
 
+    fun clearOutboxEntries(state: CardioLibraryState): List<Pair<String, String>> {
+        val pairs = mutableListOf<Pair<String, String>>()
+        val emptyMaster = CardioMasterPayload()
+        pairs += CARDIO_MASTER_D_TAG to json.encodeToString(
+            CardioMasterPayload.serializer(),
+            emptyMaster
+        )
+        for (dateIso in state.logs.map { it.date }.distinct().sorted()) {
+            pairs += dailyTag(dateIso) to json.encodeToString(
+                CardioDayLog.serializer(),
+                CardioDayLog(date = dateIso)
+            )
+        }
+        return pairs
+    }
+
     /** Master + day logs for [com.erv.app.nostr.RelayPublishOutbox] after cardio import. */
     fun cardioImportOutboxEntries(
         state: CardioLibraryState,

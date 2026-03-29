@@ -39,9 +39,12 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
@@ -188,14 +191,21 @@ import com.erv.app.ui.dashboard.SectionLogFilterBar
 import com.erv.app.ui.dashboard.datesWithCardioActivity
 import com.erv.app.ui.weighttraining.LiveWorkoutInProgressBanner
 import com.erv.app.ui.media.WorkoutMediaControlPanel
+import com.erv.app.cycling.CyclingCscBleConnectionState
+import com.erv.app.cycling.CyclingCscScanRow
 import com.erv.app.cycling.LocalCyclingCsc
+import com.erv.app.data.SavedBluetoothDevice
+import com.erv.app.data.displayName
+import com.erv.app.hr.HeartRateTopBar
 import com.erv.app.hr.HeartRateSessionAnalyticsSection
 import com.erv.app.hr.LocalHeartRateBle
+import com.erv.app.hr.requiredBlePermissionsForHeartRate
 import com.erv.app.ui.weighttraining.WeightLiveWorkoutFgsDisclosureDialog
 import com.erv.app.ui.weighttraining.WeightLiveWorkoutViewModel
 import com.erv.app.ui.theme.ErvDarkTherapyRedDark
 import com.erv.app.ui.theme.ErvDarkTherapyRedGlow
 import com.erv.app.ui.theme.ErvDarkTherapyRedMid
+import com.erv.app.ui.theme.ErvHeaderRed
 import com.erv.app.ui.theme.ErvLightTherapyRedDark
 import com.erv.app.ui.theme.ErvLightTherapyRedGlow
 import com.erv.app.ui.theme.ErvLightTherapyRedMid
@@ -226,6 +236,7 @@ fun CardioCategoryScreen(
     relayPool: RelayPool?,
     signer: EventSigner?,
     onBack: () -> Unit,
+    onReturnToUnifiedRun: (String) -> Unit = {},
     onOpenLog: () -> Unit,
     initialOpenNewWorkout: Boolean = false,
     onConsumedInitialOpenNewWorkout: () -> Unit = {}
@@ -389,7 +400,7 @@ fun CardioCategoryScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = therapyRedMid,
+                    containerColor = ErvHeaderRed,
                     titleContentColor = Color.White,
                     actionIconContentColor = Color.White,
                     navigationIconContentColor = Color.White
@@ -519,6 +530,7 @@ fun CardioCategoryScreen(
                     }
                     CardioElapsedTimerFullScreen(
                         draft = draft,
+                        userPreferences = userPreferences,
                         distanceUnit = distanceUnit,
                         dark = therapyRedDark,
                         mid = therapyRedMid,
@@ -534,8 +546,15 @@ fun CardioCategoryScreen(
                             requestCardioLocationPermission.launch(Manifest.permission.ACCESS_FINE_LOCATION)
                         },
                         onLeaveTimerUi = {
+                            val returnedToUnified =
+                                if (activeUnifiedSession != null && activeUnifiedBlockId != null) {
+                                    onReturnToUnifiedRun(activeUnifiedSession.routineId)
+                                    true
+                                } else {
+                                    false
+                                }
                             cardioLiveWorkoutViewModel.setCardioLiveUiExpanded(false)
-                            if (activeUnifiedSession != null && activeUnifiedBlockId != null) {
+                            if (!returnedToUnified && activeUnifiedSession != null && activeUnifiedBlockId != null) {
                                 onBack()
                             }
                         },
@@ -556,12 +575,12 @@ fun CardioCategoryScreen(
                                     }
                                 )
                                 val hrSummary = heartRateBle.takeWorkoutHeartRateSummary()
-                                val sessionBase = CardioMetEstimator.applyEstimatedKcal(
-                                    raw,
+                                val withHr = hrSummary?.let { raw.copy(heartRate = it) } ?: raw
+                                val session = CardioMetEstimator.applyEstimatedKcal(
+                                    withHr,
                                     repository.currentState(),
                                     weightKg
                                 )
-                                val session = hrSummary?.let { sessionBase.copy(heartRate = it) } ?: sessionBase
                                 val activeUnifiedSession = unifiedState.activeSession
                                 val activeUnifiedBlockId = activeUnifiedSession?.lastLaunchedBlockId?.takeIf { blockId ->
                                     unifiedState
@@ -576,7 +595,6 @@ fun CardioCategoryScreen(
                                 } else {
                                     session
                                 }
-                                cardioLiveWorkoutViewModel.clearSession()
                                 repository.addSession(today, storedSession)
                                 if (activeUnifiedSession != null && activeUnifiedBlockId != null) {
                                     unifiedRoutineRepository.attachLoggedBlock(
@@ -588,18 +606,27 @@ fun CardioCategoryScreen(
                                 }
                                 repository.currentState().logFor(today)?.let { syncDailyLog(it) }
                                 if (activeUnifiedSession != null && activeUnifiedBlockId != null) {
-                                    onBack()
+                                    onReturnToUnifiedRun(activeUnifiedSession.routineId)
+                                    cardioLiveWorkoutViewModel.clearSession()
                                 } else {
+                                    cardioLiveWorkoutViewModel.clearSession()
                                     completedWorkoutSummary = CardioTimerCompletionResult(storedSession, elapsedSeconds)
                                 }
                             }
                         },
                         onCancel = {
+                            val returnedToUnified =
+                                if (activeUnifiedSession != null && activeUnifiedBlockId != null) {
+                                    onReturnToUnifiedRun(activeUnifiedSession.routineId)
+                                    true
+                                } else {
+                                    false
+                                }
                             drainCardioGpsIfNeeded(recordGps, timerAppContext)
                             heartRateBle.discardWorkoutRecording()
                             cyclingCscBle.discardWorkoutRecording()
                             cardioLiveWorkoutViewModel.clearSession()
-                            if (activeUnifiedSession != null && activeUnifiedBlockId != null) {
+                            if (!returnedToUnified && activeUnifiedSession != null && activeUnifiedBlockId != null) {
                                 onBack()
                             }
                         }
@@ -620,12 +647,20 @@ fun CardioCategoryScreen(
                     CardioMultiLegTimerFullScreen(
                         state = timer.state,
                         stateKey = multiKey,
+                        userPreferences = userPreferences,
                         dark = therapyRedDark,
                         mid = therapyRedMid,
                         glow = therapyRedGlow,
                         onLeaveWorkoutUi = {
+                            val returnedToUnified =
+                                if (activeUnifiedSession != null && activeUnifiedBlockId != null) {
+                                    onReturnToUnifiedRun(activeUnifiedSession.routineId)
+                                    true
+                                } else {
+                                    false
+                                }
                             cardioLiveWorkoutViewModel.setCardioLiveUiExpanded(false)
-                            if (activeUnifiedSession != null && activeUnifiedBlockId != null) {
+                            if (!returnedToUnified && activeUnifiedSession != null && activeUnifiedBlockId != null) {
                                 onBack()
                             }
                         },
@@ -643,6 +678,11 @@ fun CardioCategoryScreen(
                                 if (session != null) {
                                     val hrSummary = heartRateBle.takeWorkoutHeartRateSummary()
                                     val withHr = hrSummary?.let { session.copy(heartRate = it) } ?: session
+                                    val finalSession = CardioMetEstimator.applyEstimatedKcal(
+                                        withHr,
+                                        repository.currentState(),
+                                        weightKg
+                                    )
                                     val activeUnifiedSession = unifiedState.activeSession
                                     val activeUnifiedBlockId = activeUnifiedSession?.lastLaunchedBlockId?.takeIf { blockId ->
                                         unifiedState
@@ -653,11 +693,10 @@ fun CardioCategoryScreen(
                                     }
                                     val storedSession = if (activeUnifiedSession != null && activeUnifiedBlockId != null) {
                                         val recap = unifiedState.sessionById(activeUnifiedSession.sessionId)
-                                        withHr.copy(unifiedLink = recap?.linkFor(activeUnifiedBlockId))
+                                        finalSession.copy(unifiedLink = recap?.linkFor(activeUnifiedBlockId))
                                     } else {
-                                        withHr
+                                        finalSession
                                     }
-                                    cardioLiveWorkoutViewModel.clearSession()
                                     repository.addSession(today, storedSession)
                                     if (activeUnifiedSession != null && activeUnifiedBlockId != null) {
                                         unifiedRoutineRepository.attachLoggedBlock(
@@ -669,8 +708,10 @@ fun CardioCategoryScreen(
                                     }
                                     repository.currentState().logFor(today)?.let { syncDailyLog(it) }
                                     if (activeUnifiedSession != null && activeUnifiedBlockId != null) {
-                                        onBack()
+                                        onReturnToUnifiedRun(activeUnifiedSession.routineId)
+                                        cardioLiveWorkoutViewModel.clearSession()
                                     } else {
+                                        cardioLiveWorkoutViewModel.clearSession()
                                         completedWorkoutSummary = CardioTimerCompletionResult(storedSession, null)
                                     }
                                 } else if (next != null) {
@@ -680,9 +721,16 @@ fun CardioCategoryScreen(
                             }
                         },
                         onCancel = {
+                            val returnedToUnified =
+                                if (activeUnifiedSession != null && activeUnifiedBlockId != null) {
+                                    onReturnToUnifiedRun(activeUnifiedSession.routineId)
+                                    true
+                                } else {
+                                    false
+                                }
                             heartRateBle.discardWorkoutRecording()
                             cardioLiveWorkoutViewModel.clearSession()
-                            if (activeUnifiedSession != null && activeUnifiedBlockId != null) {
+                            if (!returnedToUnified && activeUnifiedSession != null && activeUnifiedBlockId != null) {
                                 onBack()
                             }
                         }
@@ -2324,7 +2372,7 @@ fun CardioLogScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = therapyRedMid,
+                    containerColor = ErvHeaderRed,
                     titleContentColor = Color.White,
                     navigationIconContentColor = Color.White
                 )
@@ -2515,6 +2563,7 @@ private fun CardioLiveAveragePaceBlock(
 @Composable
 fun CardioElapsedTimerFullScreen(
     draft: CardioTimerSessionDraft,
+    userPreferences: UserPreferences,
     distanceUnit: CardioDistanceUnit,
     dark: Color,
     mid: Color,
@@ -2532,13 +2581,74 @@ fun CardioElapsedTimerFullScreen(
     onCancel: () -> Unit
 ) {
     val context = LocalContext.current
+    val cyclingCscBle = LocalCyclingCsc.current
+    val heartRateBle = LocalHeartRateBle.current
+    val isCyclingWorkout = draft.activity.isCyclingActivity()
+    val heartRateBannerExpanded by userPreferences.heartRateBannerExpanded.collectAsState(initial = true)
+    val cyclingBleConnectionState by cyclingCscBle.connectionState.collectAsState()
+    val savedCyclingDevices by cyclingCscBle.savedDevices.collectAsState()
+    val preferredCyclingAddress by cyclingCscBle.preferredDeviceAddress.collectAsState()
+    val activeCyclingAddress by cyclingCscBle.activeDeviceAddress.collectAsState()
+    val cyclingConnectedLabel by cyclingCscBle.connectedLabel.collectAsState()
+    val cyclingBleStatusMessage by cyclingCscBle.statusMessage.collectAsState()
+    val cyclingScanRows by cyclingCscBle.scanRows.collectAsState()
+    val scope = rememberCoroutineScope()
     val timeCountdownCap = (draft.timerStyle as? CardioTimerStyle.CountDown)?.totalSeconds
     val distanceCountdownTarget = (draft.timerStyle as? CardioTimerStyle.CountDownDistance)?.targetMeters
     val tickKey = draft.startEpoch
     var showMediaSheet by remember(tickKey) { mutableStateOf(false) }
+    var showCyclingSensorDialog by remember(tickKey) { mutableStateOf(false) }
+    var showCyclingScanDialog by remember(tickKey) { mutableStateOf(false) }
     var running by remember(tickKey) { mutableStateOf(true) }
     var finished by remember(tickKey) { mutableStateOf(false) }
     var tick by remember(tickKey) { mutableIntStateOf(0) }
+    var pendingCyclingConnectDevice by remember { mutableStateOf<SavedBluetoothDevice?>(null) }
+    var pendingCyclingScan by remember { mutableStateOf(false) }
+
+    val requestCyclingBlePermissions = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) {
+        val pendingConnect = pendingCyclingConnectDevice
+        val pendingScan = pendingCyclingScan
+        pendingCyclingConnectDevice = null
+        pendingCyclingScan = false
+        when {
+            pendingConnect != null && cyclingCscBle.hasConnectPermission() ->
+                cyclingCscBle.connectToSavedDevice(pendingConnect)
+            pendingScan && cyclingCscBle.hasScanPermission() && cyclingCscBle.hasConnectPermission() -> {
+                showCyclingSensorDialog = false
+                showCyclingScanDialog = true
+                cyclingCscBle.startScanForSensors()
+            }
+        }
+    }
+    val requestHeartRateBlePermissions = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { }
+
+    fun openCyclingSensorScan() {
+        pendingCyclingConnectDevice = null
+        pendingCyclingScan = true
+        if (!cyclingCscBle.hasScanPermission() || !cyclingCscBle.hasConnectPermission()) {
+            requestCyclingBlePermissions.launch(requiredBlePermissionsForHeartRate())
+        } else {
+            showCyclingSensorDialog = false
+            showCyclingScanDialog = true
+            cyclingCscBle.startScanForSensors()
+        }
+    }
+
+    fun connectSavedCyclingSensor(device: SavedBluetoothDevice) {
+        pendingCyclingScan = false
+        if (!cyclingCscBle.hasConnectPermission()) {
+            pendingCyclingConnectDevice = device
+            requestCyclingBlePermissions.launch(requiredBlePermissionsForHeartRate())
+        } else {
+            pendingCyclingConnectDevice = null
+            showCyclingSensorDialog = false
+            cyclingCscBle.connectToSavedDevice(device)
+        }
+    }
 
     val workoutElapsedSeconds = remember(tick, draft.startEpoch) {
         (nowEpochSeconds() - draft.startEpoch).coerceAtLeast(0).toInt()
@@ -2596,6 +2706,17 @@ fun CardioElapsedTimerFullScreen(
         else workoutElapsedSeconds
     val distM = draft.liveDistanceMeters(workoutElapsedSeconds, preferredLiveDistanceMeters)
 
+    LaunchedEffect(tickKey, isCyclingWorkout) {
+        if (isCyclingWorkout) {
+            cyclingCscBle.tryPreferredDeviceReconnectOnce()
+        }
+    }
+    LaunchedEffect(tickKey, heartRateBannerExpanded) {
+        if (heartRateBannerExpanded) {
+            heartRateBle.tryPreferredDeviceReconnectOnce()
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -2627,6 +2748,38 @@ fun CardioElapsedTimerFullScreen(
                             color = Color.White.copy(alpha = 0.9f),
                             modifier = Modifier.weight(1f)
                         )
+                        IconButton(
+                            onClick = {
+                                scope.launch {
+                                    val showHeartRateBanner = !heartRateBannerExpanded
+                                    userPreferences.setHeartRateBannerExpanded(showHeartRateBanner)
+                                    if (showHeartRateBanner) {
+                                        heartRateBle.tryPreferredDeviceReconnectOnce()
+                                    }
+                                }
+                            }
+                        ) {
+                            Icon(
+                                imageVector = if (heartRateBannerExpanded) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+                                contentDescription = "Heart rate monitor",
+                                tint = if (heartRateBannerExpanded) Color(0xFFFF8A80) else Color.White.copy(alpha = 0.88f)
+                            )
+                        }
+                        if (isCyclingWorkout) {
+                            IconButton(onClick = { showCyclingSensorDialog = true }) {
+                                Icon(
+                                    Icons.Filled.Bluetooth,
+                                    contentDescription = "Cycling sensor",
+                                    tint = when (cyclingBleConnectionState) {
+                                        CyclingCscBleConnectionState.Connected -> Color(0xFF80CBC4)
+                                        CyclingCscBleConnectionState.Connecting,
+                                        CyclingCscBleConnectionState.Scanning -> Color.White
+                                        CyclingCscBleConnectionState.Idle,
+                                        CyclingCscBleConnectionState.Error -> Color.White.copy(alpha = 0.88f)
+                                    }
+                                )
+                            }
+                        }
                         IconButton(onClick = { showMediaSheet = !showMediaSheet }) {
                             Icon(
                                 Icons.Filled.MusicNote,
@@ -2651,6 +2804,15 @@ fun CardioElapsedTimerFullScreen(
                     ) {
                         Text(stringResource(R.string.cardio_timer_gps_allow_location))
                     }
+                }
+                if (heartRateBannerExpanded) {
+                    Spacer(Modifier.height(8.dp))
+                    HeartRateTopBar(
+                        viewModel = heartRateBle,
+                        onRequestBlePermissions = {
+                            requestHeartRateBlePermissions.launch(requiredBlePermissionsForHeartRate())
+                        }
+                    )
                 }
             }
             Column(
@@ -2846,6 +3008,192 @@ fun CardioElapsedTimerFullScreen(
             }
         }
     }
+
+    if (showCyclingSensorDialog && isCyclingWorkout) {
+        CyclingSensorSessionDialog(
+            connectionState = cyclingBleConnectionState,
+            connectedLabel = cyclingConnectedLabel,
+            statusMessage = cyclingBleStatusMessage,
+            savedDevices = savedCyclingDevices,
+            preferredAddress = preferredCyclingAddress,
+            activeAddress = activeCyclingAddress,
+            onDismiss = { showCyclingSensorDialog = false },
+            onConnectSavedDevice = { connectSavedCyclingSensor(it) },
+            onDisconnect = {
+                showCyclingSensorDialog = false
+                cyclingCscBle.disconnectUser()
+            },
+            onScan = { openCyclingSensorScan() }
+        )
+    }
+
+    if (showCyclingScanDialog && isCyclingWorkout) {
+        CyclingSensorScanDialog(
+            scanRows = cyclingScanRows,
+            onDismiss = {
+                showCyclingScanDialog = false
+                cyclingCscBle.stopScanInternal()
+            },
+            onSelect = { row ->
+                showCyclingScanDialog = false
+                cyclingCscBle.connectToScannedRow(row)
+            }
+        )
+    }
+}
+
+@Composable
+private fun CyclingSensorSessionDialog(
+    connectionState: CyclingCscBleConnectionState,
+    connectedLabel: String?,
+    statusMessage: String?,
+    savedDevices: List<SavedBluetoothDevice>,
+    preferredAddress: String?,
+    activeAddress: String?,
+    onDismiss: () -> Unit,
+    onConnectSavedDevice: (SavedBluetoothDevice) -> Unit,
+    onDisconnect: () -> Unit,
+    onScan: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Cycling sensor") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                when (connectionState) {
+                    CyclingCscBleConnectionState.Connected ->
+                        Text(
+                            "Connected to ${connectedLabel ?: "cycling sensor"}.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    CyclingCscBleConnectionState.Connecting ->
+                        Text(
+                            "Connecting to ${connectedLabel ?: "cycling sensor"}...",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    CyclingCscBleConnectionState.Scanning ->
+                        Text(
+                            "Scanning for cycling sensors...",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    CyclingCscBleConnectionState.Idle,
+                    CyclingCscBleConnectionState.Error ->
+                        Text(
+                            "Connect a saved CSC sensor or scan for a new one without leaving this workout.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                }
+                statusMessage?.let {
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                if (savedDevices.isEmpty()) {
+                    Text(
+                        "No saved cycling sensors yet.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    Text("Saved sensors", style = MaterialTheme.typography.labelLarge)
+                    savedDevices.forEachIndexed { index, device ->
+                        TextButton(
+                            onClick = { onConnectSavedDevice(device) },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                Text(device.displayName())
+                                val labels = buildList {
+                                    if (preferredAddress == device.address) add("Preferred")
+                                    if (activeAddress == device.address &&
+                                        connectionState == CyclingCscBleConnectionState.Connected
+                                    ) {
+                                        add("Connected")
+                                    }
+                                }
+                                if (labels.isNotEmpty()) {
+                                    Text(
+                                        labels.joinToString(" · "),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                        if (index < savedDevices.lastIndex) {
+                            HorizontalDivider()
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onScan) {
+                Text("Scan")
+            }
+        },
+        dismissButton = {
+            Row {
+                if (connectionState == CyclingCscBleConnectionState.Connected) {
+                    TextButton(onClick = onDisconnect) {
+                        Text("Disconnect")
+                    }
+                }
+                TextButton(onClick = onDismiss) {
+                    Text("Close")
+                }
+            }
+        }
+    )
+}
+
+@Composable
+private fun CyclingSensorScanDialog(
+    scanRows: List<CyclingCscScanRow>,
+    onDismiss: () -> Unit,
+    onSelect: (CyclingCscScanRow) -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Select a cycling sensor") },
+        text = {
+            if (scanRows.isEmpty()) {
+                Text("No CSC sensors found yet. Wake the sensor and spin the wheel or crank to advertise.")
+            } else {
+                Column {
+                    scanRows.forEachIndexed { index, row ->
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onSelect(row) }
+                                .padding(vertical = 10.dp)
+                        ) {
+                            Text(
+                                text = row.name?.takeIf { it.isNotBlank() } ?: "Cycling sensor",
+                                style = MaterialTheme.typography.bodyLarge
+                            )
+                            Text(
+                                text = row.address,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        if (index < scanRows.lastIndex) {
+                            HorizontalDivider()
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Done")
+            }
+        }
+    )
 }
 
 @Composable
@@ -3287,6 +3635,7 @@ private const val CardioIntervalWorkoutPrepSeconds = 20
 fun CardioMultiLegTimerFullScreen(
     state: CardioMultiLegTimerState,
     stateKey: Any,
+    userPreferences: UserPreferences,
     dark: Color,
     mid: Color,
     glow: Color,
@@ -3295,6 +3644,12 @@ fun CardioMultiLegTimerFullScreen(
     onCancel: () -> Unit
 ) {
     key(stateKey) {
+        val heartRateBle = LocalHeartRateBle.current
+        val heartRateBannerExpanded by userPreferences.heartRateBannerExpanded.collectAsState(initial = true)
+        val scope = rememberCoroutineScope()
+        val requestHeartRateBlePermissions = rememberLauncherForActivityResult(
+            ActivityResultContracts.RequestMultiplePermissions()
+        ) { }
         val targetMinutes = state.currentLeg.targetDurationMinutes?.takeIf { it > 0 }
         val guided = targetMinutes != null
         var showMediaSheet by remember { mutableStateOf(false) }
@@ -3312,6 +3667,12 @@ fun CardioMultiLegTimerFullScreen(
             )
         }
         var guidedInPrep by remember(stateKey) { mutableStateOf(initialPrep) }
+
+        LaunchedEffect(stateKey, heartRateBannerExpanded) {
+            if (heartRateBannerExpanded) {
+                heartRateBle.tryPreferredDeviceReconnectOnce()
+            }
+        }
 
         if (guided) {
             LaunchedEffect(stateKey) {
@@ -3389,6 +3750,23 @@ fun CardioMultiLegTimerFullScreen(
                                     color = Color.White.copy(alpha = 0.9f)
                                 )
                             }
+                            IconButton(
+                                onClick = {
+                                    scope.launch {
+                                        val showHeartRateBanner = !heartRateBannerExpanded
+                                        userPreferences.setHeartRateBannerExpanded(showHeartRateBanner)
+                                        if (showHeartRateBanner) {
+                                            heartRateBle.tryPreferredDeviceReconnectOnce()
+                                        }
+                                    }
+                                }
+                            ) {
+                                Icon(
+                                    imageVector = if (heartRateBannerExpanded) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+                                    contentDescription = "Heart rate monitor",
+                                    tint = if (heartRateBannerExpanded) Color(0xFFFF8A80) else Color.White.copy(alpha = 0.88f)
+                                )
+                            }
                             IconButton(onClick = { showMediaSheet = !showMediaSheet }) {
                                 Icon(
                                     Icons.Filled.MusicNote,
@@ -3402,6 +3780,15 @@ fun CardioMultiLegTimerFullScreen(
                             "Multi-activity workout",
                             style = MaterialTheme.typography.titleLarge,
                             color = Color.White.copy(alpha = 0.9f)
+                        )
+                    }
+                    if (heartRateBannerExpanded) {
+                        Spacer(Modifier.height(8.dp))
+                        HeartRateTopBar(
+                            viewModel = heartRateBle,
+                            onRequestBlePermissions = {
+                                requestHeartRateBlePermissions.launch(requiredBlePermissionsForHeartRate())
+                            }
                         )
                     }
                     Spacer(Modifier.height(8.dp))

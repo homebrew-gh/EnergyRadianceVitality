@@ -175,6 +175,7 @@ import com.erv.app.ui.theme.ErvDarkCategoryMenuDivider
 import com.erv.app.ui.theme.ErvDarkCategoryMenuHandleAccent
 import com.erv.app.ui.theme.ErvDarkCategoryMenuMutedGold
 import com.erv.app.ui.theme.ErvDarkCategoryMenuOnSurface
+import com.erv.app.ui.theme.ErvHeaderRed
 import com.erv.app.ui.theme.ErvLightTherapyRedMid
 import com.erv.app.supplements.SupplementSync
 import com.erv.app.supplements.SupplementTimeOfDay
@@ -191,6 +192,7 @@ import com.erv.app.weighttraining.WeightActivityRow
 import com.erv.app.weighttraining.WeightLibraryState
 import com.erv.app.weighttraining.WeightRepository
 import com.erv.app.weighttraining.WeightRoutine
+import com.erv.app.ui.weighttraining.WeightWorkoutSummaryFullScreen
 import com.erv.app.weighttraining.weightActivityRowsFor
 import java.time.LocalDate
 import kotlin.math.max
@@ -210,6 +212,7 @@ fun DashboardScreen(
     onNavigateToSettings: () -> Unit,
     onNavigateToEditGoals: () -> Unit,
     onNavigateToCategory: (Category) -> Unit,
+    onOpenUnifiedRun: (String) -> Unit,
     onOpenCardioNewWorkout: () -> Unit,
     /** Cardio manual log: opens cardio log with calendar (dashboard date pre-selected). */
     onOpenCardioLogBackfill: (LocalDate) -> Unit,
@@ -325,6 +328,7 @@ fun DashboardScreen(
     val liveWeightDraft by weightLiveWorkoutViewModel.activeDraft.collectAsState()
     val cardioActiveTimer by cardioLiveWorkoutViewModel.activeTimer.collectAsState()
     val cardioLiveUiExpanded by cardioLiveWorkoutViewModel.cardioLiveUiExpanded.collectAsState()
+    val activeUnifiedSession = unifiedRoutineState.activeSession
     val heatColdCategory = remember { categories.first { it.id == "heat_cold" } }
     val stretchingCategory = remember { categories.first { it.id == "stretching" } }
     val bodyTrackerCategory = remember { categories.first { it.id == "body_tracker" } }
@@ -341,6 +345,7 @@ fun DashboardScreen(
     var showDashboardCardioFgsDialog by remember { mutableStateOf(false) }
     var pendingDashboardCardioSession by remember { mutableStateOf<CardioActiveTimerSession?>(null) }
     var cardioWorkoutSummary by remember { mutableStateOf<CardioTimerCompletionResult?>(null) }
+    var selectedWeightWorkout by remember { mutableStateOf<Pair<LocalDate, com.erv.app.weighttraining.WeightWorkoutSession>?>(null) }
     var dashboardLocationFineGranted by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
@@ -714,7 +719,11 @@ fun DashboardScreen(
                         IconButton(
                             onClick = {
                                 scope.launch {
-                                    userPreferences.setHeartRateBannerExpanded(!heartRateBannerExpanded)
+                                    val showHeartRateBanner = !heartRateBannerExpanded
+                                    userPreferences.setHeartRateBannerExpanded(showHeartRateBanner)
+                                    if (showHeartRateBanner) {
+                                        heartRateBle.tryPreferredDeviceReconnectOnce()
+                                    }
                                 }
                             },
                         ) {
@@ -757,7 +766,7 @@ fun DashboardScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color(0xFFC62828)
+                    containerColor = ErvHeaderRed
                 )
             )
         },
@@ -793,6 +802,14 @@ fun DashboardScreen(
                             },
                             modifier = Modifier.padding(bottom = 8.dp),
                             text = stringResource(R.string.live_cardio_in_progress_banner)
+                        )
+                    }
+
+                    activeUnifiedSession?.let { unifiedSession ->
+                        LiveWorkoutInProgressBanner(
+                            onClick = { onOpenUnifiedRun(unifiedSession.routineId) },
+                            modifier = Modifier.padding(bottom = 8.dp),
+                            text = stringResource(R.string.live_unified_in_progress_banner)
                         )
                     }
 
@@ -993,7 +1010,13 @@ fun DashboardScreen(
                                     weightRows = weightRows,
                                     saunaRows = saunaRows,
                                     coldRows = coldRows,
-                                    stretchRows = stretchRows
+                                    stretchRows = stretchRows,
+                                    onOpenCardioRow = { session ->
+                                        cardioWorkoutSummary = CardioTimerCompletionResult(session, null)
+                                    },
+                                    onOpenWeightRow = { session ->
+                                        selectedWeightWorkout = selectedDate to session
+                                    }
                                 )
                             }
                         }
@@ -1016,7 +1039,13 @@ fun DashboardScreen(
                             weightRows = weightRows,
                             saunaRows = saunaRows,
                             coldRows = coldRows,
-                            stretchRows = stretchRows
+                            stretchRows = stretchRows,
+                            onOpenCardioRow = { session ->
+                                cardioWorkoutSummary = CardioTimerCompletionResult(session, null)
+                            },
+                            onOpenWeightRow = { session ->
+                                selectedWeightWorkout = selectedDate to session
+                            }
                         )
                     }
                 }
@@ -1365,6 +1394,25 @@ fun DashboardScreen(
         }
     }
 
+        val pickedWeightWorkout = selectedWeightWorkout
+        if (pickedWeightWorkout != null) {
+            WeightWorkoutSummaryFullScreen(
+                session = pickedWeightWorkout.second,
+                logDate = pickedWeightWorkout.first,
+                library = weightState,
+                loadUnit = weightTrainingLoadUnit,
+                userPreferences = userPreferences,
+                dark = therapyRedDark,
+                mid = therapyRedMid,
+                glow = therapyRedGlow,
+                relayPool = relayPool,
+                signer = signer,
+                repository = weightRepository,
+                onAfterRoutineSync = {},
+                showPostWorkoutActions = false,
+                onDone = { selectedWeightWorkout = null }
+            )
+        } else {
         val cSummary = cardioWorkoutSummary
         if (cSummary != null) {
             CardioWorkoutSummaryFullScreen(
@@ -1394,6 +1442,7 @@ fun DashboardScreen(
                         draft.eligibleForPhoneGps() && cardioGpsPreferred && !dashboardLocationFineGranted && !paceOnlyTimer
                     CardioElapsedTimerFullScreen(
                         draft = draft,
+                        userPreferences = userPreferences,
                         distanceUnit = cardioDistanceUnit,
                         dark = therapyRedDark,
                         mid = therapyRedMid,
@@ -1426,12 +1475,12 @@ fun DashboardScreen(
                                     }
                                 )
                                 val hrSummary = heartRateBle.takeWorkoutHeartRateSummary()
-                                val sessionBase = CardioMetEstimator.applyEstimatedKcal(
-                                    raw,
+                                val withHr = hrSummary?.let { raw.copy(heartRate = it) } ?: raw
+                                val session = CardioMetEstimator.applyEstimatedKcal(
+                                    withHr,
                                     cardioRepository.currentState(),
                                     weightKg
                                 )
-                                val session = hrSummary?.let { sessionBase.copy(heartRate = it) } ?: sessionBase
                                 cardioLiveWorkoutViewModel.clearSession()
                                 cardioWorkoutSummary = CardioTimerCompletionResult(session, elapsedSeconds)
                                 cardioRepository.addSession(selectedDate, session)
@@ -1463,6 +1512,7 @@ fun DashboardScreen(
                     CardioMultiLegTimerFullScreen(
                         state = ct.state,
                         stateKey = multiKey,
+                        userPreferences = userPreferences,
                         dark = therapyRedDark,
                         mid = therapyRedMid,
                         glow = therapyRedGlow,
@@ -1481,9 +1531,14 @@ fun DashboardScreen(
                                 if (session != null) {
                                     val hrSummary = heartRateBle.takeWorkoutHeartRateSummary()
                                     val withHr = hrSummary?.let { session.copy(heartRate = it) } ?: session
+                                    val finalSession = CardioMetEstimator.applyEstimatedKcal(
+                                        withHr,
+                                        cardioRepository.currentState(),
+                                        weightKg
+                                    )
                                     cardioLiveWorkoutViewModel.clearSession()
-                                    cardioWorkoutSummary = CardioTimerCompletionResult(withHr, null)
-                                    cardioRepository.addSession(selectedDate, withHr)
+                                    cardioWorkoutSummary = CardioTimerCompletionResult(finalSession, null)
+                                    cardioRepository.addSession(selectedDate, finalSession)
                                     cardioRepository.currentState().logFor(selectedDate)?.let { log ->
                                         if (relayPool != null && signer != null) {
                                             CardioSync.publishDailyLog(
@@ -1509,6 +1564,7 @@ fun DashboardScreen(
                 }
             }
             null -> Unit
+        }
         }
     }
 }
@@ -2221,7 +2277,7 @@ private fun RoutinesSection(
                         QuickLogTileSpec(
                             id = LaunchPadTileId.WORKOUT_LAUNCHER,
                             icon = Icons.Default.PlaylistPlay,
-                            label = "Workout Launcher",
+                            label = "Unified Workouts",
                             subtitle = if (unifiedRoutines.isEmpty()) {
                                 "Mixed workouts & routines"
                             } else {
@@ -2785,7 +2841,7 @@ private fun UnifiedRoutinePickerSheet(
                 .padding(bottom = 24.dp)
         ) {
             Text(
-                "Workout Launcher",
+                "Unified Workouts",
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.padding(bottom = 12.dp)
             )
@@ -3254,7 +3310,9 @@ private fun ActivitySection(
     weightRows: List<WeightActivityRow>,
     saunaRows: List<HeatColdActivityRow>,
     coldRows: List<HeatColdActivityRow>,
-    stretchRows: List<StretchActivityRow>
+    stretchRows: List<StretchActivityRow>,
+    onOpenCardioRow: (com.erv.app.cardio.CardioSession) -> Unit = {},
+    onOpenWeightRow: (com.erv.app.weighttraining.WeightWorkoutSession) -> Unit = {}
 ) {
     if (showSectionHeading) {
         Text(
@@ -3316,6 +3374,7 @@ private fun ActivitySection(
                         cardioRows.forEach { row ->
                             Text(
                                 text = row.summaryLine,
+                                modifier = Modifier.clickable { onOpenCardioRow(row.session) },
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -3324,10 +3383,13 @@ private fun ActivitySection(
                 }
                 if (hasWeight) {
                     if (hasSupplements || hasLight || hasCardio) Spacer(Modifier.height(12.dp))
-                    ActivityCategorySection(title = "Weight training") {
+                    ActivityCategorySection(title = "Weight Training") {
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             weightRows.forEach { row ->
-                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Column(
+                                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                                    modifier = Modifier.clickable { onOpenWeightRow(row.session) }
+                                ) {
                                     Text(
                                         text = row.headerLine,
                                         style = MaterialTheme.typography.bodyMedium,

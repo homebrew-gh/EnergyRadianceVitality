@@ -41,6 +41,10 @@ class HeatColdRepository(context: Context) {
         updateState { newState.withStableSessionIds() }
     }
 
+    suspend fun clearAllData() {
+        replaceAll(HeatColdLibraryState())
+    }
+
     suspend fun logSaunaSession(
         date: LocalDate,
         durationSeconds: Int,

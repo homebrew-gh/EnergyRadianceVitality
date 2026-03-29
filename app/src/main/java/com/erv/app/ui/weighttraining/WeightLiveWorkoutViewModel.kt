@@ -42,7 +42,10 @@ class WeightLiveWorkoutViewModel(application: Application) : AndroidViewModel(ap
                 val draft = runCatching { draftJson.decodeFromString<WeightWorkoutDraft>(json) }.getOrNull()
                 if (draft != null) {
                     _activeDraft.value = draft
-                    WeightLiveWorkoutForegroundService.start(getApplication(), draft.startedAtEpochSeconds)
+                    val suppressNotification = userPreferences.liveWeightWorkoutNotificationSuppressed.first()
+                    if (!suppressNotification) {
+                        WeightLiveWorkoutForegroundService.start(getApplication(), draft.startedAtEpochSeconds)
+                    }
                 }
             }
         }
@@ -76,12 +79,19 @@ class WeightLiveWorkoutViewModel(application: Application) : AndroidViewModel(ap
         )
         _activeDraft.value = draft
         _liveWorkoutUiExpanded.value = true
-        WeightLiveWorkoutForegroundService.start(getApplication(), draft.startedAtEpochSeconds)
-        persistDraft()
+        viewModelScope.launch {
+            userPreferences.setLiveWeightWorkoutNotificationSuppressed(false)
+            WeightLiveWorkoutForegroundService.start(getApplication(), draft.startedAtEpochSeconds)
+            persistDraft()
+        }
         return true
     }
 
-    fun tryStartFromRoutine(routine: WeightRoutine, library: WeightLibraryState): Boolean {
+    fun tryStartFromRoutine(
+        routine: WeightRoutine,
+        library: WeightLibraryState,
+        suppressNotification: Boolean = false,
+    ): Boolean {
         if (_activeDraft.value != null) return false
         val ids = routine.exerciseIds.filter { id -> library.exerciseById(id) != null }
         val blankRow = listOf(WeightSet(reps = 0, weightKg = null, rpe = null))
@@ -100,8 +110,13 @@ class WeightLiveWorkoutViewModel(application: Application) : AndroidViewModel(ap
         )
         _activeDraft.value = draft
         _liveWorkoutUiExpanded.value = true
-        WeightLiveWorkoutForegroundService.start(getApplication(), draft.startedAtEpochSeconds)
-        persistDraft()
+        viewModelScope.launch {
+            userPreferences.setLiveWeightWorkoutNotificationSuppressed(suppressNotification)
+            if (!suppressNotification) {
+                WeightLiveWorkoutForegroundService.start(getApplication(), draft.startedAtEpochSeconds)
+            }
+            persistDraft()
+        }
         return true
     }
 
@@ -111,7 +126,10 @@ class WeightLiveWorkoutViewModel(application: Application) : AndroidViewModel(ap
         }
         _activeDraft.value = null
         _liveWorkoutUiExpanded.value = true
-        clearPersistedDraft()
+        viewModelScope.launch {
+            userPreferences.setLiveWeightWorkoutNotificationSuppressed(false)
+            clearPersistedDraft()
+        }
     }
 
     fun addExercise(exerciseId: String) {

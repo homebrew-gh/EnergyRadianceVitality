@@ -48,12 +48,14 @@ fun WeightPickExerciseDialog(
     val userPreferences = remember(appContext) { UserPreferences(appContext) }
     val gymMembership by userPreferences.gymMembership.collectAsState(initial = false)
     val ownedEquipment by userPreferences.ownedEquipment.collectAsState(initial = emptyList())
+    val enabledExercisePackIds by userPreferences.enabledWeightExercisePackIds.collectAsState(initial = emptySet())
     var equipmentFilter by rememberSaveable { mutableStateOf(WeightExercisePickerFilter.ALL) }
-    val choices = remember(exercises, excludeIds, equipmentFilter, ownedEquipment) {
+    val choices = remember(exercises, excludeIds, equipmentFilter, ownedEquipment, enabledExercisePackIds) {
         filterWeightExercisesForPicker(
             exercises = exercises.filter { it.id !in excludeIds },
             filter = equipmentFilter,
             ownedEquipment = ownedEquipment,
+            enabledPackIds = enabledExercisePackIds,
         )
     }
     var selectedMuscleKey by remember { mutableStateOf<String?>(null) }

@@ -2,6 +2,7 @@
 package com.erv.app.ui.settings
 
 import android.content.Intent
+import android.net.Uri
 import android.graphics.BitmapFactory
 import android.os.Build
 import android.provider.Settings
@@ -22,7 +23,10 @@ import androidx.compose.material.icons.automirrored.filled.NavigateNext
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.automirrored.filled.DirectionsRun
@@ -70,12 +74,16 @@ import com.erv.app.data.UserPreferences
 import com.erv.app.data.WorkoutMediaUploadBackend
 import com.erv.app.data.displayLabel
 import com.erv.app.data.displayName
+import com.erv.app.datadeletion.DataDeletionManager
+import com.erv.app.dataexport.DataExportCategory
 import com.erv.app.cycling.CyclingCscBleConnectionState
 import com.erv.app.cycling.LocalCyclingCsc
 import com.erv.app.hr.HeartRateBleConnectionState
 import com.erv.app.hr.LocalHeartRateBle
 import com.erv.app.hr.requiredBlePermissionsForHeartRate
 import com.erv.app.nostr.ConnectionState
+import com.erv.app.nostr.CurrentRelayDataCoverage
+import com.erv.app.nostr.CurrentRelayDataSync
 import com.erv.app.nostr.EventSigner
 import com.erv.app.nostr.FitnessEquipmentSync
 import com.erv.app.nostr.KeyManager
@@ -92,11 +100,14 @@ import com.erv.app.nostr.RelayPublishOutbox
 import com.erv.app.nostr.RelayPublishOutbox.PendingItemStatus
 import com.erv.app.nostr.SettingsSync
 import com.erv.app.cardio.CardioRepository
+import com.erv.app.bodytracker.BodyTrackerRepository
 import com.erv.app.heatcold.HeatColdRepository
 import com.erv.app.lighttherapy.LightTherapyRepository
+import com.erv.app.reminders.RoutineReminderRepository
 import com.erv.app.stretching.StretchingRepository
 import com.erv.app.supplements.SupplementRepository
 import com.erv.app.programs.ProgramRepository
+import com.erv.app.unifiedroutines.UnifiedRoutineRepository
 import com.erv.app.weighttraining.WeightRepository
 import com.erv.app.ui.navigation.RelayDataSyncTopBarIcon
 import kotlinx.coroutines.CoroutineScope
@@ -107,6 +118,10 @@ import java.io.File
 import java.net.URL
 
 private const val WSS_PREFIX = "wss://"
+
+private const val ERV_GITHUB_URL = "https://github.com/homebrew-gh/EnergyRadianceVitality"
+private const val ERV_CONTACT_EMAIL = "erv_contact@proton.me"
+private const val ERV_CONTACT_NOSTR_HANDLE = "homebrew_bitcoiner"
 
 private object SettingsRoutes {
     const val HOME = "settings_home"
@@ -119,10 +134,17 @@ private object SettingsRoutes {
     const val EQUIPMENT = "settings_equipment"
     const val STRETCHING = "settings_stretching"
     const val SAVED_DEVICES = "settings_saved_devices"
-    const val DATA_IMPORT_EXPORT = "settings_data_import_export"
+    const val DATA_IMPORT_EXPORT = "settings_data_import_export?category={category}"
+    const val DATA_MANAGEMENT = "settings_data_management"
     const val IMPORT_DOC = "settings_import_doc/{docKey}"
 
     fun importDocRoute(docKey: String) = "settings_import_doc/$docKey"
+
+    fun dataImportExportRoute(category: DataExportCategory? = null): String =
+        when (category) {
+            null -> "settings_data_import_export"
+            else -> "settings_data_import_export?category=${category.name}"
+        }
 }
 
 @Composable
@@ -136,13 +158,17 @@ fun SettingsScreen(
     lightTherapyRepository: LightTherapyRepository,
     supplementRepository: SupplementRepository,
     programRepository: ProgramRepository,
+    unifiedRoutineRepository: UnifiedRoutineRepository,
+    bodyTrackerRepository: BodyTrackerRepository,
+    reminderRepository: RoutineReminderRepository,
     relayPool: RelayPool?,
     signer: EventSigner?,
     onBack: () -> Unit,
     onRelaysChanged: () -> Unit = {},
     showDeferNostrLoginEntry: Boolean = false,
     onRequestNostrLogin: () -> Unit = {},
-    onLogout: () -> Unit
+    onLogout: () -> Unit,
+    onAllDataDeleted: () -> Unit,
 ) {
     val context = LocalContext.current
     val pendingRelayUploadCount by remember(context.applicationContext) {
@@ -155,6 +181,37 @@ fun SettingsScreen(
         RelayPublishOutbox.get(context.applicationContext).pendingItemsFlow()
     }.collectAsState(initial = emptyList())
     val scope = rememberCoroutineScope()
+    val deletionManager = remember(
+        context.applicationContext,
+        keyManager,
+        userPreferences,
+        weightRepository,
+        cardioRepository,
+        stretchingRepository,
+        heatColdRepository,
+        lightTherapyRepository,
+        supplementRepository,
+        programRepository,
+        unifiedRoutineRepository,
+        bodyTrackerRepository,
+        reminderRepository,
+    ) {
+        DataDeletionManager(
+            context = context.applicationContext,
+            keyManager = keyManager,
+            userPreferences = userPreferences,
+            weightRepository = weightRepository,
+            cardioRepository = cardioRepository,
+            stretchingRepository = stretchingRepository,
+            heatColdRepository = heatColdRepository,
+            lightTherapyRepository = lightTherapyRepository,
+            supplementRepository = supplementRepository,
+            programRepository = programRepository,
+            unifiedRoutineRepository = unifiedRoutineRepository,
+            bodyTrackerRepository = bodyTrackerRepository,
+            reminderRepository = reminderRepository,
+        )
+    }
     val themeMode by userPreferences.themeMode.collectAsState(initial = ThemeMode.SYSTEM)
     val bodyWeightValue by userPreferences.bodyWeightValue.collectAsState(initial = "")
     val bodyWeightUnit by userPreferences.bodyWeightUnit.collectAsState(initial = BodyWeightUnit.LB)
@@ -180,6 +237,7 @@ fun SettingsScreen(
     val workoutBubbleEnabled by userPreferences.workoutBubbleEnabled.collectAsState(initial = true)
     val gymMembership by userPreferences.gymMembership.collectAsState(initial = false)
     val ownedEquipment by userPreferences.ownedEquipment.collectAsState(initial = emptyList())
+    val enabledWeightExercisePackIds by userPreferences.enabledWeightExercisePackIds.collectAsState(initial = emptySet())
     val stretchGuidedTtsVoice by userPreferences.stretchGuidedTtsVoice.collectAsState(
         initial = StretchGuidedTtsVoice.SYSTEM_DEFAULT
     )
@@ -188,6 +246,9 @@ fun SettingsScreen(
     val allRelays = remember(relayRevision) { keyManager.allRelayUrls() }
     val dataRelayUrls = remember(allRelays, relayRevision) { allRelays.filter { keyManager.isDataRelay(it) } }
     var snackbarMessage by remember { mutableStateOf<String?>(null) }
+    var relayCoverage by remember { mutableStateOf<CurrentRelayDataCoverage?>(null) }
+    var relayCoverageLoading by remember { mutableStateOf(false) }
+    var relayResyncing by remember { mutableStateOf(false) }
 
     LaunchedEffect(allRelays, relayPool) {
         relayPool?.setRelays(keyManager.relayUrlsForPool())
@@ -234,7 +295,21 @@ fun SettingsScreen(
                     onRequestNostrLogin = onRequestNostrLogin,
                 )
             }
-            composable(SettingsRoutes.DATA_IMPORT_EXPORT) {
+            composable(
+                route = SettingsRoutes.DATA_IMPORT_EXPORT,
+                arguments = listOf(
+                    navArgument("category") {
+                        type = NavType.StringType
+                        defaultValue = ""
+                        nullable = true
+                    }
+                )
+            ) { entry ->
+                val initialExportCategory = entry.arguments
+                    ?.getString("category")
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let { raw -> DataExportCategory.entries.firstOrNull { it.name == raw } }
+                    ?: DataExportCategory.ALL
                 SettingsDataImportExportScreen(
                     onBack = { nestedNav.popBackStack() },
                     onOpenDoc = { nestedNav.navigate(SettingsRoutes.importDocRoute(it)) },
@@ -246,8 +321,29 @@ fun SettingsScreen(
                     lightTherapyRepository = lightTherapyRepository,
                     supplementRepository = supplementRepository,
                     programRepository = programRepository,
+                    unifiedRoutineRepository = unifiedRoutineRepository,
+                    bodyTrackerRepository = bodyTrackerRepository,
+                    reminderRepository = reminderRepository,
                     relayPool = relayPool,
-                    signer = signer
+                    signer = signer,
+                    initialExportCategory = initialExportCategory,
+                )
+            }
+            composable(SettingsRoutes.DATA_MANAGEMENT) {
+                SettingsDataManagementScreen(
+                    onBack = { nestedNav.popBackStack() },
+                    onOpenExport = { category ->
+                        nestedNav.navigate(SettingsRoutes.dataImportExportRoute(category))
+                    },
+                    deletionManager = deletionManager,
+                    keyManager = keyManager,
+                    userPreferences = userPreferences,
+                    relayPool = relayPool,
+                    relayStates = relayStates,
+                    signer = signer,
+                    onRequestNostrLogin = onRequestNostrLogin,
+                    onShowMessage = { snackbarMessage = it },
+                    onAllDataDeleted = onAllDataDeleted,
                 )
             }
             composable(
@@ -378,6 +474,7 @@ fun SettingsScreen(
                     FitnessEquipmentSettingsContent(
                         gymMembership = gymMembership,
                         ownedEquipment = ownedEquipment,
+                        enabledExercisePackIds = enabledWeightExercisePackIds,
                         weightUnit = weightTrainingLoadUnit,
                         onGymMembershipChange = { enabled ->
                             scope.launch {
@@ -404,11 +501,50 @@ fun SettingsScreen(
                                     list,
                                 )
                             }
+                        },
+                        onExercisePackIdsChange = { ids ->
+                            scope.launch {
+                                userPreferences.setEnabledWeightExercisePackIds(ids)
+                            }
                         }
                     )
                 }
             }
             composable(SettingsRoutes.RELAYS) {
+                LaunchedEffect(relayRevision, dataRelayUrls, signer) {
+                    if (signer == null || !keyManager.isLoggedIn) {
+                        relayCoverage = null
+                        relayCoverageLoading = false
+                        return@LaunchedEffect
+                    }
+                    relayCoverageLoading = true
+                    try {
+                        val localEntries = withContext(Dispatchers.IO) {
+                            CurrentRelayDataSync.buildCurrentEntries(
+                                userPreferences = userPreferences,
+                                weightRepository = weightRepository,
+                                cardioRepository = cardioRepository,
+                                stretchingRepository = stretchingRepository,
+                                heatColdRepository = heatColdRepository,
+                                lightTherapyRepository = lightTherapyRepository,
+                                supplementRepository = supplementRepository,
+                                programRepository = programRepository,
+                                bodyTrackerRepository = bodyTrackerRepository,
+                            )
+                        }
+                        relayCoverage = withContext(Dispatchers.IO) {
+                            CurrentRelayDataSync.probeCoverage(
+                                signer = signer,
+                                dataRelayUrls = dataRelayUrls,
+                                localEntries = localEntries,
+                            )
+                        }
+                    } catch (_: Exception) {
+                        relayCoverage = null
+                    } finally {
+                        relayCoverageLoading = false
+                    }
+                }
                 SettingsSubScreenScaffold(
                     title = "Relays",
                     onBack = { nestedNav.popBackStack() }
@@ -446,6 +582,18 @@ fun SettingsScreen(
                     }
                     if (pendingRelayUploadCount > 0) {
                         Text(
+                            relayUploadCurrentStateText(
+                                count = pendingRelayUploadCount,
+                                status = relayOutboxStatus,
+                                items = pendingRelayItems,
+                                dataRelayUrls = dataRelayUrls,
+                                relayStates = relayStates,
+                            ),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(bottom = 8.dp)
+                        )
+                        Text(
                             relayUploadQueueHint(pendingRelayUploadCount),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.primary,
@@ -469,6 +617,96 @@ fun SettingsScreen(
                             failuresByDTag = relayOutboxStatus.failuresByDTag,
                             modifier = Modifier.padding(bottom = 10.dp)
                         )
+                    }
+                    Text(
+                        relayUploadStatusGuideText(),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 10.dp)
+                    )
+                    Text(
+                        "ERV saves encrypted uploads locally first. If you are offline or your data relays are disconnected, uploads stay queued here until a relay reconnects. Once a relay accepts an item, it leaves the queue and is treated as sent.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 10.dp)
+                    )
+                    if (signer != null && relayPool != null) {
+                        Text(
+                            "Current data relay sync",
+                            style = MaterialTheme.typography.titleSmall,
+                            modifier = Modifier.padding(bottom = 4.dp)
+                        )
+                        val coverageText = when {
+                            relayCoverageLoading -> "Checking current encrypted payload coverage on connected data relays…"
+                            else -> relayCurrentCoverageText(relayCoverage)
+                        }
+                        Text(
+                            coverageText,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(bottom = 10.dp)
+                        )
+                        OutlinedButton(
+                            onClick = {
+                                scope.launch {
+                                    relayResyncing = true
+                                    try {
+                                        val localEntries = withContext(Dispatchers.IO) {
+                                            CurrentRelayDataSync.buildCurrentEntries(
+                                                userPreferences = userPreferences,
+                                                weightRepository = weightRepository,
+                                                cardioRepository = cardioRepository,
+                                                stretchingRepository = stretchingRepository,
+                                                heatColdRepository = heatColdRepository,
+                                                lightTherapyRepository = lightTherapyRepository,
+                                                supplementRepository = supplementRepository,
+                                                programRepository = programRepository,
+                                                bodyTrackerRepository = bodyTrackerRepository,
+                                            )
+                                        }
+                                        val drain = withContext(Dispatchers.IO) {
+                                            CurrentRelayDataSync.forceResync(
+                                                appContext = context.applicationContext,
+                                                relayPool = relayPool,
+                                                signer = signer,
+                                                dataRelayUrls = dataRelayUrls,
+                                                localEntries = localEntries,
+                                            )
+                                        }
+                                        snackbarMessage = buildString {
+                                            append("Queued ${localEntries.size} current relay payload(s).")
+                                            if (drain.publishedOk > 0 || drain.publishedFail > 0) {
+                                                append(" Sent ${drain.publishedOk} now")
+                                                if (drain.publishedFail > 0) {
+                                                    append(", ${drain.publishedFail} failed and will retry")
+                                                }
+                                                append('.')
+                                            }
+                                            if (drain.remaining > 0) {
+                                                append(" ${drain.remaining} payload(s) remain queued.")
+                                            }
+                                        }
+                                        relayCoverageLoading = true
+                                        relayCoverage = withContext(Dispatchers.IO) {
+                                            CurrentRelayDataSync.probeCoverage(
+                                                signer = signer,
+                                                dataRelayUrls = dataRelayUrls,
+                                                localEntries = localEntries,
+                                            )
+                                        }
+                                    } catch (e: Exception) {
+                                        snackbarMessage = "Resync failed: ${e.message}"
+                                    } finally {
+                                        relayCoverageLoading = false
+                                        relayResyncing = false
+                                    }
+                                }
+                            },
+                            enabled = !relayResyncing && dataRelayUrls.isNotEmpty(),
+                            modifier = Modifier.padding(bottom = 12.dp)
+                        ) {
+                            Text(if (relayResyncing) "Resyncing…" else "Resync Current Data")
+                        }
                     }
                     allRelays.forEach { url ->
                         RelayRow(
@@ -623,6 +861,47 @@ private fun relayUploadQueueHint(count: Int): String {
     return "$head queued for relay upload. Keep the app open online; they retry automatically."
 }
 
+private fun relaySettingsSubtitle(count: Int): String {
+    return if (count > 0) {
+        if (count == 1) {
+            "1 queued encrypted upload pending"
+        } else {
+            "$count queued encrypted uploads pending"
+        }
+    } else {
+        "Nostr relays, sync, and social workout posts"
+    }
+}
+
+private fun relayUploadCurrentStateText(
+    count: Int,
+    status: RelayOutboxStatus,
+    items: List<PendingItemStatus>,
+    dataRelayUrls: List<String>,
+    relayStates: Map<String, ConnectionState>,
+): String {
+    if (count <= 0) {
+        return "Sent: no encrypted activity updates are waiting in the relay outbox."
+    }
+    val connectedCount = dataRelayUrls.count { url ->
+        relayStates[url].let { it is ConnectionState.Connected || it is ConnectionState.Authenticated }
+    }
+    return when {
+        status.lastFailureMessage.isNotBlank() ->
+            "Failed: the last upload attempt returned an error. ERV keeps the data queued and retries automatically."
+        items.any { it.attempts > 0 } ->
+            "Retrying: at least one queued upload already tried once and is waiting for its next attempt."
+        connectedCount == 0 ->
+            "Queued: uploads are saved locally until one of your data relays reconnects."
+        else ->
+            "Queued: uploads are saved locally and waiting for a connected data relay to accept them."
+    }
+}
+
+private fun relayUploadStatusGuideText(): String {
+    return "Queued = saved locally and waiting. Sent = left the queue after a relay accepted it. Retrying = ERV will try again automatically after backoff or reconnection. Failed = the last attempt returned an error; details appear below while the item stays queued."
+}
+
 private fun relayUploadDiagnosticsText(
     count: Int,
     status: RelayOutboxStatus,
@@ -643,6 +922,20 @@ private fun relayUploadDiagnosticsText(
         return "Last relay upload failure: ${status.lastFailureMessage}. Connected data relays: $connectedCount/${dataRelayUrls.size}."
     }
     return "Connected data relays: $connectedCount/${dataRelayUrls.size}. The app will keep retrying queued uploads."
+}
+
+private fun relayCurrentCoverageText(coverage: CurrentRelayDataCoverage?): String {
+    coverage ?: return "Coverage will appear after the app can check your current data relays."
+    if (coverage.totalPayloadCount == 0) {
+        return "No current encrypted payloads are ready to sync yet."
+    }
+    if (coverage.configuredRelayCount == 0) {
+        return "${coverage.totalPayloadCount}/${coverage.totalPayloadCount} current encrypted payloads are ready locally. Add a data relay to sync them."
+    }
+    if (coverage.connectedRelayCount == 0) {
+        return "No data relays are connected right now, so current payload coverage could not be checked."
+    }
+    return "${coverage.foundPayloadCount}/${coverage.totalPayloadCount} current encrypted payloads were found on connected data relays. Connected relays: ${coverage.connectedRelayCount}/${coverage.configuredRelayCount}. This checks the latest payload for each current section, not historical replaced copies."
 }
 
 @Composable
@@ -681,13 +974,18 @@ private fun relayPendingItemText(
     nowEpochMs: Long,
     failure: RelayOutboxItemFailure?,
 ): String {
+    val statusLabel = when {
+        failure != null -> "failed"
+        item.attempts > 0 -> "retrying"
+        else -> "queued"
+    }
     val retryText = if (item.nextAttemptAtEpochMs <= nowEpochMs) {
-        "ready to retry now"
+        "ready now"
     } else {
         "retries in ${formatRetryDelay(item.nextAttemptAtEpochMs - nowEpochMs)}"
     }
     val failureText = failure?.message?.takeIf { it.isNotBlank() }?.let { " — last failure: $it" }.orEmpty()
-    return "${item.dTag} — attempts ${item.attempts}, $retryText$failureText"
+    return "${item.dTag} — $statusLabel; attempts ${item.attempts}, $retryText$failureText"
 }
 
 private fun formatRetryDelay(ms: Long): String {
@@ -799,25 +1097,131 @@ private fun SettingsHomeScreen(
             )
             SettingsHubRow(
                 title = "Relays",
-                subtitle = "Nostr relays, sync, and social workout posts",
+                subtitle = relaySettingsSubtitle(pendingRelayUploadCount),
                 icon = Icons.Default.Cloud,
                 pendingBadgeCount = pendingRelayUploadCount,
                 onClick = { onOpenSection(SettingsRoutes.RELAYS) }
             )
             SettingsHubRow(
-                title = "Import And Export",
-                subtitle = "Weight And Cardio Import Guides And Files",
+                title = "Data Management",
+                subtitle = "Export first, delete sections, or wipe this device",
+                icon = Icons.Default.Delete,
+                onClick = { onOpenSection(SettingsRoutes.DATA_MANAGEMENT) }
+            )
+            SettingsHubRow(
+                title = "Data Interchange + Backup",
+                subtitle = "Interchange files plus ERV-owned backup JSON and restore",
                 icon = Icons.Default.Upload,
-                onClick = { onOpenSection(SettingsRoutes.DATA_IMPORT_EXPORT) }
+                onClick = { onOpenSection(SettingsRoutes.dataImportExportRoute()) }
             )
             SettingsHubRow(
                 title = "Privacy Policy",
-                subtitle = "What ERV can and cannot guarantee",
+                subtitle = "Local-first limits, signer trust, and where data can live",
                 icon = Icons.Default.Description,
                 onClick = { onOpenSection(SettingsRoutes.importDocRoute(ImportExportDocAssets.KEY_PRIVACY_POLICY)) }
             )
+            SettingsHubRow(
+                title = "Android Permissions",
+                subtitle = "Why ERV asks for Bluetooth, GPS, camera, and more",
+                icon = Icons.Default.Description,
+                onClick = { onOpenSection(SettingsRoutes.importDocRoute(ImportExportDocAssets.KEY_PERMISSIONS_GUIDE)) }
+            )
+            SettingsAboutContactFooter()
         }
     }
+}
+
+@Composable
+private fun SettingsAboutContactFooter() {
+    val context = LocalContext.current
+    SettingsHubSectionLabel("About & contact")
+    Text(
+        text = "Questions, feedback, or bug reports (not for security issues — use SECURITY.md on GitHub).",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(bottom = 4.dp)
+    )
+    Text(
+        text = "ERV is local first. Android cloud backup and device transfer are disabled for app data, so use ERV export or backup files when you want an off-device copy.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(bottom = 8.dp)
+    )
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        onClick = {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(ERV_GITHUB_URL))
+            runCatching { context.startActivity(intent) }
+        },
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 1.dp)
+    ) {
+        ListItem(
+            headlineContent = { Text("GitHub", style = MaterialTheme.typography.titleSmall) },
+            supportingContent = {
+                Text(
+                    "Source code, issues, SECURITY.md",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            },
+            leadingContent = {
+                Icon(
+                    Icons.Default.Code,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            },
+            trailingContent = {
+                Icon(
+                    Icons.AutoMirrored.Filled.NavigateNext,
+                    contentDescription = "Open GitHub in browser"
+                )
+            },
+            modifier = Modifier.semantics { contentDescription = "Open GitHub repository" }
+        )
+    }
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        onClick = {
+            val intent = Intent(
+                Intent.ACTION_SENDTO,
+                Uri.parse("mailto:$ERV_CONTACT_EMAIL")
+            )
+            runCatching { context.startActivity(intent) }
+        },
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 1.dp)
+    ) {
+        ListItem(
+            headlineContent = { Text("Email", style = MaterialTheme.typography.titleSmall) },
+            supportingContent = {
+                Text(
+                    ERV_CONTACT_EMAIL,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            },
+            leadingContent = {
+                Icon(
+                    Icons.Default.Email,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            },
+            trailingContent = {
+                Icon(
+                    Icons.AutoMirrored.Filled.NavigateNext,
+                    contentDescription = "Open email app"
+                )
+            },
+            modifier = Modifier.semantics { contentDescription = "Send email to $ERV_CONTACT_EMAIL" }
+        )
+    }
+    Text(
+        text = "Nostr (NIP-17 DM): $ERV_CONTACT_NOSTR_HANDLE",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(start = 4.dp, top = 8.dp, bottom = 4.dp)
+    )
 }
 
 @Composable
@@ -2236,6 +2640,12 @@ private fun IdentitySection(
             Text(
                 text = keyManager.loginMethod ?: "None",
                 style = MaterialTheme.typography.bodySmall
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = "If you use a remote signer, that signer may be able to sign or decrypt on your behalf. Only connect signers you trust.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }

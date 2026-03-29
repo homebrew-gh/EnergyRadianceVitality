@@ -20,16 +20,24 @@ object SettingsSync {
         val socialRelays: List<String>
     )
 
+    fun plaintextFor(
+        dataRelays: List<String>,
+        socialRelays: List<String>,
+    ): Pair<String, String> {
+        val json = buildJsonObject {
+            put("dataRelays", buildJsonArray { dataRelays.forEach { add(it) } })
+            put("socialRelays", buildJsonArray { socialRelays.forEach { add(it) } })
+        }.toString()
+        return D_TAG to json
+    }
+
     suspend fun saveToNetwork(
         appContext: Context,
         relayPool: RelayPool,
         signer: EventSigner,
         keyManager: KeyManager
     ): Boolean {
-        val json = buildJsonObject {
-            put("dataRelays", buildJsonArray { keyManager.relayUrls.forEach { add(it) } })
-            put("socialRelays", buildJsonArray { keyManager.socialRelayUrls.forEach { add(it) } })
-        }.toString()
+        val (_, json) = plaintextFor(keyManager.relayUrls, keyManager.socialRelayUrls)
 
         val r = RelayPublishOutbox.get(appContext).enqueueReplaceByDTagAndKickDrain(
             appContext,

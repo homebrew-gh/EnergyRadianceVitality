@@ -47,6 +47,10 @@ class StretchingRepository(context: Context) {
         updateState { newState.withStableSessionIds() }
     }
 
+    suspend fun clearAllData() {
+        replaceAll(StretchLibraryState())
+    }
+
     suspend fun addRoutine(routine: StretchRoutine) {
         updateState { it.copy(routines = it.routines.upsert(routine)) }
     }

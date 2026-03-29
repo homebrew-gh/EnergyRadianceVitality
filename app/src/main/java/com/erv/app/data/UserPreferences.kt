@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "erv_prefs")
@@ -83,7 +84,10 @@ class UserPreferences(private val context: Context) {
         val WORKOUT_MEDIA_UPLOAD_BACKEND = stringPreferencesKey("workout_media_upload_backend")
         val GYM_MEMBERSHIP = booleanPreferencesKey("gym_membership")
         val OWNED_EQUIPMENT_JSON_V1 = stringPreferencesKey("owned_equipment_json_v1")
+        val ENABLED_WEIGHT_EXERCISE_PACK_IDS_V1 = stringPreferencesKey("enabled_weight_exercise_pack_ids_v1")
         val LIVE_WEIGHT_WORKOUT_DRAFT_JSON_V1 = stringPreferencesKey("live_weight_workout_draft_json_v1")
+        val LIVE_WEIGHT_WORKOUT_NOTIFICATION_SUPPRESSED_V1 =
+            booleanPreferencesKey("live_weight_workout_notification_suppressed_v1")
         val STRETCH_GUIDED_TTS_VOICE = stringPreferencesKey("stretch_guided_tts_voice")
         /** MAC address of last paired BLE heart rate sensor (standard Heart Rate GATT service). */
         val BLE_HEART_RATE_DEVICE_ADDRESS = stringPreferencesKey("ble_heart_rate_device_address_v1")
@@ -101,6 +105,10 @@ class UserPreferences(private val context: Context) {
         val USE_APP_WITHOUT_NOSTR_ACCOUNT_V1 = booleanPreferencesKey("use_app_without_nostr_account_v1")
         /** First-run setup / onboarding has been skipped or completed on this device. */
         val FIRST_RUN_SETUP_COMPLETED_V1 = booleanPreferencesKey("first_run_setup_completed_v1")
+        /** Tracks whether this device has ever had a Nostr-backed ERV session. */
+        val HAS_USED_NOSTR_IDENTITY_V1 = booleanPreferencesKey("has_used_nostr_identity_v1")
+        /** Last known data relay URLs while signed in, used for later cleanup guidance. */
+        val LAST_KNOWN_DATA_RELAYS_JSON_V1 = stringPreferencesKey("last_known_data_relays_json_v1")
         /** One-shot: dashboard Programs tile → Start stretch; consumed when Stretching opens. */
         val PROGRAM_DASHBOARD_STRETCH_LAUNCH_JSON_V1 = stringPreferencesKey("program_dashboard_stretch_launch_json_v1")
         /** One-shot: dashboard Programs tile → Start sauna/cold; consumed when Hot + Cold opens. */
@@ -485,9 +493,29 @@ class UserPreferences(private val context: Context) {
         }
     }
 
+    /** Specialty exercise packs that should be visible in library pickers. */
+    val enabledWeightExercisePackIds: Flow<Set<String>> = context.dataStore.data.map { prefs ->
+        decodeDelimitedIdSet(prefs[Keys.ENABLED_WEIGHT_EXERCISE_PACK_IDS_V1])
+    }
+
+    suspend fun setEnabledWeightExercisePackIds(ids: Set<String>) {
+        context.dataStore.edit { prefs ->
+            val encoded = encodeDelimitedIdSet(ids)
+            if (encoded.isEmpty()) {
+                prefs.remove(Keys.ENABLED_WEIGHT_EXERCISE_PACK_IDS_V1)
+            } else {
+                prefs[Keys.ENABLED_WEIGHT_EXERCISE_PACK_IDS_V1] = encoded
+            }
+        }
+    }
+
     /** JSON snapshot of the in-progress weight live workout; null when none. */
     val liveWeightWorkoutDraftJson: Flow<String?> = context.dataStore.data.map { prefs ->
         prefs[Keys.LIVE_WEIGHT_WORKOUT_DRAFT_JSON_V1]
+    }
+
+    val liveWeightWorkoutNotificationSuppressed: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[Keys.LIVE_WEIGHT_WORKOUT_NOTIFICATION_SUPPRESSED_V1] ?: false
     }
 
     suspend fun setLiveWeightWorkoutDraftJson(json: String?) {
@@ -497,6 +525,12 @@ class UserPreferences(private val context: Context) {
             } else {
                 prefs[Keys.LIVE_WEIGHT_WORKOUT_DRAFT_JSON_V1] = json
             }
+        }
+    }
+
+    suspend fun setLiveWeightWorkoutNotificationSuppressed(suppressed: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.LIVE_WEIGHT_WORKOUT_NOTIFICATION_SUPPRESSED_V1] = suppressed
         }
     }
 
@@ -641,6 +675,14 @@ class UserPreferences(private val context: Context) {
         prefs[Keys.FIRST_RUN_SETUP_COMPLETED_V1] == true
     }
 
+    val hasUsedNostrIdentity: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[Keys.HAS_USED_NOSTR_IDENTITY_V1] == true
+    }
+
+    val lastKnownDataRelayUrls: Flow<List<String>> = context.dataStore.data.map { prefs ->
+        decodeStringList(prefs[Keys.LAST_KNOWN_DATA_RELAYS_JSON_V1])
+    }
+
     /** Local-only profile (no Nostr identity). */
     val localProfileDisplayName: Flow<String> = context.dataStore.data.map { prefs ->
         prefs[Keys.LOCAL_PROFILE_DISPLAY_NAME_V1].orEmpty()
@@ -715,6 +757,21 @@ class UserPreferences(private val context: Context) {
         }
     }
 
+    suspend fun rememberNostrRelayUsage(dataRelayUrls: List<String>) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.HAS_USED_NOSTR_IDENTITY_V1] = true
+            prefs[Keys.LAST_KNOWN_DATA_RELAYS_JSON_V1] = encodeStringList(dataRelayUrls.distinct().sorted())
+        }
+    }
+
+    suspend fun hasUsedNostrIdentityNow(): Boolean =
+        context.dataStore.data.map { prefs -> prefs[Keys.HAS_USED_NOSTR_IDENTITY_V1] == true }.first()
+
+    suspend fun peekLastKnownDataRelayUrls(): List<String> =
+        context.dataStore.data.map { prefs ->
+            decodeStringList(prefs[Keys.LAST_KNOWN_DATA_RELAYS_JSON_V1])
+        }.first()
+
     suspend fun setProgramDashboardStretchLaunchJson(json: String?) {
         context.dataStore.edit { prefs ->
             if (json.isNullOrBlank()) prefs.remove(Keys.PROGRAM_DASHBOARD_STRETCH_LAUNCH_JSON_V1)
@@ -772,6 +829,35 @@ class UserPreferences(private val context: Context) {
         }
         return out
     }
+
+    suspend fun clearPersonalData() {
+        context.dataStore.edit { prefs ->
+            prefs.remove(Keys.SELECTED_GOAL_IDS)
+            prefs.remove(Keys.GOALS_JSON_V1)
+            prefs.remove(Keys.GYM_MEMBERSHIP)
+            prefs.remove(Keys.OWNED_EQUIPMENT_JSON_V1)
+            prefs.remove(Keys.BLE_HEART_RATE_DEVICE_ADDRESS)
+            prefs.remove(Keys.BLE_CSC_DEVICE_ADDRESS)
+            prefs.remove(Keys.BLE_SAVED_DEVICES_JSON_V1)
+            prefs.remove(Keys.LOCAL_PROFILE_DISPLAY_NAME_V1)
+            prefs.remove(Keys.LOCAL_PROFILE_PICTURE_URL_V1)
+            prefs.remove(Keys.LOCAL_PROFILE_BIO_V1)
+        }
+    }
+
+    suspend fun clearProgramLaunchTargets() {
+        context.dataStore.edit { prefs ->
+            prefs.remove(Keys.PROGRAM_DASHBOARD_STRETCH_LAUNCH_JSON_V1)
+            prefs.remove(Keys.PROGRAM_DASHBOARD_HEAT_COLD_LAUNCH_JSON_V1)
+            prefs.remove(Keys.PROGRAM_DASHBOARD_UNIFIED_ROUTINE_LAUNCH_JSON_V1)
+        }
+    }
+
+    suspend fun clearAllData() {
+        context.dataStore.edit { prefs ->
+            prefs.clear()
+        }
+    }
 }
 
 private fun parseWeightKg(raw: String?, unitKey: String?): Double? {
@@ -799,3 +885,30 @@ private fun sanitizeSavedBluetoothDevices(
         }
         .sortedByDescending { it.lastConnectedEpochMillis ?: 0L }
         .distinctBy { it.address }
+
+private fun decodeDelimitedIdSet(raw: String?): Set<String> =
+    raw.orEmpty()
+        .split(",")
+        .map { it.trim() }
+        .filter { it.isNotEmpty() }
+        .toSet()
+
+private fun encodeDelimitedIdSet(ids: Set<String>): String =
+    ids
+        .map { it.trim() }
+        .filter { it.isNotEmpty() }
+        .distinct()
+        .sorted()
+        .joinToString(",")
+
+private fun encodeStringList(items: List<String>): String =
+    Json.encodeToString(ListSerializer(String.serializer()), items)
+
+private fun decodeStringList(raw: String?): List<String> {
+    if (raw.isNullOrBlank()) return emptyList()
+    return try {
+        Json.decodeFromString(ListSerializer(String.serializer()), raw)
+    } catch (_: Exception) {
+        emptyList()
+    }
+}

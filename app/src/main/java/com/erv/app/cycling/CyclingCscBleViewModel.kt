@@ -139,6 +139,23 @@ class CyclingCscBleViewModel(application: Application) : AndroidViewModel(applic
 
     fun bluetoothEnabled(): Boolean = bluetoothAdapter?.isEnabled == true
 
+    /**
+     * One-shot reconnect attempt for the preferred saved sensor when a cycling workout starts later
+     * in the app session. Does not scan; it only retries the known saved address.
+     */
+    fun tryPreferredDeviceReconnectOnce() {
+        val saved = _preferredDeviceAddress.value
+        if (saved.isNullOrBlank()) return
+        if (!bleHardwareAvailable || !bluetoothEnabled() || !hasConnectPermission()) return
+        if (_connectionState.value == CyclingCscBleConnectionState.Connected ||
+            _connectionState.value == CyclingCscBleConnectionState.Connecting ||
+            _connectionState.value == CyclingCscBleConnectionState.Scanning
+        ) {
+            return
+        }
+        connectToAddress(saved, auto = true)
+    }
+
     init {
         viewModelScope.launch {
             userPreferences.savedBleDevices.collect { devices ->

@@ -32,6 +32,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AddAPhoto
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material3.AlertDialog
@@ -40,7 +41,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -66,10 +66,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.erv.app.bodytracker.BodyMeasurementKey
 import com.erv.app.bodytracker.BodyMeasurementLengthUnit
@@ -82,104 +82,25 @@ import com.erv.app.bodytracker.bodyTrackerDayLogsForSectionLog
 import com.erv.app.bodytracker.datesWithBodyTrackerActivity
 import com.erv.app.bodytracker.displayLabel
 import com.erv.app.bodytracker.isEffectivelyEmpty
-import com.erv.app.cardio.CardioLibraryState
 import com.erv.app.data.BodyWeightUnit
 import com.erv.app.data.UserPreferences
-import com.erv.app.weighttraining.WeightLibraryState
 import com.erv.app.nostr.EventSigner
 import com.erv.app.nostr.KeyManager
 import com.erv.app.nostr.LocalKeyManager
 import com.erv.app.nostr.RelayPool
+import com.erv.app.ui.theme.ErvHeaderRed
 import kotlinx.coroutines.CoroutineScope
 import com.erv.app.SectionLogDateFilter
-import com.erv.app.ui.dashboard.DateNavigator
 import com.erv.app.ui.dashboard.SectionLogCalendarSheet
 import com.erv.app.ui.dashboard.SectionLogFilterBar
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
-import java.time.temporal.ChronoUnit
 import java.util.Locale
 import kotlin.math.roundToInt
 
 private const val LB_PER_KG = 2.2046226218
 private const val CM_PER_IN = 2.54
-
-private fun hasWorkoutLoggedForDate(
-    date: LocalDate,
-    weight: WeightLibraryState,
-    cardio: CardioLibraryState
-): Boolean {
-    val weightDay = weight.logFor(date)?.workouts?.isNotEmpty() == true
-    val cardioDay = cardio.logFor(date)?.sessions?.isNotEmpty() == true
-    return weightDay || cardioDay
-}
-
-/** Read-only checkboxes: reflect photo + cardio/weight logs for the day (user completes those in other flows). */
-@Composable
-private fun BodyTrackerLoggedViaAppHints(
-    date: LocalDate,
-    savedLog: BodyTrackerDayLog?,
-    weightLibraryState: WeightLibraryState,
-    cardioLibraryState: CardioLibraryState,
-) {
-    val photoDone = savedLog?.photos?.isNotEmpty() == true
-    val workoutDone = remember(date, weightLibraryState.logs, cardioLibraryState.logs) {
-        hasWorkoutLoggedForDate(date, weightLibraryState, cardioLibraryState)
-    }
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
-    ) {
-        Column(Modifier.padding(14.dp)) {
-            Text(
-                "Photo & workouts",
-                style = MaterialTheme.typography.titleSmall
-            )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                "These reflect real actions in the app. You cannot tap them on or off here.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Spacer(Modifier.height(10.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Checkbox(checked = photoDone, onCheckedChange = null)
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        "Progress photo",
-                        style = MaterialTheme.typography.bodyLarge
-                    )
-                    Text(
-                        "Use Add photo below on this screen.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Checkbox(checked = workoutDone, onCheckedChange = null)
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        "Cardio or weight session",
-                        style = MaterialTheme.typography.bodyLarge
-                    )
-                    Text(
-                        "Log from Launch Pad or the Cardio / Weight Training categories for $date.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-        }
-    }
-}
 
 private val bodyTrackerLogCardDateFormatter =
     DateTimeFormatter.ofPattern("EEE, MMM d, yyyy", Locale.getDefault())
@@ -423,8 +344,6 @@ private fun BodyTrackerLogEntryCard(
 fun BodyTrackerCategoryScreen(
     repository: BodyTrackerRepository,
     userPreferences: UserPreferences,
-    weightLibraryState: WeightLibraryState,
-    cardioLibraryState: CardioLibraryState,
     relayPool: RelayPool?,
     signer: EventSigner?,
     onBack: () -> Unit,
@@ -437,12 +356,8 @@ fun BodyTrackerCategoryScreen(
         onBack = onBack,
         repository = repository,
         userPreferences = userPreferences,
-        weightLibraryState = weightLibraryState,
-        cardioLibraryState = cardioLibraryState,
         relayPool = relayPool,
-        signer = signer,
-        initialSelectedDate = LocalDate.now(),
-        openCalendarInitially = false
+        signer = signer
     )
 }
 
@@ -479,13 +394,8 @@ fun BodyTrackerLogScreen(
     val showLogDateOnCards = dateFilter !is SectionLogDateFilter.SingleDay
     val datesWithActivity = remember(state) { datesWithBodyTrackerActivity(state) }
 
-    val darkTheme = isSystemInDarkTheme()
-    val headerColor =
-        if (darkTheme) MaterialTheme.colorScheme.primaryContainer
-        else MaterialTheme.colorScheme.primary
-    val onHeader =
-        if (darkTheme) MaterialTheme.colorScheme.onPrimaryContainer
-        else MaterialTheme.colorScheme.onPrimary
+    val headerColor = ErvHeaderRed
+    val onHeader = Color.White
 
     pendingDelete?.let { log ->
         AlertDialog(
@@ -635,12 +545,8 @@ private fun BodyTrackerEditorScaffold(
     onBack: () -> Unit,
     repository: BodyTrackerRepository,
     userPreferences: UserPreferences,
-    weightLibraryState: WeightLibraryState,
-    cardioLibraryState: CardioLibraryState,
     relayPool: RelayPool?,
     signer: EventSigner?,
-    initialSelectedDate: LocalDate,
-    openCalendarInitially: Boolean
 ) {
     val appContext = LocalContext.current.applicationContext
     val keyManager = LocalKeyManager.current
@@ -650,8 +556,7 @@ private fun BodyTrackerEditorScaffold(
     val state by repository.state.collectAsState(initial = BodyTrackerLibraryState())
     val weightUnit by userPreferences.bodyWeightUnit.collectAsState(initial = BodyWeightUnit.LB)
 
-    var selectedDate by remember { mutableStateOf(initialSelectedDate) }
-    var showCalendar by remember(openCalendarInitially) { mutableStateOf(openCalendarInitially) }
+    val selectedDate = LocalDate.now()
     var weightText by remember { mutableStateOf("") }
     val measurementTexts = remember {
         BodyMeasurementKey.entries.associateWith { mutableStateOf("") }
@@ -686,17 +591,8 @@ private fun BodyTrackerEditorScaffold(
         }
     }
 
-    val darkTheme = isSystemInDarkTheme()
-    val headerColor =
-        if (darkTheme) MaterialTheme.colorScheme.primaryContainer
-        else MaterialTheme.colorScheme.primary
-    val onHeader =
-        if (darkTheme) MaterialTheme.colorScheme.onPrimaryContainer
-        else MaterialTheme.colorScheme.onPrimary
-
-    val datesWithData = remember(state.logs) {
-        datesWithBodyTrackerActivity(state)
-    }
+    val headerColor = ErvHeaderRed
+    val onHeader = Color.White
 
     fun buildLogFromDraft(): BodyTrackerDayLog {
         val w = parsePositiveDouble(weightText)?.let { displayToKg(it, weightUnit) }
@@ -786,29 +682,7 @@ private fun BodyTrackerEditorScaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
-                title = {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(
-                            title,
-                            modifier = Modifier.weight(1f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        TextButton(
-                            onClick = {
-                                scope.launch {
-                                    formScrollState.animateScrollTo(0)
-                                }
-                            },
-                            colors = ButtonDefaults.textButtonColors(contentColor = onHeader)
-                        ) {
-                            Text("Log", style = MaterialTheme.typography.labelLarge)
-                        }
-                    }
-                },
+                title = { Text(title) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -816,11 +690,8 @@ private fun BodyTrackerEditorScaffold(
                 },
                 actions = {
                     if (showLogAction && onOpenLog != null) {
-                        TextButton(
-                            onClick = onOpenLog,
-                            colors = ButtonDefaults.textButtonColors(contentColor = onHeader)
-                        ) {
-                            Text("History")
+                        IconButton(onClick = onOpenLog) {
+                            Icon(Icons.Default.DateRange, contentDescription = "Open log")
                         }
                     }
                 },
@@ -838,16 +709,6 @@ private fun BodyTrackerEditorScaffold(
                 .padding(padding)
                 .fillMaxSize()
         ) {
-            DateNavigator(
-                selectedDate = selectedDate,
-                onPreviousDay = { selectedDate = selectedDate.minusDays(1) },
-                onNextDay = { selectedDate = selectedDate.plusDays(1) },
-                onPreviousWeek = { selectedDate = selectedDate.minus(7, ChronoUnit.DAYS) },
-                onNextWeek = { selectedDate = selectedDate.plus(7, ChronoUnit.DAYS) },
-                onTodayClick = { selectedDate = LocalDate.now() },
-                onCalendarClick = { showCalendar = true },
-                modifier = Modifier.padding(horizontal = 8.dp)
-            )
             Column(
                 modifier = Modifier
                     .verticalScroll(formScrollState)
@@ -856,16 +717,9 @@ private fun BodyTrackerEditorScaffold(
             ) {
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "Fill in what you want to track for the selected day, then save. Open the log to review past entries.",
+                    "Fill in what you want to track for today, then save. Open the log to browse or filter by date.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(Modifier.height(12.dp))
-                BodyTrackerLoggedViaAppHints(
-                    date = selectedDate,
-                    savedLog = savedLog,
-                    weightLibraryState = weightLibraryState,
-                    cardioLibraryState = cardioLibraryState
                 )
                 Spacer(Modifier.height(12.dp))
                 Text("Units", style = MaterialTheme.typography.titleSmall)
@@ -984,20 +838,6 @@ private fun BodyTrackerEditorScaffold(
                 }
             }
         }
-    }
-
-    if (showCalendar) {
-        SectionLogCalendarSheet(
-            filter = SectionLogDateFilter.SingleDay(selectedDate),
-            onDismiss = { showCalendar = false },
-            datesWithActivity = datesWithData,
-            onApplyFilter = { filter ->
-                if (filter is SectionLogDateFilter.SingleDay) {
-                    selectedDate = filter.day
-                }
-                showCalendar = false
-            }
-        )
     }
 }
 

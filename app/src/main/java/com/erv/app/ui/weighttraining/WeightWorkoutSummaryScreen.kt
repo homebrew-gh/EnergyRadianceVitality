@@ -63,6 +63,7 @@ import com.erv.app.weighttraining.WeightWorkoutSession
 import com.erv.app.weighttraining.WeightWorkoutSource
 import com.erv.app.weighttraining.displayLabel
 import com.erv.app.weighttraining.formatSetSummaryLine
+import com.erv.app.weighttraining.resolvedDurationSeconds
 import com.erv.app.weighttraining.totalSetCount
 import com.erv.app.weighttraining.formatHiitBlockSummaryLine
 import com.erv.app.weighttraining.formatWeightLoadNumber
@@ -73,9 +74,7 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
 internal fun WeightWorkoutSession.displayElapsedSeconds(): Long {
-    val a = startedAtEpochSeconds ?: return 0L
-    val b = finishedAtEpochSeconds ?: return 0L
-    return (b - a).coerceAtLeast(0L)
+    return resolvedDurationSeconds()?.toLong() ?: 0L
 }
 
 private fun dedupeConsecutiveExerciseIds(ids: List<String>): List<String> =
@@ -110,6 +109,9 @@ internal fun buildWeightWorkoutNoteContent(
     append("Exercises: ${session.entries.size}\n")
     val sets = session.totalSetCount()
     if (sets > 0) append("Sets: $sets\n")
+    session.estimatedKcal?.takeIf { it > 0.5 }?.let { kcal ->
+        append("Est. calories: ~${kcal.toInt()} kcal\n")
+    }
     session.heartRate?.avgBpm?.let { avg ->
         append("Heart rate (avg): $avg bpm\n")
     }
@@ -187,6 +189,7 @@ fun WeightWorkoutSummaryFullScreen(
     signer: EventSigner?,
     repository: WeightRepository,
     onAfterRoutineSync: () -> Unit,
+    showPostWorkoutActions: Boolean = true,
     /** Remove this session from [logDate] and close (e.g. user regrets saving). */
     onRemoveFromLog: (() -> Unit)? = null,
     onOpenLog: (() -> Unit)? = null,
@@ -245,6 +248,13 @@ fun WeightWorkoutSummaryFullScreen(
                 val s = (dur % 60).toInt()
                 Text(
                     "Elapsed: %d:%02d".format(m, s),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Color.White.copy(alpha = 0.9f)
+                )
+            }
+            session.estimatedKcal?.takeIf { it > 0.5 }?.let { kcal ->
+                Text(
+                    "Est. calories: ~${kcal.toInt()} kcal",
                     style = MaterialTheme.typography.titleMedium,
                     color = Color.White.copy(alpha = 0.9f)
                 )
@@ -326,7 +336,7 @@ fun WeightWorkoutSummaryFullScreen(
                 }
             }
             Spacer(Modifier.height(8.dp))
-            if (routineToUpdate != null && session.routineId != null) {
+            if (showPostWorkoutActions && routineToUpdate != null && session.routineId != null) {
                 OutlinedButton(
                     onClick = { showRoutineConfirm = true },
                     modifier = Modifier.fillMaxWidth(),
@@ -337,7 +347,7 @@ fun WeightWorkoutSummaryFullScreen(
                     Text("Update “${routineToUpdate.name.ifBlank { "routine" }}” to match this workout")
                 }
             }
-            if (relayPool != null && signer != null) {
+            if (showPostWorkoutActions && relayPool != null && signer != null) {
                 OutlinedTextField(
                     value = sharePersonalMessage,
                     onValueChange = { sharePersonalMessage = it },

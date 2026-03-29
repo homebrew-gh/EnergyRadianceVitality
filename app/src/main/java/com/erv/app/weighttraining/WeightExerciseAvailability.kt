@@ -28,13 +28,21 @@ fun filterWeightExercisesForPicker(
     exercises: List<WeightExercise>,
     filter: WeightExercisePickerFilter,
     ownedEquipment: List<OwnedEquipmentItem>,
+    enabledPackIds: Set<String> = emptySet(),
 ): List<WeightExercise> =
-    when (filter) {
-        WeightExercisePickerFilter.ALL -> exercises
-        WeightExercisePickerFilter.HOME_READY -> exercises.filter { it.isHomeReadyFor(ownedEquipment) }
+    filterWeightExercisesForEnabledPacks(exercises, enabledPackIds).let { visibleExercises ->
+        when (filter) {
+            WeightExercisePickerFilter.ALL -> visibleExercises
+            WeightExercisePickerFilter.HOME_READY ->
+                visibleExercises.filter { it.isHomeReadyFor(ownedEquipment, enabledPackIds) }
+        }
     }
 
-fun WeightExercise.isHomeReadyFor(ownedEquipment: List<OwnedEquipmentItem>): Boolean {
+fun WeightExercise.isHomeReadyFor(
+    ownedEquipment: List<OwnedEquipmentItem>,
+    enabledPackIds: Set<String> = emptySet(),
+): Boolean {
+    if (exercisePackId != null) return exercisePackId in enabledPackIds
     if (id in builtinNoEquipmentExerciseIds) return true
     val kinds = ownedEquipment.map { it.catalogKind }.toSet()
     val hasManualWeightTool = ownedEquipment.any { item ->

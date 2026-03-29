@@ -39,6 +39,10 @@ class UnifiedRoutineRepository(context: Context) {
         updateState { newState }
     }
 
+    suspend fun clearAllData() {
+        replaceAll(UnifiedRoutineLibraryState())
+    }
+
     suspend fun upsertRoutine(routine: UnifiedRoutine) {
         val stamped = routine.touch()
         updateState { state ->

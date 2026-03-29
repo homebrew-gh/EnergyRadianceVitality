@@ -78,6 +78,22 @@ object ProgramSync {
         return pairs
     }
 
+    fun clearOutboxEntries(state: ProgramsLibraryState): List<Pair<String, String>> {
+        val pairs = mutableListOf<Pair<String, String>>()
+        pairs += PROGRAMS_MASTER_D_TAG to json.encodeToString(
+            ProgramMasterPayload.serializer(),
+            ProgramMasterPayload()
+        )
+        val dates = state.sanitized().completionState.keys.mapNotNull(::programCompletionDateString).distinct().sorted()
+        for (date in dates) {
+            pairs += dailyProgressTag(date) to json.encodeToString(
+                ProgramDailyProgressPayload.serializer(),
+                ProgramDailyProgressPayload(date = date)
+            )
+        }
+        return pairs
+    }
+
     suspend fun publishMaster(
         appContext: Context,
         relayPool: RelayPool,

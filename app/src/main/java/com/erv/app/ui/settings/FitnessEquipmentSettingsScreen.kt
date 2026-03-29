@@ -62,15 +62,19 @@ import com.erv.app.data.WorkoutModality
 import com.erv.app.data.displayLabel
 import com.erv.app.data.displayTitle
 import com.erv.app.data.summaryLine
+import com.erv.app.weighttraining.availableWeightExercisePacks
+import com.erv.app.weighttraining.weightExercisePackExerciseCount
 import java.util.UUID
 
 @Composable
 fun FitnessEquipmentSettingsContent(
     gymMembership: Boolean,
     ownedEquipment: List<OwnedEquipmentItem>,
+    enabledExercisePackIds: Set<String>,
     weightUnit: BodyWeightUnit,
     onGymMembershipChange: (Boolean) -> Unit,
     onEquipmentChange: (List<OwnedEquipmentItem>) -> Unit,
+    onExercisePackIdsChange: (Set<String>) -> Unit,
 ) {
     var dialog by remember { mutableStateOf<EquipmentEditorDialog?>(null) }
 
@@ -113,6 +117,60 @@ fun FitnessEquipmentSettingsContent(
                     checked = gymMembership,
                     onCheckedChange = onGymMembershipChange
                 )
+            }
+        }
+    }
+
+    Spacer(Modifier.height(12.dp))
+
+    Text(
+        "Exercise Packs",
+        style = MaterialTheme.typography.titleMedium,
+        modifier = Modifier.padding(bottom = 8.dp)
+    )
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                "Turn on niche exercise libraries only when you have the specialty equipment. Disabled packs stay out of the main exercise list.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            availableWeightExercisePacks().forEach { pack ->
+                val enabled = pack.id in enabledExercisePackIds
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                        Text(
+                            pack.title,
+                            style = MaterialTheme.typography.bodyLarge
+                        )
+                        Text(
+                            "${pack.description} ${weightExercisePackExerciseCount(pack.id)} exercises.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = enabled,
+                        onCheckedChange = { isEnabled ->
+                            val next = if (isEnabled) {
+                                enabledExercisePackIds + pack.id
+                            } else {
+                                enabledExercisePackIds - pack.id
+                            }
+                            onExercisePackIdsChange(next)
+                        }
+                    )
+                }
             }
         }
     }

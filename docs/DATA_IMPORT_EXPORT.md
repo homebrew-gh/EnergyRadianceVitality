@@ -17,6 +17,18 @@ This document describes how **Energy Radiance Vitality (ERV)** can support **mov
 | Trust and safety | **Validate** imports, offer **preview** and **merge policy**, avoid silent data loss. |
 | Privacy | Document risks when users use **third-party tools** (including cloud LLMs) to transform exports or generate bundles. |
 
+### 1.1 Product split: interchange vs backup
+
+ERV now treats import/export as **two related but different workflows**:
+
+- **Data interchange** — files meant for **AI assistants, coaches, scripts, and structured merge imports**.
+- **Backup and restore** — **ERV-owned JSON snapshots** meant for **migration, archival, and device repopulation**.
+
+They may reuse the same underlying section models, but they do **not** make the same product promise:
+
+- interchange favors **human review**, **partial data**, and **merge-oriented** imports
+- backup favors **fidelity**, **predictable replace behavior**, and **device restore**
+
 ---
 
 ## 2. Reality check: there is no universal “fitness export” standard
@@ -34,7 +46,18 @@ So ERV should treat **interoperability** as: **we define what we accept and emit
 
 Export is a **snapshot** of user-owned health data the app already holds locally (and optionally reflects from the user’s relay). It is **not** a promise to mirror every internal implementation detail forever; version the bundle format (see §7).
 
-Reasonable scopes:
+ERV should present export in two explicit modes:
+
+- **Data interchange export**
+  - intended for **analysis**, **AI-assisted coaching**, or **structured authoring**
+  - may be **per silo**
+  - may use **CSV** where that improves interoperability
+- **Backup export**
+  - intended for **ERV-to-ERV migration / restore**
+  - should use the **ERV JSON bundle**
+  - should be treated as the authoritative restore format
+
+Reasonable scopes for those workflows:
 
 - **Full bundle** — All silos the user has used (weight training, cardio, sleep, …) in one structured archive.
 - **Per-silo export** — e.g. weight training + exercise library only; smaller and easier to share with a coach or script.
@@ -64,9 +87,14 @@ The relationship should be explicit in UI copy: **relay sync ≠ complete archiv
 
 ## 4. Import (files → ERV)
 
-### 4.1 Principle: one canonical import contract
+### 4.1 Principle: two import contracts, one model family
 
-The app should implement **import** against **one** (or a small number of) **ERV-defined** formats—e.g. **`erv-import.json`** matching a documented schema—not against “whatever Strong exported last Tuesday.”
+The app should distinguish between:
+
+- a **data interchange contract** for AI/coach authored files and merge-oriented silo imports
+- a **backup restore contract** for ERV-owned snapshots
+
+The interchange side should still implement **import** against **one** (or a small number of) **ERV-defined** formats—not against “whatever Strong exported last Tuesday.”
 
 Benefits:
 
@@ -90,6 +118,14 @@ ERV does **not** need to endorse a specific vendor; it only needs to publish **t
 3. **Preview** — counts per silo, date range, obvious issues (unknown exercise IDs, duplicate days).
 4. **Merge policy** — user chooses e.g. **merge** (default) vs **replace silo** vs **cancel**; destructive paths require confirmation.
 5. **Backup hint** — recommend export **before** a large import.
+
+For **backup restore**, the defaults should be different:
+
+1. pick an **ERV backup JSON**
+2. preview which sections are present
+3. explain that included sections will **replace** the local copy for that section
+4. restore locally first
+5. if the user uses sync, **queue relay re-sync after restore succeeds**
 
 ### 4.4 Mapping challenges (why in-app “import from App X” explodes)
 
@@ -160,7 +196,8 @@ ERV can still provide **schema + examples** without operating a conversion servi
 
 ## 7. Versioning and compatibility
 
-- **`ervExportVersion` / `ervImportVersion`** (or a single **`ervDataBundleVersion`**) should appear in JSON bundles.
+- The shipped ERV backup bundle currently uses **`ervAppDataExportVersion`** in JSON.
+- Interchange formats should also carry explicit version fields, but they do not need to reuse the same top-level name as the backup bundle.
 - **Forward-compatible parsers:** ignore unknown fields where safe (`ignoreUnknownKeys`-style behavior in Kotlin is a good match).
 - **Breaking changes:** bump major version; document migration notes in this file or a changelog section.
 

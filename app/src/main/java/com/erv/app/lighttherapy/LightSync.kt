@@ -66,6 +66,21 @@ object LightSync {
         return pairs
     }
 
+    fun clearOutboxEntries(state: LightLibraryState): List<Pair<String, String>> {
+        val pairs = mutableListOf<Pair<String, String>>()
+        pairs += LIGHT_MASTER_D_TAG to json.encodeToString(
+            LightMasterPayload.serializer(),
+            LightMasterPayload()
+        )
+        for (dateIso in state.logs.map { it.date }.distinct().sorted()) {
+            pairs += dailyTag(dateIso) to json.encodeToString(
+                LightDayLog.serializer(),
+                LightDayLog(date = dateIso)
+            )
+        }
+        return pairs
+    }
+
     suspend fun fetchFromNetwork(
         relayPool: RelayPool,
         signer: EventSigner,

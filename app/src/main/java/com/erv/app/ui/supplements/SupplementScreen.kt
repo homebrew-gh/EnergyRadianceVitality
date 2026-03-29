@@ -74,7 +74,7 @@ import com.erv.app.supplements.datedSupplementEntriesForSectionLog
 import com.erv.app.ui.dashboard.SectionLogCalendarSheet
 import com.erv.app.ui.dashboard.SectionLogFilterBar
 import com.erv.app.ui.dashboard.datesWithSupplementActivity
-import com.erv.app.ui.theme.ErvDarkTherapyRedMid
+import com.erv.app.ui.theme.ErvHeaderRed
 import com.erv.app.ui.theme.ErvLightTherapyRedMid
 import kotlinx.coroutines.launch
 import java.util.UUID
@@ -90,11 +90,13 @@ private val SupplementRedDark = Color(0xFF4A0E0E)
 private val SupplementRedMid = Color(0xFF8B0000)
 
 private data class RoutineStepDraft(
+    val uiKey: String = UUID.randomUUID().toString(),
     val supplementId: String? = null,
     val timeOfDay: SupplementTimeOfDay = SupplementTimeOfDay.MORNING,
     val quantity: String = "1",
     val dosageOverride: String = "",
-    val note: String = ""
+    val note: String = "",
+    val isExpanded: Boolean = true
 )
 
 private data class SupplementDraft(
@@ -210,7 +212,7 @@ fun SupplementCategoryScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = SupplementRedMid,
+                    containerColor = ErvHeaderRed,
                     titleContentColor = Color.White,
                     actionIconContentColor = Color.White,
                     navigationIconContentColor = Color.White
@@ -360,7 +362,7 @@ fun SupplementCategoryScreen(
             }
             if (showBarcodeScanner) {
                 SupplementBarcodeScannerScreen(
-                    headerColor = SupplementRedMid,
+                    headerColor = ErvHeaderRed,
                     onBarcode = { code ->
                         showBarcodeScanner = false
                         scope.launch {
@@ -794,8 +796,7 @@ fun SupplementLogScreen(
     val datesWithActivity = remember(state) { datesWithSupplementActivity(state) }
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
-    val darkTheme = isSystemInDarkTheme()
-    val headerMid = if (darkTheme) ErvDarkTherapyRedMid else ErvLightTherapyRedMid
+    val headerMid = ErvHeaderRed
     val keyManager = LocalKeyManager.current
     val logAppContext = LocalContext.current.applicationContext
 
@@ -1178,7 +1179,8 @@ private fun RoutineEditorDialog(
                             timeOfDay = it.timeOfDay ?: routineTimeOfDay,
                             quantity = it.quantity?.toString() ?: "1",
                             dosageOverride = it.dosageOverride.orEmpty(),
-                            note = it.note.orEmpty()
+                            note = it.note.orEmpty(),
+                            isExpanded = false
                         )
                     )
                 }
@@ -1217,12 +1219,14 @@ private fun RoutineEditorDialog(
                     )
                 }
                 steps.forEachIndexed { index, draft ->
-                    RoutineStepRow(
-                        step = draft,
-                        supplements = supplements,
-                        onStepChange = { steps[index] = it },
-                        onRemove = { steps.removeAt(index) }
-                    )
+                    key(draft.uiKey) {
+                        RoutineStepRow(
+                            step = draft,
+                            supplements = supplements,
+                            onStepChange = { steps[index] = it },
+                            onRemove = { steps.removeAt(index) }
+                        )
+                    }
                 }
                 TextButton(
                     onClick = { steps.add(RoutineStepDraft(timeOfDay = routineTimeOfDay)) }
@@ -1292,102 +1296,152 @@ private fun RoutineStepRow(
         }
     }
 
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedButton(
-            onClick = { showSupplementPicker = true },
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text(
-                if (selectedSupplement != null) selectedSupplement.name
-                else "Select supplement"
-            )
+    val summary = buildString {
+        if (selectedSupplement == null) {
+            append("Select a supplement to configure this step.")
+        } else {
+            append(step.dosageOverride.ifBlank { recommendedServing }.ifBlank { "Take as directed" })
+            append(" • Qty ")
+            append(step.quantity.ifBlank { "1" })
+            if (step.note.isNotBlank()) {
+                append(" • ")
+                append(step.note)
+            }
         }
-        if (showSupplementPicker) {
-            AlertDialog(
-                onDismissRequest = { showSupplementPicker = false },
-                title = { Text("Choose supplement") },
-                text = {
-                    LazyColumn(
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                        modifier = Modifier.heightIn(max = 400.dp)
-                    ) {
-                        items(supplements, key = { it.id }) { supplement ->
-                            TextButton(
-                                onClick = {
-                                    onStepChange(
-                                        step.copy(
-                                            supplementId = supplement.id,
-                                            dosageOverride = supplement.recommendedServingDisplay()
+    }
+
+    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    Text(
+                        text = selectedSupplement?.name ?: "New supplement",
+                        style = MaterialTheme.typography.titleSmall
+                    )
+                    Text(
+                        text = summary,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                TextButton(
+                    onClick = {
+                        onStepChange(step.copy(isExpanded = !step.isExpanded))
+                    },
+                    enabled = selectedSupplement != null
+                ) {
+                    Text(if (step.isExpanded) "Minimize" else "Edit")
+                }
+                IconButton(onClick = onRemove) {
+                    Icon(Icons.Default.Delete, contentDescription = "Remove supplement")
+                }
+            }
+
+            if (showSupplementPicker) {
+                AlertDialog(
+                    onDismissRequest = { showSupplementPicker = false },
+                    title = { Text("Choose supplement") },
+                    text = {
+                        LazyColumn(
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier.heightIn(max = 400.dp)
+                        ) {
+                            items(supplements, key = { it.id }) { supplement ->
+                                TextButton(
+                                    onClick = {
+                                        onStepChange(
+                                            step.copy(
+                                                supplementId = supplement.id,
+                                                dosageOverride = supplement.recommendedServingDisplay(),
+                                                isExpanded = true
+                                            )
                                         )
-                                    )
-                                    showSupplementPicker = false
-                                },
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Column(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalAlignment = Alignment.Start
+                                        showSupplementPicker = false
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Text(supplement.name, style = MaterialTheme.typography.bodyLarge)
-                                    if (supplement.brand.isNotBlank()) {
-                                        Text(
-                                            supplement.brand,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
+                                    Column(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalAlignment = Alignment.Start
+                                    ) {
+                                        Text(supplement.name, style = MaterialTheme.typography.bodyLarge)
+                                        if (supplement.brand.isNotBlank()) {
+                                            Text(
+                                                supplement.brand,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
                                     }
                                 }
                             }
                         }
-                    }
-                },
-                confirmButton = {},
-                dismissButton = { TextButton(onClick = { showSupplementPicker = false }) { Text("Cancel") } }
-            )
-        }
+                    },
+                    confirmButton = {},
+                    dismissButton = { TextButton(onClick = { showSupplementPicker = false }) { Text("Cancel") } }
+                )
+            }
 
-        if (selectedSupplement != null) {
-            ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            if (step.isExpanded) {
+                OutlinedButton(
+                    onClick = { showSupplementPicker = true },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
                     Text(
-                        text = "Serving size for this supplement",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = servingSizeLabel.ifBlank { "Take as directed" },
-                        style = MaterialTheme.typography.bodyMedium
+                        if (selectedSupplement != null) selectedSupplement.name
+                        else "Select supplement"
                     )
                 }
+
+                if (selectedSupplement != null) {
+                    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(
+                                text = "Serving size for this supplement",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = servingSizeLabel.ifBlank { "Take as directed" },
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                    }
+                    OutlinedTextField(
+                        value = step.dosageOverride.ifBlank { recommendedServing },
+                        onValueChange = { onStepChange(step.copy(dosageOverride = it)) },
+                        label = { Text("Daily serving (edit if needed)") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                OutlinedTextField(
+                    value = step.quantity,
+                    onValueChange = { onStepChange(step.copy(quantity = it.filter { ch -> ch.isDigit() })) },
+                    label = { Text("Quantity (multiplier)") },
+                    supportingText = { Text("e.g. 2 = 2× the serving size above") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                OutlinedTextField(
+                    value = step.note,
+                    onValueChange = { onStepChange(step.copy(note = it)) },
+                    label = { Text("Step note (optional)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
-            OutlinedTextField(
-                value = step.dosageOverride.ifBlank { recommendedServing },
-                onValueChange = { onStepChange(step.copy(dosageOverride = it)) },
-                label = { Text("Daily serving (edit if needed)") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-        }
-
-        OutlinedTextField(
-            value = step.quantity,
-            onValueChange = { onStepChange(step.copy(quantity = it.filter { ch -> ch.isDigit() })) },
-            label = { Text("Quantity (multiplier)") },
-            supportingText = { Text("e.g. 2 = 2× the serving size above") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth()
-        )
-
-        OutlinedTextField(
-            value = step.note,
-            onValueChange = { onStepChange(step.copy(note = it)) },
-            label = { Text("Step note (optional)") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth()
-        )
-
-        TextButton(onClick = onRemove) {
-            Text("Remove from this time")
         }
     }
 }
@@ -1521,7 +1575,7 @@ fun SupplementDetailScreen(
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = SupplementRedMid,
+                        containerColor = ErvHeaderRed,
                         titleContentColor = Color.White,
                         navigationIconContentColor = Color.White
                     )
@@ -1588,7 +1642,7 @@ fun SupplementDetailScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = SupplementRedMid,
+                    containerColor = ErvHeaderRed,
                     titleContentColor = Color.White,
                     actionIconContentColor = Color.White,
                     navigationIconContentColor = Color.White

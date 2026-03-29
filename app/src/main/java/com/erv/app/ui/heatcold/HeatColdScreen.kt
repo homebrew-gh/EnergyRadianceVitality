@@ -104,6 +104,7 @@ import com.erv.app.ui.theme.ErvColdMid
 import com.erv.app.ui.theme.ErvDarkColdDark
 import com.erv.app.ui.theme.ErvDarkColdGlow
 import com.erv.app.ui.theme.ErvDarkColdMid
+import com.erv.app.ui.theme.ErvHeaderRed
 import com.erv.app.ui.theme.ErvDarkTherapyRedDark
 import com.erv.app.ui.theme.ErvDarkTherapyRedGlow
 import com.erv.app.ui.theme.ErvDarkTherapyRedMid
@@ -304,7 +305,7 @@ fun HeatColdCategoryScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = headerMid,
+                    containerColor = if (mode == HeatColdMode.SAUNA) ErvHeaderRed else coldMid,
                     titleContentColor = Color.White,
                     actionIconContentColor = Color.White,
                     navigationIconContentColor = Color.White
@@ -659,8 +660,7 @@ fun HeatColdLogScreen(
     val datesWithActivity = remember(state) { datesWithHeatColdActivity(state) }
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
-    val darkTheme = isSystemInDarkTheme()
-    val headerMid = if (darkTheme) ErvDarkTherapyRedMid else ErvLightTherapyRedMid
+    val headerMid = ErvHeaderRed
     val keyManager = LocalKeyManager.current
     val logAppContext = LocalContext.current.applicationContext
 

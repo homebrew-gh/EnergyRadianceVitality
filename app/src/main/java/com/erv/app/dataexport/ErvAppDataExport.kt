@@ -1,13 +1,20 @@
 package com.erv.app.dataexport
 
+import com.erv.app.bodytracker.BodyTrackerLibraryState
+import com.erv.app.bodytracker.BodyTrackerRepository
 import com.erv.app.cardio.CardioLibraryState
 import com.erv.app.cardio.CardioSession
 import com.erv.app.data.FitnessEquipmentNostrPayload
 import com.erv.app.data.OwnedEquipmentItem
+import com.erv.app.data.SavedBluetoothDevice
+import com.erv.app.data.UserGoalDefinition
 import com.erv.app.heatcold.HeatColdLibraryState
 import com.erv.app.lighttherapy.LightLibraryState
+import com.erv.app.programs.ProgramsLibraryState
+import com.erv.app.reminders.RoutineReminderState
 import com.erv.app.stretching.StretchLibraryState
 import com.erv.app.supplements.SupplementLibraryState
+import com.erv.app.unifiedroutines.UnifiedRoutineLibraryState
 import com.erv.app.weighttraining.WeightLibraryState
 import kotlinx.serialization.EncodeDefault
 import kotlinx.serialization.Serializable
@@ -16,6 +23,7 @@ import kotlinx.serialization.json.Json
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.Base64
 
 /** What to include in an export (JSON always; CSV only for weight and cardio). */
 enum class DataExportCategory(val label: String) {
@@ -26,6 +34,11 @@ enum class DataExportCategory(val label: String) {
     HEAT_COLD("Heat and cold"),
     LIGHT_THERAPY("Light therapy"),
     SUPPLEMENTS("Supplements"),
+    PROGRAMS("Programs"),
+    UNIFIED_ROUTINES("Unified routines"),
+    BODY_TRACKER("Body tracker"),
+    REMINDERS("Reminders"),
+    PERSONAL_DATA("Personal data"),
 }
 
 enum class DataExportFormat {
@@ -37,6 +50,34 @@ sealed class ExportDateSelection {
     data object AllTime : ExportDateSelection()
     data class Range(val startInclusive: LocalDate, val endInclusive: LocalDate) : ExportDateSelection()
 }
+
+@Serializable
+data class LocalProfileExportV1(
+    val displayName: String = "",
+    val pictureUrl: String = "",
+    val bio: String = "",
+)
+
+@Serializable
+data class PersonalDataExportV1(
+    val goals: List<UserGoalDefinition> = emptyList(),
+    val savedBluetoothDevices: List<SavedBluetoothDevice> = emptyList(),
+    val localProfile: LocalProfileExportV1 = LocalProfileExportV1(),
+)
+
+@Serializable
+data class BodyTrackerPhotoExportV1(
+    val photoId: String,
+    val fileName: String,
+    val mimeType: String = "image/jpeg",
+    val base64Data: String,
+)
+
+@Serializable
+data class BodyTrackerExportV1(
+    val libraryState: BodyTrackerLibraryState,
+    val photos: List<BodyTrackerPhotoExportV1> = emptyList(),
+)
 
 @Serializable
 data class ErvAppDataExportV1(
@@ -56,6 +97,11 @@ data class ErvAppDataExportV1(
     val heatCold: HeatColdLibraryState? = null,
     val lightTherapy: LightLibraryState? = null,
     val supplements: SupplementLibraryState? = null,
+    val programs: ProgramsLibraryState? = null,
+    val unifiedRoutines: UnifiedRoutineLibraryState? = null,
+    val bodyTracker: BodyTrackerExportV1? = null,
+    val reminders: RoutineReminderState? = null,
+    val personalData: PersonalDataExportV1? = null,
 )
 
 object ErvAppDataExport {
@@ -107,6 +153,11 @@ object ErvAppDataExport {
     fun filterSupplementState(state: SupplementLibraryState, selection: ExportDateSelection): SupplementLibraryState =
         state.copy(logs = state.logs.filter { isDateInSelection(it.date, selection) })
 
+    fun filterBodyTrackerState(
+        state: BodyTrackerLibraryState,
+        selection: ExportDateSelection,
+    ): BodyTrackerLibraryState = state.copy(logs = state.logs.filter { isDateInSelection(it.date, selection) })
+
     /**
      * Nostr-compatible equipment profile for exports. Null when there is nothing to constrain
      * programming (no listed equipment and no commercial gym access).
@@ -122,6 +173,33 @@ object ErvAppDataExport {
         )
     }
 
+    suspend fun buildBodyTrackerExport(
+        repository: BodyTrackerRepository,
+        state: BodyTrackerLibraryState,
+        selection: ExportDateSelection,
+    ): BodyTrackerExportV1 {
+        val filteredState = filterBodyTrackerState(state, selection)
+        val photos = filteredState.logs
+            .flatMap { log -> log.photos }
+            .distinctBy { it.id }
+            .mapNotNull { photo ->
+                val file = repository.photoFile(photo.id)
+                if (!file.exists() || !file.isFile) return@mapNotNull null
+                val encoded = runCatching {
+                    Base64.getEncoder().encodeToString(file.readBytes())
+                }.getOrNull() ?: return@mapNotNull null
+                BodyTrackerPhotoExportV1(
+                    photoId = photo.id,
+                    fileName = file.name,
+                    base64Data = encoded,
+                )
+            }
+        return BodyTrackerExportV1(
+            libraryState = filteredState,
+            photos = photos,
+        )
+    }
+
     fun buildBundle(
         category: DataExportCategory,
         selection: ExportDateSelection,
@@ -131,12 +209,24 @@ object ErvAppDataExport {
         heatCold: HeatColdLibraryState,
         light: LightLibraryState,
         supplements: SupplementLibraryState,
+        programs: ProgramsLibraryState,
+        unifiedRoutines: UnifiedRoutineLibraryState,
+        bodyTracker: BodyTrackerExportV1,
+        reminders: RoutineReminderState,
         gymMembership: Boolean,
         ownedEquipment: List<OwnedEquipmentItem>,
+        goals: List<UserGoalDefinition>,
+        savedBluetoothDevices: List<SavedBluetoothDevice>,
+        localProfile: LocalProfileExportV1,
         exportedAtEpochSeconds: Long = System.currentTimeMillis() / 1000,
     ): ErvAppDataExportV1 {
         val label = dateRangeLabel(selection)
         val equipmentPayload = fitnessEquipmentForExport(gymMembership, ownedEquipment)
+        val personalDataPayload = PersonalDataExportV1(
+            goals = goals,
+            savedBluetoothDevices = savedBluetoothDevices,
+            localProfile = localProfile,
+        )
         fun w() = filterWeightState(weight, selection)
         fun c() = filterCardioState(cardio, selection)
         fun st() = filterStretchState(stretching, selection)
@@ -154,6 +244,11 @@ object ErvAppDataExport {
                 heatCold = hc(),
                 lightTherapy = lt(),
                 supplements = sup(),
+                programs = programs,
+                unifiedRoutines = unifiedRoutines,
+                bodyTracker = bodyTracker,
+                reminders = reminders,
+                personalData = personalDataPayload,
             )
             DataExportCategory.WEIGHT_TRAINING -> ErvAppDataExportV1(
                 exportedAtEpochSeconds = exportedAtEpochSeconds,
@@ -190,6 +285,32 @@ object ErvAppDataExport {
                 dateRangeLabel = label,
                 fitnessEquipment = equipmentPayload,
                 supplements = sup(),
+            )
+            DataExportCategory.PROGRAMS -> ErvAppDataExportV1(
+                exportedAtEpochSeconds = exportedAtEpochSeconds,
+                dateRangeLabel = label,
+                programs = programs,
+            )
+            DataExportCategory.UNIFIED_ROUTINES -> ErvAppDataExportV1(
+                exportedAtEpochSeconds = exportedAtEpochSeconds,
+                dateRangeLabel = label,
+                unifiedRoutines = unifiedRoutines,
+            )
+            DataExportCategory.BODY_TRACKER -> ErvAppDataExportV1(
+                exportedAtEpochSeconds = exportedAtEpochSeconds,
+                dateRangeLabel = label,
+                bodyTracker = bodyTracker,
+            )
+            DataExportCategory.REMINDERS -> ErvAppDataExportV1(
+                exportedAtEpochSeconds = exportedAtEpochSeconds,
+                dateRangeLabel = label,
+                reminders = reminders,
+            )
+            DataExportCategory.PERSONAL_DATA -> ErvAppDataExportV1(
+                exportedAtEpochSeconds = exportedAtEpochSeconds,
+                dateRangeLabel = label,
+                fitnessEquipment = equipmentPayload,
+                personalData = personalDataPayload,
             )
         }
     }
@@ -321,6 +442,11 @@ object ErvAppDataExport {
             DataExportCategory.HEAT_COLD -> "erv_heat_cold"
             DataExportCategory.LIGHT_THERAPY -> "erv_light"
             DataExportCategory.SUPPLEMENTS -> "erv_supplements"
+            DataExportCategory.PROGRAMS -> "erv_programs"
+            DataExportCategory.UNIFIED_ROUTINES -> "erv_unified_routines"
+            DataExportCategory.BODY_TRACKER -> "erv_body_tracker"
+            DataExportCategory.REMINDERS -> "erv_reminders"
+            DataExportCategory.PERSONAL_DATA -> "erv_personal"
         }
         return "${slug}_export_$day"
     }

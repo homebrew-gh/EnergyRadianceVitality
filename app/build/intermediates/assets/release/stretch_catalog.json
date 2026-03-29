@@ -2,63 +2,235 @@
   "stretches": [
     {
       "id": "builtin_neck_side",
-      "name": "Neck side stretch",
+      "name": "Neck Side Stretch",
+      "category": "neck",
+      "requiresBothSides": true,
       "targetBodyParts": ["neck"],
       "procedure": "Gently tilt your head toward one shoulder until you feel a mild stretch. Hold, then switch sides. Keep shoulders relaxed."
     },
     {
+      "id": "builtin_neck_rotation",
+      "name": "Neck Rotation",
+      "category": "neck",
+      "requiresBothSides": true,
+      "targetBodyParts": ["neck"],
+      "procedure": "Sit tall. Slowly turn your head to look over one shoulder until you feel a gentle stretch. Return to center, then repeat on the other side. Do not force the range."
+    },
+    {
+      "id": "builtin_chin_tuck",
+      "name": "Chin Tuck",
+      "category": "neck",
+      "requiresBothSides": false,
+      "targetBodyParts": ["neck", "upper back"],
+      "procedure": "Sit or stand with a tall spine. Gently draw your chin straight back as if making a double chin, lengthening the back of your neck. Relax and repeat slowly."
+    },
+    {
+      "id": "builtin_upper_trap_stretch",
+      "name": "Upper Trapezius Stretch",
+      "category": "neck",
+      "requiresBothSides": true,
+      "targetBodyParts": ["neck", "shoulders"],
+      "procedure": "Sit tall. Gently bring one ear toward the shoulder on the same side. Optionally place the hand on your head for light pressure. Hold, then switch sides."
+    },
+    {
       "id": "builtin_shoulder_cross",
-      "name": "Cross-body shoulder stretch",
+      "name": "Cross-body Shoulder Stretch",
+      "category": "shoulders",
+      "requiresBothSides": true,
       "targetBodyParts": ["shoulders"],
       "procedure": "Bring one arm across your chest. Use the other arm to hug it closer. Hold, then switch arms."
     },
     {
+      "id": "builtin_wall_slides",
+      "name": "Wall Slides (W/Y)",
+      "category": "shoulders",
+      "requiresBothSides": false,
+      "targetBodyParts": ["shoulders", "upper back"],
+      "procedure": "Stand with your back against a wall, arms bent at 90° at shoulder height. Slowly slide arms upward toward a Y shape while keeping contact with the wall, then lower with control."
+    },
+    {
       "id": "builtin_triceps_overhead",
-      "name": "Overhead triceps stretch",
+      "name": "Overhead Triceps Stretch",
+      "category": "arms",
+      "requiresBothSides": true,
       "targetBodyParts": ["arms", "shoulders"],
       "procedure": "Raise one arm overhead, bend the elbow so your hand reaches toward the opposite shoulder blade. Gently press with the other hand. Switch sides."
     },
     {
+      "id": "builtin_wrist_flexor",
+      "name": "Wrist Flexor Stretch",
+      "category": "arms",
+      "requiresBothSides": true,
+      "targetBodyParts": ["forearms", "wrists"],
+      "procedure": "Extend one arm forward, palm up. With the other hand, gently pull the fingers back until you feel a mild stretch along the inner forearm. Switch arms."
+    },
+    {
+      "id": "builtin_wrist_extensor",
+      "name": "Wrist Extensor Stretch",
+      "category": "arms",
+      "requiresBothSides": true,
+      "targetBodyParts": ["forearms", "wrists"],
+      "procedure": "Extend one arm forward, palm down. Bend the wrist so fingers point toward the floor; use the other hand to add gentle pressure. Switch arms."
+    },
+    {
+      "id": "builtin_prayer_stretch",
+      "name": "Prayer Stretch (Forearms)",
+      "category": "arms",
+      "requiresBothSides": false,
+      "targetBodyParts": ["forearms", "wrists"],
+      "procedure": "Press palms together in front of your chest, elbows pointing out. Lower hands toward your waistline until you feel a stretch through the forearms. Hold and breathe."
+    },
+    {
+      "id": "builtin_doorway_pec",
+      "name": "Doorway Pec Stretch",
+      "category": "chest",
+      "requiresBothSides": true,
+      "targetBodyParts": ["chest", "shoulders"],
+      "procedure": "Place forearms on a door frame with elbows about shoulder height. Step through gently until you feel a stretch across the chest. Hold, then adjust arm height slightly and repeat."
+    },
+    {
       "id": "builtin_cat_cow",
-      "name": "Cat–cow (spine mobility)",
+      "name": "Cat–Cow (Spine Mobility)",
+      "category": "back",
+      "requiresBothSides": false,
       "targetBodyParts": ["back", "core"],
       "procedure": "On hands and knees, alternate rounding your spine toward the ceiling (cat) and arching gently (cow) with slow breaths."
     },
     {
       "id": "builtin_childs_pose",
-      "name": "Child's pose",
+      "name": "Child's Pose",
+      "category": "back",
+      "requiresBothSides": false,
       "targetBodyParts": ["back", "hips"],
       "procedure": "Kneel and sit back toward your heels, arms extended forward or alongside your body. Breathe and relax the lower back."
     },
     {
+      "id": "builtin_thread_needle",
+      "name": "Thread the Needle",
+      "category": "back",
+      "requiresBothSides": true,
+      "targetBodyParts": ["upper back", "shoulders"],
+      "procedure": "On hands and knees, reach one arm under the opposite arm, lowering the shoulder and cheek toward the mat. Hold, then open into a gentle twist on the other side."
+    },
+    {
+      "id": "builtin_thoracic_extension_chair",
+      "name": "Thoracic Extension (Chair)",
+      "category": "back",
+      "requiresBothSides": false,
+      "targetBodyParts": ["upper back"],
+      "procedure": "Sit in a chair, interlace hands behind your head. Lean back over the chair support to open the upper back slightly. Keep movements small and comfortable."
+    },
+    {
+      "id": "builtin_supine_twist",
+      "name": "Supine Spinal Twist",
+      "category": "back",
+      "requiresBothSides": true,
+      "targetBodyParts": ["back", "hips"],
+      "procedure": "Lie on your back, hug one knee toward your chest, then guide it across the body toward the floor while keeping shoulders down. Switch sides."
+    },
+    {
+      "id": "builtin_seated_side_bend",
+      "name": "Seated Side Bend",
+      "category": "core",
+      "requiresBothSides": true,
+      "targetBodyParts": ["obliques", "core"],
+      "procedure": "Sit tall in a chair or on the floor. Reach one arm overhead and lean to the opposite side until you feel a stretch along the side of your torso. Switch sides."
+    },
+    {
       "id": "builtin_standing_hamstring",
-      "name": "Standing hamstring stretch",
+      "name": "Standing Hamstring Stretch",
+      "category": "legs",
+      "requiresBothSides": true,
       "targetBodyParts": ["hamstrings"],
       "procedure": "Hinge at the hips with a flat back, resting hands on thighs or a support. Feel a gentle stretch along the backs of the legs."
     },
     {
+      "id": "builtin_seated_hamstring",
+      "name": "Seated Hamstring Stretch",
+      "category": "legs",
+      "requiresBothSides": true,
+      "targetBodyParts": ["hamstrings", "calves"],
+      "procedure": "Sit on the edge of a chair or on the floor with one leg extended, toes up. Hinge forward from the hips with a long spine. Switch legs."
+    },
+    {
       "id": "builtin_quad_standing",
-      "name": "Standing quad stretch",
+      "name": "Standing Quad Stretch",
+      "category": "legs",
+      "requiresBothSides": true,
       "targetBodyParts": ["quads", "hips"],
       "procedure": "Stand on one leg (use a wall for balance if needed). Bend the other knee and bring heel toward glute. Keep knees together. Switch legs."
     },
     {
       "id": "builtin_calf_wall",
-      "name": "Calf stretch (wall)",
+      "name": "Calf Stretch (Wall)",
+      "category": "legs",
+      "requiresBothSides": true,
       "targetBodyParts": ["calves"],
       "procedure": "Place hands on a wall, step one foot back with the leg straight and heel down. Lean gently forward. Switch legs."
     },
     {
       "id": "builtin_hip_flexor_lunge",
-      "name": "Hip flexor lunge stretch",
-      "targetBodyParts": ["hips"],
+      "name": "Hip Flexor Lunge Stretch",
+      "category": "legs",
+      "requiresBothSides": true,
+      "targetBodyParts": ["hips", "quads"],
       "procedure": "Step into a low lunge, back leg straight or knee down. Shift weight forward slightly to open the front of the hip. Switch sides."
     },
     {
+      "id": "builtin_seated_groin",
+      "name": "Seated Groin (Butterfly)",
+      "category": "legs",
+      "requiresBothSides": false,
+      "targetBodyParts": ["adductors", "hips"],
+      "procedure": "Sit with soles of the feet together and knees apart. Hold ankles, sit tall, and gently press knees toward the floor without bouncing."
+    },
+    {
+      "id": "builtin_it_band_side_lean",
+      "name": "Standing IT Band Side Lean",
+      "category": "legs",
+      "requiresBothSides": true,
+      "targetBodyParts": ["it band", "hips"],
+      "procedure": "Stand near a wall for support. Cross one leg behind the other and reach the same-side arm overhead, leaning away until you feel a stretch along the outer hip and thigh. Switch sides."
+    },
+    {
+      "id": "builtin_worlds_greatest",
+      "name": "World's Greatest Stretch",
+      "category": "legs",
+      "requiresBothSides": true,
+      "targetBodyParts": ["hips", "hamstrings", "thoracic spine"],
+      "procedure": "From a lunge, place both hands inside the front foot. Rotate the same-side arm toward the ceiling in a controlled opener, then step to repeat on the other side."
+    },
+    {
+      "id": "builtin_lying_side_quad",
+      "name": "Side-Lying Quad Stretch",
+      "category": "legs",
+      "requiresBothSides": true,
+      "targetBodyParts": ["quads", "hips"],
+      "procedure": "Lie on your side, bend the top knee and catch the ankle behind you, drawing the heel toward your glute. Keep knees aligned. Switch sides."
+    },
+    {
       "id": "builtin_figure_four",
-      "name": "Figure-four (glute) stretch",
+      "name": "Figure-four (Glute) Stretch",
+      "category": "glutes",
+      "requiresBothSides": true,
       "targetBodyParts": ["glutes", "hips"],
       "procedure": "Lie on your back, cross one ankle over the opposite knee, gently pull the thigh toward you. Switch sides."
+    },
+    {
+      "id": "builtin_pigeon_glute",
+      "name": "Pigeon Pose (Glute)",
+      "category": "glutes",
+      "requiresBothSides": true,
+      "targetBodyParts": ["glutes", "hips"],
+      "procedure": "From hands and knees, bring one knee forward toward the same-side wrist and extend the other leg back. Square hips and fold forward as tolerated. Switch sides."
+    },
+    {
+      "id": "builtin_seated_piriformis",
+      "name": "Seated Piriformis Stretch",
+      "category": "glutes",
+      "requiresBothSides": true,
+      "targetBodyParts": ["glutes", "hips"],
+      "procedure": "Sit tall, cross one ankle over the opposite knee into a figure-four. Hinge forward slightly from the hips until you feel a stretch in the glute. Switch sides."
     }
   ]
 }

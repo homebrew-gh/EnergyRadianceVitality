@@ -59,6 +59,21 @@ object StretchingSync {
         return pairs
     }
 
+    fun clearOutboxEntries(state: StretchLibraryState): List<Pair<String, String>> {
+        val pairs = mutableListOf<Pair<String, String>>()
+        pairs += STRETCHING_ROUTINES_D_TAG to json.encodeToString(
+            StretchRoutinesPayload.serializer(),
+            StretchRoutinesPayload()
+        )
+        for (dateIso in state.logs.map { it.date }.distinct().sorted()) {
+            pairs += dailyTag(dateIso) to json.encodeToString(
+                StretchDayLog.serializer(),
+                StretchDayLog(date = dateIso)
+            )
+        }
+        return pairs
+    }
+
     suspend fun fetchFromNetwork(
         relayPool: RelayPool,
         signer: EventSigner,

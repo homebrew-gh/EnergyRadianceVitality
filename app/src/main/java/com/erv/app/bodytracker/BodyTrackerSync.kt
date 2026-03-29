@@ -160,6 +160,15 @@ object BodyTrackerSync {
         return pairs
     }
 
+    fun clearOutboxEntries(state: BodyTrackerLibraryState): List<Pair<String, String>> {
+        val pairs = mutableListOf<Pair<String, String>>()
+        pairs += SETTINGS_D_TAG to encodeSettingsPlaintext(BodyTrackerLibraryState())
+        for (dateIso in state.logs.map { it.date }.distinct().sorted()) {
+            pairs += dailyTag(dateIso) to encodeEmptyDayPlaintext(dateIso, nowEpochSeconds())
+        }
+        return pairs
+    }
+
     suspend fun fetchFromNetwork(
         relayPool: RelayPool,
         signer: EventSigner,

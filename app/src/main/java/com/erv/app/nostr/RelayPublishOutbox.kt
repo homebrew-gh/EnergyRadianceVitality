@@ -191,6 +191,12 @@ class RelayPublishOutbox private constructor(private val appContext: Context) {
         }
     }
 
+    suspend fun clear() {
+        queueMutex.withLock {
+            saveQueueUnlocked(emptyList())
+        }
+    }
+
     /**
      * Sends due items until the queue is empty, items are waiting on backoff, or [maxPublishesThisCall] is hit.
      * Call after enqueue and when the app has a live [RelayPool].

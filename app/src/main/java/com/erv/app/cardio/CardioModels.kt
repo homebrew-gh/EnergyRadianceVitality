@@ -482,7 +482,10 @@ data class CardioLibraryState(
         customActivityTypes.firstOrNull { it.id == id }
 }
 
-data class CardioActivityRow(val summaryLine: String)
+data class CardioActivityRow(
+    val summaryLine: String,
+    val session: CardioSession
+)
 
 fun CardioLibraryState.chronologicalCardioLogFor(date: LocalDate): List<CardioSession> {
     val log = logFor(date) ?: return emptyList()
@@ -538,7 +541,10 @@ fun CardioLibraryState.cardioActivityRowsFor(
 ): List<CardioActivityRow> {
     val log = logFor(date) ?: return emptyList()
     return log.sessions.map { session ->
-        CardioActivityRow(summaryLine = session.summaryLine(distanceUnit))
+        CardioActivityRow(
+            summaryLine = session.summaryLine(distanceUnit),
+            session = session
+        )
     }
 }
 

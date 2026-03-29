@@ -40,6 +40,10 @@ class ProgramRepository(context: Context) {
         persist(state)
     }
 
+    suspend fun clearAllData() {
+        replaceAll(ProgramsLibraryState())
+    }
+
     suspend fun upsertProgram(program: FitnessProgram) {
         val now = System.currentTimeMillis() / 1000
         val stamped = program.copy(lastModifiedEpochSeconds = now)

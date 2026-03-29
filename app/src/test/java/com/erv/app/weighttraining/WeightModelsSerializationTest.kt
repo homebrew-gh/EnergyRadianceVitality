@@ -38,6 +38,7 @@ class WeightModelsSerializationTest {
                         WeightWorkoutSession(
                             id = workoutId,
                             source = WeightWorkoutSource.MANUAL,
+                            estimatedKcal = 245.0,
                             entries = listOf(
                                 WeightWorkoutEntry(
                                     exerciseId = "erv-weight-exercise-bench-v1",
@@ -187,10 +188,12 @@ class WeightModelsSerializationTest {
         assertTrue(catalog.any { it.id == "erv-weight-exercise-bb-ezbar-curl-v1" })
         assertTrue(catalog.any { it.id == "erv-weight-exercise-bw-hanging-leg-raise-v1" })
         assertTrue(catalog.any { it.id == "erv-weight-exercise-bw-ab-wheel-rollout-v1" })
+        assertTrue(catalog.any { it.id == "erv-weight-exercise-in-iron-neck-flexion-v1" })
+        assertTrue(catalog.any { it.id == "erv-weight-exercise-fahp-reverse-hyper-v1" })
     }
 
     @Test
-    fun exercisesGroupedByMuscle_knownOrderThenAlpha() {
+    fun exercisesGroupedByMuscle_alphaOrder() {
         val list = listOf(
             WeightExercise(name = "Z Custom", muscleGroup = "zebra", pushOrPull = WeightPushPull.PUSH, equipment = WeightEquipment.DUMBBELL),
             WeightExercise(name = "Bench", muscleGroup = "chest", pushOrPull = WeightPushPull.PUSH, equipment = WeightEquipment.BARBELL),
@@ -199,7 +202,7 @@ class WeightModelsSerializationTest {
         )
         val state = WeightLibraryState(exercises = list)
         val groups = state.exercisesGroupedByMuscle().map { it.first }
-        assertEquals(listOf("chest", "biceps", "triceps", "zebra"), groups)
+        assertEquals(listOf("biceps", "chest", "triceps", "zebra"), groups)
         assertEquals(groups, groupExercisesByMuscle(list).map { it.first })
     }
 
@@ -281,6 +284,7 @@ class WeightModelsSerializationTest {
             muscleGroup = "chest",
             pushOrPull = WeightPushPull.PUSH,
             equipment = WeightEquipment.BARBELL,
+            exercisePackId = IRON_NECK_EXERCISE_PACK_ID,
             sessionSummaries = listOf(
                 WeightExerciseSessionSummary(
                     date = "2026-01-01",

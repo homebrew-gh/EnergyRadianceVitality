@@ -127,6 +127,7 @@ fun WeightExerciseEditorDialog(
                             muscleGroup = muscleGroup.trim().lowercase(),
                             pushOrPull = pushOrPull,
                             equipment = equipment,
+                            exercisePackId = initial?.exercisePackId,
                             hiitCapable = hiitCapable,
                             sessionSummaries = initial?.sessionSummaries.orEmpty()
                         )

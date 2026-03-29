@@ -111,7 +111,6 @@ import com.erv.app.stretching.routineHoldSegments
 import com.erv.app.stretching.toGuidedSessionSteps
 import com.erv.app.stretching.groupedByCategory
 import com.erv.app.stretching.stretchCategoryDisplayLabel
-import com.erv.app.stretching.stretchCategorySortIndex
 import com.erv.app.stretching.StretchDayLog
 import com.erv.app.stretching.StretchLibraryState
 import com.erv.app.stretching.StretchRoutine
@@ -745,7 +744,7 @@ private fun StretchesCatalogTab(repository: StretchingRepository) {
         repository.catalog
             .map { entryCategoryNorm(it) }
             .distinct()
-            .sortedBy { stretchCategorySortIndex(it) }
+            .sorted()
     }
     var detailEntry by remember { mutableStateOf<StretchCatalogEntry?>(null) }
 

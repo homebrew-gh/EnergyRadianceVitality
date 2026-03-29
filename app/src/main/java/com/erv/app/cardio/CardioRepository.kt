@@ -71,6 +71,10 @@ class CardioRepository(
         updateState { state }
     }
 
+    suspend fun clearAllData() {
+        replaceAll(CardioLibraryState())
+    }
+
     suspend fun addRoutine(routine: CardioRoutine) {
         updateState { it.copy(routines = it.routines.upsertById(routine)) }
     }

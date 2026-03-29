@@ -48,7 +48,7 @@ fun Category.isImplemented(): Boolean = id in implementedCategoryIds
 
 val categories = listOf(
     Category("stretching", "Stretching", Icons.Default.FavoriteBorder, "category/stretching"),
-    Category("unified_routines", "Unified Routines", Icons.Default.PlaylistPlay, "category/unified_routines"),
+    Category("unified_routines", "Unified Workouts", Icons.Default.PlaylistPlay, "category/unified_routines"),
     Category("weight_training", "Weight Training", Icons.Default.FitnessCenter, "category/weight_training"),
     Category("cardio", "Cardio", Icons.AutoMirrored.Filled.DirectionsRun, "category/cardio"),
     Category(

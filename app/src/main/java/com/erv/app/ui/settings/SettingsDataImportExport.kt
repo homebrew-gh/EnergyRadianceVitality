@@ -2,15 +2,9 @@
 
 package com.erv.app.ui.settings
 
-import android.content.Context
-import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.shrinkVertically
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -24,10 +18,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.NavigateNext
-import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material3.*
@@ -39,20 +29,20 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.erv.app.cardio.CardioDistanceUnit
 import com.erv.app.cardio.CardioHistoryImport
 import com.erv.app.cardio.CardioImportOutcome
 import com.erv.app.cardio.CardioLibraryState
 import com.erv.app.cardio.CardioRepository
+import com.erv.app.bodytracker.BodyTrackerRepository
 import com.erv.app.dataexport.DataExportCategory
 import com.erv.app.dataexport.DataExportFormat
 import com.erv.app.dataexport.ErvAppDataExport
 import com.erv.app.dataexport.ExportDateSelection
+import com.erv.app.dataexport.LocalProfileExportV1
 import com.erv.app.cardio.CardioSync
 import com.erv.app.cardio.summaryLine
 import com.erv.app.data.BodyWeightUnit
@@ -60,7 +50,6 @@ import com.erv.app.data.UserPreferences
 import com.erv.app.nostr.EventSigner
 import com.erv.app.nostr.LocalKeyManager
 import com.erv.app.nostr.RelayPool
-import com.erv.app.nostr.RelayPublishOutbox
 import com.erv.app.weighttraining.WeightEquipment
 import com.erv.app.weighttraining.WeightHistoryImport
 import com.erv.app.weighttraining.WeightImportDatedSession
@@ -76,22 +65,17 @@ import com.erv.app.programs.ProgramImportEnvelope
 import com.erv.app.programs.ProgramRepository
 import com.erv.app.programs.ProgramSync
 import com.erv.app.programs.ProgramsLibraryState
+import com.erv.app.reminders.RoutineReminderRepository
 import com.erv.app.supplements.SupplementRepository
+import com.erv.app.unifiedroutines.UnifiedRoutineRepository
 import com.erv.app.weighttraining.WeightSync
 import com.erv.app.weighttraining.WeightWorkoutEntry
 import com.erv.app.weighttraining.WeightWorkoutSession
 import com.erv.app.weighttraining.formatHiitBlockSummaryLine
 import com.erv.app.weighttraining.formatSetSummaryLine
 import com.erv.app.weighttraining.weightLoadUnitSuffix
-import androidx.core.content.FileProvider
-import java.io.BufferedReader
-import java.io.File
-import java.io.InputStreamReader
-import java.nio.charset.StandardCharsets
 import java.time.LocalDate
 import java.time.ZoneId
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -101,6 +85,7 @@ private enum class ImportSilo {
     WEIGHT,
     CARDIO,
     PROGRAMS,
+    BACKUP_RESTORE,
 }
 
 private data class PendingWeightImport(
@@ -119,99 +104,14 @@ private data class PendingProgramImport(
     val libraryBeforePreview: ProgramsLibraryState,
 )
 
+private data class PendingBackupRestore(
+    val preview: BackupRestorePreview,
+)
+
 private data class ImportPreviewBlock(
     val title: String,
     val lines: List<String>,
 )
-
-internal object ImportExportDocAssets {
-    const val KEY_WEIGHT_AI = "weight_ai"
-    const val KEY_WEIGHT_CSV = "weight_csv"
-    const val KEY_WEIGHT_BUILTIN = "weight_builtin"
-    const val KEY_CARDIO_AI = "cardio_ai"
-    const val KEY_CARDIO_CSV = "cardio_csv"
-    const val KEY_CARDIO_NOSTR = "cardio_nostr"
-    const val KEY_PROGRAM_AI = "program_ai"
-    const val KEY_PRIVACY_POLICY = "privacy_policy"
-
-    fun pathForKey(docKey: String): String? = when (docKey) {
-        KEY_WEIGHT_AI -> "import_export/weight_training_import_ai_guide.md"
-        KEY_WEIGHT_CSV -> "import_export/weight_training_import_csv_guide.md"
-        KEY_WEIGHT_BUILTIN -> "import_export/weight_training_builtin_exercise_ids.md"
-        KEY_CARDIO_AI -> "import_export/cardio_training_import_ai_guide.md"
-        KEY_CARDIO_CSV -> "import_export/cardio_training_import_csv_guide.md"
-        KEY_CARDIO_NOSTR -> "import_export/cardio_training_nostr_events_reference.md"
-        KEY_PROGRAM_AI -> "import_export/programs_import_ai_guide.md"
-        KEY_PRIVACY_POLICY -> "privacy_policy.md"
-        else -> null
-    }
-
-    fun titleForKey(docKey: String): String = when (docKey) {
-        KEY_WEIGHT_AI -> "Weight Training Import AI Guide"
-        KEY_WEIGHT_CSV -> "Weight Training Import CSV Guide"
-        KEY_WEIGHT_BUILTIN -> "Weight Training Built-In Exercise IDs"
-        KEY_CARDIO_AI -> "Cardio Training Import AI Guide"
-        KEY_CARDIO_CSV -> "Cardio Training Import CSV Guide"
-        KEY_CARDIO_NOSTR -> "Cardio Training Nostr Events Reference"
-        KEY_PROGRAM_AI -> "Programs Import AI / Coach Guide"
-        KEY_PRIVACY_POLICY -> "Privacy Policy"
-        else -> "Reference"
-    }
-
-    val weightReferenceKeys: List<String> = listOf(KEY_WEIGHT_AI, KEY_WEIGHT_CSV, KEY_WEIGHT_BUILTIN)
-
-    val cardioReferenceKeys: List<String> = listOf(KEY_CARDIO_AI, KEY_CARDIO_CSV, KEY_CARDIO_NOSTR)
-
-    val programReferenceKeys: List<String> = listOf(KEY_PROGRAM_AI)
-}
-
-private fun readAssetUtf8(context: Context, assetPath: String): String =
-    context.assets.open(assetPath).use { stream ->
-        BufferedReader(InputStreamReader(stream, StandardCharsets.UTF_8)).readText()
-    }
-
-/** One markdown file: all bundled docs with headings, for AI assistants or saving elsewhere. */
-private fun buildCombinedImportReferenceMarkdown(
-    context: Context,
-    keys: List<String>,
-    bundleTitle: String,
-): String = buildString {
-    appendLine("# $bundleTitle")
-    appendLine()
-    appendLine(
-        "This file combines every in-app import reference for this training type. " +
-            "Share or save it and attach it to your AI assistant when building import files."
-    )
-    for (key in keys) {
-        val path = ImportExportDocAssets.pathForKey(key) ?: continue
-        val docTitle = ImportExportDocAssets.titleForKey(key)
-        appendLine()
-        appendLine("---")
-        appendLine()
-        appendLine("# $docTitle")
-        appendLine()
-        val body = readAssetUtf8(context, path).trimEnd()
-        appendLine(body)
-        appendLine()
-    }
-}
-
-private fun shareMarkdownFromCache(context: Context, file: File): Boolean = try {
-    val uri = FileProvider.getUriForFile(
-        context,
-        "${context.packageName}.fileprovider",
-        file,
-    )
-    val send = Intent(Intent.ACTION_SEND).apply {
-        type = "text/markdown"
-        putExtra(Intent.EXTRA_STREAM, uri)
-        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-    }
-    context.startActivity(Intent.createChooser(send, "Save Or Share Reference Bundle"))
-    true
-} catch (_: Exception) {
-    false
-}
 
 private fun sessionPreviewBlocks(
     library: WeightLibraryState,
@@ -256,8 +156,12 @@ fun SettingsDataImportExportScreen(
     lightTherapyRepository: LightTherapyRepository,
     supplementRepository: SupplementRepository,
     programRepository: ProgramRepository,
+    unifiedRoutineRepository: UnifiedRoutineRepository,
+    bodyTrackerRepository: BodyTrackerRepository,
+    reminderRepository: RoutineReminderRepository,
     relayPool: RelayPool?,
     signer: EventSigner?,
+    initialExportCategory: DataExportCategory = DataExportCategory.ALL,
 ) {
     val context = LocalContext.current
     val keyManager = LocalKeyManager.current
@@ -265,8 +169,15 @@ fun SettingsDataImportExportScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val loadUnit by userPreferences.weightTrainingLoadUnit.collectAsState(initial = BodyWeightUnit.LB)
     val cardioDistanceUnit by userPreferences.cardioDistanceUnit.collectAsState(initial = CardioDistanceUnit.MILES)
+    val interchangeCategories = remember {
+        DataExportCategory.entries.filter { it != DataExportCategory.ALL }
+    }
 
-    var exportCategory by remember { mutableStateOf(DataExportCategory.ALL) }
+    var exportCategory by remember(initialExportCategory) {
+        mutableStateOf(
+            initialExportCategory.takeIf { it != DataExportCategory.ALL } ?: DataExportCategory.WEIGHT_TRAINING
+        )
+    }
     var exportFormat by remember { mutableStateOf(DataExportFormat.JSON) }
     var exportDateAllTime by remember { mutableStateOf(true) }
     var exportRangeStart by remember { mutableStateOf(LocalDate.now().minusMonths(1)) }
@@ -274,18 +185,91 @@ fun SettingsDataImportExportScreen(
     var showExportStartPicker by remember { mutableStateOf(false) }
     var showExportEndPicker by remember { mutableStateOf(false) }
     var exportCategoryMenuExpanded by remember { mutableStateOf(false) }
-    var pendingExportBytes by remember { mutableStateOf<ByteArray?>(null) }
+    var backupExportCategory by remember(initialExportCategory) { mutableStateOf(initialExportCategory) }
+    var backupCategoryMenuExpanded by remember { mutableStateOf(false) }
+    var pendingExportFile by remember { mutableStateOf<PreparedExportFile?>(null) }
+    var pendingBackupRestore by remember { mutableStateOf<PendingBackupRestore?>(null) }
 
     val zoneId = remember { ZoneId.systemDefault() }
+    val exportCoordinator = remember(
+        context.applicationContext,
+        userPreferences,
+        keyManager,
+        weightRepository,
+        cardioRepository,
+        stretchingRepository,
+        heatColdRepository,
+        lightTherapyRepository,
+        supplementRepository,
+        programRepository,
+        unifiedRoutineRepository,
+        bodyTrackerRepository,
+        reminderRepository,
+        relayPool,
+        signer,
+    ) {
+        ImportExportCoordinator(
+            appContext = context.applicationContext,
+            userPreferences = userPreferences,
+            keyManager = keyManager,
+            weightRepository = weightRepository,
+            cardioRepository = cardioRepository,
+            stretchingRepository = stretchingRepository,
+            heatColdRepository = heatColdRepository,
+            lightTherapyRepository = lightTherapyRepository,
+            supplementRepository = supplementRepository,
+            programRepository = programRepository,
+            unifiedRoutineRepository = unifiedRoutineRepository,
+            bodyTrackerRepository = bodyTrackerRepository,
+            reminderRepository = reminderRepository,
+            relayPool = relayPool,
+            signer = signer,
+        )
+    }
+    val backupRestoreCoordinator = remember(
+        context.applicationContext,
+        userPreferences,
+        keyManager,
+        weightRepository,
+        cardioRepository,
+        stretchingRepository,
+        heatColdRepository,
+        lightTherapyRepository,
+        supplementRepository,
+        programRepository,
+        unifiedRoutineRepository,
+        bodyTrackerRepository,
+        reminderRepository,
+        relayPool,
+        signer,
+    ) {
+        BackupRestoreCoordinator(
+            appContext = context.applicationContext,
+            userPreferences = userPreferences,
+            keyManager = keyManager,
+            weightRepository = weightRepository,
+            cardioRepository = cardioRepository,
+            stretchingRepository = stretchingRepository,
+            heatColdRepository = heatColdRepository,
+            lightTherapyRepository = lightTherapyRepository,
+            supplementRepository = supplementRepository,
+            programRepository = programRepository,
+            unifiedRoutineRepository = unifiedRoutineRepository,
+            bodyTrackerRepository = bodyTrackerRepository,
+            reminderRepository = reminderRepository,
+            relayPool = relayPool,
+            signer = signer,
+        )
+    }
 
     fun finishCreateExport(uri: Uri?) {
-        val bytes = pendingExportBytes
-        pendingExportBytes = null
-        if (uri == null || bytes == null) return
+        val pending = pendingExportFile
+        pendingExportFile = null
+        if (uri == null || pending == null) return
         scope.launch {
             try {
-                withContext(Dispatchers.IO) {
-                    context.contentResolver.openOutputStream(uri)?.use { it.write(bytes) }
+                withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    context.contentResolver.openOutputStream(uri)?.use { it.write(pending.bytes) }
                 }
                 snackbarHostState.showSnackbar("Export saved")
             } catch (_: Exception) {
@@ -300,6 +284,15 @@ fun SettingsDataImportExportScreen(
     val createCsvExportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("text/csv"),
     ) { uri: Uri? -> finishCreateExport(uri) }
+
+    fun queueExport(prepared: PreparedExportFile, format: DataExportFormat) {
+        pendingExportFile = prepared
+        if (format == DataExportFormat.JSON) {
+            createJsonExportLauncher.launch(prepared.fileName)
+        } else {
+            createCsvExportLauncher.launch(prepared.fileName)
+        }
+    }
 
     var activeImportSilo by remember { mutableStateOf<ImportSilo?>(null) }
     var pendingWeightImport by remember { mutableStateOf<PendingWeightImport?>(null) }
@@ -318,11 +311,7 @@ fun SettingsDataImportExportScreen(
         if (silo == null) return@rememberLauncherForActivityResult
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
-            val text = withContext(Dispatchers.IO) {
-                context.contentResolver.openInputStream(uri)?.use { stream ->
-                    BufferedReader(InputStreamReader(stream, StandardCharsets.UTF_8)).readText()
-                }
-            }
+            val text = exportCoordinator.readText(uri)
             if (text.isNullOrBlank()) {
                 snackbarHostState.showSnackbar("Could not read file")
                 return@launch
@@ -368,6 +357,16 @@ fun SettingsDataImportExportScreen(
                         )
                     }
                 }
+                ImportSilo.BACKUP_RESTORE -> {
+                    backupRestoreCoordinator.previewBackupText(text).fold(
+                        onSuccess = { pendingBackupRestore = PendingBackupRestore(it) },
+                        onFailure = {
+                            parseErrorMessages = listOf(
+                                it.message ?: "This file is not a valid ERV backup."
+                            )
+                        },
+                    )
+                }
             }
         }
     }
@@ -381,37 +380,7 @@ fun SettingsDataImportExportScreen(
                 val toApply = pending
                 pendingWeightImport = null
                 scope.launch {
-                    weightRepository.commitImportedMerge(toApply.outcome)
-                    val baseMsg =
-                        "Imported ${toApply.outcome.sessionsImported} session(s); ${toApply.outcome.affectedDates.size} day(s)"
-                    if (relayPool != null && signer != null) {
-                        val state = weightRepository.currentState()
-                        val entries = WeightSync.weightImportOutboxEntries(
-                            state,
-                            toApply.outcome.affectedDates,
-                        )
-                        val drain = withContext(Dispatchers.IO) {
-                            val outbox = RelayPublishOutbox.get(context.applicationContext)
-                            outbox.enqueueAllDigestsAware(context.applicationContext, entries)
-                            outbox.kickDrain(relayPool, signer, keyManager.relayUrlsForKind30078Publish())
-                        }
-                        val relayMsg = buildString {
-                            append(baseMsg)
-                            append(". Queued ${entries.size} relay upload(s)")
-                            if (drain.publishedOk > 0 || drain.publishedFail > 0) {
-                                append(" — sent ${drain.publishedOk} now")
-                                if (drain.publishedFail > 0) {
-                                    append(", ${drain.publishedFail} will retry")
-                                }
-                            }
-                            if (drain.remaining > 0) {
-                                append(" — ${drain.remaining} still queued (auto-retry)")
-                            }
-                        }
-                        snackbarHostState.showSnackbar(relayMsg)
-                    } else {
-                        snackbarHostState.showSnackbar("$baseMsg (not signed in — local only)")
-                    }
+                    snackbarHostState.showSnackbar(exportCoordinator.commitWeightImport(toApply.outcome))
                 }
             },
         )
@@ -426,37 +395,7 @@ fun SettingsDataImportExportScreen(
                 val toApply = pending
                 pendingCardioImport = null
                 scope.launch {
-                    cardioRepository.commitImportedCardioMerge(toApply.outcome)
-                    val baseMsg =
-                        "Imported ${toApply.outcome.sessionsImported} cardio session(s); ${toApply.outcome.affectedDates.size} day(s)"
-                    if (relayPool != null && signer != null) {
-                        val state = cardioRepository.currentState()
-                        val entries = CardioSync.cardioImportOutboxEntries(
-                            state,
-                            toApply.outcome.affectedDates,
-                        )
-                        val drain = withContext(Dispatchers.IO) {
-                            val outbox = RelayPublishOutbox.get(context.applicationContext)
-                            outbox.enqueueAllDigestsAware(context.applicationContext, entries)
-                            outbox.kickDrain(relayPool, signer, keyManager.relayUrlsForKind30078Publish())
-                        }
-                        val relayMsg = buildString {
-                            append(baseMsg)
-                            append(". Queued ${entries.size} relay upload(s)")
-                            if (drain.publishedOk > 0 || drain.publishedFail > 0) {
-                                append(" — sent ${drain.publishedOk} now")
-                                if (drain.publishedFail > 0) {
-                                    append(", ${drain.publishedFail} will retry")
-                                }
-                            }
-                            if (drain.remaining > 0) {
-                                append(" — ${drain.remaining} still queued (auto-retry)")
-                            }
-                        }
-                        snackbarHostState.showSnackbar(relayMsg)
-                    } else {
-                        snackbarHostState.showSnackbar("$baseMsg (not signed in — local only)")
-                    }
+                    snackbarHostState.showSnackbar(exportCoordinator.commitCardioImport(toApply.outcome))
                 }
             },
         )
@@ -470,25 +409,21 @@ fun SettingsDataImportExportScreen(
                 val toApply = pending
                 pendingProgramImport = null
                 scope.launch {
-                    programRepository.mergeImportedPrograms(
-                        imported = toApply.envelope.programs,
-                        setActiveFromImport = toApply.envelope.activeProgramId,
-                    )
-                    val n = toApply.envelope.programs.size
-                    val activeNote =
-                        toApply.envelope.activeProgramId?.let { " Active program updated." } ?: ""
-                    if (relayPool != null && signer != null) {
-                        ProgramSync.publishMaster(
-                            appContext = context.applicationContext,
-                            relayPool = relayPool,
-                            signer = signer,
-                            state = programRepository.currentState(),
-                            dataRelayUrls = keyManager.relayUrlsForKind30078Publish(),
-                        )
-                        snackbarHostState.showSnackbar("Merged $n program(s).$activeNote Synced to relays.")
-                    } else {
-                        snackbarHostState.showSnackbar("Merged $n program(s).$activeNote")
-                    }
+                    snackbarHostState.showSnackbar(exportCoordinator.commitProgramsImport(toApply.envelope))
+                }
+            },
+        )
+    }
+
+    pendingBackupRestore?.let { pending ->
+        BackupRestorePreviewDialog(
+            pending = pending,
+            onDismiss = { pendingBackupRestore = null },
+            onConfirm = {
+                val toApply = pending
+                pendingBackupRestore = null
+                scope.launch {
+                    snackbarHostState.showSnackbar(backupRestoreCoordinator.restore(toApply.preview))
                 }
             },
         )
@@ -505,7 +440,7 @@ fun SettingsDataImportExportScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
-                title = { Text("Import And Export") },
+                title = { Text("Data Interchange + Backup") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -523,12 +458,23 @@ fun SettingsDataImportExportScreen(
                 .padding(top = 8.dp, bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(0.dp)
         ) {
-            ImportSectionTitle("Export Data", first = true)
+            ImportSectionTitle("Data Interchange", first = true)
             Text(
-                "Save a snapshot of your data. Files are plain text — anyone with the file can read them.",
+                "Use these files and guides when you want an AI assistant, coach, or your own scripts to inspect ERV data or create merge-oriented imports.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(bottom = 10.dp)
+            )
+            Text(
+                "Interchange exports are for analysis and structured authoring. They are not the same guarantee as a device backup restore.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 12.dp)
+            )
+            Text(
+                "Export For AI Or Coach Workflows",
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier.padding(bottom = 4.dp)
             )
             ExposedDropdownMenuBox(
                 expanded = exportCategoryMenuExpanded,
@@ -551,7 +497,7 @@ fun SettingsDataImportExportScreen(
                     expanded = exportCategoryMenuExpanded,
                     onDismissRequest = { exportCategoryMenuExpanded = false }
                 ) {
-                    DataExportCategory.entries.forEach { option ->
+                    interchangeCategories.forEach { option ->
                         DropdownMenuItem(
                             text = { Text(option.label) },
                             onClick = {
@@ -580,7 +526,7 @@ fun SettingsDataImportExportScreen(
             }
             if (!ErvAppDataExport.csvSupported(exportCategory, exportFormat)) {
                 Text(
-                    "CSV is only available for Weight training and Cardio (same columns as import). Use JSON for other categories or for all categories.",
+                    "CSV is only available for Weight training and Cardio. Use JSON for every other interchange export.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.padding(bottom = 8.dp)
@@ -641,55 +587,10 @@ fun SettingsDataImportExportScreen(
                     }
                     scope.launch {
                         try {
-                            val bytes = withContext(Dispatchers.IO) {
-                                val w = weightRepository.currentState()
-                                val c = cardioRepository.currentState()
-                                val st = stretchingRepository.currentState()
-                                val hc = heatColdRepository.currentState()
-                                val lt = lightTherapyRepository.currentState()
-                                val sup = supplementRepository.currentState()
-                                val gymMember = userPreferences.gymMembership.first()
-                                val equipment = userPreferences.ownedEquipment.first()
-                                when (exportFormat) {
-                                    DataExportFormat.JSON -> {
-                                        val bundle = ErvAppDataExport.buildBundle(
-                                            exportCategory,
-                                            selection,
-                                            w,
-                                            c,
-                                            st,
-                                            hc,
-                                            lt,
-                                            sup,
-                                            gymMember,
-                                            equipment,
-                                        )
-                                        ErvAppDataExport.toJsonString(bundle).toByteArray(StandardCharsets.UTF_8)
-                                    }
-                                    DataExportFormat.CSV -> {
-                                        val text = when (exportCategory) {
-                                            DataExportCategory.WEIGHT_TRAINING ->
-                                                ErvAppDataExport.weightTrainingToCsv(
-                                                    ErvAppDataExport.filterWeightState(w, selection)
-                                                )
-                                            DataExportCategory.CARDIO ->
-                                                ErvAppDataExport.cardioToCsv(
-                                                    ErvAppDataExport.filterCardioState(c, selection)
-                                                )
-                                            else -> ""
-                                        }
-                                        text.toByteArray(StandardCharsets.UTF_8)
-                                    }
-                                }
-                            }
-                            pendingExportBytes = bytes
-                            val stem = ErvAppDataExport.defaultExportFileStem(exportCategory, exportFormat)
-                            val fileName = if (exportFormat == DataExportFormat.JSON) "$stem.json" else "$stem.csv"
-                            if (exportFormat == DataExportFormat.JSON) {
-                                createJsonExportLauncher.launch(fileName)
-                            } else {
-                                createCsvExportLauncher.launch(fileName)
-                            }
+                            queueExport(
+                                exportCoordinator.buildExport(exportCategory, exportFormat, selection),
+                                exportFormat,
+                            )
                         } catch (_: Exception) {
                             snackbarHostState.showSnackbar("Could not build export")
                         }
@@ -700,11 +601,11 @@ fun SettingsDataImportExportScreen(
                     .padding(bottom = 16.dp)
             ) {
                 Icon(Icons.Default.Share, contentDescription = null)
-                Text("Export To File", modifier = Modifier.padding(start = 8.dp))
+                Text("Export Interchange File", modifier = Modifier.padding(start = 8.dp))
             }
             HorizontalDivider()
             Text(
-                "Import: Choose Your Silo Below. JSON Or CSV Files Are Previewed Before Merge. New Sessions Are Tagged Imported.",
+                "Import structured weight, cardio, or program files here. These imports preview before merge and are intended for coach- or AI-authored data.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 16.dp, bottom = 12.dp)
@@ -736,20 +637,12 @@ fun SettingsDataImportExportScreen(
                 onShareBundle = {
                     scope.launch {
                         try {
-                            val text = withContext(Dispatchers.IO) {
-                                buildCombinedImportReferenceMarkdown(
-                                    context,
-                                    ImportExportDocAssets.weightReferenceKeys,
-                                    "Weight Training — Combined Import Reference",
+                            if (!exportCoordinator.shareReferenceBundle(
+                                    keys = ImportExportDocAssets.weightReferenceKeys,
+                                    bundleTitle = "Weight Training — Combined Import Reference",
+                                    fileName = "weight_training_import_reference_for_ai.md",
                                 )
-                            }
-                            val file = withContext(Dispatchers.IO) {
-                                val dir = File(context.cacheDir, "share").apply { mkdirs() }
-                                val out = File(dir, "weight_training_import_reference_for_ai.md")
-                                out.writeText(text, StandardCharsets.UTF_8)
-                                out
-                            }
-                            if (!shareMarkdownFromCache(context, file)) {
+                            ) {
                                 snackbarHostState.showSnackbar("Could Not Open Save Or Share")
                             }
                         } catch (_: Exception) {
@@ -803,20 +696,12 @@ fun SettingsDataImportExportScreen(
                 onShareBundle = {
                     scope.launch {
                         try {
-                            val text = withContext(Dispatchers.IO) {
-                                buildCombinedImportReferenceMarkdown(
-                                    context,
-                                    ImportExportDocAssets.cardioReferenceKeys,
-                                    "Cardio Training — Combined Import Reference",
+                            if (!exportCoordinator.shareReferenceBundle(
+                                    keys = ImportExportDocAssets.cardioReferenceKeys,
+                                    bundleTitle = "Cardio Training — Combined Import Reference",
+                                    fileName = "cardio_training_import_reference_for_ai.md",
                                 )
-                            }
-                            val file = withContext(Dispatchers.IO) {
-                                val dir = File(context.cacheDir, "share").apply { mkdirs() }
-                                val out = File(dir, "cardio_training_import_reference_for_ai.md")
-                                out.writeText(text, StandardCharsets.UTF_8)
-                                out
-                            }
-                            if (!shareMarkdownFromCache(context, file)) {
+                            ) {
                                 snackbarHostState.showSnackbar("Could Not Open Save Or Share")
                             }
                         } catch (_: Exception) {
@@ -870,20 +755,12 @@ fun SettingsDataImportExportScreen(
                 onShareBundle = {
                     scope.launch {
                         try {
-                            val text = withContext(Dispatchers.IO) {
-                                buildCombinedImportReferenceMarkdown(
-                                    context,
-                                    ImportExportDocAssets.programReferenceKeys,
-                                    "Programs — Combined Import Reference",
+                            if (!exportCoordinator.shareReferenceBundle(
+                                    keys = ImportExportDocAssets.programReferenceKeys,
+                                    bundleTitle = "Programs — Combined Import Reference",
+                                    fileName = "programs_import_reference_for_ai.md",
                                 )
-                            }
-                            val file = withContext(Dispatchers.IO) {
-                                val dir = File(context.cacheDir, "share").apply { mkdirs() }
-                                val out = File(dir, "programs_import_reference_for_ai.md")
-                                out.writeText(text, StandardCharsets.UTF_8)
-                                out
-                            }
-                            if (!shareMarkdownFromCache(context, file)) {
+                            ) {
                                 snackbarHostState.showSnackbar("Could Not Open Save Or Share")
                             }
                         } catch (_: Exception) {
@@ -899,7 +776,93 @@ fun SettingsDataImportExportScreen(
                 )
             }
 
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(8.dp))
+            HorizontalDivider()
+            ImportSectionTitle("Backup And Restore")
+            Text(
+                "Use ERV backup JSON when you want to archive a section, move to a new device, or restore ERV-shaped snapshots. Restore replaces only the sections present in the file.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 12.dp)
+            )
+            ExposedDropdownMenuBox(
+                expanded = backupCategoryMenuExpanded,
+                onExpandedChange = { backupCategoryMenuExpanded = it },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 10.dp)
+            ) {
+                OutlinedTextField(
+                    value = backupExportCategory.label,
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("Backup scope") },
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = backupCategoryMenuExpanded) },
+                    modifier = Modifier
+                        .menuAnchor()
+                        .fillMaxWidth()
+                )
+                ExposedDropdownMenu(
+                    expanded = backupCategoryMenuExpanded,
+                    onDismissRequest = { backupCategoryMenuExpanded = false }
+                ) {
+                    DataExportCategory.entries.forEach { option ->
+                        DropdownMenuItem(
+                            text = { Text(option.label) },
+                            onClick = {
+                                backupExportCategory = option
+                                backupCategoryMenuExpanded = false
+                            }
+                        )
+                    }
+                }
+            }
+            Text(
+                "Backup export always writes ERV JSON so it can be restored later. CSV stays an interchange-only format.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 10.dp)
+            )
+            Button(
+                onClick = {
+                    scope.launch {
+                        try {
+                            queueExport(
+                                exportCoordinator.buildExport(
+                                    category = backupExportCategory,
+                                    format = DataExportFormat.JSON,
+                                    selection = ExportDateSelection.AllTime,
+                                ),
+                                DataExportFormat.JSON,
+                            )
+                        } catch (_: Exception) {
+                            snackbarHostState.showSnackbar("Could not build backup export")
+                        }
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 10.dp)
+            ) {
+                Icon(Icons.Default.Share, contentDescription = null)
+                Text("Export ERV Backup", modifier = Modifier.padding(start = 8.dp))
+            }
+            OutlinedButton(
+                onClick = {
+                    activeImportSilo = ImportSilo.BACKUP_RESTORE
+                    pickLauncher.launch(arrayOf("application/json", "text/plain", "*/*"))
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Default.Upload, contentDescription = null)
+                Text("Restore From ERV Backup JSON", modifier = Modifier.padding(start = 8.dp))
+            }
+            Text(
+                "Restore is replace-oriented for the sections in the file. Omitted sections stay untouched, and relay re-sync only happens if you are signed in.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 10.dp, bottom = 16.dp)
+            )
         }
     }
 
@@ -953,73 +916,6 @@ fun SettingsDataImportExportScreen(
             }
         }
     }
-}
-
-@Composable
-private fun ImportReferenceCollapsibleSection(
-    sectionTitle: String,
-    summaryWhenCollapsed: String,
-    expanded: Boolean,
-    onExpandedChange: (Boolean) -> Unit,
-    modifier: Modifier = Modifier,
-    onShareBundle: () -> Unit,
-    content: @Composable () -> Unit,
-) {
-    Column(modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { onExpandedChange(!expanded) }
-                .padding(vertical = 8.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text(sectionTitle, style = MaterialTheme.typography.titleSmall)
-                if (!expanded) {
-                    Text(
-                        summaryWhenCollapsed,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 2.dp)
-                    )
-                }
-            }
-            Icon(
-                imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                contentDescription = if (expanded) "Collapse" else "Expand",
-                tint = MaterialTheme.colorScheme.primary
-            )
-        }
-        AnimatedVisibility(
-            visible = expanded,
-            enter = expandVertically(),
-            exit = shrinkVertically(),
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(
-                    onClick = onShareBundle,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(Icons.Default.Share, contentDescription = null)
-                    Text(
-                        "Save Or Share All Reference Docs For AI",
-                        modifier = Modifier.padding(start = 8.dp)
-                    )
-                }
-                content()
-            }
-        }
-    }
-}
-
-@Composable
-private fun ImportSectionTitle(text: String, first: Boolean = false) {
-    Text(
-        text,
-        style = MaterialTheme.typography.titleMedium,
-        modifier = Modifier.padding(top = if (first) 0.dp else 18.dp, bottom = 6.dp)
-    )
 }
 
 @Composable
@@ -1305,77 +1201,50 @@ private fun ImportFailureDialog(
 }
 
 @Composable
-private fun DocLinkRow(
-    title: String,
-    subtitle: String,
-    onClick: () -> Unit,
+private fun BackupRestorePreviewDialog(
+    pending: PendingBackupRestore,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
 ) {
-    ElevatedCard(
-        modifier = Modifier.fillMaxWidth(),
-        onClick = onClick,
-        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 1.dp)
-    ) {
-        ListItem(
-            headlineContent = { Text(title, style = MaterialTheme.typography.titleSmall) },
-            supportingContent = {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("ERV Backup Restore Preview") },
+        text = {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 420.dp)
+                    .verticalScroll(rememberScrollState())
+            ) {
                 Text(
-                    subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    "The sections below will replace the matching local ERV data on this device. Sections that are not present in the file stay unchanged.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(bottom = 8.dp)
                 )
-            },
-            leadingContent = {
-                Icon(Icons.Default.Description, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-            },
-            trailingContent = {
-                Icon(Icons.AutoMirrored.Filled.NavigateNext, contentDescription = null)
-            },
-            modifier = Modifier.fillMaxWidth()
-        )
-    }
-}
-
-@Composable
-fun SettingsImportDocViewerScreen(
-    docKey: String,
-    onBack: () -> Unit,
-) {
-    val context = LocalContext.current
-    val body = remember(docKey, context) {
-        val path = ImportExportDocAssets.pathForKey(docKey)
-        if (path == null) {
-            "Unknown document."
-        } else {
-            try {
-                context.assets.open(path).use { stream ->
-                    BufferedReader(InputStreamReader(stream, StandardCharsets.UTF_8)).readText()
+                pending.preview.sections.forEachIndexed { index, section ->
+                    Text(
+                        section.title,
+                        style = MaterialTheme.typography.titleSmall,
+                        modifier = Modifier.padding(top = if (index == 0) 0.dp else 10.dp, bottom = 2.dp)
+                    )
+                    Text(
+                        section.summary,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
-            } catch (_: Exception) {
-                "Could not load this document from the app bundle."
+                Text(
+                    "If you are signed in, ERV will also queue a relay resync after the local restore succeeds.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 12.dp)
+                )
             }
-        }
-    }
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(ImportExportDocAssets.titleForKey(docKey)) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                }
-            )
-        }
-    ) { padding ->
-        Text(
-            text = body,
-            style = MaterialTheme.typography.bodySmall,
-            fontFamily = FontFamily.Monospace,
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp)
-        )
-    }
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) { Text("Restore") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        },
+    )
 }

@@ -75,6 +75,12 @@ class RelayOutboxStatusStore private constructor(private val appContext: Context
         }
     }
 
+    suspend fun clear() {
+        appContext.relayOutboxStatusDataStore.edit { prefs ->
+            prefs.remove(Keys.STATUS_JSON)
+        }
+    }
+
     private suspend fun updateStatus(transform: (RelayOutboxStatus) -> RelayOutboxStatus) {
         appContext.relayOutboxStatusDataStore.edit { prefs ->
             val current = decodeStatus(prefs[Keys.STATUS_JSON])

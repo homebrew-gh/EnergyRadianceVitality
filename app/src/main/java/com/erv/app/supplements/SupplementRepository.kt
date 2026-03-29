@@ -59,6 +59,11 @@ class SupplementRepository(context: Context) {
         updateState { state }
     }
 
+    suspend fun clearAllData() {
+        replaceAll(SupplementLibraryState())
+        lastPublishedLogDates.clear()
+    }
+
     suspend fun upsertSupplement(entry: SupplementEntry) {
         updateState { current ->
             current.copy(supplements = current.supplements.upsert(entry))
