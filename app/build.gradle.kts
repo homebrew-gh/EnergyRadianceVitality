@@ -1,4 +1,7 @@
 import java.util.Properties
+import java.time.LocalDate
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
 
 plugins {
     id("com.android.application")
@@ -20,6 +23,42 @@ fun signingValue(propertyName: String, envName: String): String? {
     return fromEnv.ifEmpty { null }
 }
 
+fun releaseValue(gradlePropertyName: String, envName: String): String? {
+    val fromGradle = providers.gradleProperty(gradlePropertyName).orNull?.trim().orEmpty()
+    if (fromGradle.isNotEmpty()) return fromGradle
+    val fromEnv = System.getenv(envName)?.trim().orEmpty()
+    return fromEnv.ifEmpty { null }
+}
+
+fun parseReleaseDate(raw: String?): LocalDate {
+    if (raw.isNullOrBlank()) return LocalDate.now(ZoneOffset.UTC)
+    val normalized = raw.trim().replace("-", "")
+    require(normalized.length == 8 && normalized.all(Char::isDigit)) {
+        "Release date must use YYYYMMDD or YYYY-MM-DD. Received: $raw"
+    }
+    return LocalDate.parse(normalized, DateTimeFormatter.BASIC_ISO_DATE)
+}
+
+fun parseReleaseSequence(raw: String?): Int {
+    if (raw.isNullOrBlank()) return 0
+    val parsed = raw.toIntOrNull()
+        ?: error("Release sequence must be a number between 0 and 99. Received: $raw")
+    require(parsed in 0..99) {
+        "Release sequence must be between 0 and 99. Received: $raw"
+    }
+    return parsed
+}
+
+val releaseDate = parseReleaseDate(releaseValue("ervVersionDate", "ERV_VERSION_DATE"))
+val releaseSequence = parseReleaseSequence(releaseValue("ervVersionSequence", "ERV_VERSION_SEQUENCE"))
+val releaseVersionNameDate = releaseDate.format(DateTimeFormatter.ofPattern("yyyy.MM.dd"))
+val releaseVersionName = if (releaseSequence == 0) {
+    releaseVersionNameDate
+} else {
+    "$releaseVersionNameDate.$releaseSequence"
+}
+val releaseVersionCode = releaseDate.format(DateTimeFormatter.BASIC_ISO_DATE).toInt() * 100 + releaseSequence
+
 val releaseStoreFile = signingValue("storeFile", "ERV_RELEASE_STORE_FILE")
 val releaseStorePassword = signingValue("storePassword", "ERV_RELEASE_STORE_PASSWORD")
 val releaseKeyAlias = signingValue("keyAlias", "ERV_RELEASE_KEY_ALIAS")
@@ -38,8 +77,8 @@ android {
         applicationId = "com.erv.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = releaseVersionCode
+        versionName = releaseVersionName
     }
 
     signingConfigs {
@@ -94,6 +133,17 @@ tasks.register("testClasses") {
     group = "verification"
     description = "Compiles debug unit test sources (Java plugin lifecycle parity)."
     dependsOn("compileDebugUnitTestKotlin")
+}
+
+tasks.register("printReleaseVersion") {
+    group = "help"
+    description = "Prints the resolved ERV versionName and versionCode."
+    doLast {
+        println("ERV versionName=$releaseVersionName")
+        println("ERV versionCode=$releaseVersionCode")
+        println("ERV versionDate=${releaseDate.format(DateTimeFormatter.BASIC_ISO_DATE)}")
+        println("ERV versionSequence=$releaseSequence")
+    }
 }
 
 dependencies {

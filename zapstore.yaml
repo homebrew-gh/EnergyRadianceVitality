@@ -1,11 +1,8 @@
-# Fill in your real npub before first publish, or let `zsp publish --wizard`
-# rewrite this file once and then commit the result.
-
 repository: https://github.com/homebrew-gh/EnergyRadianceVitality
 release_source: ./app/build/outputs/apk/release/app-release.apk
 
 # Required for relay verification / auto-whitelisting on first publish.
-pubkey: npub1_replace_me
+pubkey: npub1cwud4fr3fy6xh0kperyu77vppg3atktsr7v5gsw8uuq5ems3d5vsxymkg6
 
 name: ERV
 summary: Local-first Android health tracker with optional encrypted Nostr sync.

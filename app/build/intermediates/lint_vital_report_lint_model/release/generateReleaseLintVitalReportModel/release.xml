@@ -26,6 +26,6 @@
       applicationId="com.erv.app"
       generatedSourceFolders="build/generated/ap_generated_sources/release/out"
       generatedResourceFolders="build/generated/res/resValues/release"
-      desugaredMethodsFiles="/home/samcornwell/.gradle/caches/transforms-3/5f38a91742e190aa4c085706037d92de/transformed/D8BackportedDesugaredMethods.txt">
+      desugaredMethodsFiles="/tmp/cursor-sandbox-cache/38d86c361a04fdce5eb090e80bccd1dd/gradle/caches/transforms-3/5f38a91742e190aa4c085706037d92de/transformed/D8BackportedDesugaredMethods.txt">
   </artifact>
 </variant>

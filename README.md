@@ -68,6 +68,9 @@ A [GitHub Actions](.github/workflows/android-build.yml) workflow runs on pushes 
 ## Release Prep
 
 - `zapstore.yaml` is included as a starter config for `zsp publish`.
+- Android release builds use date-based versioning: `YYYY.MM.DD` with optional same-day sequence suffix.
+- `./prepare-zapstore-release.sh` builds the signed APK, generates the checksum, and writes ready-to-paste release notes.
+- `./create-github-release.sh` creates a GitHub release only when you explicitly run it.
 - Store screenshots belong in `docs/store-images/`.
 - Android release signing setup lives in [docs/release/ANDROID_RELEASE_SIGNING.md](docs/release/ANDROID_RELEASE_SIGNING.md).
 
