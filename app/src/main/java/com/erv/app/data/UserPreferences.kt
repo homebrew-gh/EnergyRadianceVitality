@@ -113,7 +113,7 @@ class UserPreferences(private val context: Context) {
         val PROGRAM_DASHBOARD_STRETCH_LAUNCH_JSON_V1 = stringPreferencesKey("program_dashboard_stretch_launch_json_v1")
         /** One-shot: dashboard Programs tile → Start sauna/cold; consumed when Hot + Cold opens. */
         val PROGRAM_DASHBOARD_HEAT_COLD_LAUNCH_JSON_V1 = stringPreferencesKey("program_dashboard_heat_cold_launch_json_v1")
-        /** One-shot: dashboard Programs tile → Start unified routine; consumed when Unified Routines opens. */
+        /** One-shot: dashboard Programs tile → Start unified workout; consumed when Unified Workouts opens. */
         val PROGRAM_DASHBOARD_UNIFIED_ROUTINE_LAUNCH_JSON_V1 =
             stringPreferencesKey("program_dashboard_unified_routine_launch_json_v1")
         val WEIGHT_LIVE_REST_TIMER_MODE = stringPreferencesKey("weight_live_rest_timer_mode_v1")

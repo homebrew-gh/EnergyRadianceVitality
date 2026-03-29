@@ -25,6 +25,8 @@ import com.erv.app.lighttherapy.LightTherapyRepository
 import com.erv.app.programs.ProgramImportEnvelope
 import com.erv.app.programs.ProgramRepository
 import com.erv.app.programs.ProgramSync
+import com.erv.app.programs.resolveProgramStrategyForDate
+import com.erv.app.programs.strategySummaryForDate
 import com.erv.app.reminders.RoutineReminderRepository
 import com.erv.app.stretching.StretchCatalogLoader
 import com.erv.app.stretching.StretchingRepository
@@ -39,6 +41,7 @@ import java.io.InputStreamReader
 import java.nio.charset.StandardCharsets
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.time.LocalDate
 import kotlinx.coroutines.flow.first
 
 data class PreparedExportFile(
@@ -210,13 +213,15 @@ class ImportExportCoordinator(
         programRepository.mergeImportedPrograms(
             imported = envelope.programs,
             setActiveFromImport = envelope.activeProgramId,
+            strategyFromImport = envelope.strategy,
         )
         val count = envelope.programs.size
         val activeNote = envelope.activeProgramId?.let { " Active program updated." } ?: ""
+        val strategyNote = envelope.strategy?.let { " Program strategy updated." } ?: ""
         val activeRelayPool = relayPool
         val activeSigner = signer
         if (activeRelayPool == null || activeSigner == null) {
-            return "Merged $count program(s).$activeNote"
+            return "Merged $count program(s).$activeNote$strategyNote"
         }
         ProgramSync.publishMaster(
             appContext = appContext,
@@ -283,6 +288,9 @@ class ImportExportCoordinator(
             appendLine("- Prefer built-in weight exercise ids from the bundled reference above.")
             appendLine("- Use only the listed cardio activity enum names for `cardioActivity`.")
             appendLine("- Reuse an existing program `id` only when updating that same program on re-import.")
+            appendLine("- Program JSON can now include an optional strategy block (manual / repeat / rotation / challenge) in the import envelope.")
+            appendLine("- `activeProgramId` changes the manual active program; `strategy` updates the higher-level program planner for date-based scheduling.")
+            appendLine("- Activating ERV's built-in 75 Hard-style or 75 Soft-style templates in the app still auto-creates a 75-day challenge strategy from that activation date.")
             appendLine("- If the user has home equipment limits, do not assume missing machines or tools are available.")
             appendLine()
 
@@ -329,11 +337,11 @@ class ImportExportCoordinator(
             )
 
             appendMarkdownListSection(
-                title = "Saved Unified Routines",
+                title = "Saved Unified Workouts",
                 items = unifiedRoutineState.routines
                     .sortedBy { it.name.lowercase() }
                     .map { routine -> "`unifiedRoutineId: ${routine.id}` - ${routine.name}" },
-                emptyMessage = "No saved unified routines."
+                emptyMessage = "No saved unified workouts."
             )
 
             appendMarkdownListSection(
@@ -363,6 +371,10 @@ class ImportExportCoordinator(
                     "Current active program id: `$activeId`"
                 } ?: "Current active program id: none"
             )
+            appendLine("Current program strategy summary: ${programsState.strategySummaryForDate(LocalDate.now())}")
+            programsState.resolveProgramStrategyForDate(LocalDate.now()).detail?.takeIf { it.isNotBlank() }?.let { detail ->
+                appendLine("Current program strategy detail: $detail")
+            }
             appendLine()
             if (programsState.programs.isEmpty()) {
                 appendLine("- No existing programs on this device.")

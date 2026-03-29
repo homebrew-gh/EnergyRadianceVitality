@@ -35,7 +35,7 @@ enum class DataExportCategory(val label: String) {
     LIGHT_THERAPY("Light therapy"),
     SUPPLEMENTS("Supplements"),
     PROGRAMS("Programs"),
-    UNIFIED_ROUTINES("Unified routines"),
+    UNIFIED_ROUTINES("Unified workouts"),
     BODY_TRACKER("Body tracker"),
     REMINDERS("Reminders"),
     PERSONAL_DATA("Personal data"),

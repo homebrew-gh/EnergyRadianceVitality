@@ -160,7 +160,7 @@ class BackupRestoreCoordinator(
         }
         bundle.unifiedRoutines?.let {
             sections += BackupPreviewSection(
-                title = "Unified routines",
+                title = "Unified workouts",
                 summary = "${it.routines.size} routine(s), ${it.sessions.size} session(s)"
             )
         }

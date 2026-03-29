@@ -6,7 +6,7 @@
     mergedManifest="build/intermediates/merged_manifest/release/AndroidManifest.xml"
     proguardFiles="build/intermediates/default_proguard_files/global/proguard-android-optimize.txt-8.2.2:proguard-rules.pro"
     partialResultsDir="build/intermediates/lint_vital_partial_results/release/out"
-    desugaredMethodsFiles="/tmp/cursor-sandbox-cache/38d86c361a04fdce5eb090e80bccd1dd/gradle/caches/transforms-3/5f38a91742e190aa4c085706037d92de/transformed/D8BackportedDesugaredMethods.txt">
+    desugaredMethodsFiles="/home/samcornwell/.gradle/caches/transforms-3/5f38a91742e190aa4c085706037d92de/transformed/D8BackportedDesugaredMethods.txt">
   <buildFeatures
       namespacing="REQUIRED"/>
   <sourceProviders>
@@ -26,6 +26,6 @@
       applicationId="com.erv.app"
       generatedSourceFolders="build/generated/ap_generated_sources/release/out"
       generatedResourceFolders="build/generated/res/resValues/release"
-      desugaredMethodsFiles="/tmp/cursor-sandbox-cache/38d86c361a04fdce5eb090e80bccd1dd/gradle/caches/transforms-3/5f38a91742e190aa4c085706037d92de/transformed/D8BackportedDesugaredMethods.txt">
+      desugaredMethodsFiles="/home/samcornwell/.gradle/caches/transforms-3/5f38a91742e190aa4c085706037d92de/transformed/D8BackportedDesugaredMethods.txt">
   </artifact>
 </variant>

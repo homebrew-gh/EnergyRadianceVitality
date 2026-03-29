@@ -24,6 +24,9 @@ fun UnifiedRoutineBlock.resolveWeightRoutine(weightState: WeightLibraryState): W
     )
 
 fun UnifiedRoutineBlock.resolveCardioLaunch(cardioState: CardioLibraryState): CardioActiveTimerSession? {
+    cardioInlineQuickLaunch?.let { inlineQuickLaunch ->
+        return CardioActiveTimerSession.Single(CardioTimerSessionDraft.fromQuickLaunch(inlineQuickLaunch))
+    }
     cardioQuickLaunchId?.let { quickLaunchId ->
         val quickLaunch = cardioState.quickLaunches.firstOrNull { it.id == quickLaunchId }
         if (quickLaunch != null) {

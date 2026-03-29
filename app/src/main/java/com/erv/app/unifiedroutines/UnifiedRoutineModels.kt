@@ -1,6 +1,7 @@
 package com.erv.app.unifiedroutines
 
 import com.erv.app.cardio.CardioHrScaffolding
+import com.erv.app.cardio.CardioQuickLaunch
 import com.erv.app.cardio.CardioRoutine
 import com.erv.app.stretching.StretchRoutine
 import com.erv.app.weighttraining.WeightRoutine
@@ -26,6 +27,7 @@ data class UnifiedRoutineBlock(
     val cardioActivity: String? = null,
     val cardioRoutineId: String? = null,
     val cardioQuickLaunchId: String? = null,
+    val cardioInlineQuickLaunch: CardioQuickLaunch? = null,
     val stretchRoutineId: String? = null,
     val stretchCatalogIds: List<String> = emptyList(),
     val stretchHoldSecondsPerStretch: Int = 30,

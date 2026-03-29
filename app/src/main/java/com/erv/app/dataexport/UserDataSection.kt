@@ -49,7 +49,7 @@ enum class UserDataSection(
         relayBacked = true,
     ),
     UNIFIED_ROUTINES(
-        label = "Unified routines",
+        label = "Unified workouts",
         description = "Routines, sessions, and active run state",
         exportCategory = DataExportCategory.UNIFIED_ROUTINES,
         relayBacked = false,

@@ -68,15 +68,17 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.erv.app.cardio.CardioBuiltinActivity
 import com.erv.app.cardio.CardioDistanceUnit
-import com.erv.app.cardio.CardioModality
-import com.erv.app.cardio.CardioLibraryState
 import com.erv.app.cardio.CardioQuickLaunch
+import com.erv.app.cardio.CardioLibraryState
+import com.erv.app.cardio.CardioModality
 import com.erv.app.cardio.CardioRoutine
 import com.erv.app.cardio.CardioActiveTimerSession
-import com.erv.app.cardio.cardioBuiltinActivitiesForUserSelection
+import com.erv.app.cardio.CardioQuickTimerMode
 import com.erv.app.cardio.displayName
 import com.erv.app.cardio.formatCardioAveragePaceForSession
 import com.erv.app.cardio.formatCardioDistanceFromMeters
+import com.erv.app.cardio.resolveSnapshot
+import com.erv.app.cardio.summaryLabel
 import com.erv.app.data.UserPreferences
 import com.erv.app.data.BodyWeightUnit
 import com.erv.app.hr.LocalHeartRateBle
@@ -87,6 +89,7 @@ import com.erv.app.stretching.StretchSession
 import com.erv.app.stretching.StretchLibraryState
 import com.erv.app.stretching.StretchRoutine
 import com.erv.app.ui.cardio.OutdoorRuckPackWeightDialog
+import com.erv.app.ui.cardio.CardioQuickLaunchEditorDialog
 import com.erv.app.ui.theme.ErvHeaderRed
 import com.erv.app.ui.weighttraining.WeightPickExerciseDialog
 import com.erv.app.ui.weighttraining.WeightLiveWorkoutFgsDisclosureDialog
@@ -156,7 +159,7 @@ fun UnifiedRoutineCategoryScreen(
             }
             delay(80)
         }
-        snackbarHostState.showSnackbar("Unified routine not found.")
+        snackbarHostState.showSnackbar("Unified workout not found.")
     }
 
     Scaffold(
@@ -265,9 +268,9 @@ fun UnifiedRoutineCategoryScreen(
                 item {
                     Card {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text("No unified routines yet.", style = MaterialTheme.typography.titleMedium)
+                            Text("No unified workouts yet.", style = MaterialTheme.typography.titleMedium)
                             Text(
-                                "Create one to combine weight training, cardio, and stretching into a single launchable flow.",
+                            "Create one to combine weight training, cardio, and stretching into a single launchable workout flow.",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -329,9 +332,9 @@ fun UnifiedRoutineCategoryScreen(
                     repository.upsertRoutine(routine)
                     snackbarHostState.showSnackbar(
                         if (target.id == routine.id && unifiedState.routines.any { it.id == routine.id }) {
-                            "Routine updated"
+                            "Workout updated"
                         } else {
-                            "Routine saved"
+                            "Workout saved"
                         }
                     )
                 }
@@ -353,14 +356,14 @@ fun UnifiedRoutineCategoryScreen(
     deletingRoutine?.let { routine ->
         AlertDialog(
             onDismissRequest = { deletingRoutine = null },
-            title = { Text("Delete routine?") },
+            title = { Text("Delete workout?") },
             text = { Text("Remove \"${routine.name}\"?") },
             confirmButton = {
                 TextButton(
                     onClick = {
                         scope.launch {
                             repository.deleteRoutine(routine.id)
-                            snackbarHostState.showSnackbar("Routine deleted")
+                            snackbarHostState.showSnackbar("Workout deleted")
                         }
                         deletingRoutine = null
                     }
@@ -382,7 +385,7 @@ fun UnifiedRoutineCategoryScreen(
             onImport = { imported ->
                 scope.launch {
                     repository.upsertRoutine(imported)
-                    snackbarHostState.showSnackbar("Imported into unified routines")
+                    snackbarHostState.showSnackbar("Imported into unified workouts")
                 }
                 importType = null
             }
@@ -839,7 +842,7 @@ private fun UnifiedRoutineEditorDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (initial == null) "New Unified Routine" else "Edit unified routine") },
+        title = { Text(if (initial == null) "New Unified Workout" else "Edit unified workout") },
         text = {
             Column(
                 modifier = Modifier
@@ -983,16 +986,18 @@ private fun UnifiedRoutineBlockEditorDialog(
 ) {
     var title by rememberSaveable(initial.id) { mutableStateOf(initial.title.orEmpty()) }
     var notes by rememberSaveable(initial.id) { mutableStateOf(initial.notes.orEmpty()) }
-    var targetMinutes by rememberSaveable(initial.id) { mutableStateOf(initial.targetMinutes?.toString().orEmpty()) }
     var weightRoutineId by rememberSaveable(initial.id) { mutableStateOf(initial.weightRoutineId.orEmpty()) }
     var weightIds by rememberSaveable(initial.id) { mutableStateOf(initial.weightExerciseIds) }
-    var cardioActivity by rememberSaveable(initial.id) { mutableStateOf(initial.cardioActivity ?: CardioBuiltinActivity.RUN.name) }
     var cardioRoutineId by rememberSaveable(initial.id) { mutableStateOf(initial.cardioRoutineId.orEmpty()) }
     var cardioQuickLaunchId by rememberSaveable(initial.id) { mutableStateOf(initial.cardioQuickLaunchId.orEmpty()) }
+    var cardioInlineQuickLaunch by remember(initial.id) {
+        mutableStateOf(initial.cardioInlineQuickLaunch ?: initial.toInlineCardioQuickLaunch(cardioState))
+    }
     var stretchRoutineId by rememberSaveable(initial.id) { mutableStateOf(initial.stretchRoutineId.orEmpty()) }
     val stretchIds = remember(initial.id) { mutableStateListOf<String>().apply { addAll(initial.stretchCatalogIds) } }
     var holdSeconds by rememberSaveable(initial.id) { mutableStateOf(initial.stretchHoldSecondsPerStretch.toString()) }
     var showWeightPicker by remember { mutableStateOf(false) }
+    var showInlineCardioEditor by remember { mutableStateOf(false) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -1069,6 +1074,7 @@ private fun UnifiedRoutineBlockEditorDialog(
                         RoutineDropdown(
                             label = "Cardio saved source",
                             currentValue = when {
+                                cardioInlineQuickLaunch != null -> "inline"
                                 cardioQuickLaunchId.isNotBlank() -> "quick:$cardioQuickLaunchId"
                                 cardioRoutineId.isNotBlank() -> "routine:$cardioRoutineId"
                                 else -> ""
@@ -1076,64 +1082,70 @@ private fun UnifiedRoutineBlockEditorDialog(
                             displayValue = cardioSavedSourceLabel(
                                 cardioRoutineId = cardioRoutineId,
                                 cardioQuickLaunchId = cardioQuickLaunchId,
+                                cardioInlineQuickLaunch = cardioInlineQuickLaunch,
                                 cardioState = cardioState
                             ),
-                            options = cardioSavedSourceOptions(cardioState),
+                            options = cardioSavedSourceOptions(
+                                cardioState = cardioState,
+                                cardioInlineQuickLaunch = cardioInlineQuickLaunch
+                            ),
                             onValueSelected = { selected ->
                                 when {
+                                    selected == "inline" -> {
+                                        cardioRoutineId = ""
+                                        cardioQuickLaunchId = ""
+                                    }
                                     selected.startsWith("routine:") -> {
                                         cardioRoutineId = selected.removePrefix("routine:")
                                         cardioQuickLaunchId = ""
+                                        cardioInlineQuickLaunch = null
                                     }
                                     selected.startsWith("quick:") -> {
                                         cardioQuickLaunchId = selected.removePrefix("quick:")
                                         cardioRoutineId = ""
+                                        cardioInlineQuickLaunch = null
                                     }
                                     else -> {
                                         cardioRoutineId = ""
                                         cardioQuickLaunchId = ""
+                                        cardioInlineQuickLaunch = null
                                     }
                                 }
                             }
                         )
-                        var expanded by remember { mutableStateOf(false) }
-                        ExposedDropdownMenuBox(
-                            expanded = expanded,
-                            onExpandedChange = { expanded = it }
+                        Text(
+                            "Need timer details like indoor/outdoor, count up vs down, pace, or ruck weight? Configure a block-specific cardio setup.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        FilledTonalButton(
+                            onClick = { showInlineCardioEditor = true },
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            OutlinedTextField(
-                                value = runCatching { CardioBuiltinActivity.valueOf(cardioActivity) }.getOrNull()?.displayName()
-                                    ?: cardioActivity,
-                                onValueChange = {},
-                                readOnly = true,
-                                label = { Text("Activity") },
-                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .menuAnchor()
-                            )
-                            DropdownMenu(
-                                expanded = expanded,
-                                onDismissRequest = { expanded = false }
+                            Text(if (cardioInlineQuickLaunch == null) "Configure Direct Cardio Setup" else "Edit Direct Cardio Setup")
+                        }
+                        cardioInlineQuickLaunch?.let { inlineQuickLaunch ->
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                                )
                             ) {
-                                cardioBuiltinActivitiesForUserSelection().forEach { activity ->
-                                    DropdownMenuItem(
-                                        text = { Text(activity.displayName()) },
-                                        onClick = {
-                                            cardioActivity = activity.name
-                                            expanded = false
-                                        }
+                                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text("Direct setup", style = MaterialTheme.typography.titleSmall)
+                                    Text(
+                                        inlineQuickLaunch.summaryLabel(CardioDistanceUnit.MILES),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
+                                    TextButton(
+                                        onClick = {
+                                            cardioInlineQuickLaunch = null
+                                        }
+                                    ) { Text("Clear direct setup") }
                                 }
                             }
                         }
-                        OutlinedTextField(
-                            value = targetMinutes,
-                            onValueChange = { targetMinutes = it.filter { ch -> ch.isDigit() } },
-                            label = { Text("Target Minutes (optional)") },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true
-                        )
                     }
                     UnifiedRoutineBlockType.STRETCH -> {
                         RoutineDropdown(
@@ -1177,20 +1189,34 @@ private fun UnifiedRoutineBlockEditorDialog(
         confirmButton = {
             TextButton(
                 onClick = {
+                    val inlineQuickLaunch =
+                        if (initial.type == UnifiedRoutineBlockType.CARDIO &&
+                            cardioRoutineId.isBlank() &&
+                            cardioQuickLaunchId.isBlank()
+                        ) {
+                            cardioInlineQuickLaunch
+                        } else {
+                            null
+                        }
                     onSave(
                         initial.copy(
                             title = title.trim().ifBlank { null },
                             notes = notes.trim().ifBlank { null },
                             weightRoutineId = weightRoutineId.ifBlank { null },
                             weightExerciseIds = if (weightRoutineId.isBlank()) weightIds else emptyList(),
-                            cardioActivity = cardioActivity,
+                            cardioActivity = inlineQuickLaunch?.activity?.builtin?.name,
                             cardioRoutineId = cardioRoutineId.ifBlank { null },
                             cardioQuickLaunchId = cardioQuickLaunchId.ifBlank { null },
+                            cardioInlineQuickLaunch = inlineQuickLaunch,
                             stretchRoutineId = stretchRoutineId.ifBlank { null },
                             stretchCatalogIds = stretchIds.toList(),
                             stretchHoldSecondsPerStretch = holdSeconds.toIntOrNull()?.coerceIn(5, 300) ?: 30,
                             targetMinutes = if (initial.type == UnifiedRoutineBlockType.CARDIO) {
-                                targetMinutes.toIntOrNull()
+                                if (inlineQuickLaunch?.timerMode == CardioQuickTimerMode.COUNT_DOWN) {
+                                    inlineQuickLaunch.countDownMinutes
+                                } else {
+                                    null
+                                }
                             } else {
                                 null
                             }
@@ -1213,6 +1239,22 @@ private fun UnifiedRoutineBlockEditorDialog(
                 weightIds = weightIds + id
                 weightRoutineId = ""
                 showWeightPicker = false
+            }
+        )
+    }
+
+    if (showInlineCardioEditor) {
+        CardioQuickLaunchEditorDialog(
+            existing = cardioInlineQuickLaunch,
+            creating = cardioInlineQuickLaunch == null,
+            state = cardioState,
+            distanceUnit = CardioDistanceUnit.MILES,
+            onDismiss = { showInlineCardioEditor = false },
+            onSave = { quickLaunch ->
+                cardioInlineQuickLaunch = quickLaunch
+                cardioRoutineId = ""
+                cardioQuickLaunchId = ""
+                showInlineCardioEditor = false
             }
         )
     }
@@ -1447,19 +1489,21 @@ private fun unifiedBlockSummary(
         val quickLaunchName = block.cardioQuickLaunchId?.let { id ->
             cardioState.quickLaunches.firstOrNull { it.id == id }?.name
         }
+        val inlineQuickLaunch = block.cardioInlineQuickLaunch
         val activityName = block.cardioActivity?.let { raw ->
             runCatching { CardioBuiltinActivity.valueOf(raw) }.getOrNull()?.displayName() ?: raw
         }
         buildString {
             append(
                 when {
+                    inlineQuickLaunch != null -> inlineQuickLaunch.summaryLabel(CardioDistanceUnit.MILES)
                     quickLaunchName != null -> "Quick Start: $quickLaunchName"
                     routineName != null -> "Routine: $routineName"
                     activityName != null -> activityName
                     else -> "No cardio selected"
                 }
             )
-            if (quickLaunchName == null) {
+            if (inlineQuickLaunch == null && quickLaunchName == null) {
                 block.targetMinutes?.let { append(" · ~${it} min") }
             }
         }
@@ -1482,8 +1526,10 @@ private fun unifiedBlockSummary(
 private fun cardioSavedSourceLabel(
     cardioRoutineId: String,
     cardioQuickLaunchId: String,
+    cardioInlineQuickLaunch: CardioQuickLaunch?,
     cardioState: CardioLibraryState,
 ): String = when {
+    cardioInlineQuickLaunch != null -> "Direct setup: ${cardioInlineQuickLaunch.name}"
     cardioQuickLaunchId.isNotBlank() ->
         cardioState.quickLaunches.firstOrNull { it.id == cardioQuickLaunchId }?.let { "Quick Start: ${it.name}" }
             ?: "Unknown quick start"
@@ -1493,8 +1539,12 @@ private fun cardioSavedSourceLabel(
     else -> "None"
 }
 
-private fun cardioSavedSourceOptions(cardioState: CardioLibraryState): List<Pair<String, String>> =
+private fun cardioSavedSourceOptions(
+    cardioState: CardioLibraryState,
+    cardioInlineQuickLaunch: CardioQuickLaunch?,
+): List<Pair<String, String>> =
     buildList {
+        cardioInlineQuickLaunch?.let { add("inline" to "Direct setup: ${it.name}") }
         cardioState.routines
             .sortedBy { it.name.lowercase() }
             .forEach { add("routine:${it.id}" to "Routine: ${it.name}") }
@@ -1502,3 +1552,34 @@ private fun cardioSavedSourceOptions(cardioState: CardioLibraryState): List<Pair
             .sortedBy { it.name.lowercase() }
             .forEach { add("quick:${it.id}" to "Quick Start: ${it.name}") }
     }
+
+private fun UnifiedRoutineBlock.toInlineCardioQuickLaunch(
+    cardioState: CardioLibraryState,
+): CardioQuickLaunch? {
+    if (!cardioRoutineId.isNullOrBlank() || !cardioQuickLaunchId.isNullOrBlank()) return null
+    val builtin = cardioActivity
+        ?.let { runCatching { CardioBuiltinActivity.valueOf(it) }.getOrNull() }
+        ?: return null
+    val snapshot = cardioState.resolveSnapshot(builtin = builtin, customId = null)
+    val timerMode = if ((targetMinutes ?: 0) > 0) {
+        CardioQuickTimerMode.COUNT_DOWN
+    } else {
+        CardioQuickTimerMode.COUNT_UP
+    }
+    return CardioQuickLaunch(
+        id = UUID.randomUUID().toString(),
+        name = title?.takeIf { it.isNotBlank() } ?: snapshot.displayLabel,
+        activity = snapshot,
+        modality = CardioModality.OUTDOOR,
+        treadmill = null,
+        timerMode = timerMode,
+        countDownMinutes = if (timerMode == CardioQuickTimerMode.COUNT_DOWN) {
+            targetMinutes?.coerceIn(1, 24 * 60)
+        } else {
+            null
+        },
+        outdoorPaceSpeed = null,
+        outdoorPaceSpeedUnit = null,
+        defaultRuckLoadKg = null
+    )
+}

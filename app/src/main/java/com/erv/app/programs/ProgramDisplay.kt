@@ -46,7 +46,7 @@ fun ProgramDayBlock.summaryLine(
         ProgramBlockKind.UNIFIED_ROUTINE -> {
             val routineName = unifiedRoutineId?.let { id ->
                 unifiedRoutineState.routines.firstOrNull { it.id == id }?.name
-            } ?: "Unified routine"
+            } ?: "Unified workout"
             routineName
         }
         ProgramBlockKind.STRETCH_ROUTINE -> {
