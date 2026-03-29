@@ -3,10 +3,14 @@ package com.erv.app.ui.settings
 import android.content.Context
 import android.net.Uri
 import com.erv.app.bodytracker.BodyTrackerRepository
+import com.erv.app.cardio.cardioBuiltinActivitiesForUserSelection
 import com.erv.app.cardio.CardioImportOutcome
 import com.erv.app.cardio.CardioRepository
 import com.erv.app.cardio.CardioSync
+import com.erv.app.data.BodyWeightUnit
 import com.erv.app.data.UserPreferences
+import com.erv.app.data.displayTitle
+import com.erv.app.data.summaryLine
 import com.erv.app.dataexport.DataExportCategory
 import com.erv.app.dataexport.DataExportFormat
 import com.erv.app.dataexport.ErvAppDataExport
@@ -22,6 +26,7 @@ import com.erv.app.programs.ProgramImportEnvelope
 import com.erv.app.programs.ProgramRepository
 import com.erv.app.programs.ProgramSync
 import com.erv.app.reminders.RoutineReminderRepository
+import com.erv.app.stretching.StretchCatalogLoader
 import com.erv.app.stretching.StretchingRepository
 import com.erv.app.supplements.SupplementRepository
 import com.erv.app.unifiedroutines.UnifiedRoutineRepository
@@ -33,8 +38,8 @@ import java.io.File
 import java.io.InputStreamReader
 import java.nio.charset.StandardCharsets
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.first
 
 data class PreparedExportFile(
     val bytes: ByteArray,
@@ -144,7 +149,19 @@ class ImportExportCoordinator(
         val dir = File(appContext.cacheDir, "share").apply { mkdirs() }
         val out = File(dir, fileName)
         out.writeText(text, StandardCharsets.UTF_8)
-        shareMarkdownFromCache(appContext, out)
+        withContext(Dispatchers.Main) {
+            shareMarkdownFromCache(appContext, out)
+        }
+    }
+
+    suspend fun shareProgramsReferenceBundle(): Boolean = withContext(Dispatchers.IO) {
+        val text = buildProgramsReferenceBundleMarkdown()
+        val dir = File(appContext.cacheDir, "share").apply { mkdirs() }
+        val out = File(dir, "programs_import_reference_and_context_for_ai.md")
+        out.writeText(text, StandardCharsets.UTF_8)
+        withContext(Dispatchers.Main) {
+            shareMarkdownFromCache(appContext, out)
+        }
     }
 
     suspend fun commitWeightImport(outcome: WeightImportOutcome.Success): String {
@@ -227,5 +244,150 @@ class ImportExportCoordinator(
         if (drain.remaining > 0) {
             append(" - ${drain.remaining} still queued (auto-retry)")
         }
+    }
+
+    private suspend fun buildProgramsReferenceBundleMarkdown(): String {
+        val weightState = weightRepository.currentState()
+        val cardioState = cardioRepository.currentState()
+        val stretchState = stretchingRepository.currentState()
+        val programsState = programRepository.currentState()
+        val unifiedRoutineState = unifiedRoutineRepository.currentState()
+        val gymMembership = userPreferences.gymMembership.first()
+        val ownedEquipment = userPreferences.ownedEquipment.first()
+        val weightUnit = userPreferences.weightTrainingLoadUnit.first()
+        val stretchCatalog = StretchCatalogLoader.load(appContext)
+        val staticDocs = buildCombinedImportReferenceMarkdown(
+            context = appContext,
+            keys = ImportExportDocAssets.programReferenceKeys,
+            bundleTitle = "Programs - Combined Import Reference"
+        )
+        val customExercises = weightState.exercises
+            .filterNot { it.id.startsWith("erv-weight-exercise-") }
+            .sortedBy { it.name.lowercase() }
+
+        return buildString {
+            appendLine(staticDocs.trimEnd())
+            appendLine()
+            appendLine("---")
+            appendLine()
+            appendLine("# Programs Import Device Context")
+            appendLine()
+            appendLine(
+                "This section is generated from the current device. Prefer these existing ids, routine names, " +
+                    "and equipment constraints instead of inventing new ones."
+            )
+            appendLine()
+            appendLine("## Planning Rules")
+            appendLine()
+            appendLine("- Prefer existing routine ids when they already match the requested workout.")
+            appendLine("- Prefer built-in weight exercise ids from the bundled reference above.")
+            appendLine("- Use only the listed cardio activity enum names for `cardioActivity`.")
+            appendLine("- Reuse an existing program `id` only when updating that same program on re-import.")
+            appendLine("- If the user has home equipment limits, do not assume missing machines or tools are available.")
+            appendLine()
+
+            appendMarkdownListSection(
+                title = "Gym Access",
+                items = listOf(if (gymMembership) "Commercial gym access: yes" else "Commercial gym access: no"),
+                emptyMessage = "No gym access context saved."
+            )
+
+            appendMarkdownListSection(
+                title = "Owned Equipment",
+                items = ownedEquipment
+                    .sortedBy { it.displayTitle(weightUnit).lowercase() }
+                    .map { item ->
+                        val detail = item.summaryLine(weightUnit)?.takeIf { it.isNotBlank() }
+                        if (detail == null) "${item.displayTitle(weightUnit)}"
+                        else "${item.displayTitle(weightUnit)} - $detail"
+                    },
+                emptyMessage = "No home or personal equipment saved."
+            )
+
+            appendMarkdownListSection(
+                title = "Saved Weight Routines",
+                items = weightState.routines
+                    .sortedBy { it.name.lowercase() }
+                    .map { routine -> "`weightRoutineId: ${routine.id}` - ${routine.name}" },
+                emptyMessage = "No saved weight routines."
+            )
+
+            appendMarkdownListSection(
+                title = "Saved Cardio Routines",
+                items = cardioState.routines
+                    .sortedBy { it.name.lowercase() }
+                    .map { routine -> "`cardioRoutineId: ${routine.id}` - ${routine.name}" },
+                emptyMessage = "No saved cardio routines."
+            )
+
+            appendMarkdownListSection(
+                title = "Saved Stretch Routines",
+                items = stretchState.routines
+                    .sortedBy { it.name.lowercase() }
+                    .map { routine -> "`stretchRoutineId: ${routine.id}` - ${routine.name}" },
+                emptyMessage = "No saved stretch routines."
+            )
+
+            appendMarkdownListSection(
+                title = "Saved Unified Routines",
+                items = unifiedRoutineState.routines
+                    .sortedBy { it.name.lowercase() }
+                    .map { routine -> "`unifiedRoutineId: ${routine.id}` - ${routine.name}" },
+                emptyMessage = "No saved unified routines."
+            )
+
+            appendMarkdownListSection(
+                title = "Existing Custom Weight Exercise Ids",
+                items = customExercises.map { exercise -> "`${exercise.id}` - ${exercise.name}" },
+                emptyMessage = "No custom weight exercises. Use the bundled built-in weight exercise ids."
+            )
+
+            appendMarkdownListSection(
+                title = "Built-In Stretch Catalog Ids",
+                items = stretchCatalog
+                    .sortedBy { it.name.lowercase() }
+                    .map { entry -> "`${entry.id}` - ${entry.name}" },
+                emptyMessage = "Could not load the built-in stretch catalog."
+            )
+
+            appendMarkdownListSection(
+                title = "Allowed `cardioActivity` Enum Names",
+                items = cardioBuiltinActivitiesForUserSelection().map { activity -> "`${activity.name}`" },
+                emptyMessage = "No cardio activity enums available."
+            )
+
+            appendLine("## Existing Programs")
+            appendLine()
+            appendLine(
+                programsState.activeProgramId?.let { activeId ->
+                    "Current active program id: `$activeId`"
+                } ?: "Current active program id: none"
+            )
+            appendLine()
+            if (programsState.programs.isEmpty()) {
+                appendLine("- No existing programs on this device.")
+            } else {
+                programsState.programs
+                    .sortedBy { it.name.lowercase() }
+                    .forEach { program ->
+                        appendLine("- `${program.id}` - ${program.name}")
+                    }
+            }
+        }
+    }
+
+    private fun StringBuilder.appendMarkdownListSection(
+        title: String,
+        items: List<String>,
+        emptyMessage: String,
+    ) {
+        appendLine("## $title")
+        appendLine()
+        if (items.isEmpty()) {
+            appendLine("- $emptyMessage")
+        } else {
+            items.forEach { item -> appendLine("- $item") }
+        }
+        appendLine()
     }
 }

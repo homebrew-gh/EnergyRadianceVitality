@@ -373,9 +373,9 @@ fun WeightTrainingCategoryScreen(
                         }
                         val noHiit = draft.hiitBlocksByExerciseId.isEmpty()
                         if (noExercises && noLoggedSets && noHiit) {
-                            val returnedToUnified = returnToUnifiedRun()
                             heartRateBle.discardWorkoutRecording()
                             liveWorkoutViewModel.clearDraft()
+                            val returnedToUnified = returnToUnifiedRun()
                             if (!returnedToUnified && activeUnifiedSession != null && activeUnifiedWeightBlockId != null) {
                                 onBack()
                             }
@@ -389,6 +389,8 @@ fun WeightTrainingCategoryScreen(
                     }
                 },
                 onDiscardWorkout = {
+                    heartRateBle.discardWorkoutRecording()
+                    liveWorkoutViewModel.clearDraft()
                     val returnedToUnified =
                         if (activeUnifiedSession != null && activeUnifiedWeightBlockId != null) {
                             onReturnToUnifiedRun(activeUnifiedSession.routineId)
@@ -396,8 +398,6 @@ fun WeightTrainingCategoryScreen(
                         } else {
                             false
                         }
-                    heartRateBle.discardWorkoutRecording()
-                    liveWorkoutViewModel.clearDraft()
                     if (!returnedToUnified && activeUnifiedSession != null && activeUnifiedWeightBlockId != null) {
                         onBack()
                     }
@@ -447,8 +447,8 @@ fun WeightTrainingCategoryScreen(
                         }
                         pushDayLog(today)
                         if (activeUnifiedSession != null && activeUnifiedBlockId != null) {
-                            onReturnToUnifiedRun(activeUnifiedSession.routineId)
                             liveWorkoutViewModel.clearDraft()
+                            onReturnToUnifiedRun(activeUnifiedSession.routineId)
                         } else {
                             liveWorkoutViewModel.clearDraft()
                             completedSessionForSummary = storedSession

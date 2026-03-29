@@ -36,7 +36,6 @@ import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
@@ -284,12 +283,22 @@ private fun BodyTrackerPhotoSection(
 @Composable
 private fun BodyTrackerLogEntryCard(
     log: BodyTrackerDayLog,
+    repository: BodyTrackerRepository,
     weightUnit: BodyWeightUnit,
     lengthUnit: BodyMeasurementLengthUnit,
     showDateHeader: Boolean,
+    onOpenPhoto: (String) -> Unit,
     onDelete: () -> Unit
 ) {
-    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+    var photosExpanded by remember(log.date) { mutableStateOf(false) }
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        onClick = {
+            if (log.photos.isNotEmpty()) {
+                photosExpanded = !photosExpanded
+            }
+        }
+    ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -327,10 +336,45 @@ private fun BodyTrackerLogEntryCard(
                 if (log.photos.isNotEmpty()) {
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        "${log.photos.size} progress photo(s) on this device",
+                        if (photosExpanded) {
+                            "${log.photos.size} progress photo(s) on this device"
+                        } else {
+                            "Tap to preview ${log.photos.size} progress photo(s)"
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    Spacer(Modifier.height(8.dp))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        BodyTrackerPhotoPreviewThumb(
+                            file = repository.photoFile(log.photos.first().id),
+                            onOpen = { onOpenPhoto(log.photos.first().id) }
+                        )
+                        if (log.photos.size > 1) {
+                            Text(
+                                "+${log.photos.size - 1} more",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    if (photosExpanded) {
+                        Spacer(Modifier.height(10.dp))
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            contentPadding = PaddingValues(vertical = 2.dp)
+                        ) {
+                            items(log.photos, key = { it.id }) { photo ->
+                                BodyTrackerPhotoPreviewThumb(
+                                    file = repository.photoFile(photo.id),
+                                    onOpen = { onOpenPhoto(photo.id) }
+                                )
+                            }
+                        }
+                    }
                 }
             }
             IconButton(onClick = onDelete) {
@@ -368,7 +412,6 @@ fun BodyTrackerLogScreen(
     relayPool: RelayPool?,
     signer: EventSigner?,
     onBack: () -> Unit,
-    onOpenEditor: () -> Unit,
     initialDate: LocalDate? = null,
     openCalendarInitially: Boolean = false
 ) {
@@ -380,6 +423,7 @@ fun BodyTrackerLogScreen(
     }
     var showCalendar by remember(openCalendarInitially) { mutableStateOf(openCalendarInitially) }
     var pendingDelete by remember { mutableStateOf<BodyTrackerDayLog?>(null) }
+    var fullscreenPhotoId by remember { mutableStateOf<String?>(null) }
 
     val appContext = LocalContext.current.applicationContext
     val keyManager = LocalKeyManager.current
@@ -438,22 +482,41 @@ fun BodyTrackerLogScreen(
         )
     }
 
+    fullscreenPhotoId?.let { pid ->
+        val bmp = remember(pid) {
+            BitmapFactory.decodeFile(repository.photoFile(pid).absolutePath)
+        }
+        AlertDialog(
+            onDismissRequest = { fullscreenPhotoId = null },
+            confirmButton = {
+                TextButton(onClick = { fullscreenPhotoId = null }) { Text("Close") }
+            },
+            title = { Text("Progress photo") },
+            text = {
+                if (bmp != null) {
+                    Image(
+                        bitmap = bmp.asImageBitmap(),
+                        contentDescription = null,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp)),
+                        contentScale = ContentScale.Fit
+                    )
+                } else {
+                    Text("Could not load image.")
+                }
+            }
+        )
+    }
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
-                title = { Text("Body Tracker log") },
+                title = { Text("Body Tracker Log") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                actions = {
-                    TextButton(
-                        onClick = onOpenEditor,
-                        colors = ButtonDefaults.textButtonColors(contentColor = onHeader)
-                    ) {
-                        Text("Log day")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -513,9 +576,11 @@ fun BodyTrackerLogScreen(
                     items(datedEntries, key = { it.date }) { log ->
                         BodyTrackerLogEntryCard(
                             log = log,
+                            repository = repository,
                             weightUnit = weightUnit,
                             lengthUnit = state.lengthUnit,
                             showDateHeader = showLogDateOnCards,
+                            onOpenPhoto = { fullscreenPhotoId = it },
                             onDelete = { pendingDelete = log }
                         )
                     }
@@ -887,6 +952,40 @@ private fun BodyTrackerPhotoThumb(
                 tint = MaterialTheme.colorScheme.error,
                 modifier = Modifier.size(20.dp)
             )
+        }
+    }
+}
+
+@Composable
+private fun BodyTrackerPhotoPreviewThumb(
+    file: java.io.File,
+    onOpen: () -> Unit
+) {
+    val bmp = remember(file.absolutePath) {
+        if (file.exists()) BitmapFactory.decodeFile(file.absolutePath) else null
+    }
+    Box(
+        modifier = Modifier
+            .size(88.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .clickable { onOpen() }
+    ) {
+        if (bmp != null) {
+            Image(
+                bitmap = bmp.asImageBitmap(),
+                contentDescription = "Progress photo preview",
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("?", style = MaterialTheme.typography.labelSmall)
+            }
         }
     }
 }

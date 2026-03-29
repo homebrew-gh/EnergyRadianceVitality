@@ -9,9 +9,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Upload
@@ -122,17 +125,18 @@ fun CustomProgramWizardSheet(
     var step by rememberSaveable { mutableIntStateOf(0) }
     var draft by remember { mutableStateOf(CustomProgramWizardDraft()) }
     val blockKindsByDay = remember {
-        mutableStateMapOf<Int, ProgramBlockKind>().apply {
-            draft.selectedDays.forEach { put(it, ProgramBlockKind.WEIGHT) }
+        mutableStateMapOf<Int, Set<ProgramBlockKind>>().apply {
+            draft.selectedDays.forEach { put(it, setOf(ProgramBlockKind.WEIGHT)) }
         }
     }
+    val stepContentScroll = rememberScrollState()
 
     fun syncDays(keep: Set<Int>) {
         blockKindsByDay.keys.toList().forEach { day ->
             if (day !in keep) blockKindsByDay.remove(day)
         }
         keep.forEach { day ->
-            if (blockKindsByDay[day] == null) blockKindsByDay[day] = ProgramBlockKind.WEIGHT
+            if (blockKindsByDay[day] == null) blockKindsByDay[day] = setOf(ProgramBlockKind.WEIGHT)
         }
     }
 
@@ -148,7 +152,9 @@ fun CustomProgramWizardSheet(
             weeklySchedule = draft.selectedDays.sorted().map { day ->
                 ProgramWeekDay(
                     dayOfWeek = day,
-                    blocks = listOf(defaultWizardBlockForKind(blockKindsByDay[day] ?: ProgramBlockKind.WEIGHT))
+                    blocks = WizardKinds
+                        .filter { it in (blockKindsByDay[day] ?: setOf(ProgramBlockKind.WEIGHT)) }
+                        .map { kind -> defaultWizardBlockForKind(kind) }
                 )
             }
         )
@@ -170,119 +176,139 @@ fun CustomProgramWizardSheet(
                 when (step) {
                     0 -> "Step 1 of 4: name your program and add a short description."
                     1 -> "Step 2 of 4: choose the days you plan to train."
-                    2 -> "Step 3 of 4: choose the main block type for each selected day."
+                    2 -> "Step 3 of 4: choose one or more block types for each selected day."
                     else -> "Step 4 of 4: review the weekly scaffold. You can fine-tune everything in the advanced editor next."
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            when (step) {
-                0 -> {
-                    OutlinedTextField(
-                        value = draft.name,
-                        onValueChange = { draft = draft.copy(name = it) },
-                        label = { Text("Program name") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
-                    OutlinedTextField(
-                        value = draft.description,
-                        onValueChange = { draft = draft.copy(description = it) },
-                        label = { Text("Description") },
-                        modifier = Modifier.fillMaxWidth(),
-                        minLines = 2
-                    )
-                    OutlinedTextField(
-                        value = draft.sourceLabel,
-                        onValueChange = { draft = draft.copy(sourceLabel = it) },
-                        label = { Text("Source label (optional)") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
-                }
-                1 -> {
-                    Text("Training days", style = MaterialTheme.typography.labelMedium)
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        (1..7).forEach { day ->
-                            FilterChip(
-                                selected = day in draft.selectedDays,
-                                onClick = {
-                                    val next = if (day in draft.selectedDays) {
-                                        draft.selectedDays - day
-                                    } else {
-                                        draft.selectedDays + day
-                                    }
-                                    draft = draft.copy(selectedDays = next)
-                                    syncDays(next)
-                                },
-                                label = { Text(isoDayOfWeekLabel(day).take(3)) }
-                            )
-                        }
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 440.dp)
+                    .verticalScroll(stepContentScroll),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                when (step) {
+                    0 -> {
+                        OutlinedTextField(
+                            value = draft.name,
+                            onValueChange = { draft = draft.copy(name = it) },
+                            label = { Text("Program name") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true
+                        )
+                        OutlinedTextField(
+                            value = draft.description,
+                            onValueChange = { draft = draft.copy(description = it) },
+                            label = { Text("Description") },
+                            modifier = Modifier.fillMaxWidth(),
+                            minLines = 2
+                        )
+                        OutlinedTextField(
+                            value = draft.sourceLabel,
+                            onValueChange = { draft = draft.copy(sourceLabel = it) },
+                            label = { Text("Source label (optional)") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true
+                        )
                     }
-                    Text(
-                        "Pick the days you want this program to scaffold. You can add recovery or extra blocks later.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                2 -> {
-                    if (draft.selectedDays.isEmpty()) {
+                    1 -> {
+                        Text("Training days", style = MaterialTheme.typography.labelMedium)
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            (1..7).forEach { day ->
+                                FilterChip(
+                                    selected = day in draft.selectedDays,
+                                    onClick = {
+                                        val next = if (day in draft.selectedDays) {
+                                            draft.selectedDays - day
+                                        } else {
+                                            draft.selectedDays + day
+                                        }
+                                        draft = draft.copy(selectedDays = next)
+                                        syncDays(next)
+                                    },
+                                    label = { Text(isoDayOfWeekLabel(day).take(3)) }
+                                )
+                            }
+                        }
                         Text(
-                            "Choose at least one day before setting block types.",
-                            style = MaterialTheme.typography.bodyMedium,
+                            "Pick the days you want this program to scaffold. You can add recovery or extra blocks later.",
+                            style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                    } else {
-                        draft.selectedDays.sorted().forEach { day ->
-                            Card(
-                                modifier = Modifier.fillMaxWidth(),
-                                colors = CardDefaults.cardColors(
-                                    containerColor = MaterialTheme.colorScheme.surfaceVariant
-                                )
-                            ) {
-                                Column(
-                                    modifier = Modifier.padding(16.dp),
-                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    }
+                    2 -> {
+                        if (draft.selectedDays.isEmpty()) {
+                            Text(
+                                "Choose at least one day before setting block types.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        } else {
+                            Text(
+                                "Select as many categories as you want for each day. The builder creates placeholder blocks that you can define later in the advanced editor.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            draft.selectedDays.sorted().forEach { day ->
+                                val selectedKinds = blockKindsByDay[day].orEmpty()
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = MaterialTheme.colorScheme.surfaceVariant
+                                    )
                                 ) {
-                                    Text(isoDayOfWeekLabel(day), style = MaterialTheme.typography.titleMedium)
-                                    FlowRow(
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                                    Column(
+                                        modifier = Modifier.padding(16.dp),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
-                                        WizardKinds.forEach { kind ->
-                                            FilterChip(
-                                                selected = blockKindsByDay[day] == kind,
-                                                onClick = { blockKindsByDay[day] = kind },
-                                                label = { Text(wizardKindLabel(kind)) }
-                                            )
+                                        Text(isoDayOfWeekLabel(day), style = MaterialTheme.typography.titleMedium)
+                                        FlowRow(
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            WizardKinds.forEach { kind ->
+                                                FilterChip(
+                                                    selected = kind in selectedKinds,
+                                                    onClick = {
+                                                        blockKindsByDay[day] = if (kind in selectedKinds) {
+                                                            selectedKinds - kind
+                                                        } else {
+                                                            selectedKinds + kind
+                                                        }
+                                                    },
+                                                    label = { Text(wizardKindLabel(kind)) }
+                                                )
+                                            }
                                         }
                                     }
                                 }
                             }
                         }
                     }
-                }
-                3 -> {
-                    val preview = buildProgram()
-                    ProgramWeekPreviewCard(
-                        title = preview.name,
-                        subtitle = preview.description ?: "Custom scaffold",
-                        previewProgram = preview
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("Set as active program", style = MaterialTheme.typography.bodyMedium)
-                        FilterChip(
-                            selected = draft.setActive,
-                            onClick = { draft = draft.copy(setActive = !draft.setActive) },
-                            label = { Text(if (draft.setActive) "Yes" else "No") }
+                    3 -> {
+                        val preview = buildProgram()
+                        ProgramWeekPreviewCard(
+                            title = preview.name,
+                            subtitle = preview.description ?: "Custom scaffold",
+                            previewProgram = preview
                         )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Set as active program", style = MaterialTheme.typography.bodyMedium)
+                            FilterChip(
+                                selected = draft.setActive,
+                                onClick = { draft = draft.copy(setActive = !draft.setActive) },
+                                label = { Text(if (draft.setActive) "Yes" else "No") }
+                            )
+                        }
                     }
                 }
             }

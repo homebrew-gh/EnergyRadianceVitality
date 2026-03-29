@@ -564,12 +564,7 @@ fun ErvNavHost(
                 userPreferences = userPreferences,
                 relayPool = relayPool,
                 signer = signer,
-                onBack = { navController.popBackStack() },
-                onOpenEditor = {
-                    if (!navController.popBackStack(Routes.bodyTracker, inclusive = false)) {
-                        navController.navigate(Routes.bodyTracker) { launchSingleTop = true }
-                    }
-                }
+                onBack = { navController.popBackStack() }
             )
         }
 
@@ -585,11 +580,6 @@ fun ErvNavHost(
                 relayPool = relayPool,
                 signer = signer,
                 onBack = { navController.popBackStack() },
-                onOpenEditor = {
-                    if (!navController.popBackStack(Routes.bodyTracker, inclusive = false)) {
-                        navController.navigate(Routes.bodyTracker) { launchSingleTop = true }
-                    }
-                },
                 initialDate = initialDate,
                 openCalendarInitially = true
             )

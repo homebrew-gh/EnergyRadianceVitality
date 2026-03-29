@@ -283,6 +283,7 @@ fun DashboardScreen(
         )
     }
     val anyGoalMetThisWeek = remember(weeklyGoalRows) { anySelectedGoalMet(weeklyGoalRows) }
+    val showGoalReachedIndicator = goals.isNotEmpty() && anyGoalMetThisWeek
     val reminderRepository = remember(context) { RoutineReminderRepository(context) }
     val supplementRows = remember(supplementState, selectedDate) {
         supplementState.groupedSupplementActivityFor(selectedDate)
@@ -746,14 +747,13 @@ fun DashboardScreen(
                                 tint = Color.White,
                             )
                         }
-                        if (anyGoalMetThisWeek) {
-                            Text(
-                                text = "★",
-                                style = MaterialTheme.typography.labelLarge,
-                                color = Color(0xFFFFEA00),
+                        if (showGoalReachedIndicator) {
+                            Badge(
                                 modifier = Modifier
                                     .align(Alignment.TopEnd)
-                                    .padding(end = 4.dp, top = 2.dp),
+                                    .padding(end = 2.dp, top = 2.dp),
+                                containerColor = Color(0xFFFFC107),
+                                contentColor = Color(0xFF1B1B1B),
                             )
                         }
                     }
@@ -824,14 +824,6 @@ fun DashboardScreen(
                     )
 
                     Spacer(Modifier.height(8.dp))
-
-                    if (goals.isNotEmpty()) {
-                        DashboardGoalsSection(
-                            rows = weeklyGoalRows,
-                            onOpenDetails = { showGoalsSheet = true },
-                        )
-                        Spacer(Modifier.height(10.dp))
-                    }
                 }
 
                 val isSelectedDateToday = selectedDate == LocalDate.now()
@@ -1569,85 +1561,6 @@ fun DashboardScreen(
     }
 }
 
-@Composable
-private fun DashboardGoalsSection(
-    rows: List<GoalProgressRow>,
-    onOpenDetails: () -> Unit,
-) {
-    Text(
-        text = "Goals",
-        style = MaterialTheme.typography.titleLarge,
-        modifier = Modifier.padding(bottom = 8.dp),
-    )
-    ElevatedCard(
-        modifier = Modifier.fillMaxWidth(),
-        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 4.dp),
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "This week",
-                        style = MaterialTheme.typography.titleSmall,
-                    )
-                    Text(
-                        text = "Mon–Sun · custom targets",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                TextButton(onClick = onOpenDetails) {
-                    Text("Details")
-                }
-            }
-            rows.forEach { row ->
-                Spacer(Modifier.height(12.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = row.title,
-                        style = MaterialTheme.typography.labelLarge,
-                        modifier = Modifier.weight(1f),
-                    )
-                    Text(
-                        text = row.summaryLine(),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = if (row.met) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Text(
-                    text = row.detail,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(6.dp))
-                LinearProgressIndicator(
-                    progress = { row.progress },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(6.dp)
-                        .clip(RoundedCornerShape(3.dp)),
-                    color = if (row.met) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.secondary,
-                    trackColor = MaterialTheme.colorScheme.surfaceVariant,
-                )
-            }
-        }
-    }
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun GoalsOverviewSheet(
@@ -1676,7 +1589,7 @@ private fun GoalsOverviewSheet(
                 )
             } else {
                 Text(
-                    text = "This week (Mon–Sun). A ★ on the trophy appears when at least one goal reaches its target.",
+                    text = "This week (Mon-Sun). The trophy shows a small indicator when at least one goal reaches its target.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(bottom = 8.dp),

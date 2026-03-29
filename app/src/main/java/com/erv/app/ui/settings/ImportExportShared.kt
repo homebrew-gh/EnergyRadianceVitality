@@ -85,7 +85,10 @@ internal object ImportExportDocAssets {
 
     val weightReferenceKeys: List<String> = listOf(KEY_WEIGHT_AI, KEY_WEIGHT_CSV, KEY_WEIGHT_BUILTIN)
     val cardioReferenceKeys: List<String> = listOf(KEY_CARDIO_AI, KEY_CARDIO_CSV, KEY_CARDIO_NOSTR)
-    val programReferenceKeys: List<String> = listOf(KEY_PROGRAM_AI)
+    val programReferenceKeys: List<String> = listOf(KEY_PROGRAM_AI, KEY_WEIGHT_BUILTIN)
+
+    fun requirePathForKey(docKey: String): String =
+        pathForKey(docKey) ?: error("Unknown import/export doc key: $docKey")
 }
 
 fun readAssetUtf8(context: Context, assetPath: String): String =
@@ -105,7 +108,7 @@ fun buildCombinedImportReferenceMarkdown(
             "Share or save it and attach it to your AI assistant when building import files."
     )
     for (key in keys) {
-        val path = ImportExportDocAssets.pathForKey(key) ?: continue
+        val path = ImportExportDocAssets.requirePathForKey(key)
         val docTitle = ImportExportDocAssets.titleForKey(key)
         appendLine()
         appendLine("---")
@@ -128,7 +131,12 @@ fun shareMarkdownFromCache(context: Context, file: File): Boolean = try {
         putExtra(Intent.EXTRA_STREAM, uri)
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
-    context.startActivity(Intent.createChooser(send, "Save Or Share Reference Bundle"))
+    context.startActivity(
+        Intent.createChooser(send, "Save Or Share Reference Bundle").apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+    )
     true
 } catch (_: Exception) {
     false
@@ -240,7 +248,7 @@ fun SettingsImportDocViewerScreen(
 ) {
     val context = LocalContext.current
     val body = remember(docKey, context) {
-        val path = ImportExportDocAssets.pathForKey(docKey)
+        val path = runCatching { ImportExportDocAssets.requirePathForKey(docKey) }.getOrNull()
         if (path == null) {
             "Unknown document."
         } else {

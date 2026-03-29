@@ -107,6 +107,9 @@ fun WeightLiveWorkoutScreen(
     var setsCollapsedIds by remember(draft.startedAtEpochSeconds) {
         mutableStateOf(draft.exerciseOrder.toSet())
     }
+    var knownExerciseIds by remember(draft.startedAtEpochSeconds) {
+        mutableStateOf(draft.exerciseOrder.toSet())
+    }
     var recentWorkoutsExerciseId by remember { mutableStateOf<String?>(null) }
     var mediaControlsEnabled by rememberSaveable { mutableStateOf(false) }
     var hiitTimerTarget by remember { mutableStateOf<Pair<String, WeightHiitIntervalPlan>?>(null) }
@@ -133,6 +136,13 @@ fun WeightLiveWorkoutScreen(
             tick++
             delay(1_000L)
         }
+    }
+
+    LaunchedEffect(draft.exerciseOrder) {
+        val currentIds = draft.exerciseOrder.toSet()
+        val addedIds = currentIds - knownExerciseIds
+        setsCollapsedIds = (setsCollapsedIds intersect currentIds) + addedIds
+        knownExerciseIds = currentIds
     }
 
     LaunchedEffect(restEndAtEpochSeconds, tick) {

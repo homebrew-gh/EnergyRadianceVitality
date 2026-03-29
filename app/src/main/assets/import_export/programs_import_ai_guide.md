@@ -1,8 +1,10 @@
 # ERV — AI / coach guide: weekly programs → import JSON
 
-Use this document when an **LLM, coach tool, or script** should output JSON that **Energy Radiance Vitality (ERV)** can import as **Programs** (weekly plans with day blocks for strength, cardio, stretching, sauna/cold, rest, or notes).
+Use this document when an **LLM, coach tool, or script** should output JSON that **Energy Radiance Vitality (ERV)** can import as **Programs** (weekly plans with day blocks for strength, cardio, stretching, unified routines, sauna/cold, habits, rest, or notes).
 
 The user imports from **Settings → Import And Export → Import Programs File**. The app **parses, validates, shows a preview, then merges** into local program storage (same merge rules as the Programs category upload).
+
+When the user taps **Save Or Share All Reference Docs For AI** in the Programs section, ERV generates a bundle that includes this guide plus a **device-specific context snapshot** (equipment, saved routine ids, existing program ids, active program id, stretch catalog ids, and other reusable values). Prefer those ids over inventing new ones.
 
 **Privacy:** Program names and notes may include health or training context. If the user pastes into a **cloud model**, that content may leave the device. Prefer **local/offline** tools or **redacted** copies when appropriate.
 
@@ -32,7 +34,7 @@ Unknown top-level keys are ignored where safe.
 - New ids are **added** to the library.
 - If `activeProgramId` is present and valid, it is applied **after** merge.
 
-There is **no relay/Nostr upload** for programs in the current build; data stays **on device** (and any future sync would follow the same JSON shapes).
+If the user is **not signed in**, program imports stay **on device**. If the user **is signed in**, ERV publishes the merged program master to the user's configured data relays after import.
 
 ---
 
@@ -86,6 +88,7 @@ You may supply **multiple** `ProgramWeekDay` rows with the same `dayOfWeek`; the
 | `weightRoutineId` | No | Optional saved **weight routine** id if the user already has that routine |
 | `cardioActivity` | For **cardio** (no routine) | **Exact** `CardioBuiltinActivity` enum name: `RUN`, `BIKE`, `WALK`, … (see **Cardio Training Import AI Guide** §3 table in-app) |
 | `cardioRoutineId` | No | Saved **cardio routine** id for multi-leg or single-leg timer |
+| `unifiedRoutineId` | For **unified_routine** | Saved **unified routine** id from the user’s library |
 | `stretchRoutineId` | For **stretch_routine** | Saved **stretch routine** id from the user’s library |
 | `stretchCatalogIds` | For **stretch_catalog** | List of **built-in stretch catalog ids** bundled with ERV (e.g. `builtin_hip_flexor_lunge`) |
 | `heatColdMode` | For **heat_cold** | `SAUNA` or `COLD_PLUNGE` |
@@ -104,6 +107,8 @@ These are the **wire strings** (lowercase with underscore). They map to ERV `Pro
 | --- | --- |
 | `weight` | Resistance session: `weightExerciseIds` and/or `weightRoutineId` |
 | `cardio` | `cardioRoutineId` **or** `cardioActivity` (+ optional `targetMinutes`) |
+| `unified_routine` | Reuse an existing unified routine via `unifiedRoutineId` |
+| `flex_training` | Flexible training slot: user chooses weight or cardio in ERV at launch time |
 | `stretch_routine` | Guided routine: `stretchRoutineId` |
 | `stretch_catalog` | Built-in poses: `stretchCatalogIds` |
 | `heat_cold` | `heatColdMode` + optional `targetMinutes` |
@@ -212,6 +217,7 @@ These are the **wire strings** (lowercase with underscore). They map to ERV `Pro
 | --- | --- |
 | **Weight exercise ids** (e.g. `erv-weight-exercise-bench-v1`) | **Weight Training Built-In Exercise IDs** |
 | **Cardio `cardioActivity` enum strings** | **Cardio Training Import AI Guide** (built-in activity table) |
+| **Saved routine ids, equipment limits, active program id, stretch catalog ids** | **Programs AI bundle** generated from the Programs section |
 
 Custom user-defined exercise ids from the user’s library are allowed in `weightExerciseIds` if the id exists on the device after merge.
 
@@ -223,11 +229,12 @@ Custom user-defined exercise ids from the user’s library are allowed in `weigh
 2. Use **ISO `dayOfWeek` 1–7**.
 3. Use **exact** `kind` strings from §5.
 4. For **weight**, prefer **stable built-in ids** from the weight reference doc when possible.
-5. For **cardio** without a routine, use **exact** `RUN`, `BIKE`, etc.
-6. Include **`id`** on programs you expect to **update** on re-import.
-7. Set **`activeProgramId`** only when the user should **switch** their active program immediately after import.
-8. For **`other`** blocks, use **`checklistItems`** as an array of short, actionable strings (habits the user checks off in the app per day).
-9. Do **not** fabricate medical claims in `notes`; keep text aligned with what the user or coach provided.
+5. For **cardio** without a routine, use **exact** enum names such as `RUN`, `BIKE`, `AIR_BIKE`, `SKI_ERG`, etc.
+6. Prefer existing `weightRoutineId`, `cardioRoutineId`, `stretchRoutineId`, and `unifiedRoutineId` values from the generated Programs AI bundle when they already match the request.
+7. Include **`id`** on programs you expect to **update** on re-import.
+8. Set **`activeProgramId`** only when the user should **switch** their active program immediately after import.
+9. For **`other`** blocks, use **`checklistItems`** as an array of short, actionable strings (habits the user checks off in the app per day).
+10. Do **not** fabricate medical claims in `notes`; keep text aligned with what the user or coach provided.
 
 ---
 

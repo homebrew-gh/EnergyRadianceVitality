@@ -731,7 +731,7 @@ fun SettingsDataImportExportScreen(
             HorizontalDivider()
             ImportSectionTitle("Programs")
             Text(
-                "Weekly Plans Merge By Program Id. JSON Envelope Or Single Program — See The AI Guide For Block Kinds And Day Numbers.",
+                "Weekly plans merge by program id. The AI bundle now includes the programs guide, built-in weight exercise ids, and a generated snapshot of this device's equipment and reusable ids.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(bottom = 10.dp)
@@ -748,19 +748,14 @@ fun SettingsDataImportExportScreen(
             }
             ImportReferenceCollapsibleSection(
                 sectionTitle = "Reference Files (Programs)",
-                summaryWhenCollapsed = "Tap To Open The Coach / AI JSON Guide Or Save A Copy For Your Assistant.",
+                summaryWhenCollapsed = "Tap To Open The Guide Or Save A Bundle With Current Equipment, Routine Ids, And Program Ids For Your AI.",
                 expanded = programReferenceExpanded,
                 onExpandedChange = { programReferenceExpanded = it },
                 modifier = Modifier.padding(top = 14.dp),
                 onShareBundle = {
                     scope.launch {
                         try {
-                            if (!exportCoordinator.shareReferenceBundle(
-                                    keys = ImportExportDocAssets.programReferenceKeys,
-                                    bundleTitle = "Programs — Combined Import Reference",
-                                    fileName = "programs_import_reference_for_ai.md",
-                                )
-                            ) {
+                            if (!exportCoordinator.shareProgramsReferenceBundle()) {
                                 snackbarHostState.showSnackbar("Could Not Open Save Or Share")
                             }
                         } catch (_: Exception) {

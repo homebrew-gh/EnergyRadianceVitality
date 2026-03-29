@@ -839,7 +839,7 @@ private fun UnifiedRoutineEditorDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (initial == null) "New unified routine" else "Edit unified routine") },
+        title = { Text(if (initial == null) "New Unified Routine" else "Edit unified routine") },
         text = {
             Column(
                 modifier = Modifier
@@ -1151,13 +1151,6 @@ private fun UnifiedRoutineBlockEditorDialog(
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true
                         )
-                        OutlinedTextField(
-                            value = targetMinutes,
-                            onValueChange = { targetMinutes = it.filter { ch -> ch.isDigit() } },
-                            label = { Text("Target Minutes (optional for manual cardio)") },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true
-                        )
                         Text("Stretch catalog", style = MaterialTheme.typography.labelMedium)
                         stretchCatalog.sortedBy { it.name.lowercase() }.forEach { entry ->
                             Row(
@@ -1196,7 +1189,11 @@ private fun UnifiedRoutineBlockEditorDialog(
                             stretchRoutineId = stretchRoutineId.ifBlank { null },
                             stretchCatalogIds = stretchIds.toList(),
                             stretchHoldSecondsPerStretch = holdSeconds.toIntOrNull()?.coerceIn(5, 300) ?: 30,
-                            targetMinutes = targetMinutes.toIntOrNull()
+                            targetMinutes = if (initial.type == UnifiedRoutineBlockType.CARDIO) {
+                                targetMinutes.toIntOrNull()
+                            } else {
+                                null
+                            }
                         )
                     )
                 }
@@ -1472,14 +1469,10 @@ private fun unifiedBlockSummary(
         val stretchById = stretchCatalog.associateBy { it.id }
         val names = block.stretchCatalogIds.mapNotNull { stretchById[it]?.name }
         when {
-            routineName != null -> buildString {
-                append("Routine: $routineName")
-                block.targetMinutes?.let { append(" · ~${it} min") }
-            }
+            routineName != null -> "Routine: $routineName"
             names.isNotEmpty() -> buildString {
                 append(names.take(3).joinToString(", "))
                 if (names.size > 3) append("...")
-                block.targetMinutes?.let { append(" · ~${it} min") }
             }
             else -> "No stretches selected"
         }
