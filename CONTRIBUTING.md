@@ -26,7 +26,7 @@ By participating, you agree to uphold our [Code of Conduct](CODE_OF_CONDUCT.md).
 ## Pull request guidelines
 
 - Keep PRs focused; prefer several small PRs over one large one.
-- Follow existing code style and architecture (see [docs/PLAN_OF_ACTION.md](docs/PLAN_OF_ACTION.md) for structure).
+- Follow existing code style and architecture (see [docs/architecture/PLAN_OF_ACTION.md](docs/architecture/PLAN_OF_ACTION.md) for structure).
 - Add or update tests where relevant.
 - Update documentation if you change behavior or add features.
 
