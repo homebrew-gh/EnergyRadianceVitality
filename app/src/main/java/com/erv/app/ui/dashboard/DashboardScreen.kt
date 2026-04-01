@@ -52,6 +52,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
@@ -588,7 +589,7 @@ fun DashboardScreen(
                             ProgramDashboardStretchLaunch(
                                 stretchIds = block.stretchCatalogIds,
                                 title = block.title,
-                                holdSecondsPerStretch = 30
+                                holdSecondsPerStretch = (block.stretchHoldSecondsPerStretch ?: 30).coerceIn(5, 300)
                             )
                         )
                     )
@@ -1182,9 +1183,13 @@ fun DashboardScreen(
                     val r = routine
                     routinePreview = null
                     scope.launch {
-                        supplementRepository.logRoutineRun(today, r.id, r.name, r.steps)
+                        val ok = supplementRepository.logRoutineRun(today, r.id, r.name, r.steps)
                         syncDailyLog()
-                        snackbarHostState.showSnackbar("Logged ${r.name}")
+                        if (ok) {
+                            snackbarHostState.showSnackbar("Logged ${r.name}")
+                        } else {
+                            snackbarHostState.showSnackbar("Nothing to log — all supplements in this routine are paused.")
+                        }
                     }
                 },
                     onModify = {
@@ -1219,7 +1224,7 @@ fun DashboardScreen(
                             reminderRepository.updateRoutineName(base.id, updatedRoutine.name)
                             syncMaster()
                         }
-                        supplementRepository.logRoutineRun(
+                        val logged = supplementRepository.logRoutineRun(
                             date = today,
                             routineId = updatedRoutine.id,
                             routineName = updatedRoutine.name,
@@ -1227,10 +1232,12 @@ fun DashboardScreen(
                         )
                         syncDailyLog()
                         snackbarHostState.showSnackbar(
-                            if (savePermanently) {
-                                "Updated and logged ${updatedRoutine.name}"
-                            } else {
-                                "Logged edited ${updatedRoutine.name}"
+                            when {
+                                savePermanently && logged -> "Updated and logged ${updatedRoutine.name}"
+                                savePermanently && !logged ->
+                                    "Routine updated. Nothing logged — all steps paused or missing supplements."
+                                !savePermanently && logged -> "Logged edited ${updatedRoutine.name}"
+                                else -> "Nothing logged — all steps paused or missing supplements."
                             }
                         )
                     }
@@ -3485,6 +3492,9 @@ private fun RoutinePreviewSheet(
     onLogAsIs: () -> Unit,
     onModify: () -> Unit
 ) {
+    val activeSteps = remember(routine.steps) {
+        routine.steps.filterNot { it.paused }
+    }
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
             modifier = Modifier
@@ -3500,18 +3510,26 @@ private fun RoutinePreviewSheet(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                routine.steps.forEach { step ->
-                    val supplement = supplements.firstOrNull { it.id == step.supplementId }
-                    Text(
-                        text = step.activityStyleSummary(supplement),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+            if (activeSteps.isEmpty()) {
+                Text(
+                    text = "No active supplements to log (all steps are paused).",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    activeSteps.forEach { step ->
+                        val supplement = supplements.firstOrNull { it.id == step.supplementId }
+                        Text(
+                            text = step.activityStyleSummary(supplement),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilledTonalButton(onClick = onLogAsIs) {
+                FilledTonalButton(onClick = onLogAsIs, enabled = activeSteps.isNotEmpty()) {
                     Icon(Icons.Default.Check, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
                     Text("Log as is")
@@ -3532,7 +3550,8 @@ private data class RoutineStepDraft(
     val timeOfDay: SupplementTimeOfDay = SupplementTimeOfDay.MORNING,
     val quantity: String = "1",
     val dosageOverride: String = "",
-    val note: String = ""
+    val note: String = "",
+    val paused: Boolean = false
 )
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -3558,7 +3577,8 @@ private fun RoutineModifyDialog(
                             timeOfDay = it.timeOfDay ?: SupplementTimeOfDay.MORNING,
                             quantity = it.quantity?.toString() ?: "1",
                             dosageOverride = it.dosageOverride.orEmpty(),
-                            note = it.note.orEmpty()
+                            note = it.note.orEmpty(),
+                            paused = it.paused
                         )
                     )
                 }
@@ -3637,7 +3657,8 @@ private fun RoutineModifyDialog(
                                 timeOfDay = draft.timeOfDay,
                                 quantity = draft.quantity.toIntOrNull() ?: 1,
                                 dosageOverride = draft.dosageOverride.trim().ifBlank { null },
-                                note = draft.note.trim().ifBlank { null }
+                                note = draft.note.trim().ifBlank { null },
+                                paused = draft.paused
                             )
                         },
                         notes.trim(),
@@ -3666,7 +3687,10 @@ private fun RoutineStepRow(
     var expanded by remember { mutableStateOf(false) }
     val selectedSupplement = supplements.firstOrNull { it.id == step.supplementId }
 
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.alpha(if (step.paused) 0.55f else 1f)
+    ) {
         ExposedDropdownMenuBox(
             expanded = expanded,
             onExpandedChange = { expanded = !expanded }
@@ -3695,6 +3719,23 @@ private fun RoutineStepRow(
                     )
                 }
             }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Pause (skip when logging)",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Switch(
+                checked = step.paused,
+                onCheckedChange = { onStepChange(step.copy(paused = it)) },
+                enabled = step.supplementId != null
+            )
         }
 
         OutlinedTextField(
