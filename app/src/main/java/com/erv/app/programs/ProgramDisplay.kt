@@ -60,8 +60,9 @@ fun ProgramDayBlock.summaryLine(
             val byId = stretchCatalog.associateBy { it.id }
             val names = stretchCatalogIds.mapNotNull { byId[it]?.name }
             val mins = targetMinutes?.let { m -> " · ~${m} min" }.orEmpty()
-            if (names.isEmpty()) "Stretch (catalog poses)$mins"
-            else names.take(3).joinToString(", ") + (if (names.size > 3) "…" else "") + mins
+            val hold = stretchHoldSecondsPerStretch?.let { h -> " · ${h}s hold" }.orEmpty()
+            if (names.isEmpty()) "Stretch (catalog poses)$mins$hold"
+            else names.take(3).joinToString(", ") + (if (names.size > 3) "…" else "") + mins + hold
         }
         ProgramBlockKind.HEAT_COLD -> {
             val mode = heatColdMode?.let { runCatching { HeatColdMode.valueOf(it) }.getOrNull() }

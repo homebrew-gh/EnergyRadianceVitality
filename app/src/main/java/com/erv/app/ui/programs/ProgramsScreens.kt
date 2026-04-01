@@ -109,6 +109,11 @@ import com.erv.app.programs.summaryLine
 import com.erv.app.programs.strategySummaryForDate
 import com.erv.app.programs.withWeekDayUpdated
 import com.erv.app.stretching.StretchLibraryState
+import com.erv.app.stretching.StretchRoutine
+import com.erv.app.stretching.StretchingRepository
+import com.erv.app.stretching.StretchingSync
+import com.erv.app.stretching.stretchCategoryDisplayLabel
+import com.erv.app.ui.stretching.StretchPickStretchDialog
 import com.erv.app.ui.theme.ErvHeaderRed
 import com.erv.app.unifiedroutines.UnifiedRoutineLibraryState
 import com.erv.app.weighttraining.WeightLibraryState
@@ -834,12 +839,54 @@ private fun parseIsoDateOrNull(raw: String): LocalDate? =
         null
     }
 
+private fun initialProgramStretchIds(
+    existing: ProgramDayBlock?,
+    stretchState: StretchLibraryState,
+    stretchCatalog: List<com.erv.app.stretching.StretchCatalogEntry>,
+): List<String> {
+    val valid = stretchCatalog.map { it.id }.toSet()
+    if (existing == null) return emptyList()
+    val rid = existing.stretchRoutineId?.takeIf { it.isNotBlank() }
+    if (rid != null && existing.kind == ProgramBlockKind.STRETCH_ROUTINE) {
+        val r = stretchState.routineById(rid)
+        if (r != null) return r.stretchIds.filter { it in valid }
+    }
+    return existing.stretchCatalogIds.filter { it in valid }
+}
+
+private fun initialProgramStretchHoldString(
+    existing: ProgramDayBlock?,
+    stretchState: StretchLibraryState,
+): String {
+    if (existing == null) return "30"
+    val rid = existing.stretchRoutineId?.takeIf { it.isNotBlank() }
+    if (rid != null && existing.kind == ProgramBlockKind.STRETCH_ROUTINE) {
+        val r = stretchState.routineById(rid)
+        if (r != null) return r.holdSecondsPerStretch.coerceIn(5, 300).toString()
+    }
+    return (existing.stretchHoldSecondsPerStretch ?: 30).coerceIn(5, 300).toString()
+}
+
+private fun initialProgramWeightExerciseIds(
+    existing: ProgramDayBlock?,
+    weightState: WeightLibraryState,
+): List<String> {
+    if (existing == null || existing.kind != ProgramBlockKind.WEIGHT) return emptyList()
+    val rid = existing.weightRoutineId?.takeIf { it.isNotBlank() }
+    if (rid != null) {
+        val r = weightState.routines.firstOrNull { it.id == rid }
+        if (r != null) return r.exerciseIds.filter { weightState.exerciseById(it) != null }
+    }
+    return existing.weightExerciseIds.filter { weightState.exerciseById(it) != null }
+}
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun ProgramDetailScreen(
     programId: String,
     programRepository: ProgramRepository,
     weightRepository: WeightRepository,
+    stretchingRepository: StretchingRepository,
     weightState: WeightLibraryState,
     cardioState: CardioLibraryState,
     stretchState: StretchLibraryState,
@@ -1000,6 +1047,7 @@ fun ProgramDetailScreen(
                     ProgramBlockEditorMode.STRUCTURE
                 },
                 weightRepository = weightRepository,
+                stretchingRepository = stretchingRepository,
                 weightState = weightState,
                 cardioState = cardioState,
                 stretchState = stretchState,
@@ -1007,6 +1055,7 @@ fun ProgramDetailScreen(
                 unifiedRoutineState = unifiedRoutineState,
                 relayPool = relayPool,
                 signer = signer,
+                onNotify = { message -> scope.launch { snackbarHostState.showSnackbar(message) } },
                 onDismiss = {
                     showAddBlock = false
                     editBlock = null
@@ -1435,6 +1484,7 @@ private fun BlockEditorDialog(
     existing: ProgramDayBlock?,
     editorMode: ProgramBlockEditorMode,
     weightRepository: WeightRepository,
+    stretchingRepository: StretchingRepository,
     weightState: WeightLibraryState,
     cardioState: CardioLibraryState,
     stretchState: StretchLibraryState,
@@ -1442,6 +1492,7 @@ private fun BlockEditorDialog(
     unifiedRoutineState: UnifiedRoutineLibraryState,
     relayPool: RelayPool?,
     signer: EventSigner?,
+    onNotify: (String) -> Unit,
     onDismiss: () -> Unit,
     onSave: (day: Int, block: ProgramDayBlock) -> Unit
 ) {
@@ -1456,13 +1507,57 @@ private fun BlockEditorDialog(
     }
     var title by rememberSaveable { mutableStateOf(existing?.title.orEmpty()) }
     var notes by rememberSaveable { mutableStateOf(existing?.notes.orEmpty()) }
-    var weightIds by remember { mutableStateOf(existing?.weightExerciseIds.orEmpty()) }
-    var weightRoutineId by rememberSaveable { mutableStateOf(existing?.weightRoutineId.orEmpty()) }
+    val weightBlockKey = existing?.id ?: "new-block"
+    val weightSig = remember(
+        weightBlockKey,
+        existing?.kind,
+        existing?.weightRoutineId,
+        existing?.weightExerciseIds
+    ) {
+        listOf(
+            existing?.kind?.name.orEmpty(),
+            existing?.weightRoutineId.orEmpty(),
+            existing?.weightExerciseIds?.joinToString(",").orEmpty()
+        ).joinToString("|")
+    }
+    var weightRoutineId by rememberSaveable(weightBlockKey, weightSig) {
+        mutableStateOf(existing?.weightRoutineId.orEmpty())
+    }
+    var weightIds by rememberSaveable(weightBlockKey, weightSig) {
+        mutableStateOf(initialProgramWeightExerciseIds(existing, weightState))
+    }
+    var showSaveAsWeightRoutineDialog by remember { mutableStateOf(false) }
+    var saveAsRoutineName by remember { mutableStateOf("") }
     var cardioAct by rememberSaveable { mutableStateOf(existing?.cardioActivity ?: CardioBuiltinActivity.RUN.name) }
     var cardioRId by rememberSaveable { mutableStateOf(existing?.cardioRoutineId.orEmpty()) }
     var unifiedRoutineId by rememberSaveable { mutableStateOf(existing?.unifiedRoutineId.orEmpty()) }
-    var stretchRId by rememberSaveable { mutableStateOf(existing?.stretchRoutineId.orEmpty()) }
-    var stretchCatIds by remember { mutableStateOf(existing?.stretchCatalogIds?.toSet() ?: emptySet()) }
+    val stretchBlockKey = existing?.id ?: "new-block"
+    val stretchSig = remember(
+        stretchBlockKey,
+        existing?.kind,
+        existing?.stretchRoutineId,
+        existing?.stretchCatalogIds,
+        existing?.stretchHoldSecondsPerStretch
+    ) {
+        listOf(
+            existing?.kind?.name.orEmpty(),
+            existing?.stretchRoutineId.orEmpty(),
+            existing?.stretchCatalogIds?.joinToString(",").orEmpty(),
+            "${existing?.stretchHoldSecondsPerStretch ?: -1}"
+        ).joinToString("|")
+    }
+    var stretchRId by rememberSaveable(stretchBlockKey, stretchSig) {
+        mutableStateOf(existing?.stretchRoutineId.orEmpty())
+    }
+    var stretchIds by rememberSaveable(stretchBlockKey, stretchSig) {
+        mutableStateOf(initialProgramStretchIds(existing, stretchState, stretchCatalog))
+    }
+    var stretchHoldSec by rememberSaveable(stretchBlockKey, stretchSig) {
+        mutableStateOf(initialProgramStretchHoldString(existing, stretchState))
+    }
+    var showStretchPicker by remember { mutableStateOf(false) }
+    var showSaveAsStretchRoutineDialog by remember { mutableStateOf(false) }
+    var saveAsStretchRoutineName by remember { mutableStateOf("") }
     var heatMode by rememberSaveable { mutableStateOf(existing?.heatColdMode ?: "SAUNA") }
     var targetMin by rememberSaveable { mutableStateOf(existing?.targetMinutes?.toString().orEmpty()) }
     val checklistLines = remember(existing?.id) {
@@ -1473,6 +1568,25 @@ private fun BlockEditorDialog(
     }
     val isStructureEditor = editorMode == ProgramBlockEditorMode.STRUCTURE
     val isContentEditor = editorMode == ProgramBlockEditorMode.CONTENT
+    val linkedWeightRoutineRefProgram = weightRoutineId.takeIf { it.isNotBlank() }?.let { lid ->
+        weightState.routines.firstOrNull { it.id == lid }
+    }
+    val linkedWeightCanonProgram = linkedWeightRoutineRefProgram?.exerciseIds
+        ?.filter { id -> weightState.exerciseById(id) != null }
+        .orEmpty()
+    val linkedWeightDirtyProgram = linkedWeightRoutineRefProgram != null && weightIds != linkedWeightCanonProgram
+    val catalogIdSet = remember(stretchCatalog) { stretchCatalog.map { it.id }.toSet() }
+    val linkedStretchRoutineRefProgram = stretchRId.takeIf { it.isNotBlank() }?.let { lid ->
+        stretchState.routineById(lid)
+    }
+    val holdParsedStretchProgram = stretchHoldSec.toIntOrNull()?.coerceIn(5, 300) ?: 30
+    val linkedStretchCanonProgram = linkedStretchRoutineRefProgram?.stretchIds
+        ?.filter { it in catalogIdSet }
+        .orEmpty()
+    val linkedStretchDirtyProgram = linkedStretchRoutineRefProgram != null && (
+        stretchIds != linkedStretchCanonProgram ||
+            holdParsedStretchProgram != linkedStretchRoutineRefProgram.holdSecondsPerStretch.coerceIn(5, 300)
+        )
 
     weightRoutineEditTarget?.let { initial ->
         key(initial.id) {
@@ -1508,8 +1622,126 @@ private fun BlockEditorDialog(
             onDismiss = { showWeightPickExercise = false },
             onPick = { id ->
                 weightIds = weightIds + id
-                weightRoutineId = ""
                 showWeightPickExercise = false
+            }
+        )
+    }
+
+    if (showSaveAsWeightRoutineDialog && isContentEditor && kind == ProgramBlockKind.WEIGHT) {
+        AlertDialog(
+            onDismissRequest = { showSaveAsWeightRoutineDialog = false },
+            title = { Text("Save as weight routine") },
+            text = {
+                OutlinedTextField(
+                    value = saveAsRoutineName,
+                    onValueChange = { saveAsRoutineName = it },
+                    label = { Text("Routine name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val trimmed = saveAsRoutineName.trim()
+                        if (trimmed.isEmpty() || weightIds.isEmpty()) return@TextButton
+                        blockEditorScope.launch {
+                            runCatching {
+                                val routine = WeightRoutine(
+                                    id = UUID.randomUUID().toString(),
+                                    name = trimmed,
+                                    exerciseIds = weightIds.toList()
+                                )
+                                weightRepository.upsertRoutine(routine)
+                                if (relayPool != null && signer != null) {
+                                    val urls = keyManager.relayUrlsForKind30078Publish()
+                                    val s = weightRepository.currentState()
+                                    WeightSync.publishExercises(appContext, relayPool, signer, s.exercises, urls)
+                                    WeightSync.publishRoutines(appContext, relayPool, signer, s.routines, urls)
+                                }
+                                weightRoutineId = routine.id
+                                weightIds = emptyList()
+                                saveAsRoutineName = ""
+                                showSaveAsWeightRoutineDialog = false
+                                onNotify("Saved to Weight Training — open Routines there to run or edit it.")
+                            }
+                        }
+                    },
+                    enabled = saveAsRoutineName.trim().isNotEmpty()
+                ) { Text("Save") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSaveAsWeightRoutineDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    if (showSaveAsStretchRoutineDialog && isContentEditor &&
+        (kind == ProgramBlockKind.STRETCH_ROUTINE || kind == ProgramBlockKind.STRETCH_CATALOG)
+    ) {
+        AlertDialog(
+            onDismissRequest = { showSaveAsStretchRoutineDialog = false },
+            title = { Text("Save as stretch routine") },
+            text = {
+                OutlinedTextField(
+                    value = saveAsStretchRoutineName,
+                    onValueChange = { saveAsStretchRoutineName = it },
+                    label = { Text("Routine name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val trimmed = saveAsStretchRoutineName.trim()
+                        if (trimmed.isEmpty() || stretchIds.isEmpty()) return@TextButton
+                        blockEditorScope.launch {
+                            runCatching {
+                                val holdSec = stretchHoldSec.toIntOrNull()?.coerceIn(5, 300) ?: 30
+                                val routine = StretchRoutine(
+                                    id = UUID.randomUUID().toString(),
+                                    name = trimmed,
+                                    stretchIds = stretchIds.toList(),
+                                    holdSecondsPerStretch = holdSec
+                                )
+                                stretchingRepository.addRoutine(routine)
+                                if (relayPool != null && signer != null) {
+                                    StretchingSync.publishRoutinesMaster(
+                                        appContext,
+                                        relayPool,
+                                        signer,
+                                        stretchingRepository.currentState(),
+                                        keyManager.relayUrlsForKind30078Publish()
+                                    )
+                                }
+                                stretchRId = routine.id
+                                stretchIds = emptyList()
+                                saveAsStretchRoutineName = ""
+                                showSaveAsStretchRoutineDialog = false
+                                onNotify("Saved to Stretching — open Routines there to run or edit it.")
+                            }
+                        }
+                    },
+                    enabled = saveAsStretchRoutineName.trim().isNotEmpty()
+                ) { Text("Save") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSaveAsStretchRoutineDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    if (showStretchPicker && isContentEditor &&
+        (kind == ProgramBlockKind.STRETCH_ROUTINE || kind == ProgramBlockKind.STRETCH_CATALOG)
+    ) {
+        StretchPickStretchDialog(
+            catalog = stretchCatalog,
+            excludeIds = stretchIds.toSet(),
+            onDismiss = { showStretchPicker = false },
+            onPick = { id ->
+                stretchIds = stretchIds + id
+                showStretchPicker = false
             }
         )
     }
@@ -1609,76 +1841,12 @@ private fun BlockEditorDialog(
                 if (isContentEditor) when (kind) {
                     ProgramBlockKind.WEIGHT -> {
                         Spacer(Modifier.height(12.dp))
-                        Text("Exercises", style = MaterialTheme.typography.labelMedium)
-                        if (weightState.exercises.isEmpty()) {
-                            Text(
-                                "Your weight exercise library is empty. Open Weight Training → Exercises to add lifts (or sync from relays), then edit this block again.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Spacer(Modifier.height(8.dp))
-                        } else {
-                            Text(
-                                "Add lifts from your library using muscle group and push/pull filters, or attach a saved routine below.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Spacer(Modifier.height(8.dp))
-                            FilledTonalButton(
-                                onClick = { showWeightPickExercise = true },
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text("Add exercise from library")
-                            }
-                            Spacer(Modifier.height(8.dp))
-                        }
-                        weightIds.forEachIndexed { index, id ->
-                            val ex = weightState.exerciseById(id)
-                            Card(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 4.dp),
-                                colors = CardDefaults.cardColors(
-                                    containerColor = MaterialTheme.colorScheme.surfaceVariant
-                                )
-                            ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(12.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column(Modifier.weight(1f)) {
-                                        Text(
-                                            ex?.name ?: "Unknown exercise",
-                                            style = MaterialTheme.typography.bodyLarge
-                                        )
-                                        ex?.let {
-                                            Text(
-                                                "${it.muscleGroup} · ${it.pushOrPull.displayLabel()} · ${it.equipment.displayLabel()}",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                    }
-                                    IconButton(
-                                        onClick = {
-                                            weightIds = weightIds.toMutableList().also { it.removeAt(index) }
-                                        }
-                                    ) {
-                                        Icon(Icons.Default.Delete, contentDescription = "Remove exercise")
-                                    }
-                                }
-                            }
-                        }
-                        if (weightIds.isEmpty() && weightRoutineId.isBlank() && weightState.exercises.isNotEmpty()) {
-                            Text(
-                                "No exercises chosen yet.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
+                        Text(
+                            "Pick a saved routine to load its exercises below, or add exercises yourself. " +
+                                "Changing the list does not change the saved routine unless you choose update.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                         Spacer(Modifier.height(8.dp))
                         var routineExpanded by remember { mutableStateOf(false) }
                         ExposedDropdownMenuBox(
@@ -1687,10 +1855,10 @@ private fun BlockEditorDialog(
                         ) {
                             OutlinedTextField(
                                 value = weightState.routines.firstOrNull { it.id == weightRoutineId }?.name
-                                    ?: if (weightRoutineId.isBlank()) "No routine" else "Unknown routine",
+                                    ?: if (weightRoutineId.isBlank()) "None" else "Unknown routine",
                                 onValueChange = {},
                                 readOnly = true,
-                                label = { Text("Weight routine (optional)") },
+                                label = { Text("Weight routine") },
                                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = routineExpanded) },
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -1712,12 +1880,168 @@ private fun BlockEditorDialog(
                                         text = { Text(r.name) },
                                         onClick = {
                                             weightRoutineId = r.id
-                                            weightIds = emptyList()
+                                            weightIds = r.exerciseIds.filter { id ->
+                                                weightState.exerciseById(id) != null
+                                            }
                                             routineExpanded = false
                                         }
                                     )
                                 }
                             }
+                        }
+                        if (linkedWeightRoutineRefProgram != null && linkedWeightDirtyProgram) {
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                                )
+                            ) {
+                                Column(
+                                    Modifier.padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Text(
+                                        "This list no longer matches \"${linkedWeightRoutineRefProgram.name}\" in Weight Training.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    FilledTonalButton(
+                                        onClick = {
+                                            val basis = linkedWeightRoutineRefProgram
+                                            blockEditorScope.launch {
+                                                runCatching {
+                                                    weightRepository.upsertRoutine(
+                                                        basis.copy(exerciseIds = weightIds.toList())
+                                                    )
+                                                    if (relayPool != null && signer != null) {
+                                                        val urls = keyManager.relayUrlsForKind30078Publish()
+                                                        val s = weightRepository.currentState()
+                                                        WeightSync.publishExercises(
+                                                            appContext, relayPool, signer, s.exercises, urls
+                                                        )
+                                                        WeightSync.publishRoutines(
+                                                            appContext, relayPool, signer, s.routines, urls
+                                                        )
+                                                    }
+                                                    onNotify("Updated \"${basis.name}\" in Weight Training.")
+                                                }
+                                            }
+                                        },
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) { Text("Update saved routine") }
+                                    TextButton(
+                                        onClick = {
+                                            weightRoutineId = ""
+                                            onNotify(
+                                                "Detached from saved routine. Tap Save on this screen to keep this block as its own exercise list."
+                                            )
+                                        },
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) { Text("Keep changes on this program block only") }
+                                }
+                            }
+                        }
+                        if (weightState.exercises.isEmpty()) {
+                            Text(
+                                "Your weight exercise library is empty. Open Weight Training → Exercises to add lifts (or sync from relays), then edit this block again.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(Modifier.height(8.dp))
+                        } else {
+                            FilledTonalButton(
+                                onClick = { showWeightPickExercise = true },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Add Exercise")
+                            }
+                            Spacer(Modifier.height(8.dp))
+                        }
+                        if (weightIds.isNotEmpty()) {
+                            Text(
+                                "Exercises run top to bottom when you start this block from the dashboard.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(Modifier.height(8.dp))
+                        }
+                        weightIds.forEachIndexed { index, id ->
+                            val ex = weightState.exerciseById(id)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        ex?.name ?: "Unknown exercise",
+                                        style = MaterialTheme.typography.bodyLarge
+                                    )
+                                    ex?.let {
+                                        Text(
+                                            "${it.pushOrPull.displayLabel()} · ${it.equipment.displayLabel()}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    IconButton(
+                                        onClick = {
+                                            if (index > 0) {
+                                                val m = weightIds.toMutableList()
+                                                val t = m[index]
+                                                m[index] = m[index - 1]
+                                                m[index - 1] = t
+                                                weightIds = m
+                                            }
+                                        },
+                                        enabled = index > 0
+                                    ) { Icon(Icons.Default.ArrowUpward, contentDescription = "Move exercise up") }
+                                    IconButton(
+                                        onClick = {
+                                            if (index < weightIds.lastIndex) {
+                                                val m = weightIds.toMutableList()
+                                                val t = m[index]
+                                                m[index] = m[index + 1]
+                                                m[index + 1] = t
+                                                weightIds = m
+                                            }
+                                        },
+                                        enabled = index < weightIds.lastIndex
+                                    ) { Icon(Icons.Default.ArrowDownward, contentDescription = "Move exercise down") }
+                                    IconButton(
+                                        onClick = {
+                                            weightIds = weightIds.toMutableList().also { it.removeAt(index) }
+                                        }
+                                    ) {
+                                        Icon(Icons.Default.Delete, contentDescription = "Remove exercise")
+                                    }
+                                }
+                            }
+                        }
+                        if (weightRoutineId.isBlank() && weightIds.isNotEmpty()) {
+                            Spacer(Modifier.height(8.dp))
+                            FilledTonalButton(
+                                onClick = {
+                                    saveAsRoutineName = title.trim().ifBlank {
+                                        weightIds.firstOrNull()?.let { exId ->
+                                            weightState.exerciseById(exId)?.name
+                                        }.orEmpty()
+                                    }
+                                    showSaveAsWeightRoutineDialog = true
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) { Text("Save exercise order as weight routine…") }
+                        }
+                        if (weightIds.isEmpty() && weightRoutineId.isBlank() && weightState.exercises.isNotEmpty()) {
+                            Text(
+                                "No exercises chosen yet.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                         Spacer(Modifier.height(8.dp))
                         FilledTonalButton(
@@ -1870,8 +2194,15 @@ private fun BlockEditorDialog(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    ProgramBlockKind.STRETCH_ROUTINE -> {
+                    ProgramBlockKind.STRETCH_ROUTINE, ProgramBlockKind.STRETCH_CATALOG -> {
                         Spacer(Modifier.height(12.dp))
+                        Text(
+                            "Pick a saved routine to load stretches below, or tap Add stretch. " +
+                                "Edits do not change Stretching routines unless you update the saved routine.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(Modifier.height(8.dp))
                         var srExpanded by remember { mutableStateOf(false) }
                         ExposedDropdownMenuBox(
                             expanded = srExpanded,
@@ -1879,7 +2210,7 @@ private fun BlockEditorDialog(
                         ) {
                             OutlinedTextField(
                                 value = stretchState.routines.firstOrNull { it.id == stretchRId }?.name
-                                    ?: if (stretchRId.isBlank()) "Choose routine" else "Unknown",
+                                    ?: if (stretchRId.isBlank()) "None" else "Unknown routine",
                                 onValueChange = {},
                                 readOnly = true,
                                 label = { Text("Stretch routine") },
@@ -1889,38 +2220,178 @@ private fun BlockEditorDialog(
                                     .menuAnchor()
                             )
                             ExposedDropdownMenu(expanded = srExpanded, onDismissRequest = { srExpanded = false }) {
+                                DropdownMenuItem(
+                                    text = { Text("None") },
+                                    onClick = {
+                                        stretchRId = ""
+                                        srExpanded = false
+                                    }
+                                )
                                 stretchState.routines.forEach { r ->
                                     DropdownMenuItem(
                                         text = { Text(r.name) },
                                         onClick = {
                                             stretchRId = r.id
+                                            stretchIds = r.stretchIds.filter { sid -> sid in catalogIdSet }
+                                            stretchHoldSec = r.holdSecondsPerStretch.coerceIn(5, 300).toString()
                                             srExpanded = false
                                         }
                                     )
                                 }
                             }
                         }
-                    }
-                    ProgramBlockKind.STRETCH_CATALOG -> {
-                        Spacer(Modifier.height(12.dp))
-                        Text("Catalog poses", style = MaterialTheme.typography.labelMedium)
-                        stretchCatalog.sortedBy { it.name.lowercase() }.forEach { entry ->
-                            Row(
-                                Modifier
-                                    .fillMaxWidth()
-                                    .toggleable(
-                                        value = stretchCatIds.contains(entry.id),
-                                        role = Role.Checkbox,
-                                        onValueChange = { checked ->
-                                            stretchCatIds =
-                                                if (checked) stretchCatIds + entry.id else stretchCatIds - entry.id
-                                        }
-                                    ),
-                                verticalAlignment = Alignment.CenterVertically
+                        if (linkedStretchRoutineRefProgram != null && linkedStretchDirtyProgram) {
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                                )
                             ) {
-                                Checkbox(checked = stretchCatIds.contains(entry.id), onCheckedChange = null)
-                                Text(entry.name, modifier = Modifier.padding(start = 8.dp))
+                                Column(
+                                    Modifier.padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Text(
+                                        "This setup no longer matches \"${linkedStretchRoutineRefProgram.name}\" in Stretching.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    FilledTonalButton(
+                                        onClick = {
+                                            val basis = linkedStretchRoutineRefProgram
+                                            blockEditorScope.launch {
+                                                runCatching {
+                                                    stretchingRepository.updateRoutine(
+                                                        basis.copy(
+                                                            stretchIds = stretchIds.toList(),
+                                                            holdSecondsPerStretch = holdParsedStretchProgram
+                                                        )
+                                                    )
+                                                    if (relayPool != null && signer != null) {
+                                                        StretchingSync.publishRoutinesMaster(
+                                                            appContext,
+                                                            relayPool,
+                                                            signer,
+                                                            stretchingRepository.currentState(),
+                                                            keyManager.relayUrlsForKind30078Publish()
+                                                        )
+                                                    }
+                                                    onNotify("Updated \"${basis.name}\" in Stretching.")
+                                                }
+                                            }
+                                        },
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) { Text("Update saved routine") }
+                                    TextButton(
+                                        onClick = {
+                                            stretchRId = ""
+                                            onNotify(
+                                                "Detached from saved routine. Tap Save on this screen to keep this list on the program block."
+                                            )
+                                        },
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) { Text("Keep changes on this program block only") }
+                                }
                             }
+                        }
+                        OutlinedTextField(
+                            value = stretchHoldSec,
+                            onValueChange = { stretchHoldSec = it.filter { ch -> ch.isDigit() } },
+                            label = { Text("Hold seconds per stretch") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        FilledTonalButton(
+                            onClick = { showStretchPicker = true },
+                            modifier = Modifier.fillMaxWidth()
+                        ) { Text("Add stretch") }
+                        if (stretchIds.isNotEmpty()) {
+                            Text(
+                                "Order is the order used when you start this block from the dashboard.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(Modifier.height(4.dp))
+                        }
+                        stretchIds.forEachIndexed { index, sid ->
+                            val entry = stretchCatalog.firstOrNull { it.id == sid }
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                                )
+                            ) {
+                                Row(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(Modifier.weight(1f)) {
+                                        Text(entry?.name ?: "Unknown stretch")
+                                        entry?.let {
+                                            val side =
+                                                if (it.requiresBothSides) "Both sides" else "Single hold"
+                                            Text(
+                                                "${stretchCategoryDisplayLabel(it.category)} · $side",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        IconButton(
+                                            onClick = {
+                                                if (index > 0) {
+                                                    val m = stretchIds.toMutableList()
+                                                    val t = m[index]
+                                                    m[index] = m[index - 1]
+                                                    m[index - 1] = t
+                                                    stretchIds = m
+                                                }
+                                            },
+                                            enabled = index > 0
+                                        ) { Icon(Icons.Default.ArrowUpward, contentDescription = "Move stretch up") }
+                                        IconButton(
+                                            onClick = {
+                                                if (index < stretchIds.lastIndex) {
+                                                    val m = stretchIds.toMutableList()
+                                                    val t = m[index]
+                                                    m[index] = m[index + 1]
+                                                    m[index + 1] = t
+                                                    stretchIds = m
+                                                }
+                                            },
+                                            enabled = index < stretchIds.lastIndex
+                                        ) { Icon(Icons.Default.ArrowDownward, contentDescription = "Move stretch down") }
+                                        IconButton(onClick = {
+                                            stretchIds = stretchIds.toMutableList().also { it.removeAt(index) }
+                                        }) {
+                                            Icon(Icons.Default.Delete, contentDescription = "Remove stretch")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if (stretchRId.isBlank() && stretchIds.isNotEmpty()) {
+                            Spacer(Modifier.height(8.dp))
+                            FilledTonalButton(
+                                onClick = {
+                                    saveAsStretchRoutineName = title.trim().ifBlank {
+                                        stretchIds.firstOrNull()?.let { id ->
+                                            stretchCatalog.firstOrNull { it.id == id }?.name
+                                        }.orEmpty()
+                                    }
+                                    showSaveAsStretchRoutineDialog = true
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) { Text("Save stretch order as routine…") }
                         }
                     }
                     ProgramBlockKind.HEAT_COLD -> {
@@ -1992,24 +2463,77 @@ private fun BlockEditorDialog(
             TextButton(
                 onClick = {
                     val mins = targetMin.toIntOrNull()
-                    val weightRoutineIdOrNull =
-                        if (kind == ProgramBlockKind.WEIGHT) weightRoutineId.ifBlank { null } else null
-                    val block = ProgramDayBlock(
-                        id = existing?.id ?: UUID.randomUUID().toString(),
-                        kind = kind,
-                        title = title.ifBlank { null },
-                        notes = notes.ifBlank { null },
-                        weightExerciseIds = if (kind == ProgramBlockKind.WEIGHT && weightRoutineIdOrNull == null) {
-                            weightIds.toList()
+                    val (outWeightRoutineId, outWeightExerciseIds) =
+                        if (kind == ProgramBlockKind.WEIGHT) {
+                            val wLib = weightRoutineId.takeIf { it.isNotBlank() }?.let { lid ->
+                                weightState.routines.firstOrNull { r -> r.id == lid }
+                            }
+                            val wCanon = wLib?.exerciseIds
+                                ?.filter { id -> weightState.exerciseById(id) != null }
+                                .orEmpty()
+                            val wLinked = wLib != null && weightIds == wCanon
+                            if (wLinked) {
+                                requireNotNull(wLib).id to emptyList()
+                            } else {
+                                null to weightIds
+                            }
+                        } else {
+                            null to emptyList()
+                        }
+                    val stretchLib = if (kind == ProgramBlockKind.STRETCH_ROUTINE ||
+                        kind == ProgramBlockKind.STRETCH_CATALOG
+                    ) {
+                        stretchRId.takeIf { it.isNotBlank() }?.let { stretchState.routineById(it) }
+                    } else {
+                        null
+                    }
+                    val stretchHoldParsed = stretchHoldSec.toIntOrNull()?.coerceIn(5, 300) ?: 30
+                    val stretchCanonical = stretchLib?.stretchIds?.filter { it in catalogIdSet }.orEmpty()
+                    val stretchLinked = stretchLib != null && stretchIds == stretchCanonical &&
+                        stretchHoldParsed == stretchLib.holdSecondsPerStretch.coerceIn(5, 300)
+                    val outBlockKind = when {
+                        kind == ProgramBlockKind.STRETCH_ROUTINE || kind == ProgramBlockKind.STRETCH_CATALOG -> {
+                            if (stretchLinked) ProgramBlockKind.STRETCH_ROUTINE else ProgramBlockKind.STRETCH_CATALOG
+                        }
+                        else -> kind
+                    }
+                    val outStretchRoutineId =
+                        if ((kind == ProgramBlockKind.STRETCH_ROUTINE || kind == ProgramBlockKind.STRETCH_CATALOG) &&
+                            stretchLinked
+                        ) {
+                            requireNotNull(stretchLib).id
+                        } else {
+                            null
+                        }
+                    val outStretchCatalogIds =
+                        if ((kind == ProgramBlockKind.STRETCH_ROUTINE || kind == ProgramBlockKind.STRETCH_CATALOG) &&
+                            !stretchLinked
+                        ) {
+                            stretchIds
                         } else {
                             emptyList()
-                        },
-                        weightRoutineId = weightRoutineIdOrNull,
+                        }
+                    val outStretchHold =
+                        if ((kind == ProgramBlockKind.STRETCH_ROUTINE || kind == ProgramBlockKind.STRETCH_CATALOG) &&
+                            !stretchLinked
+                        ) {
+                            stretchHoldParsed
+                        } else {
+                            null
+                        }
+                    val block = ProgramDayBlock(
+                        id = existing?.id ?: UUID.randomUUID().toString(),
+                        kind = outBlockKind,
+                        title = title.ifBlank { null },
+                        notes = notes.ifBlank { null },
+                        weightExerciseIds = outWeightExerciseIds,
+                        weightRoutineId = outWeightRoutineId,
                         cardioActivity = if (kind == ProgramBlockKind.CARDIO) cardioAct else null,
                         cardioRoutineId = if (kind == ProgramBlockKind.CARDIO) cardioRId.ifBlank { null } else null,
                         unifiedRoutineId = if (kind == ProgramBlockKind.UNIFIED_ROUTINE) unifiedRoutineId.ifBlank { null } else null,
-                        stretchRoutineId = if (kind == ProgramBlockKind.STRETCH_ROUTINE) stretchRId.ifBlank { null } else null,
-                        stretchCatalogIds = if (kind == ProgramBlockKind.STRETCH_CATALOG) stretchCatIds.toList() else emptyList(),
+                        stretchRoutineId = outStretchRoutineId,
+                        stretchCatalogIds = outStretchCatalogIds,
+                        stretchHoldSecondsPerStretch = outStretchHold,
                         heatColdMode = if (kind == ProgramBlockKind.HEAT_COLD) heatMode else null,
                         targetMinutes = if (programBlockSupportsTargetMinutes(kind)) mins else null,
                         checklistItems = if (kind == ProgramBlockKind.OTHER) {

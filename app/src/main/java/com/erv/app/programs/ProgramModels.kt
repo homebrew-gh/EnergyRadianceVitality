@@ -40,6 +40,11 @@ data class ProgramDayBlock(
     val unifiedRoutineId: String? = null,
     val stretchRoutineId: String? = null,
     val stretchCatalogIds: List<String> = emptyList(),
+    /**
+     * Hold seconds per stretch when launching a [ProgramBlockKind.STRETCH_CATALOG] block from the dashboard.
+     * Ignored for [ProgramBlockKind.STRETCH_ROUTINE] (saved routine supplies hold time).
+     */
+    val stretchHoldSecondsPerStretch: Int? = null,
     /** SAUNA | COLD_PLUNGE */
     val heatColdMode: String? = null,
     val targetMinutes: Int? = null,

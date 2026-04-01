@@ -458,6 +458,8 @@ fun ErvNavHost(
             val stretchState by stretchingRepository.state.collectAsState(initial = StretchLibraryState())
             UnifiedRoutineCategoryScreen(
                 repository = unifiedRoutineRepository,
+                weightRepository = weightRepository,
+                stretchingRepository = stretchingRepository,
                 unifiedState = unifiedState,
                 weightState = weightState,
                 cardioState = cardioState,
@@ -598,6 +600,7 @@ fun ErvNavHost(
                 programId = pid,
                 programRepository = programRepository,
                 weightRepository = weightRepository,
+                stretchingRepository = stretchingRepository,
                 weightState = weightState,
                 cardioState = cardioState,
                 stretchState = stretchState,
