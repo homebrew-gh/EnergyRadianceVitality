@@ -14,7 +14,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
@@ -22,12 +21,18 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
@@ -68,7 +73,10 @@ import com.erv.app.supplements.activityStyleSummary
 import com.erv.app.supplements.label
 import com.erv.app.supplements.shortLabel
 import com.erv.app.supplements.SupplementSync
-import com.erv.app.supplements.DatedSupplementLogEntry
+import com.erv.app.supplements.SupplementDayLogSection
+import com.erv.app.supplements.groupIntoDaySectionsNewestFirst
+import com.erv.app.supplements.isFromRoutine
+import com.erv.app.supplements.routineNameFromSource
 import com.erv.app.SectionLogDateFilter
 import com.erv.app.supplements.datedSupplementEntriesForSectionLog
 import com.erv.app.ui.dashboard.SectionLogCalendarSheet
@@ -89,6 +97,9 @@ private enum class SupplementsTab { Supplements, Routines }
 private val SupplementRedDark = Color(0xFF4A0E0E)
 private val SupplementRedMid = Color(0xFF8B0000)
 
+private val SupplementLogFriendlyDate: DateTimeFormatter =
+    DateTimeFormatter.ofPattern("EEEE, MMMM d, yyyy", Locale.getDefault())
+
 private data class RoutineStepDraft(
     val uiKey: String = UUID.randomUUID().toString(),
     val supplementId: String? = null,
@@ -96,7 +107,8 @@ private data class RoutineStepDraft(
     val quantity: String = "1",
     val dosageOverride: String = "",
     val note: String = "",
-    val isExpanded: Boolean = true
+    val isExpanded: Boolean = true,
+    val paused: Boolean = false
 )
 
 private data class SupplementDraft(
@@ -309,9 +321,13 @@ fun SupplementCategoryScreen(
                     },
                     onRunRoutine = { routine ->
                         scope.launch {
-                            repository.logRoutineRun(today, routine.id)
-                            repository.currentState().logFor(today)?.let { syncDailyLog(it) }
-                            snackbarHostState.showSnackbar("Logged ${routine.name}")
+                            val ok = repository.logRoutineRun(today, routine.id)
+                            if (ok) {
+                                repository.currentState().logFor(today)?.let { syncDailyLog(it) }
+                                snackbarHostState.showSnackbar("Logged ${routine.name}")
+                            } else {
+                                snackbarHostState.showSnackbar("Nothing to log — all steps are paused or missing supplements.")
+                            }
                         }
                     },
                     onCreateRoutine = { name, timeOfDay, steps, notes, reminderDraft ->
@@ -792,7 +808,16 @@ fun SupplementLogScreen(
     val datedEntries = remember(state, dateFilter) {
         state.datedSupplementEntriesForSectionLog(dateFilter)
     }
-    val showLogDateOnCards = dateFilter !is SectionLogDateFilter.SingleDay
+    val daySections = remember(datedEntries) {
+        datedEntries.groupIntoDaySectionsNewestFirst()
+    }
+    var expandedLogDates by remember { mutableStateOf(setOf<LocalDate>()) }
+    LaunchedEffect(dateFilter) {
+        when (val f = dateFilter) {
+            is SectionLogDateFilter.SingleDay -> expandedLogDates = setOf(f.day)
+            else -> { }
+        }
+    }
     val datesWithActivity = remember(state) { datesWithSupplementActivity(state) }
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -878,27 +903,30 @@ fun SupplementLogScreen(
                 ) {
                     item {
                         Text(
-                            text = "Newest first. Tap delete to remove from that day.",
+                            text = "Grouped by day, newest first. Open a day to see each intake. Delete removes one line.",
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Spacer(Modifier.height(8.dp))
                     }
-                    itemsIndexed(
-                        items = datedEntries,
-                        key = { index, dated ->
-                            val entry = dated.entry
-                            "${dated.logDate}-${entry.intakeId ?: "$index-${entry.takenAtEpochSeconds}-${entry.supplementId}-${entry.sourceLabel}"}"
-                        }
-                    ) { _, dated ->
-                        val entry = dated.entry
-                        SupplementLogEntryCard(
-                            entry = entry,
-                            showLogDate = showLogDateOnCards,
-                            logDate = dated.logDate,
-                            onDelete = {
+                    items(
+                        items = daySections,
+                        key = { it.logDate.toString() }
+                    ) { section ->
+                        SupplementLogDayCard(
+                            section = section,
+                            expanded = section.logDate in expandedLogDates,
+                            onToggleExpand = {
+                                expandedLogDates =
+                                    if (section.logDate in expandedLogDates) {
+                                        expandedLogDates - section.logDate
+                                    } else {
+                                        expandedLogDates + section.logDate
+                                    }
+                            },
+                            onDeleteEntry = { entry ->
                                 scope.launch {
-                                    val logDate = dated.logDate
+                                    val logDate = section.logDate
                                     val intakeId = entry.intakeId
                                     if (intakeId != null) {
                                         repository.removeIntake(logDate, intakeId)
@@ -932,54 +960,111 @@ fun SupplementLogScreen(
 }
 
 @Composable
-private fun SupplementLogEntryCard(
-    entry: SupplementLogEntry,
-    showLogDate: Boolean,
-    logDate: LocalDate,
-    onDelete: () -> Unit
+private fun SupplementLogDayCard(
+    section: SupplementDayLogSection,
+    expanded: Boolean,
+    onToggleExpand: () -> Unit,
+    onDeleteEntry: (SupplementLogEntry) -> Unit
 ) {
+    val distinctNames = remember(section.entries) {
+        section.entries.map { it.supplementName }.distinct().size
+    }
+    val intakeCount = section.entries.size
     ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.Top
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                if (showLogDate) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onToggleExpand)
+                    .padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = logDate.format(DateTimeFormatter.ISO_LOCAL_DATE),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.primary
+                        text = section.logDate.format(SupplementLogFriendlyDate),
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    Text(
+                        text = when {
+                            intakeCount == 0 -> "No entries"
+                            distinctNames == 1 && intakeCount == 1 -> "1 supplement · 1 intake"
+                            distinctNames == 1 -> "1 supplement · $intakeCount intakes"
+                            distinctNames == intakeCount -> "$distinctNames supplements"
+                            else -> "$distinctNames supplements · $intakeCount intakes"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                Text(
-                    text = entry.supplementName,
-                    style = MaterialTheme.typography.titleMedium
-                )
-                Text(
-                    text = entry.dosageTaken,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Text(
-                    text = entry.sourceLabel,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Text(
-                    text = formatLogTime(entry.takenAtEpochSeconds),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            IconButton(onClick = onDelete) {
                 Icon(
-                    Icons.Default.Delete,
-                    contentDescription = "Remove this entry"
+                    imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = if (expanded) "Hide intakes" else "Show intakes",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+            if (expanded && section.entries.isNotEmpty()) {
+                HorizontalDivider(modifier = Modifier.padding(horizontal = 12.dp))
+                section.entries.forEachIndexed { index, entry ->
+                    key(entry.intakeId ?: "legacy-$index", entry.takenAtEpochSeconds, entry.supplementId) {
+                        SupplementLogIntakeRow(
+                            entry = entry,
+                            onDelete = { onDeleteEntry(entry) }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SupplementLogIntakeRow(
+    entry: SupplementLogEntry,
+    onDelete: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                text = entry.supplementName,
+                style = MaterialTheme.typography.titleSmall
+            )
+            Text(
+                text = entry.dosageTaken,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = formatLogTime(entry.takenAtEpochSeconds),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = if (entry.isFromRoutine()) {
+                    val rn = entry.routineNameFromSource()
+                    if (rn != null) "Part of routine: $rn" else "Part of a routine"
+                } else {
+                    "Ad hoc — not from a routine"
+                },
+                style = MaterialTheme.typography.labelMedium,
+                color = if (entry.isFromRoutine()) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                }
+            )
+        }
+        IconButton(onClick = onDelete) {
+            Icon(
+                Icons.Default.Delete,
+                contentDescription = "Remove this intake"
+            )
         }
     }
 }
@@ -1180,7 +1265,8 @@ private fun RoutineEditorDialog(
                             quantity = it.quantity?.toString() ?: "1",
                             dosageOverride = it.dosageOverride.orEmpty(),
                             note = it.note.orEmpty(),
-                            isExpanded = false
+                            isExpanded = false,
+                            paused = it.paused
                         )
                     )
                 }
@@ -1257,7 +1343,8 @@ private fun RoutineEditorDialog(
                                 dosageOverride = draft.dosageOverride.trim().ifBlank {
                                     supplement?.recommendedServingDisplay().orEmpty()
                                 }.ifBlank { null },
-                                note = draft.note.trim().ifBlank { null }
+                                note = draft.note.trim().ifBlank { null },
+                                paused = draft.paused
                             )
                         },
                         notes.trim(),
@@ -1284,6 +1371,7 @@ private fun RoutineStepRow(
     onRemove: () -> Unit
 ) {
     var showSupplementPicker by remember { mutableStateOf(false) }
+    var stepMenuExpanded by remember { mutableStateOf(false) }
     val selectedSupplement = supplements.firstOrNull { it.id == step.supplementId }
     val recommendedServing = selectedSupplement?.recommendedServingDisplay().orEmpty()
     val servingSizeLabel = selectedSupplement?.info?.servingSize?.takeIf { it.isNotBlank() }
@@ -1307,10 +1395,17 @@ private fun RoutineStepRow(
                 append(" • ")
                 append(step.note)
             }
+            if (step.paused) {
+                append(" • Paused")
+            }
         }
     }
 
-    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+    ElevatedCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .alpha(if (step.paused) 0.55f else 1f)
+    ) {
         Column(
             modifier = Modifier.padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -1333,16 +1428,43 @@ private fun RoutineStepRow(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                TextButton(
-                    onClick = {
-                        onStepChange(step.copy(isExpanded = !step.isExpanded))
-                    },
+                IconButton(
+                    onClick = { onStepChange(step.copy(isExpanded = !step.isExpanded)) },
                     enabled = selectedSupplement != null
                 ) {
-                    Text(if (step.isExpanded) "Minimize" else "Edit")
+                    Icon(
+                        imageVector = if (step.isExpanded) Icons.Default.Remove else Icons.Default.Edit,
+                        contentDescription = if (step.isExpanded) "Collapse step" else "Edit step"
+                    )
                 }
-                IconButton(onClick = onRemove) {
-                    Icon(Icons.Default.Delete, contentDescription = "Remove supplement")
+                IconButton(
+                    onClick = { onStepChange(step.copy(paused = !step.paused)) },
+                    enabled = selectedSupplement != null
+                ) {
+                    Icon(
+                        imageVector = if (step.paused) Icons.Default.PlayArrow else Icons.Default.Pause,
+                        contentDescription = if (step.paused) "Resume step" else "Pause step"
+                    )
+                }
+                Box {
+                    IconButton(onClick = { stepMenuExpanded = true }) {
+                        Icon(Icons.Default.MoreVert, contentDescription = "Step options")
+                    }
+                    DropdownMenu(
+                        expanded = stepMenuExpanded,
+                        onDismissRequest = { stepMenuExpanded = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Remove from routine") },
+                            onClick = {
+                                stepMenuExpanded = false
+                                onRemove()
+                            },
+                            leadingIcon = {
+                                Icon(Icons.Default.Delete, contentDescription = null)
+                            }
+                        )
+                    }
                 }
             }
 

@@ -41,6 +41,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
@@ -194,6 +195,7 @@ import com.erv.app.ui.media.playHiitWorkSegmentStartCue
 import com.erv.app.ui.media.playHiitSoftSegmentStartCue
 import com.erv.app.ui.dashboard.SectionLogCalendarSheet
 import com.erv.app.ui.dashboard.SectionLogFilterBar
+import com.erv.app.ui.dashboard.sectionLogFilterSummary
 import com.erv.app.ui.dashboard.datesWithCardioActivity
 import com.erv.app.ui.weighttraining.LiveWorkoutInProgressBanner
 import com.erv.app.ui.media.WorkoutMediaControlPanel
@@ -299,6 +301,10 @@ fun CardioCategoryScreen(
     var showCardioFgsDialog by remember { mutableStateOf(false) }
     var pendingCardioSession by remember { mutableStateOf<CardioActiveTimerSession?>(null) }
     var completedWorkoutSummary by remember { mutableStateOf<CardioTimerCompletionResult?>(null) }
+    var showCardioStatsSheet by remember { mutableStateOf(false) }
+    val allTimeCardioLogEntries = remember(state) {
+        state.datedCardioSessionsForSectionLog(SectionLogDateFilter.AllHistory)
+    }
     val darkTheme = isSystemInDarkTheme()
     val therapyRedDark = if (darkTheme) ErvDarkTherapyRedDark else ErvLightTherapyRedDark
     val therapyRedMid = if (darkTheme) ErvDarkTherapyRedMid else ErvLightTherapyRedMid
@@ -412,6 +418,9 @@ fun CardioCategoryScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = { showCardioStatsSheet = true }) {
+                        Icon(Icons.Filled.BarChart, contentDescription = "Stats and graphs")
+                    }
                     IconButton(onClick = onOpenLog) {
                         Icon(Icons.Default.DateRange, contentDescription = "Open log")
                     }
@@ -929,6 +938,15 @@ fun CardioCategoryScreen(
                 )
                 pendingQuickLaunchRuck = null
             }
+        )
+    }
+
+    if (showCardioStatsSheet) {
+        CardioLogStatsBottomSheet(
+            onDismiss = { showCardioStatsSheet = false },
+            entries = allTimeCardioLogEntries,
+            distanceUnit = distanceUnit,
+            periodLabel = sectionLogFilterSummary(SectionLogDateFilter.AllHistory),
         )
     }
 }
@@ -2319,6 +2337,7 @@ fun CardioLogScreen(
         mutableStateOf(openCalendarInitially)
     }
     var showManualLog by remember { mutableStateOf(false) }
+    var showCardioLogStatsSheet by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<DatedCardioSession?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -2389,9 +2408,15 @@ fun CardioLogScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
+                actions = {
+                    IconButton(onClick = { showCardioLogStatsSheet = true }) {
+                        Icon(Icons.Filled.BarChart, contentDescription = "Stats and graphs")
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = ErvHeaderRed,
                     titleContentColor = Color.White,
+                    actionIconContentColor = Color.White,
                     navigationIconContentColor = Color.White
                 )
             )
@@ -2502,6 +2527,15 @@ fun CardioLogScreen(
             onDismiss = { showCal = false },
             datesWithActivity = datesWithActivity,
             onApplyFilter = { dateFilter = it }
+        )
+    }
+
+    if (showCardioLogStatsSheet) {
+        CardioLogStatsBottomSheet(
+            onDismiss = { showCardioLogStatsSheet = false },
+            entries = datedEntries,
+            distanceUnit = distanceUnit,
+            periodLabel = sectionLogFilterSummary(dateFilter),
         )
     }
 

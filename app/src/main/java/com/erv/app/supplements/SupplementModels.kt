@@ -118,7 +118,9 @@ data class SupplementRoutineStep(
     val timeOfDay: SupplementTimeOfDay? = null,
     val quantity: Int? = null,
     val dosageOverride: String? = null,
-    val note: String? = null
+    val note: String? = null,
+    /** When true, step stays in the routine but is skipped when logging and hidden from dashboard quick log preview. */
+    val paused: Boolean = false
 )
 
 @Serializable
@@ -212,6 +214,38 @@ data class SupplementLogEntry(
     /** Intake id for delete; null for legacy entries. */
     val intakeId: String? = null
 )
+
+fun SupplementLogEntry.isFromRoutine(): Boolean = sourceLabel.startsWith("Routine:")
+
+/** Routine display name when [isFromRoutine]; null if label is malformed. */
+fun SupplementLogEntry.routineNameFromSource(): String? =
+    if (!isFromRoutine()) null
+    else sourceLabel.removePrefix("Routine:").trim().takeIf { it.isNotEmpty() }
+
+/** One calendar day of intakes for log UI (entries sorted by time, then name). */
+data class SupplementDayLogSection(
+    val logDate: LocalDate,
+    val entries: List<SupplementLogEntry>
+)
+
+/** Groups flat dated rows into one section per day, newest days first. */
+fun List<DatedSupplementLogEntry>.groupIntoDaySectionsNewestFirst(): List<SupplementDayLogSection> {
+    if (isEmpty()) return emptyList()
+    return groupBy { it.logDate }
+        .map { (date, datedList) ->
+            SupplementDayLogSection(
+                logDate = date,
+                entries = datedList
+                    .map { it.entry }
+                    .sortedWith(
+                        compareBy<SupplementLogEntry> { it.takenAtEpochSeconds }
+                            .thenBy { it.supplementName.lowercase() }
+                            .thenBy { it.intakeId ?: "" }
+                    )
+            )
+        }
+        .sortedByDescending { it.logDate }
+}
 
 fun SupplementLibraryState.groupedSupplementActivityFor(date: LocalDate): List<SupplementActivityRow> {
     val log = logFor(date) ?: return emptyList()

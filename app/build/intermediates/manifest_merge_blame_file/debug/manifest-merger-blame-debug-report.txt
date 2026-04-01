@@ -1,8 +1,8 @@
 1<?xml version="1.0" encoding="utf-8"?>
 2<manifest xmlns:android="http://schemas.android.com/apk/res/android"
 3    package="com.erv.app"
-4    android:versionCode="2026032900"
-5    android:versionName="2026.03.29" >
+4    android:versionCode="2026040100"
+5    android:versionName="2026.04.01" >
 6
 7    <uses-sdk
 8        android:minSdkVersion="26"

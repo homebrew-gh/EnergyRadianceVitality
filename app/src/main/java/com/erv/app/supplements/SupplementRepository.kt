@@ -114,24 +114,29 @@ class SupplementRepository(context: Context) {
         }
     }
 
-    suspend fun logRoutineRun(date: LocalDate, routineId: String) {
-        val routine = currentState().routineById(routineId) ?: return
-        logRoutineRun(date, routine.id, routine.name, routine.steps)
+    /** @return true if a routine run was appended (had at least one non-paused step with a valid supplement). */
+    suspend fun logRoutineRun(date: LocalDate, routineId: String): Boolean {
+        val routine = currentState().routineById(routineId) ?: return false
+        return logRoutineRun(date, routine.id, routine.name, routine.steps)
     }
 
+    /** @return true if a routine run was appended. */
     suspend fun logRoutineRun(
         date: LocalDate,
         routineId: String,
         routineName: String,
         steps: List<SupplementRoutineStep>
-    ) {
+    ): Boolean {
+        val activeSteps = steps.filterNot { it.paused }
+        if (activeSteps.isEmpty()) return false
+        var appended = false
         updateState { current ->
             val log = current.logFor(date) ?: SupplementDayLog(date = date.toString())
             val run = SupplementRoutineRun(
                 routineId = routineId,
                 routineName = routineName,
                 takenAtEpochSeconds = nowEpochSeconds(),
-                stepIntakes = steps.mapNotNull { step ->
+                stepIntakes = activeSteps.mapNotNull { step ->
                     val supplement = current.supplementById(step.supplementId) ?: return@mapNotNull null
                     SupplementIntake(
                         supplementId = supplement.id,
@@ -144,8 +149,14 @@ class SupplementRepository(context: Context) {
                     )
                 }
             )
-            current.copy(logs = current.logs.upsert(log.copy(routineRuns = log.routineRuns + run)))
+            if (run.stepIntakes.isEmpty()) {
+                current
+            } else {
+                appended = true
+                current.copy(logs = current.logs.upsert(log.copy(routineRuns = log.routineRuns + run)))
+            }
         }
+        return appended
     }
 
     /**
