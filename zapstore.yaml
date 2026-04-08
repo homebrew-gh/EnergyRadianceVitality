@@ -1,38 +1,52 @@
 repository: https://github.com/homebrew-gh/EnergyRadianceVitality
 release_source: ./app/build/outputs/apk/release/app-release.apk
-
-# Required for relay verification / auto-whitelisting on first publish.
-pubkey: npub1cwud4fr3fy6xh0kperyu77vppg3atktsr7v5gsw8uuq5ems3d5vsxymkg6
-
-name: ERV
-summary: Local-first Android health tracker with optional encrypted Nostr sync.
 description: |
-  ERV helps you track health and wellness data on your own device without a first-party cloud account.
+    ERV helps you track health and wellness data on your own device without a first-party cloud account.
 
-  What ERV supports today:
-  - weight training
-  - cardio
-  - stretching
-  - sauna and cold plunge
-  - light therapy
-  - supplements
-  - programs and unified routines
-  - body tracking
+    What ERV supports today:
+    - weight training
+    - cardio
+    - stretching
+    - sauna and cold plunge
+    - light therapy
+    - supplements
+    - programs and unified routines
+    - body tracking
 
-  Privacy and ownership model:
-  - ERV is local first.
-  - Sync is optional.
-  - Supported health payloads are encrypted before relay sync.
-  - ERV does not operate its own hosted health-data cloud.
-  - Android cloud backup and device transfer are disabled for app data; use ERV export / backup files when you want an off-device copy.
-  - Exported files are plaintext unless you encrypt them separately.
-  - Relay operators may still observe metadata such as timing and your public key.
-  - ERV can attempt to remove or replace synced relay data, but cannot guarantee every relay permanently deletes retained copies.
-  - Third-party remote signers, relays, and media hosts are outside ERV's control.
+    Privacy and ownership model:
+    - ERV is local first.
+    - Sync is optional.
+    - Supported health payloads are encrypted before relay sync.
+    - ERV does not operate its own hosted health-data cloud.
+    - Android cloud backup and device transfer are disabled for app data; use ERV export / backup files when you want an off-device copy.
+    - Exported files are plaintext unless you encrypt them separately.
+    - Relay operators may still observe metadata such as timing and your public key.
+    - ERV can attempt to remove or replace synced relay data, but cannot guarantee every relay permanently deletes retained copies.
+    - Third-party remote signers, relays, and media hosts are outside ERV's control.
 
-  Import / export wording:
-  - Data interchange is for AI, coach, and script workflows.
-  - ERV backup JSON is for migration, archival, and restore.
-
+    Import / export wording:
+    - Data interchange is for AI, coach, and script workflows.
+    - ERV backup JSON is for migration, archival, and restore.
+summary: Local-first Android health tracker with optional encrypted Nostr sync.
+tags:
+    - health
+    - workout
+    - lifting
+    - supplements
+    - cardio
+    - privacy
+    - fitness
+    - run
+    - bike
+license: MIT
+# Vector-only launcher in APK; zsp APK icon extraction often fails → wrong placeholder. Use explicit PNG.
+icon: docs/store-images/store-icon.png
+# Phone UI captures only (see docs/store-images/README.md). Listing page captures are not suitable here.
 images:
-  - docs/store-images/.*\.(png|jpg|jpeg|webp)
+    - docs/store-images/screenshots/.*\.(png|jpg|jpeg|webp)
+# Same NIPs as wizard prompt (space-separated): 01 33 42 44 55 65 96 98 B7
+# zsp only accepts a YAML list here, not a plain string — flow form keeps it one line.
+supported_nips: ["01", "33", "42", "44", "55", "65", "96", "98", "B7"]
+metadata_sources:
+    - github
+pubkey: npub155dvu679jn7jnf3klzudgm5zy2thm2vjtd08309a4r2xtj43744sz98rxq
