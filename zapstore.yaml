@@ -41,9 +41,16 @@ tags:
 license: MIT
 # Vector-only launcher in APK; zsp APK icon extraction often fails → wrong placeholder. Use explicit PNG.
 icon: docs/store-images/store-icon.png
-# Phone UI captures only (see docs/store-images/README.md). Listing page captures are not suitable here.
+# Phone UI captures only (see docs/store-images/README.md). zsp treats each entry as a real path — no regex/globs.
 images:
-    - docs/store-images/screenshots/.*\.(png|jpg|jpeg|webp)
+    - docs/store-images/screenshots/screenshot-1.png
+    - docs/store-images/screenshots/screenshot-2.png
+    - docs/store-images/screenshots/screenshot-3.png
+    - docs/store-images/screenshots/screenshot-4.png
+    - docs/store-images/screenshots/screenshot-5.png
+    - docs/store-images/screenshots/screenshot-6.png
+    - docs/store-images/screenshots/screenshot-7.png
+    - docs/store-images/screenshots/screenshot-8.png
 # Same NIPs as wizard prompt (space-separated): 01 33 42 44 55 65 96 98 B7
 # zsp only accepts a YAML list here, not a plain string — flow form keeps it one line.
 supported_nips: ["01", "33", "42", "44", "55", "65", "96", "98", "B7"]

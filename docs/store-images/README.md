@@ -7,7 +7,7 @@
 
 ## Screenshots
 
-Put **phone UI** images under **`screenshots/`** (see `screenshots/README.md`). `zapstore.yaml` uses a glob on that folder only so the **icon file is not** duplicated as a “screenshot.”
+Put **phone UI** images under **`screenshots/`** (see `screenshots/README.md`). In **`zapstore.yaml`**, add **one `images:` line per file** (`screenshot-1.png`, …). **`zsp` does not expand globs or regex** — a single pattern string is treated as a literal path, so screenshots never upload that way. Keeping screenshots in this subfolder avoids duplicating **`store-icon.png`** as a screenshot.
 
 Formats: `.png`, `.jpg`, `.jpeg`, `.webp`
 

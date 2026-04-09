@@ -1,6 +1,6 @@
 # Store screenshots (phone)
 
-Add **in-app** screenshots here (ERV running on a device or emulator). Zapstore picks up any `.png`, `.jpg`, `.jpeg`, or `.webp` in this folder via `zapstore.yaml`.
+Add **in-app** screenshots here (ERV running on a device or emulator). Each new file must be **listed explicitly** under `images:` in **`zapstore.yaml`** at the repo root — `zsp` does not auto-scan this folder.
 
 Use clear names, for example:
 
