@@ -64,6 +64,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.erv.app.R
 import com.erv.app.data.BodyWeightUnit
 import com.erv.app.data.UserPreferences
 import com.erv.app.nostr.EventSigner
@@ -402,9 +403,22 @@ fun WeightTrainingCategoryScreen(
                         onBack()
                     }
                 },
+                onCannotFinishNothingLogged = {
+                    scope.launch {
+                        snackbarHostState.showSnackbar(
+                            appContext.getString(R.string.weight_live_finish_blocked_snackbar)
+                        )
+                    }
+                },
                 onFinish = {
                     scope.launch {
-                        val current = liveWorkoutViewModel.activeDraft.value ?: return@launch
+                        val current = liveWorkoutViewModel.activeDraft.value
+                        if (current == null) {
+                            snackbarHostState.showSnackbar(
+                                appContext.getString(R.string.weight_live_finish_snackbar_no_draft)
+                            )
+                            return@launch
+                        }
                         val hr = heartRateBle.takeWorkoutHeartRateSummary()
                         val end = weightNowEpochSeconds()
                         val segments = buildWeightExerciseHrSegments(
@@ -416,7 +430,13 @@ fun WeightTrainingCategoryScreen(
                         val session = current.toFinishedLiveSession(
                             heartRate = hr,
                             heartRateExerciseSegments = segments
-                        ) ?: return@launch
+                        )
+                        if (session == null) {
+                            snackbarHostState.showSnackbar(
+                                appContext.getString(R.string.weight_live_finish_snackbar_nothing_to_save)
+                            )
+                            return@launch
+                        }
                         val estimatedKcal = WeightCalorieEstimator.estimateKcal(session, fallbackBodyWeightKg)
                         val today = LocalDate.now()
                         val activeUnifiedSession = unifiedState.activeSession
@@ -445,7 +465,9 @@ fun WeightTrainingCategoryScreen(
                                 entryId = storedSession.id
                             )
                         }
-                        pushDayLog(today)
+                        // Update UI BEFORE the relay push: kickDrain inside pushDayLog can
+                        // block for many seconds (or up to 120s on backoff) and would otherwise
+                        // make Finish appear to do nothing. Local save is already complete.
                         if (activeUnifiedSession != null && activeUnifiedBlockId != null) {
                             liveWorkoutViewModel.clearDraft()
                             onReturnToUnifiedRun(activeUnifiedSession.routineId)
@@ -453,6 +475,7 @@ fun WeightTrainingCategoryScreen(
                             liveWorkoutViewModel.clearDraft()
                             completedSessionForSummary = storedSession
                         }
+                        scope.launch { pushDayLog(today) }
                     }
                 },
                 onAddExercise = { id -> liveWorkoutViewModel.addExercise(id) },

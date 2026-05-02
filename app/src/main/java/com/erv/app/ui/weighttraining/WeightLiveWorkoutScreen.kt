@@ -89,6 +89,8 @@ fun WeightLiveWorkoutScreen(
     onLeaveWorkoutUi: () -> Unit,
     /** User explicitly abandons the live session (top bar Discard). */
     onDiscardWorkout: () -> Unit,
+    /** Called when Finish is tapped but nothing is logged yet (parent may show a snackbar). */
+    onCannotFinishNothingLogged: () -> Unit = {},
     onFinish: () -> Unit,
     onAddExercise: (String) -> Unit,
     onRemoveExerciseAt: (Int) -> Unit,
@@ -281,8 +283,8 @@ fun WeightLiveWorkoutScreen(
     if (showFinishBlocked) {
         AlertDialog(
             onDismissRequest = { showFinishBlocked = false },
-            title = { Text("Nothing to save") },
-            text = { Text("Log at least one set or completed interval block before finishing.") },
+            title = { Text(stringResource(R.string.weight_live_finish_blocked_title)) },
+            text = { Text(stringResource(R.string.weight_live_finish_blocked_body)) },
             confirmButton = {
                 TextButton(onClick = { showFinishBlocked = false }) { Text("OK") }
             }
@@ -352,8 +354,12 @@ fun WeightLiveWorkoutScreen(
                             draft.hiitBlocksByExerciseId[id] != null ||
                                 draft.setsByExerciseId[id].orEmpty().any { it.reps > 0 }
                         }
-                        if (!hasLogged) showFinishBlocked = true
-                        else onFinish()
+                        if (!hasLogged) {
+                            onCannotFinishNothingLogged()
+                            showFinishBlocked = true
+                        } else {
+                            onFinish()
+                        }
                     },
                     modifier = Modifier.padding(end = 4.dp)
                 ) {
