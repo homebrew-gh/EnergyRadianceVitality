@@ -3186,30 +3186,33 @@ fun CardioElapsedTimerFullScreen(
                     color = Color.White.copy(alpha = 0.75f)
                 )
                 if (draft.activity.isCyclingActivity() && cyclingSensorConnected) {
+                    val sensorDistance = preferredLiveDistanceMeters
+                    val hasLiveSensorMetric =
+                        cyclingSpeedKmh != null || cyclingCadenceRpm != null || sensorDistance != null
                     Spacer(Modifier.height(12.dp))
-                    cyclingSpeedKmh?.let { speed ->
-                        Text(
-                            text = String.format(Locale.US, "%.1f km/h", speed),
-                            style = MaterialTheme.typography.titleMedium,
-                            color = Color.White.copy(alpha = 0.95f)
-                        )
-                    }
-                    cyclingCadenceRpm?.let { cadence ->
-                        Text(
-                            text = "$cadence rpm cadence",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = Color.White.copy(alpha = 0.9f)
-                        )
-                    }
-                    preferredLiveDistanceMeters?.let { sensorDistance ->
-                        Text(
-                            text = formatCardioDistanceFromMeters(sensorDistance, distanceUnit),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = Color.White.copy(alpha = 0.85f)
-                        )
-                    }
                     Text(
-                        "Live cycling sensor data",
+                        text = cyclingSpeedKmh?.let { speed ->
+                            String.format(Locale.US, "Speed %.1f km/h", speed)
+                        } ?: "Speed --",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = Color.White.copy(alpha = if (cyclingSpeedKmh != null) 0.95f else 0.65f)
+                    )
+                    Text(
+                        text = sensorDistance?.let { distance ->
+                            "Distance ${formatCardioDistanceFromMeters(distance, distanceUnit)}"
+                        } ?: "Distance waiting for wheel",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White.copy(alpha = if (sensorDistance != null) 0.9f else 0.65f)
+                    )
+                    Text(
+                        text = cyclingCadenceRpm?.let { cadence ->
+                            "$cadence rpm cadence"
+                        } ?: "Cadence --",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White.copy(alpha = if (cyclingCadenceRpm != null) 0.9f else 0.65f)
+                    )
+                    Text(
+                        if (hasLiveSensorMetric) "Live cycling sensor data" else "Spin the wheel to start sensor stats",
                         style = MaterialTheme.typography.bodySmall,
                         color = Color.White.copy(alpha = 0.65f)
                     )

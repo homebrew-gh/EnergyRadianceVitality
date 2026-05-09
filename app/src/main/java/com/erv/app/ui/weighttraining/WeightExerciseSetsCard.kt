@@ -120,6 +120,7 @@ fun WeightExerciseInlineSetsCard(
     val canCollapseSets = onCollapseSets != null && onExpandSets != null
     val collapsedSummary = canCollapseSets && setsCollapsed
     val expandCardCd = stringResource(R.string.weight_exercise_card_expand_cd)
+    var showRemoveExerciseConfirm by rememberSaveable(exerciseName) { mutableStateOf(false) }
     Card(
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceVariant
@@ -156,6 +157,28 @@ fun WeightExerciseInlineSetsCard(
                     }
                 )
             }
+            if (showRemoveExerciseConfirm) {
+                AlertDialog(
+                    onDismissRequest = { showRemoveExerciseConfirm = false },
+                    title = { Text("Remove exercise?") },
+                    text = {
+                        Text(
+                            "Remove “$exerciseName” from this workout? Any sets or interval log for this exercise will be deleted."
+                        )
+                    },
+                    confirmButton = {
+                        TextButton(
+                            onClick = {
+                                showRemoveExerciseConfirm = false
+                                onRemoveExercise()
+                            }
+                        ) { Text("Remove") }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showRemoveExerciseConfirm = false }) { Text("Cancel") }
+                    }
+                )
+            }
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -189,7 +212,7 @@ fun WeightExerciseInlineSetsCard(
                             Icon(Icons.Default.ArrowDownward, contentDescription = "Move down")
                         }
                     }
-                    IconButton(onClick = onRemoveExercise) {
+                    IconButton(onClick = { showRemoveExerciseConfirm = true }) {
                         Icon(Icons.Default.Close, contentDescription = "Remove exercise")
                     }
                 }

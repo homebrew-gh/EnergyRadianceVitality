@@ -558,6 +558,7 @@ fun WeightTrainingCategoryScreen(
             WeightExerciseEditorDialog(
                 initial = null,
                 title = "Add exercise",
+                availableMuscleGroups = state.exercises.map { it.muscleGroup },
                 onDismiss = { showExerciseCreator = false },
                 onSave = { draft ->
                     scope.launch {

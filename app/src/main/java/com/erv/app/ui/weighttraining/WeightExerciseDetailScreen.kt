@@ -425,6 +425,7 @@ fun WeightExerciseDetailScreen(
         WeightExerciseEditorDialog(
             initial = exercise,
             title = "Edit exercise",
+            availableMuscleGroups = library.exercises.map { it.muscleGroup },
             onDismiss = { showEditor = false },
             onSave = { draft ->
                 scope.launch {

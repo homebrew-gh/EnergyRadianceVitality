@@ -349,6 +349,7 @@ fun WeightLiveWorkoutScreen(
                 }
             },
             actions = {
+                val isEditingExercise = editingId != null
                 IconButton(
                     onClick = {
                         scope.launch {
@@ -376,28 +377,30 @@ fun WeightLiveWorkoutScreen(
                         tint = Color.White.copy(alpha = if (mediaControlsEnabled) 1f else 0.88f)
                     )
                 }
-                TextButton(
-                    onClick = { showDiscardConfirm = true },
-                    modifier = Modifier.padding(end = 4.dp)
-                ) {
-                    Text("Discard", color = Color.White.copy(alpha = 0.92f))
-                }
-                TextButton(
-                    onClick = {
-                        val hasLogged = draft.exerciseOrder.any { id ->
-                            draft.hiitBlocksByExerciseId[id] != null ||
-                                draft.setsByExerciseId[id].orEmpty().any { it.reps > 0 }
-                        }
-                        if (!hasLogged) {
-                            onCannotFinishNothingLogged()
-                            showFinishBlocked = true
-                        } else {
-                            onFinish()
-                        }
-                    },
-                    modifier = Modifier.padding(end = 4.dp)
-                ) {
-                    Text("Finish", color = Color.White)
+                if (!isEditingExercise) {
+                    TextButton(
+                        onClick = { showDiscardConfirm = true },
+                        modifier = Modifier.padding(end = 4.dp)
+                    ) {
+                        Text("Discard", color = Color.White.copy(alpha = 0.92f))
+                    }
+                    TextButton(
+                        onClick = {
+                            val hasLogged = draft.exerciseOrder.any { id ->
+                                draft.hiitBlocksByExerciseId[id] != null ||
+                                    draft.setsByExerciseId[id].orEmpty().any { it.reps > 0 }
+                            }
+                            if (!hasLogged) {
+                                onCannotFinishNothingLogged()
+                                showFinishBlocked = true
+                            } else {
+                                onFinish()
+                            }
+                        },
+                        modifier = Modifier.padding(end = 4.dp)
+                    ) {
+                        Text("Finish", color = Color.White)
+                    }
                 }
             },
             colors = TopAppBarDefaults.topAppBarColors(

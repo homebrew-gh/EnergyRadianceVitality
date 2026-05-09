@@ -11,7 +11,6 @@ import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
 import android.bluetooth.le.BluetoothLeScanner
 import android.bluetooth.le.ScanCallback
-import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.pm.PackageManager
@@ -247,14 +246,11 @@ class CyclingCscBleViewModel(application: Application) : AndroidViewModel(applic
             _statusMessage.value = "Bluetooth scanner unavailable."
             return
         }
-        val filter = ScanFilter.Builder()
-            .setServiceUuid(ParcelUuid(CSC_SERVICE_UUID))
-            .build()
         val settings = ScanSettings.Builder()
             .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
             .build()
         try {
-            le.startScan(listOf(filter), settings, scanCallback)
+            le.startScan(null, settings, scanCallback)
         } catch (t: Throwable) {
             Log.e(TAG, "startScan failed", t)
             _connectionState.value = CyclingCscBleConnectionState.Error
@@ -380,6 +376,8 @@ class CyclingCscBleViewModel(application: Application) : AndroidViewModel(applic
             val device = result.device ?: return
             val address = device.address ?: return
             val name = result.scanRecord?.deviceName ?: device.name
+            val advertisedServices = result.scanRecord?.serviceUuids.orEmpty()
+            if (name.isNullOrBlank() && advertisedServices.none { it.uuid == CSC_SERVICE_UUID }) return
             scanSeen[address] = CyclingCscScanRow(address = address, name = name)
             _scanRows.value = scanSeen.values.sortedBy { it.name?.lowercase() ?: it.address }
         }
@@ -439,8 +437,21 @@ class CyclingCscBleViewModel(application: Application) : AndroidViewModel(applic
             gatt.setCharacteristicNotification(measurement, true)
             val cccd = measurement.getDescriptor(CSC_CCCD_UUID)
             if (cccd != null) {
-                cccd.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-                gatt.writeDescriptor(cccd)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    gatt.writeDescriptor(cccd, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
+                } else {
+                    @Suppress("DEPRECATION")
+                    cccd.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                    @Suppress("DEPRECATION")
+                    gatt.writeDescriptor(cccd)
+                }
+                viewModelScope.launch(Dispatchers.Main) {
+                    _statusMessage.value = "Connected. Spin the wheel to start live speed and distance."
+                }
+            } else {
+                viewModelScope.launch(Dispatchers.Main) {
+                    _statusMessage.value = "Connected, but the sensor did not expose a notification descriptor."
+                }
             }
         }
 
@@ -468,6 +479,7 @@ class CyclingCscBleViewModel(application: Application) : AndroidViewModel(applic
     private fun applyCscMeasurement(value: ByteArray?) {
         val data = value ?: return
         if (data.isEmpty()) return
+        _statusMessage.value = null
         val flags = data[0].toInt() and 0xFF
         var index = 1
         val wheelPresent = (flags and 0x01) != 0
