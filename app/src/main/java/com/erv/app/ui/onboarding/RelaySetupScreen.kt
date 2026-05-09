@@ -21,6 +21,7 @@ import com.erv.app.nostr.ConnectionState
 import com.erv.app.nostr.KeyManager
 import com.erv.app.nostr.RelayPool
 import androidx.compose.runtime.snapshotFlow
+import com.erv.app.nostr.RelayUrls
 
 private const val WSS_PREFIX = "wss://"
 
@@ -132,11 +133,7 @@ fun RelaySetupScreen(
                 Spacer(Modifier.width(8.dp))
                 IconButton(
                     onClick = {
-                        val url = newRelaySuffix.trim().let { s ->
-                            if (s.isEmpty()) null
-                            else if (s.startsWith("wss://") || s.startsWith("ws://")) s
-                            else "$WSS_PREFIX$s"
-                        }
+                        val url = RelayUrls.normalize(newRelaySuffix, addDefaultScheme = true)
                         if (url != null) {
                             keyManager.addRelay(url)
                             relayRevision++

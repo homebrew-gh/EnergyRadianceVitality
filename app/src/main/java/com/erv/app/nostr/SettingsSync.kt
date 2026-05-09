@@ -24,9 +24,11 @@ object SettingsSync {
         dataRelays: List<String>,
         socialRelays: List<String>,
     ): Pair<String, String> {
+        val normalizedDataRelays = dataRelays.mapNotNull(RelayUrls::normalize).distinct()
+        val normalizedSocialRelays = socialRelays.mapNotNull(RelayUrls::normalize).distinct()
         val json = buildJsonObject {
-            put("dataRelays", buildJsonArray { dataRelays.forEach { add(it) } })
-            put("socialRelays", buildJsonArray { socialRelays.forEach { add(it) } })
+            put("dataRelays", buildJsonArray { normalizedDataRelays.forEach { add(it) } })
+            put("socialRelays", buildJsonArray { normalizedSocialRelays.forEach { add(it) } })
         }.toString()
         return D_TAG to json
     }
@@ -82,8 +84,12 @@ object SettingsSync {
             val decrypted = signer.decryptFromSelf(latest.content)
             val obj = Json.parseToJsonElement(decrypted).jsonObject
             RelayConfig(
-                dataRelays = obj["dataRelays"]?.jsonArray?.map { it.jsonPrimitive.content } ?: emptyList(),
-                socialRelays = obj["socialRelays"]?.jsonArray?.map { it.jsonPrimitive.content } ?: emptyList()
+                dataRelays = obj["dataRelays"]?.jsonArray
+                    ?.mapNotNull { RelayUrls.normalize(it.jsonPrimitive.content) }
+                    ?: emptyList(),
+                socialRelays = obj["socialRelays"]?.jsonArray
+                    ?.mapNotNull { RelayUrls.normalize(it.jsonPrimitive.content) }
+                    ?: emptyList()
             )
         } catch (_: Exception) {
             null
@@ -91,7 +97,6 @@ object SettingsSync {
     }
 
     fun applyToKeyManager(config: RelayConfig, keyManager: KeyManager) {
-        config.dataRelays.forEach { keyManager.addRelay(it) }
-        config.socialRelays.forEach { keyManager.addSocialRelay(it) }
+        keyManager.replaceRelayConfiguration(config.dataRelays, config.socialRelays)
     }
 }

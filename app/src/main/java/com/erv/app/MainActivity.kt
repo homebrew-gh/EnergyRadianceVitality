@@ -37,6 +37,8 @@ import com.erv.app.data.UserPreferences
 import com.erv.app.data.WorkoutMediaUploadBackend
 import com.erv.app.nostr.*
 import com.erv.app.cardio.CardioRepository
+import com.erv.app.fasting.FastingConstants
+import com.erv.app.fasting.FastingRepository
 import com.erv.app.heatcold.HeatColdRepository
 import com.erv.app.programs.ProgramRepository
 import com.erv.app.programs.ProgramSync
@@ -100,6 +102,7 @@ class MainActivity : AppCompatActivity() {
     private val navigateToWeightLiveWorkout = MutableStateFlow(false)
     private val navigateToCardioLiveWorkout = MutableStateFlow(false)
     private val navigateToUnifiedLiveWorkout = MutableStateFlow<String?>(null)
+    private val navigateToFasting = MutableStateFlow(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -114,6 +117,9 @@ class MainActivity : AppCompatActivity() {
         }
         intent.getStringExtra(UnifiedLiveWorkoutConstants.EXTRA_OPEN_UNIFIED_LIVE_ROUTINE_ID)?.let { routineId ->
             navigateToUnifiedLiveWorkout.value = routineId
+        }
+        if (intent.getBooleanExtra(FastingConstants.EXTRA_OPEN_FASTING, false)) {
+            navigateToFasting.value = true
         }
 
         setContent {
@@ -137,6 +143,7 @@ class MainActivity : AppCompatActivity() {
                         navigateToWeightLiveWorkout = navigateToWeightLiveWorkout,
                         navigateToCardioLiveWorkout = navigateToCardioLiveWorkout,
                         navigateToUnifiedLiveWorkout = navigateToUnifiedLiveWorkout,
+                        navigateToFasting = navigateToFasting,
                     )
                 }
             }
@@ -155,6 +162,9 @@ class MainActivity : AppCompatActivity() {
         }
         intent.getStringExtra(UnifiedLiveWorkoutConstants.EXTRA_OPEN_UNIFIED_LIVE_ROUTINE_ID)?.let { routineId ->
             navigateToUnifiedLiveWorkout.value = routineId
+        }
+        if (intent.getBooleanExtra(FastingConstants.EXTRA_OPEN_FASTING, false)) {
+            navigateToFasting.value = true
         }
     }
 
@@ -175,6 +185,7 @@ private fun ErvApp(
     navigateToWeightLiveWorkout: MutableStateFlow<Boolean>,
     navigateToCardioLiveWorkout: MutableStateFlow<Boolean>,
     navigateToUnifiedLiveWorkout: MutableStateFlow<String?>,
+    navigateToFasting: MutableStateFlow<Boolean>,
 ) {
     val context = LocalContext.current
     var appState by remember {
@@ -302,6 +313,7 @@ private fun ErvApp(
                 navigateToWeightLiveWorkout = navigateToWeightLiveWorkout,
                 navigateToCardioLiveWorkout = navigateToCardioLiveWorkout,
                 navigateToUnifiedLiveWorkout = navigateToUnifiedLiveWorkout,
+                navigateToFasting = navigateToFasting,
                 onRequestNostrLogin = {
                     scope.launch {
                         userPreferences.setUseAppWithoutNostrAccount(false)
@@ -393,6 +405,7 @@ private fun MainAppShell(
     navigateToWeightLiveWorkout: MutableStateFlow<Boolean>,
     navigateToCardioLiveWorkout: MutableStateFlow<Boolean>,
     navigateToUnifiedLiveWorkout: MutableStateFlow<String?>,
+    navigateToFasting: MutableStateFlow<Boolean>,
     onRequestNostrLogin: () -> Unit,
     onLogout: () -> Unit,
     onAllDataDeleted: () -> Unit,
@@ -409,6 +422,7 @@ private fun MainAppShell(
     val cardioRepository = remember(context, userPreferences) { CardioRepository(context, userPreferences) }
     val weightRepository = remember(context) { WeightRepository(context) }
     val heatColdRepository = remember(context) { HeatColdRepository(context) }
+    val fastingRepository = remember(context) { FastingRepository(context) }
     val stretchingRepository = remember(context) { StretchingRepository(context) }
     val programRepository = remember(context) { ProgramRepository(context) }
     val unifiedRoutineRepository = remember(context) { UnifiedRoutineRepository(context) }
@@ -670,6 +684,7 @@ private fun MainAppShell(
                     cardioRepository = cardioRepository,
                     weightRepository = weightRepository,
                     heatColdRepository = heatColdRepository,
+                    fastingRepository = fastingRepository,
                     stretchingRepository = stretchingRepository,
                     programRepository = programRepository,
                     unifiedRoutineRepository = unifiedRoutineRepository,
@@ -684,6 +699,7 @@ private fun MainAppShell(
                     navigateToWeightLiveWorkout = navigateToWeightLiveWorkout,
                     navigateToCardioLiveWorkout = navigateToCardioLiveWorkout,
                     navigateToUnifiedLiveWorkout = navigateToUnifiedLiveWorkout,
+                    navigateToFasting = navigateToFasting,
                     onRelaysChanged = { relayUrlsVersion++ },
                     showDeferNostrLoginEntry = !keyManager.isLoggedIn,
                     onRequestNostrLogin = onRequestNostrLogin,

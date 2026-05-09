@@ -113,6 +113,17 @@ fun WeightLiveWorkoutScreen(
         mutableStateOf(draft.exerciseOrder.toSet())
     }
     var recentWorkoutsExerciseId by remember { mutableStateOf<String?>(null) }
+    // When non-null, the screen body shows a single-exercise sub-page (set entry focused on
+    // that lift) instead of the exercises list. Auto-clears if the exercise is removed.
+    var editingExerciseId by rememberSaveable(draft.startedAtEpochSeconds) {
+        mutableStateOf<String?>(null)
+    }
+    LaunchedEffect(draft.exerciseOrder, editingExerciseId) {
+        val id = editingExerciseId
+        if (id != null && id !in draft.exerciseOrder) {
+            editingExerciseId = null
+        }
+    }
     var mediaControlsEnabled by rememberSaveable { mutableStateOf(false) }
     var hiitTimerTarget by remember { mutableStateOf<Pair<String, WeightHiitIntervalPlan>?>(null) }
     var restEndAtEpochSeconds by remember(draft.startedAtEpochSeconds) { mutableStateOf<Long?>(null) }
@@ -213,6 +224,7 @@ fun WeightLiveWorkoutScreen(
                 onAddExercise(id)
                 onRecordExerciseActivity(id)
                 showPickExercise = false
+                editingExerciseId = id
             }
         )
     }
@@ -304,13 +316,35 @@ fun WeightLiveWorkoutScreen(
     }
 
     val topBar: @Composable () -> Unit = {
+        val editingId = editingExerciseId
+        val editingName = editingId?.let { library.exerciseById(it)?.name ?: it }
         TopAppBar(
-            title = { Text(stringResource(R.string.weight_live_screen_title)) },
+            title = {
+                if (editingName != null) {
+                    Text(editingName, maxLines = 1)
+                } else {
+                    Text(stringResource(R.string.weight_live_screen_title))
+                }
+            },
             navigationIcon = {
-                IconButton(onClick = onLeaveWorkoutUi) {
+                IconButton(
+                    onClick = {
+                        if (editingExerciseId != null) {
+                            // Auto-save: every keystroke already propagates via onSetsChange,
+                            // so leaving the sub-page just returns to the exercises list.
+                            editingExerciseId = null
+                        } else {
+                            onLeaveWorkoutUi()
+                        }
+                    }
+                ) {
                     Icon(
                         Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Leave workout screen"
+                        contentDescription = if (editingId != null) {
+                            "Back to exercises"
+                        } else {
+                            "Leave workout screen"
+                        }
                     )
                 }
             },
@@ -422,78 +456,134 @@ fun WeightLiveWorkoutScreen(
                 },
                 modifier = Modifier.padding(vertical = 16.dp)
             )
-            if (draft.routineName != null) {
-                Text(
-                    "From routine: ${draft.routineName}",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(bottom = 8.dp)
-                )
-            }
-            Button(
-                onClick = { showPickExercise = true },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Icon(Icons.Default.Add, contentDescription = null)
-                Spacer(Modifier.padding(horizontal = 8.dp))
-                Text("Add exercise")
-            }
-            Spacer(Modifier.height(12.dp))
-            if (draft.exerciseOrder.isEmpty()) {
-                Text(
-                    "Empty workout — add exercises, then fill in reps, weight, and RPE under each lift. Tap + Add set for more rows.",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 24.dp)
-                )
-            } else {
+            val editingId = editingExerciseId
+            if (editingId != null) {
+                // Sub-page: focused set entry for one exercise. Back arrow in the top bar
+                // (or the card's Save button) returns to the list. Field changes auto-save
+                // through onSaveSets, so no explicit commit step is needed.
+                val ex = library.exerciseById(editingId)
+                val sets = weightSetsInDraft(draft, editingId)
                 LazyColumn(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
                 ) {
-                    itemsIndexed(draft.exerciseOrder, key = { _, id -> id }) { index, exerciseId ->
-                        val ex = library.exerciseById(exerciseId)
-                        val sets = weightSetsInDraft(draft, exerciseId)
+                    item(key = "edit_${editingId}") {
                         WeightExerciseInlineSetsCard(
-                            exerciseName = ex?.name ?: exerciseId,
+                            exerciseName = ex?.name ?: editingId,
                             equipmentLabel = ex?.equipment?.displayLabel(),
                             equipment = ex?.equipment,
                             sets = sets,
                             loadUnit = loadUnit,
                             onSetsChange = {
-                                onRecordExerciseActivity(exerciseId)
-                                onSaveSets(exerciseId, it)
+                                onRecordExerciseActivity(editingId)
+                                onSaveSets(editingId, it)
                             },
-                            canMoveUp = index > 0,
-                            canMoveDown = index < draft.exerciseOrder.lastIndex,
-                            onMoveUp = { onMoveExerciseUp(index) },
-                            onMoveDown = { onMoveExerciseDown(index) },
+                            canMoveUp = false,
+                            canMoveDown = false,
+                            onMoveUp = {},
+                            onMoveDown = {},
                             onRemoveExercise = {
-                                setsCollapsedIds = setsCollapsedIds - exerciseId
-                                onRemoveExerciseAt(index)
+                                val idx = draft.exerciseOrder.indexOf(editingId)
+                                setsCollapsedIds = setsCollapsedIds - editingId
+                                editingExerciseId = null
+                                if (idx >= 0) onRemoveExerciseAt(idx)
                             },
-                            setsCollapsed = exerciseId in setsCollapsedIds,
-                            onCollapseSets = {
-                                setsCollapsedIds = setsCollapsedIds + exerciseId
-                            },
+                            showMoveButtons = false,
+                            setsCollapsed = false,
+                            onCollapseSets = { editingExerciseId = null },
                             onExpandSets = {
-                                onRecordExerciseActivity(exerciseId)
-                                setsCollapsedIds = setsCollapsedIds - exerciseId
+                                onRecordExerciseActivity(editingId)
                                 clearRestTimerUi()
                             },
-                            onRecentWorkouts = { recentWorkoutsExerciseId = exerciseId },
+                            onRecentWorkouts = { recentWorkoutsExerciseId = editingId },
                             hiitCapable = ex?.hiitCapable == true,
-                            hiitBlock = draft.hiitBlocksByExerciseId[exerciseId],
-                            onClearHiitBlock = { onClearHiitBlock(exerciseId) },
+                            hiitBlock = draft.hiitBlocksByExerciseId[editingId],
+                            onClearHiitBlock = { onClearHiitBlock(editingId) },
                             onStartHiitTimer = { plan ->
-                                onRecordExerciseActivity(exerciseId)
+                                onRecordExerciseActivity(editingId)
                                 clearRestTimerUi()
-                                hiitTimerTarget = exerciseId to plan
+                                hiitTimerTarget = editingId to plan
                             },
                             onAfterAddSet = { onAddSetPressedForRest() }
                         )
+                    }
+                }
+            } else {
+                if (draft.routineName != null) {
+                    Text(
+                        "From routine: ${draft.routineName}",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                }
+                Button(
+                    onClick = { showPickExercise = true },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = null)
+                    Spacer(Modifier.padding(horizontal = 8.dp))
+                    Text("Add exercise")
+                }
+                Spacer(Modifier.height(12.dp))
+                if (draft.exerciseOrder.isEmpty()) {
+                    Text(
+                        "Empty workout — add exercises, then fill in reps, weight, and RPE under each lift. Tap + Add set for more rows.",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 24.dp)
+                    )
+                } else {
+                    LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                    ) {
+                        itemsIndexed(draft.exerciseOrder, key = { _, id -> id }) { index, exerciseId ->
+                            val ex = library.exerciseById(exerciseId)
+                            val sets = weightSetsInDraft(draft, exerciseId)
+                            WeightExerciseInlineSetsCard(
+                                exerciseName = ex?.name ?: exerciseId,
+                                equipmentLabel = ex?.equipment?.displayLabel(),
+                                equipment = ex?.equipment,
+                                sets = sets,
+                                loadUnit = loadUnit,
+                                onSetsChange = {
+                                    onRecordExerciseActivity(exerciseId)
+                                    onSaveSets(exerciseId, it)
+                                },
+                                canMoveUp = index > 0,
+                                canMoveDown = index < draft.exerciseOrder.lastIndex,
+                                onMoveUp = { onMoveExerciseUp(index) },
+                                onMoveDown = { onMoveExerciseDown(index) },
+                                onRemoveExercise = {
+                                    setsCollapsedIds = setsCollapsedIds - exerciseId
+                                    onRemoveExerciseAt(index)
+                                },
+                                // List rows are always collapsed summaries; tap opens the
+                                // single-exercise sub-page above instead of inline expand.
+                                setsCollapsed = true,
+                                onCollapseSets = { /* no-op: list rows stay collapsed */ },
+                                onExpandSets = {
+                                    onRecordExerciseActivity(exerciseId)
+                                    clearRestTimerUi()
+                                    editingExerciseId = exerciseId
+                                },
+                                onRecentWorkouts = { recentWorkoutsExerciseId = exerciseId },
+                                hiitCapable = ex?.hiitCapable == true,
+                                hiitBlock = draft.hiitBlocksByExerciseId[exerciseId],
+                                onClearHiitBlock = { onClearHiitBlock(exerciseId) },
+                                onStartHiitTimer = { plan ->
+                                    onRecordExerciseActivity(exerciseId)
+                                    clearRestTimerUi()
+                                    hiitTimerTarget = exerciseId to plan
+                                },
+                                onAfterAddSet = { onAddSetPressedForRest() }
+                            )
+                        }
                     }
                 }
             }

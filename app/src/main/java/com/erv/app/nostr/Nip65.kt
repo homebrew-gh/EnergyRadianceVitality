@@ -26,8 +26,7 @@ object Nip65 {
         event.tags
             .filter { it.size >= 2 && it[0] == "r" }
             .mapNotNull { tag ->
-                val url = tag[1].trim()
-                if (url.startsWith("wss://") || url.startsWith("ws://")) url else null
+                RelayUrls.normalize(tag[1])
             }
             .distinct()
 

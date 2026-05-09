@@ -47,6 +47,7 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.MonitorWeight
 import androidx.compose.material.icons.filled.EmojiEvents
+import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -335,6 +336,7 @@ fun DashboardScreen(
     val cardioLiveUiExpanded by cardioLiveWorkoutViewModel.cardioLiveUiExpanded.collectAsState()
     val activeUnifiedSession = unifiedRoutineState.activeSession
     val heatColdCategory = remember { categories.first { it.id == "heat_cold" } }
+    val fastingCategory = remember { categories.first { it.id == "fasting" } }
     val stretchingCategory = remember { categories.first { it.id == "stretching" } }
     val bodyTrackerCategory = remember { categories.first { it.id == "body_tracker" } }
     val programsCategory = remember { categories.first { it.id == "programs" } }
@@ -388,6 +390,7 @@ fun DashboardScreen(
             add(LaunchPadTileId.CARDIO)
             add(LaunchPadTileId.WEIGHT_TRAINING)
             add(LaunchPadTileId.HOT_COLD)
+            add(LaunchPadTileId.FASTING)
             add(LaunchPadTileId.BODY_TRACKER)
             if (supplementState.routines.isNotEmpty()) add(LaunchPadTileId.SUPPLEMENTS)
             if (lightState.routines.isNotEmpty()) add(LaunchPadTileId.LIGHT_THERAPY)
@@ -963,6 +966,7 @@ fun DashboardScreen(
                                     onOpenWeightLogBackfill = onOpenWeightLogBackfill,
                                     onOpenHeatColdCategory = { onNavigateToCategory(heatColdCategory) },
                                     onOpenHeatColdLog = onOpenHeatColdLog,
+                                    onOpenFastingCategory = { onNavigateToCategory(fastingCategory) },
                                     stretchRoutineCount = stretchState.routines.size,
                                     onOpenStretchingCategory = { onNavigateToCategory(stretchingCategory) },
                                     onOpenBodyTrackerCategory = { onNavigateToCategory(bodyTrackerCategory) },
@@ -1814,20 +1818,30 @@ private fun QuickLogTilesLayout(
         var dragPointerY by remember(editMode, tiles.map { it.id }) { mutableStateOf(0f) }
         var dragGrabOffsetX by remember(editMode, tiles.map { it.id }) { mutableStateOf(0f) }
         var dragGrabOffsetY by remember(editMode, tiles.map { it.id }) { mutableStateOf(0f) }
+        var committedDropPreviewTileIds by remember(editMode, tiles.map { it.id }) {
+            mutableStateOf<List<LaunchPadTileId>?>(null)
+        }
         val tileWidthPx = with(LocalDensity.current) { tileWidth.toPx() }
         val tileSpacingPx = with(LocalDensity.current) { tileRowSpacing.toPx() }
         val tileIds = remember(tiles) { tiles.map { it.id } }
-        val previewTileIds = remember(tileIds, draggedTileStartIndex, dragHoverIndex) {
+        LaunchedEffect(tileIds, committedDropPreviewTileIds) {
+            val committed = committedDropPreviewTileIds ?: return@LaunchedEffect
+            val sameTiles = committed.size == tileIds.size && committed.toSet() == tileIds.toSet()
+            if (!sameTiles || committed == tileIds) {
+                committedDropPreviewTileIds = null
+            }
+        }
+        val previewTileIds = remember(tileIds, draggedTileStartIndex, dragHoverIndex, committedDropPreviewTileIds) {
             val startIndex = draggedTileStartIndex
             val hoverIndex = dragHoverIndex
-            if (startIndex == null || hoverIndex == null) {
-                tileIds
-            } else {
+            if (startIndex != null && hoverIndex != null) {
                 moveLaunchPadTile(
                     items = tileIds,
                     fromIndex = startIndex,
                     toIndex = hoverIndex,
                 )
+            } else {
+                committedDropPreviewTileIds ?: tileIds
             }
         }
         val previewIndicesById = remember(previewTileIds) {
@@ -1895,13 +1909,13 @@ private fun QuickLogTilesLayout(
                                 val startIndex = draggedTileStartIndex
                                 val hoverIndex = dragHoverIndex
                                 if (startIndex != null && hoverIndex != null && startIndex != hoverIndex) {
-                                    onTilesReordered(
-                                        moveLaunchPadTile(
-                                            items = tileIds,
-                                            fromIndex = startIndex,
-                                            toIndex = hoverIndex,
-                                        )
+                                    val reorderedTileIds = moveLaunchPadTile(
+                                        items = tileIds,
+                                        fromIndex = startIndex,
+                                        toIndex = hoverIndex,
                                     )
+                                    committedDropPreviewTileIds = reorderedTileIds
+                                    onTilesReordered(reorderedTileIds)
                                 }
                                 draggedTileId = null
                                 draggedTileStartIndex = null
@@ -2018,6 +2032,7 @@ private fun RoutinesSection(
     onWeightRoutineSelected: (WeightRoutine) -> Unit,
     onOpenHeatColdCategory: () -> Unit,
     onOpenHeatColdLog: () -> Unit,
+    onOpenFastingCategory: () -> Unit,
     stretchRoutineCount: Int,
     onOpenStretchingCategory: () -> Unit,
     onOpenBodyTrackerCategory: () -> Unit,
@@ -2260,6 +2275,16 @@ private fun RoutinesSection(
                             subtitle = "Timer · pick session type",
                             onClick = { showHeatColdSheet = true },
                             secondaryIcon = Icons.Default.AcUnit,
+                        )
+                    )
+                    put(
+                        LaunchPadTileId.FASTING,
+                        QuickLogTileSpec(
+                            id = LaunchPadTileId.FASTING,
+                            icon = Icons.Default.Restaurant,
+                            label = "Fasting",
+                            subtitle = "1-3 day timer",
+                            onClick = onOpenFastingCategory,
                         )
                     )
                     put(

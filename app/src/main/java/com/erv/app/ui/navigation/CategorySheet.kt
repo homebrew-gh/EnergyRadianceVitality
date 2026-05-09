@@ -40,6 +40,7 @@ val implementedCategoryIds: Set<String> = setOf(
     "unified_routines",
     "heat_cold",
     "stretching",
+    "fasting",
     "programs",
     "body_tracker",
 )
@@ -51,6 +52,7 @@ val categories = listOf(
     Category("unified_routines", "Unified Workouts", Icons.Default.PlaylistPlay, "category/unified_routines"),
     Category("weight_training", "Weight Training", Icons.Default.FitnessCenter, "category/weight_training"),
     Category("cardio", "Cardio", Icons.AutoMirrored.Filled.DirectionsRun, "category/cardio"),
+    Category("fasting", "Fasting", Icons.Default.Restaurant, "category/fasting"),
     Category(
         id = "heat_cold",
         label = "Hot + Cold",

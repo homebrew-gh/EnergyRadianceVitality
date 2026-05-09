@@ -114,11 +114,22 @@
                 android:value="Ongoing unified workout session: notification to return to the active unified routine." />
         </service>
         <service
+            android:name=".fasting.FastingForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Ongoing fasting session: timer notification to return to the active fast." />
+        </service>
+        <service
             android:name=".cardio.CardioGpsForegroundService"
             android:exported="false"
             android:foregroundServiceType="location" />
         <receiver
             android:name=".reminders.RoutineReminderReceiver"
+            android:exported="false" />
+        <receiver
+            android:name=".fasting.FastingCompletionReceiver"
             android:exported="false" />
         <service
             android:name=".media.ErvMediaNotificationListenerService"
@@ -131,6 +142,16 @@
         </service>
         <receiver
             android:name=".reminders.RoutineReminderBootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+        <receiver
+            android:name=".fasting.FastingBootReceiver"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />

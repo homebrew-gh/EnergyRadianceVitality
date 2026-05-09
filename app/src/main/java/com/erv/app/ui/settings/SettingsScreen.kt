@@ -98,6 +98,7 @@ import com.erv.app.nostr.RelayOutboxItemFailure
 import com.erv.app.nostr.RelayOutboxStatusStore
 import com.erv.app.nostr.RelayPublishOutbox
 import com.erv.app.nostr.RelayPublishOutbox.PendingItemStatus
+import com.erv.app.nostr.RelayUrls
 import com.erv.app.nostr.SettingsSync
 import com.erv.app.cardio.CardioRepository
 import com.erv.app.bodytracker.BodyTrackerRepository
@@ -1349,9 +1350,7 @@ private suspend fun syncFitnessEquipmentToNostr(
 }
 
 private fun normalizeRelayUrl(input: String): String? {
-    val s = input.trim()
-    if (s.isEmpty()) return null
-    return if (s.startsWith("wss://") || s.startsWith("ws://")) s else "$WSS_PREFIX$s"
+    return RelayUrls.normalize(input, addDefaultScheme = true)
 }
 
 @Composable

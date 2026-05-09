@@ -43,65 +43,77 @@ class KeyManager(context: Context) {
         get() {
             migrateRelayUrlIfNeeded()
             migrateSavedRelayUrlsIfNeeded()
-            return prefs.getStringSet(KEY_RELAY_URLS, emptySet())?.toList() ?: emptyList()
+            return getNormalizedRelaySet(KEY_RELAY_URLS)
         }
-        private set(value) = prefs.edit().putStringSet(KEY_RELAY_URLS, value.toSet()).apply()
+        private set(value) = putNormalizedRelaySet(KEY_RELAY_URLS, value)
 
     /** Relays used for public social posts (e.g. kind 1 workout summaries). */
     var socialRelayUrls: List<String>
         get() {
             migrateSavedRelayUrlsIfNeeded()
-            return prefs.getStringSet(KEY_SOCIAL_RELAY_URLS, emptySet())?.toList() ?: emptyList()
+            return getNormalizedRelaySet(KEY_SOCIAL_RELAY_URLS)
         }
-        private set(value) = prefs.edit().putStringSet(KEY_SOCIAL_RELAY_URLS, value.toSet()).apply()
+        private set(value) = putNormalizedRelaySet(KEY_SOCIAL_RELAY_URLS, value)
 
     /** All saved relays, including ones that currently have no assigned role. */
     private var savedRelayUrls: List<String>
         get() {
             migrateRelayUrlIfNeeded()
             migrateSavedRelayUrlsIfNeeded()
-            return prefs.getStringSet(KEY_SAVED_RELAY_URLS, emptySet())?.toList() ?: emptyList()
+            return getNormalizedRelaySet(KEY_SAVED_RELAY_URLS)
         }
-        set(value) = prefs.edit().putStringSet(KEY_SAVED_RELAY_URLS, value.toSet()).apply()
+        set(value) = putNormalizedRelaySet(KEY_SAVED_RELAY_URLS, value)
 
     private fun addSavedRelay(url: String) {
+        val normalized = RelayUrls.normalize(url) ?: return
         val current = savedRelayUrls.toMutableList()
-        if (url !in current) {
-            current.add(url)
+        if (normalized !in current) {
+            current.add(normalized)
             savedRelayUrls = current
         }
     }
 
     fun addRelay(url: String) {
-        addSavedRelay(url)
+        val normalized = RelayUrls.normalize(url) ?: return
+        addSavedRelay(normalized)
         val current = relayUrls.toMutableList()
-        if (url !in current) {
-            current.add(url)
+        if (normalized !in current) {
+            current.add(normalized)
             relayUrls = current
         }
     }
 
     fun removeRelay(url: String) {
-        relayUrls = relayUrls.filter { it != url }
+        val normalized = RelayUrls.normalize(url) ?: url
+        relayUrls = relayUrls.filter { it != normalized }
     }
 
     fun addSocialRelay(url: String) {
-        addSavedRelay(url)
+        val normalized = RelayUrls.normalize(url) ?: return
+        addSavedRelay(normalized)
         val current = socialRelayUrls.toMutableList()
-        if (url !in current) {
-            current.add(url)
+        if (normalized !in current) {
+            current.add(normalized)
             socialRelayUrls = current
         }
     }
 
     fun removeSocialRelay(url: String) {
-        socialRelayUrls = socialRelayUrls.filter { it != url }
+        val normalized = RelayUrls.normalize(url) ?: url
+        socialRelayUrls = socialRelayUrls.filter { it != normalized }
     }
 
     fun removeRelayCompletely(url: String) {
-        removeRelay(url)
-        removeSocialRelay(url)
-        savedRelayUrls = savedRelayUrls.filter { it != url }
+        val normalized = RelayUrls.normalize(url) ?: url
+        removeRelay(normalized)
+        removeSocialRelay(normalized)
+        savedRelayUrls = savedRelayUrls.filter { it != normalized }
+    }
+
+    fun replaceRelayConfiguration(dataRelays: List<String>, socialRelays: List<String>) {
+        relayUrls = dataRelays
+        socialRelayUrls = socialRelays
+        savedRelayUrls = relayUrls + socialRelayUrls
     }
 
     /** All relays (data + social), deduplicated. */
@@ -159,11 +171,26 @@ class KeyManager(context: Context) {
         val legacy = prefs.getString(KEY_RELAY_URL_LEGACY, null)
         if (legacy != null) {
             val existing = prefs.getStringSet(KEY_RELAY_URLS, emptySet()) ?: emptySet()
+            val normalizedLegacy = RelayUrls.normalize(legacy)
             prefs.edit()
-                .putStringSet(KEY_RELAY_URLS, existing + legacy)
+                .putStringSet(KEY_RELAY_URLS, (existing + listOfNotNull(normalizedLegacy)).toSet())
                 .remove(KEY_RELAY_URL_LEGACY)
                 .apply()
         }
+    }
+
+    private fun getNormalizedRelaySet(key: String): List<String> {
+        val raw = prefs.getStringSet(key, emptySet()) ?: emptySet()
+        val normalized = raw.mapNotNull(RelayUrls::normalize).distinct()
+        if (normalized.toSet() != raw) {
+            prefs.edit().putStringSet(key, normalized.toSet()).apply()
+        }
+        return normalized
+    }
+
+    private fun putNormalizedRelaySet(key: String, value: List<String>) {
+        val normalized = value.mapNotNull(RelayUrls::normalize).distinct()
+        prefs.edit().putStringSet(key, normalized.toSet()).apply()
     }
 
     private fun migrateSavedRelayUrlsIfNeeded() {

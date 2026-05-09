@@ -92,6 +92,8 @@ fun WeightExerciseInlineSetsCard(
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
     onRemoveExercise: () -> Unit,
+    /** When false, hides the move-up/move-down buttons (e.g. single-exercise sub-page). */
+    showMoveButtons: Boolean = true,
     setsCollapsed: Boolean = false,
     onCollapseSets: (() -> Unit)? = null,
     onExpandSets: (() -> Unit)? = null,
@@ -179,11 +181,13 @@ fun WeightExerciseInlineSetsCard(
                     }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onMoveUp, enabled = canMoveUp) {
-                        Icon(Icons.Default.ArrowUpward, contentDescription = "Move up")
-                    }
-                    IconButton(onClick = onMoveDown, enabled = canMoveDown) {
-                        Icon(Icons.Default.ArrowDownward, contentDescription = "Move down")
+                    if (showMoveButtons) {
+                        IconButton(onClick = onMoveUp, enabled = canMoveUp) {
+                            Icon(Icons.Default.ArrowUpward, contentDescription = "Move up")
+                        }
+                        IconButton(onClick = onMoveDown, enabled = canMoveDown) {
+                            Icon(Icons.Default.ArrowDownward, contentDescription = "Move down")
+                        }
                     }
                     IconButton(onClick = onRemoveExercise) {
                         Icon(Icons.Default.Close, contentDescription = "Remove exercise")

@@ -55,6 +55,18 @@
     <string name="unified_live_notification_chronometer_line">Session in progress · tap to return</string>
     <string name="unified_live_notification_action_open">Open unified workout</string>
 
+    <!-- Fasting timer notification -->
+    <string name="fasting_notification_channel_name">Fasting timer</string>
+    <string name="fasting_notification_channel_desc">Ongoing fasting timer while a fast is active.</string>
+    <string name="fasting_notification_title">Fasting timer</string>
+    <string name="fasting_notification_text">Ends %1$s · tap to return</string>
+    <string name="fasting_notification_action_open">Open fasting timer</string>
+    <string name="fasting_complete_notification_channel_name">Fasting complete</string>
+    <string name="fasting_complete_notification_channel_desc">Notifications when a fasting target is reached.</string>
+    <string name="fasting_complete_notification_title">Fast complete</string>
+    <string name="fasting_complete_notification_text">Your %1$d-day fast target is complete.</string>
+    <string name="fasting_complete_notification_big_text">Your fast target is complete. Tap to add mood, weight, and notes.</string>
+
     <!-- Weight training — bodyweight-style exercises: load is added weight only -->
     <string name="weight_added_load_info_title">Added weight</string>
     <string name="weight_added_load_info_message">This is extra load on top of your body weight (for example a belt, vest, or plate). It does not include your full body weight.</string>

@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.erv.app"
-    android:versionCode="2026040100"
-    android:versionName="2026.04.01" >
+    android:versionCode="2026050900"
+    android:versionName="2026.05.09" >
 
     <uses-sdk
         android:minSdkVersion="26"
@@ -135,12 +135,23 @@
                 android:value="Ongoing unified workout session: notification to return to the active unified routine." />
         </service>
         <service
+            android:name="com.erv.app.fasting.FastingForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse" >
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Ongoing fasting session: timer notification to return to the active fast." />
+        </service>
+        <service
             android:name="com.erv.app.cardio.CardioGpsForegroundService"
             android:exported="false"
             android:foregroundServiceType="location" />
 
         <receiver
             android:name="com.erv.app.reminders.RoutineReminderReceiver"
+            android:exported="false" />
+        <receiver
+            android:name="com.erv.app.fasting.FastingCompletionReceiver"
             android:exported="false" />
 
         <service
@@ -155,6 +166,16 @@
 
         <receiver
             android:name="com.erv.app.reminders.RoutineReminderBootReceiver"
+            android:exported="true" >
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+        <receiver
+            android:name="com.erv.app.fasting.FastingBootReceiver"
             android:exported="true" >
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />

@@ -49,6 +49,7 @@ import com.erv.app.ui.stretching.StretchingLogScreen
 import com.erv.app.heatcold.HeatColdLibraryState
 import com.erv.app.heatcold.HeatColdMode
 import com.erv.app.heatcold.HeatColdRepository
+import com.erv.app.fasting.FastingRepository
 import com.erv.app.programs.ProgramRepository
 import com.erv.app.reminders.RoutineReminderRepository
 import com.erv.app.unifiedroutines.UnifiedRoutineLibraryState
@@ -60,6 +61,7 @@ import com.erv.app.weighttraining.WeightLibraryState
 import com.erv.app.weighttraining.WeightRepository
 import com.erv.app.ui.heatcold.HeatColdCategoryScreen
 import com.erv.app.ui.heatcold.HeatColdLogScreen
+import com.erv.app.ui.fasting.FastingScreen
 import com.erv.app.ui.programs.ProgramDetailScreen
 import com.erv.app.ui.programs.ProgramsCategoryScreen
 import com.erv.app.ui.supplements.SupplementCategoryScreen
@@ -100,6 +102,7 @@ object Routes {
     const val weightExerciseDetailRoute = "category/weight_training/exercise/{exerciseId}"
     fun weightExerciseDetail(exerciseId: String) = "category/weight_training/exercise/$exerciseId"
     const val heatColdLog = "category/heat_cold/log"
+    const val fasting = "category/fasting"
     const val stretchingLog = "category/stretching/log"
     const val programsCategory = "category/programs"
     const val programDetailRoute = "category/programs/{programId}"
@@ -126,6 +129,7 @@ fun ErvNavHost(
     cardioRepository: CardioRepository,
     weightRepository: WeightRepository,
     heatColdRepository: HeatColdRepository,
+    fastingRepository: FastingRepository,
     stretchingRepository: StretchingRepository,
     programRepository: ProgramRepository,
     unifiedRoutineRepository: UnifiedRoutineRepository,
@@ -140,6 +144,7 @@ fun ErvNavHost(
     navigateToWeightLiveWorkout: MutableStateFlow<Boolean>,
     navigateToCardioLiveWorkout: MutableStateFlow<Boolean>,
     navigateToUnifiedLiveWorkout: MutableStateFlow<String?>,
+    navigateToFasting: MutableStateFlow<Boolean>,
     onRelaysChanged: () -> Unit = {},
     showDeferNostrLoginEntry: Boolean = false,
     onRequestNostrLogin: () -> Unit = {},
@@ -151,6 +156,7 @@ fun ErvNavHost(
     val openWeightLive by navigateToWeightLiveWorkout.collectAsState()
     val openCardioLive by navigateToCardioLiveWorkout.collectAsState()
     val openUnifiedLiveRoutineId by navigateToUnifiedLiveWorkout.collectAsState()
+    val openFasting by navigateToFasting.collectAsState()
     LaunchedEffect(pendingRoutineId) {
         if (pendingRoutineId != null) {
             navController.navigate(Routes.DASHBOARD) {
@@ -182,6 +188,14 @@ fun ErvNavHost(
             launchSingleTop = true
         }
         navigateToUnifiedLiveWorkout.value = null
+    }
+    LaunchedEffect(openFasting) {
+        if (openFasting) {
+            navController.navigate(Routes.fasting) {
+                launchSingleTop = true
+            }
+            navigateToFasting.value = false
+        }
     }
     NavHost(
         navController = navController,
@@ -504,6 +518,13 @@ fun ErvNavHost(
                 state = state,
                 relayPool = relayPool,
                 signer = signer,
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(Routes.fasting) {
+            FastingScreen(
+                repository = fastingRepository,
                 onBack = { navController.popBackStack() }
             )
         }
