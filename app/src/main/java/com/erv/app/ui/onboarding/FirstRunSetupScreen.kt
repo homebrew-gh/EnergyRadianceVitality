@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -45,10 +47,13 @@ import com.erv.app.cardio.CardioRepository
 import com.erv.app.data.BodyWeightUnit
 import com.erv.app.data.EquipmentCatalogKind
 import com.erv.app.data.GoalTemplateOptions
+import com.erv.app.data.LaunchPadTileId
 import com.erv.app.data.OwnedEquipmentItem
 import com.erv.app.data.UserPreferences
 import com.erv.app.data.WorkoutModality
 import com.erv.app.data.createGoalFromTemplate
+import com.erv.app.data.defaultFirstRunLaunchPadTileIds
+import com.erv.app.data.defaultLaunchPadTileOrder
 import com.erv.app.data.goalTemplateOptionForId
 import com.erv.app.heatcold.HeatColdRepository
 import com.erv.app.lighttherapy.LightTherapyRepository
@@ -62,6 +67,7 @@ import kotlinx.coroutines.launch
 
 private enum class FirstRunSetupStep {
     WELCOME,
+    SECTIONS,
     UNITS_BODY,
     GOALS,
     EQUIPMENT,
@@ -71,6 +77,12 @@ private data class QuickEquipmentOption(
     val kind: EquipmentCatalogKind,
     val label: String,
     val modalities: Set<WorkoutModality>,
+)
+
+private data class SetupSectionOption(
+    val id: LaunchPadTileId,
+    val title: String,
+    val description: String,
 )
 
 private val quickEquipmentOptions: List<QuickEquipmentOption> = listOf(
@@ -84,6 +96,59 @@ private val quickEquipmentOptions: List<QuickEquipmentOption> = listOf(
     QuickEquipmentOption(EquipmentCatalogKind.CABLE_STATION, "Cable", setOf(WorkoutModality.WEIGHT_TRAINING)),
     QuickEquipmentOption(EquipmentCatalogKind.CARDIO_MACHINES, "Cardio machine", setOf(WorkoutModality.CARDIO, WorkoutModality.HIIT)),
     QuickEquipmentOption(EquipmentCatalogKind.MOBILITY_TOOLS, "Mobility tools", setOf(WorkoutModality.STRETCHING, WorkoutModality.WEIGHT_TRAINING)),
+)
+
+private val setupSectionOptions: List<SetupSectionOption> = listOf(
+    SetupSectionOption(
+        LaunchPadTileId.CARDIO,
+        "Cardio",
+        "Track runs, rucks, bike rides, cardio machines, distance, time, and GPS-backed sessions."
+    ),
+    SetupSectionOption(
+        LaunchPadTileId.WEIGHT_TRAINING,
+        "Weight Training",
+        "Plan lifting routines, start live workouts, and log sets, reps, load, and rest."
+    ),
+    SetupSectionOption(
+        LaunchPadTileId.STRETCHING,
+        "Stretching",
+        "Use guided mobility routines, build custom stretch sessions, and track flexibility work."
+    ),
+    SetupSectionOption(
+        LaunchPadTileId.WORKOUT_LAUNCHER,
+        "Unified Workouts",
+        "Combine cardio, lifting, stretching, and recovery blocks into one mixed workout flow."
+    ),
+    SetupSectionOption(
+        LaunchPadTileId.FASTING,
+        "Fasting",
+        "Run intermittent or extended fasting timers and keep a fasting history."
+    ),
+    SetupSectionOption(
+        LaunchPadTileId.HOT_COLD,
+        "Hot + Cold",
+        "Log sauna and cold-plunge sessions with timers, temperatures, and recovery notes."
+    ),
+    SetupSectionOption(
+        LaunchPadTileId.PROGRAMS,
+        "Programs",
+        "Follow templates, challenges, and day-by-day plans that can drive your Launch Pad."
+    ),
+    SetupSectionOption(
+        LaunchPadTileId.BODY_TRACKER,
+        "Body Tracker",
+        "Track measurements, progress photos, and body-composition changes over time."
+    ),
+    SetupSectionOption(
+        LaunchPadTileId.SUPPLEMENTS,
+        "Supplements",
+        "Create supplement routines, log doses, and keep daily adherence visible."
+    ),
+    SetupSectionOption(
+        LaunchPadTileId.LIGHT_THERAPY,
+        "Light Therapy",
+        "Manage red-light devices, therapy routines, session timers, and logs."
+    ),
 )
 
 suspend fun shouldShowFirstRunSetup(
@@ -166,6 +231,7 @@ fun FirstRunSetupScreen(
     val savedGoals by userPreferences.goals.collectAsState(initial = emptyList())
     val savedGymMembership by userPreferences.gymMembership.collectAsState(initial = false)
     val savedOwnedEquipment by userPreferences.ownedEquipment.collectAsState(initial = emptyList())
+    val savedLaunchPadHiddenTileIds by userPreferences.launchPadHiddenTiles.collectAsState(initial = emptySet())
 
     var stepIndex by rememberSaveable { mutableIntStateOf(0) }
     var bodyWeightValue by rememberSaveable(savedBodyWeightValue) { mutableStateOf(savedBodyWeightValue) }
@@ -185,10 +251,24 @@ fun FirstRunSetupScreen(
     var selectedEquipmentKinds by rememberSaveable(savedOwnedEquipment.map { it.catalogKind.name }.sorted().joinToString(",")) {
         mutableStateOf(savedOwnedEquipment.map { it.catalogKind.name }.distinct().sorted())
     }
+    var selectedSectionTileNames by rememberSaveable(savedLaunchPadHiddenTileIds.map { it.name }.sorted().joinToString(",")) {
+        mutableStateOf(
+            defaultLaunchPadTileOrder
+                .filter { tileId ->
+                    if (savedLaunchPadHiddenTileIds.isEmpty()) {
+                        tileId in defaultFirstRunLaunchPadTileIds
+                    } else {
+                        tileId !in savedLaunchPadHiddenTileIds
+                    }
+                }
+                .map { it.name }
+        )
+    }
 
     val steps = remember {
         listOf(
             FirstRunSetupStep.WELCOME,
+            FirstRunSetupStep.SECTIONS,
             FirstRunSetupStep.UNITS_BODY,
             FirstRunSetupStep.GOALS,
             FirstRunSetupStep.EQUIPMENT,
@@ -197,17 +277,27 @@ fun FirstRunSetupScreen(
     val step = steps[stepIndex]
     val scope = rememberCoroutineScope()
 
+    suspend fun saveLaunchPadSections(selectedIds: Set<LaunchPadTileId>) {
+        userPreferences.setLaunchPadTileOrder(defaultLaunchPadTileOrder)
+        userPreferences.setLaunchPadHiddenTiles(defaultLaunchPadTileOrder.filterNot { it in selectedIds }.toSet())
+    }
+
     fun finishSetup(saveValues: Boolean) {
         scope.launch {
             if (saveValues) {
                 userPreferences.setCardioDistanceUnit(cardioDistanceUnit)
                 userPreferences.setWeightTrainingLoadUnit(weightLoadUnit)
                 userPreferences.setFallbackBodyWeight(bodyWeightValue, bodyWeightUnit)
+                saveLaunchPadSections(selectedSectionTileNames.mapNotNull { name ->
+                    runCatching { LaunchPadTileId.valueOf(name) }.getOrNull()
+                }.toSet())
                 userPreferences.setGoals(
                     selectedGoalTemplateIds.mapNotNull(::goalTemplateOptionForId).map(::createGoalFromTemplate)
                 )
                 userPreferences.setGymMembership(gymMembership)
                 userPreferences.setOwnedEquipment(buildQuickSetupEquipment(selectedEquipmentKinds))
+            } else {
+                saveLaunchPadSections(defaultFirstRunLaunchPadTileIds)
             }
             userPreferences.setFirstRunSetupCompleted(true)
             onDone()
@@ -281,8 +371,55 @@ fun FirstRunSetupScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     SetupBullet("Pick your units and optionally add body weight.")
+                    SetupBullet("Choose which sections appear on your dashboard.")
                     SetupBullet("Choose the health and training goals you care about.")
                     SetupBullet("Tell the app if you train at home, in a gym, or both.")
+                }
+
+                FirstRunSetupStep.SECTIONS -> {
+                    Text("Choose your sections", style = MaterialTheme.typography.headlineMedium)
+                    Text(
+                        "Select the parts of ERV you want loaded onto your dashboard. You can add hidden sections back later from the Launch Pad edit menu.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    setupSectionOptions.forEach { option ->
+                        val selected = option.id.name in selectedSectionTileNames
+                        ElevatedCard(
+                            modifier = Modifier.fillMaxWidth(),
+                            onClick = {
+                                selectedSectionTileNames = when {
+                                    selected && selectedSectionTileNames.size > 1 -> selectedSectionTileNames - option.id.name
+                                    selected -> selectedSectionTileNames
+                                    else -> selectedSectionTileNames + option.id.name
+                                }
+                            }
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Checkbox(
+                                    checked = selected,
+                                    onCheckedChange = null
+                                )
+                                Column(
+                                    modifier = Modifier.weight(1f),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Text(option.title, style = MaterialTheme.typography.titleMedium)
+                                    Text(
+                                        option.description,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
 
                 FirstRunSetupStep.UNITS_BODY -> {

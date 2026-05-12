@@ -223,6 +223,8 @@ fun DashboardScreen(
     onOpenCardioLogBackfill: (LocalDate) -> Unit,
     /** Weight training manual log: opens log screen with calendar (dashboard date pre-selected). */
     onOpenWeightLogBackfill: (LocalDate) -> Unit,
+    onOpenWeightExercisesTab: () -> Unit,
+    onOpenWeightRoutinesTab: () -> Unit,
     /** Sauna / cold plunge combined history (same pattern as other category logs). */
     onOpenHeatColdLog: () -> Unit,
     supplementRepository: SupplementRepository,
@@ -339,6 +341,8 @@ fun DashboardScreen(
     val fastingCategory = remember { categories.first { it.id == "fasting" } }
     val stretchingCategory = remember { categories.first { it.id == "stretching" } }
     val bodyTrackerCategory = remember { categories.first { it.id == "body_tracker" } }
+    val supplementCategory = remember { categories.first { it.id == "supplements" } }
+    val lightTherapyCategory = remember { categories.first { it.id == "light_therapy" } }
     val programsCategory = remember { categories.first { it.id == "programs" } }
     val today = remember { LocalDate.now() }
     val scope = rememberCoroutineScope()
@@ -379,10 +383,7 @@ fun DashboardScreen(
     val therapyRedMid = if (darkTheme) ErvDarkTherapyRedMid else ErvLightTherapyRedMid
     val therapyRedGlow = if (darkTheme) ErvDarkTherapyRedGlow else ErvLightTherapyRedGlow
     val keyManager = LocalKeyManager.current
-    val availableLaunchPadTileIds = remember(
-        supplementState.routines,
-        lightState.routines,
-    ) {
+    val availableLaunchPadTileIds = remember {
         buildSet {
             add(LaunchPadTileId.PROGRAMS)
             add(LaunchPadTileId.WORKOUT_LAUNCHER)
@@ -392,8 +393,8 @@ fun DashboardScreen(
             add(LaunchPadTileId.HOT_COLD)
             add(LaunchPadTileId.FASTING)
             add(LaunchPadTileId.BODY_TRACKER)
-            if (supplementState.routines.isNotEmpty()) add(LaunchPadTileId.SUPPLEMENTS)
-            if (lightState.routines.isNotEmpty()) add(LaunchPadTileId.LIGHT_THERAPY)
+            add(LaunchPadTileId.SUPPLEMENTS)
+            add(LaunchPadTileId.LIGHT_THERAPY)
         }
     }
     val resolvedLaunchPadTileIds = remember(savedLaunchPadTileOrder) {
@@ -889,6 +890,8 @@ fun DashboardScreen(
                                     coldCompletedCount = coldRows.size,
                                     onSupplementRoutineSelected = { routinePreview = it },
                                     onLightRoutineSelected = { lightRoutinePreview = it },
+                                    onOpenSupplementCategory = { onNavigateToCategory(supplementCategory) },
+                                    onOpenLightTherapyCategory = { onNavigateToCategory(lightTherapyCategory) },
                                     onUnifiedRoutineSelected = { routine ->
                                         scope.launch {
                                             userPreferences.setProgramDashboardUnifiedRoutineLaunchJson(
@@ -964,6 +967,8 @@ fun DashboardScreen(
                                         }
                                     },
                                     onOpenWeightLogBackfill = onOpenWeightLogBackfill,
+                                    onOpenWeightExercisesTab = onOpenWeightExercisesTab,
+                                    onOpenWeightRoutinesTab = onOpenWeightRoutinesTab,
                                     onOpenHeatColdCategory = { onNavigateToCategory(heatColdCategory) },
                                     onOpenHeatColdLog = onOpenHeatColdLog,
                                     onOpenFastingCategory = { onNavigateToCategory(fastingCategory) },
@@ -982,7 +987,16 @@ fun DashboardScreen(
                                         )
                                     },
                                     onHideLaunchPadTile = { tileId ->
-                                        draftLaunchPadHiddenTileIds = draftLaunchPadHiddenTileIds + tileId
+                                        val visibleTileCount = draftLaunchPadTileIds.count {
+                                            it in availableLaunchPadTileIds && it !in draftLaunchPadHiddenTileIds
+                                        }
+                                        if (visibleTileCount <= 1) {
+                                            scope.launch {
+                                                snackbarHostState.showSnackbar("Keep at least one Launch Pad tile visible.")
+                                            }
+                                        } else {
+                                            draftLaunchPadHiddenTileIds = draftLaunchPadHiddenTileIds + tileId
+                                        }
                                     },
                                     onShowLaunchPadTile = { tileId ->
                                         draftLaunchPadHiddenTileIds = draftLaunchPadHiddenTileIds - tileId
@@ -2021,6 +2035,8 @@ private fun RoutinesSection(
     coldCompletedCount: Int,
     onSupplementRoutineSelected: (SupplementRoutine) -> Unit,
     onLightRoutineSelected: (LightRoutine) -> Unit,
+    onOpenSupplementCategory: () -> Unit,
+    onOpenLightTherapyCategory: () -> Unit,
     onUnifiedRoutineSelected: (UnifiedRoutine) -> Unit,
     onCardioRoutineSelected: (CardioRoutine) -> Unit,
     onCardioQuickLaunchSelected: (CardioQuickLaunch) -> Unit,
@@ -2029,6 +2045,8 @@ private fun RoutinesSection(
     onOpenUnifiedNewWorkout: () -> Unit,
     onOpenWeightNewWorkout: () -> Unit,
     onOpenWeightLogBackfill: (LocalDate) -> Unit,
+    onOpenWeightExercisesTab: () -> Unit,
+    onOpenWeightRoutinesTab: () -> Unit,
     onWeightRoutineSelected: (WeightRoutine) -> Unit,
     onOpenHeatColdCategory: () -> Unit,
     onOpenHeatColdLog: () -> Unit,
@@ -2191,7 +2209,7 @@ private fun RoutinesSection(
         ) {
             if (supplementRoutines.isEmpty() && lightRoutines.isEmpty()) {
                 Text(
-                    text = "Create supplement or light routines, or use Programs, Stretching, Cardio, Weight Training, Body Tracker, and Hot + Cold.",
+                    text = "Use your selected sections here. You can long-press any tile to hide, show, or rearrange Launch Pad shortcuts.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -2199,12 +2217,18 @@ private fun RoutinesSection(
             val availableTileSpecs = remember(
                 programTileSubtitle,
                 programTileStatus,
+                unifiedRoutines,
                 stretchRoutineCount,
                 cardioRoutines,
                 cardioQuickLaunches,
                 weightRoutines,
                 supplementRoutines,
                 lightRoutines,
+                onOpenSupplementCategory,
+                onOpenLightTherapyCategory,
+                onOpenStretchingCategory,
+                onOpenFastingCategory,
+                onOpenBodyTrackerCategory,
             ) {
                 buildMap<LaunchPadTileId, QuickLogTileSpec> {
                     put(
@@ -2297,42 +2321,46 @@ private fun RoutinesSection(
                             onClick = onOpenBodyTrackerCategory,
                         )
                     )
-                    if (supplementRoutines.isNotEmpty()) {
-                        put(
-                            LaunchPadTileId.SUPPLEMENTS,
-                            QuickLogTileSpec(
-                                id = LaunchPadTileId.SUPPLEMENTS,
-                                icon = Icons.Default.Medication,
-                                label = "Supplements",
-                                subtitle = if (supplementRoutines.size == 1) "1 routine" else "${supplementRoutines.size} routines",
-                                onClick = {
-                                    if (supplementRoutines.size == 1) {
-                                        onSupplementRoutineSelected(supplementRoutines.first())
-                                    } else {
-                                        showSupplementPicker = true
-                                    }
-                                },
-                            )
+                    put(
+                        LaunchPadTileId.SUPPLEMENTS,
+                        QuickLogTileSpec(
+                            id = LaunchPadTileId.SUPPLEMENTS,
+                            icon = Icons.Default.Medication,
+                            label = "Supplements",
+                            subtitle = when (supplementRoutines.size) {
+                                0 -> "Build routines & log doses"
+                                1 -> "1 routine"
+                                else -> "${supplementRoutines.size} routines"
+                            },
+                            onClick = {
+                                when (supplementRoutines.size) {
+                                    0 -> onOpenSupplementCategory()
+                                    1 -> onSupplementRoutineSelected(supplementRoutines.first())
+                                    else -> showSupplementPicker = true
+                                }
+                            },
                         )
-                    }
-                    if (lightRoutines.isNotEmpty()) {
-                        put(
-                            LaunchPadTileId.LIGHT_THERAPY,
-                            QuickLogTileSpec(
-                                id = LaunchPadTileId.LIGHT_THERAPY,
-                                icon = Icons.Default.WbSunny,
-                                label = "Light Therapy",
-                                subtitle = if (lightRoutines.size == 1) "1 routine" else "${lightRoutines.size} routines",
-                                onClick = {
-                                    if (lightRoutines.size == 1) {
-                                        onLightRoutineSelected(lightRoutines.first())
-                                    } else {
-                                        showLightPicker = true
-                                    }
-                                },
-                            )
+                    )
+                    put(
+                        LaunchPadTileId.LIGHT_THERAPY,
+                        QuickLogTileSpec(
+                            id = LaunchPadTileId.LIGHT_THERAPY,
+                            icon = Icons.Default.WbSunny,
+                            label = "Light Therapy",
+                            subtitle = when (lightRoutines.size) {
+                                0 -> "Devices, timers & routines"
+                                1 -> "1 routine"
+                                else -> "${lightRoutines.size} routines"
+                            },
+                            onClick = {
+                                when (lightRoutines.size) {
+                                    0 -> onOpenLightTherapyCategory()
+                                    1 -> onLightRoutineSelected(lightRoutines.first())
+                                    else -> showLightPicker = true
+                                }
+                            },
                         )
-                    }
+                    )
                 }
             }
             val quickLogTileRowSpacing = 12.dp
@@ -2802,6 +2830,14 @@ private fun RoutinesSection(
                 onOpenWeightLogBackfill(dashboardSelectedDate)
                 showWeightPicker = false
             },
+            onOpenExercises = {
+                onOpenWeightExercisesTab()
+                showWeightPicker = false
+            },
+            onOpenRoutines = {
+                onOpenWeightRoutinesTab()
+                showWeightPicker = false
+            },
             onSelectRoutine = { routine ->
                 onWeightRoutineSelected(routine)
                 showWeightPicker = false
@@ -2900,6 +2936,8 @@ private fun WeightRoutinePickerSheet(
     onDismiss: () -> Unit,
     onNewWorkout: () -> Unit,
     onLogPreviousWorkout: () -> Unit,
+    onOpenExercises: () -> Unit,
+    onOpenRoutines: () -> Unit,
     onSelectRoutine: (WeightRoutine) -> Unit
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
@@ -2945,6 +2983,25 @@ private fun WeightRoutinePickerSheet(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                }
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                FilledTonalButton(
+                    onClick = onOpenExercises,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("Exercises")
+                }
+                FilledTonalButton(
+                    onClick = onOpenRoutines,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("Routines")
                 }
             }
             if (routines.isNotEmpty()) {

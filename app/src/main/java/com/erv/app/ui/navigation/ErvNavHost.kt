@@ -91,6 +91,8 @@ object Routes {
     const val cardioCategory = "category/cardio"
     const val cardioCategoryNewWorkout = "category/cardio?openNewWorkout=true"
     const val weightTrainingCategory = "category/weight_training"
+    const val weightTrainingCategoryRoute = "category/weight_training?tab={tab}"
+    fun weightTrainingCategoryTab(tab: String) = "category/weight_training?tab=$tab"
     const val unifiedRoutinesCategory = "category/unified_routines"
     const val unifiedRoutineRunRoute = "category/unified_routines/run/{routineId}"
     fun unifiedRoutineRun(routineId: String) = "category/unified_routines/run/$routineId"
@@ -236,6 +238,16 @@ fun ErvNavHost(
                 },
                 onOpenWeightLogBackfill = { dashboardDate ->
                     navController.navigate(Routes.weightTrainingLogOpenCalendar(dashboardDate.toString())) {
+                        launchSingleTop = true
+                    }
+                },
+                onOpenWeightExercisesTab = {
+                    navController.navigate(Routes.weightTrainingCategoryTab("Exercises")) {
+                        launchSingleTop = true
+                    }
+                },
+                onOpenWeightRoutinesTab = {
+                    navController.navigate(Routes.weightTrainingCategoryTab("Routines")) {
                         launchSingleTop = true
                     }
                 },
@@ -441,13 +453,21 @@ fun ErvNavHost(
             )
         }
 
-        composable(Routes.weightTrainingCategory) {
+        composable(
+            route = Routes.weightTrainingCategoryRoute,
+            arguments = listOf(navArgument("tab") {
+                type = NavType.StringType
+                defaultValue = "Exercises"
+            })
+        ) { backStackEntry ->
+            val initialTab = backStackEntry.arguments?.getString("tab") ?: "Exercises"
             WeightTrainingCategoryScreen(
                 repository = weightRepository,
                 unifiedRoutineRepository = unifiedRoutineRepository,
                 liveWorkoutViewModel = weightLiveWorkoutViewModel,
                 cardioLiveWorkoutViewModel = cardioLiveWorkoutViewModel,
                 userPreferences = userPreferences,
+                initialTab = initialTab,
                 relayPool = relayPool,
                 signer = signer,
                 onBack = { navController.popBackStack() },

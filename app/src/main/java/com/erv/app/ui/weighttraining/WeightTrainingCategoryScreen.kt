@@ -117,6 +117,7 @@ fun WeightTrainingCategoryScreen(
     liveWorkoutViewModel: WeightLiveWorkoutViewModel,
     cardioLiveWorkoutViewModel: CardioLiveWorkoutViewModel,
     userPreferences: UserPreferences,
+    initialTab: String = WeightTrainingTab.Exercises.name,
     relayPool: RelayPool?,
     signer: EventSigner?,
     onBack: () -> Unit,
@@ -134,7 +135,14 @@ fun WeightTrainingCategoryScreen(
     val state by repository.state.collectAsState(initial = WeightLibraryState())
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
-    var activeTab by rememberSaveable { mutableStateOf(WeightTrainingTab.Exercises.name) }
+    val resolvedInitialTab = WeightTrainingTab.entries
+        .firstOrNull { it.name.equals(initialTab, ignoreCase = true) }
+        ?.name
+        ?: WeightTrainingTab.Exercises.name
+    var activeTab by rememberSaveable { mutableStateOf(resolvedInitialTab) }
+    LaunchedEffect(resolvedInitialTab) {
+        activeTab = resolvedInitialTab
+    }
     val tabEnum = WeightTrainingTab.entries.firstOrNull { it.name == activeTab } ?: WeightTrainingTab.Exercises
 
     var showExerciseCreator by remember { mutableStateOf(false) }
@@ -802,6 +810,7 @@ private fun RoutinesTabBody(
     onDeleteRequest: (WeightRoutine) -> Unit,
     onStartRoutine: (WeightRoutine) -> Unit
 ) {
+    var expandedRoutineIds by rememberSaveable { mutableStateOf(emptyList<String>()) }
     if (state.routines.isEmpty()) {
         Column(
             Modifier
@@ -824,37 +833,74 @@ private fun RoutinesTabBody(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         items(state.routines.sortedBy { it.name.lowercase() }, key = { it.id }) { routine ->
-            val preview = routine.exerciseIds.mapNotNull { id -> state.exerciseById(id)?.name }
-                .take(4)
-                .joinToString(" → ")
+            val expanded = routine.id in expandedRoutineIds
+            val exerciseNames = routine.exerciseIds.map { id ->
+                state.exerciseById(id)?.name ?: "Missing exercise"
+            }
             ElevatedCard(modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp)) {
-                    Text(routine.name, style = MaterialTheme.typography.titleMedium)
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        if (preview.isNotEmpty()) {
-                            "$preview${if (routine.exerciseIds.size > 4) "…" else ""}"
-                        } else {
-                            "No exercises — tap Edit to add"
-                        },
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(Modifier.height(12.dp))
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        FilledTonalButton(onClick = { onStartRoutine(routine) }) {
-                            Icon(Icons.Default.PlayArrow, contentDescription = null)
-                            Spacer(Modifier.width(8.dp))
-                            Text("Start")
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(routine.name, style = MaterialTheme.typography.titleMedium)
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                "${routine.exerciseIds.size} ${if (routine.exerciseIds.size == 1) "exercise" else "exercises"}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
-                        IconButton(onClick = { onEdit(routine) }) {
-                            Icon(Icons.Default.Edit, contentDescription = "Edit routine")
+                        IconButton(
+                            onClick = {
+                                expandedRoutineIds =
+                                    if (expanded) expandedRoutineIds - routine.id
+                                    else expandedRoutineIds + routine.id
+                            }
+                        ) {
+                            Icon(
+                                imageVector = if (expanded) Icons.Default.ArrowUpward else Icons.Default.ArrowDownward,
+                                contentDescription = if (expanded) "Hide routine exercises" else "Show routine exercises"
+                            )
                         }
-                        IconButton(onClick = { onDeleteRequest(routine) }) {
-                            Icon(Icons.Default.Close, contentDescription = "Delete routine")
+                    }
+                    if (expanded) {
+                        Spacer(Modifier.height(8.dp))
+                        if (exerciseNames.isEmpty()) {
+                            Text(
+                                "No exercises — tap Edit to add",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        } else {
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                exerciseNames.forEach { name ->
+                                    Text(
+                                        "• $name",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(12.dp))
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            FilledTonalButton(onClick = { onStartRoutine(routine) }) {
+                                Icon(Icons.Default.PlayArrow, contentDescription = null)
+                                Spacer(Modifier.width(8.dp))
+                                Text("Start")
+                            }
+                            IconButton(onClick = { onEdit(routine) }) {
+                                Icon(Icons.Default.Edit, contentDescription = "Edit routine")
+                            }
+                            IconButton(onClick = { onDeleteRequest(routine) }) {
+                                Icon(Icons.Default.Close, contentDescription = "Delete routine")
+                            }
                         }
                     }
                 }

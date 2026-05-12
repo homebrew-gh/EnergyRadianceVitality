@@ -31,6 +31,15 @@ val defaultLaunchPadTileOrder: List<LaunchPadTileId> = listOf(
     LaunchPadTileId.LIGHT_THERAPY,
 )
 
+val defaultFirstRunLaunchPadTileIds: Set<LaunchPadTileId> = setOf(
+    LaunchPadTileId.CARDIO,
+    LaunchPadTileId.WEIGHT_TRAINING,
+    LaunchPadTileId.STRETCHING,
+    LaunchPadTileId.WORKOUT_LAUNCHER,
+    LaunchPadTileId.FASTING,
+    LaunchPadTileId.HOT_COLD,
+)
+
 private val launchPadTileOrderJson = Json {
     ignoreUnknownKeys = true
     encodeDefaults = false
