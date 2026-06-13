@@ -22,10 +22,10 @@ import com.erv.app.cardio.CardioHrScaffolding
 @Composable
 fun HeartRateSessionAnalyticsSection(
     heartRate: CardioHrScaffolding?,
-    userMaxHrBpm: Int?,
+    zoneInputs: HeartRateZoneInputs = HeartRateZoneInputs(),
     useLightOnDarkBackground: Boolean,
     modifier: Modifier = Modifier,
-    exerciseCorrelationLines: List<Pair<String, String>>? = null
+    exerciseCorrelationLines: List<Pair<String, String>>? = null,
 ) {
     val samples = heartRate?.samples.orEmpty()
     val hasScalars =
@@ -42,16 +42,19 @@ fun HeartRateSessionAnalyticsSection(
     val textSub = if (useLightOnDarkBackground) Color.White.copy(alpha = 0.72f)
     else MaterialTheme.colorScheme.onSurfaceVariant
 
-    val maxHr = remember(samples, userMaxHrBpm) { resolvedMaxHrForZones(userMaxHrBpm, samples) }
-    val zoneSec = remember(samples, maxHr) { zoneDurationsSeconds(samples, maxHr) }
+    val maxHr = remember(samples, zoneInputs) { resolvedMaxHrForZones(zoneInputs, samples) }
+    val zoneSec = remember(samples, zoneInputs, maxHr) {
+        zoneDurationsSeconds(samples, zoneInputs)
+    }
     val totalZone = zoneSec.sum().coerceAtLeast(1)
     val showZones = hasSeries && totalZone > 0
+    val hasConfiguredMax = zoneInputs.manualMaxBpm != null || zoneInputs.ageYears != null
 
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(
             "Heart rate",
             style = MaterialTheme.typography.titleMedium,
-            color = textMain
+            color = textMain,
         )
         heartRate?.let { hr ->
             val parts = buildList {
@@ -63,19 +66,23 @@ fun HeartRateSessionAnalyticsSection(
                 Text(
                     parts.joinToString(" · ") + " bpm",
                     style = MaterialTheme.typography.bodyLarge,
-                    color = textSub
+                    color = textSub,
                 )
             }
         }
         if (hasSeries) {
+            val methodLabel = when (zoneInputs.method) {
+                HeartRateZoneMethod.KARVONEN_HRR -> "Karvonen (HRR)"
+                HeartRateZoneMethod.PERCENT_MAX_HR -> "% max HR"
+            }
             Text(
-                if (userMaxHrBpm != null) {
-                    "Zones use your max HR setting ($maxHr bpm)."
+                if (hasConfiguredMax) {
+                    "Zones use $methodLabel at $maxHr bpm max."
                 } else {
-                    "Zones use this workout’s peak (~$maxHr bpm) as max — set max HR in Settings → Cardio for accuracy."
+                    "Zones use this workout’s peak (~$maxHr bpm) as max — set age or max HR in Settings → Cardio."
                 },
                 style = MaterialTheme.typography.bodySmall,
-                color = textSub
+                color = textSub,
             )
         }
 
@@ -83,7 +90,7 @@ fun HeartRateSessionAnalyticsSection(
             Surface(
                 shape = RoundedCornerShape(12.dp),
                 color = if (useLightOnDarkBackground) Color.White.copy(alpha = 0.08f)
-                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
             ) {
                 HeartRateWorkoutChart(
                     samples = samples,
@@ -91,7 +98,7 @@ fun HeartRateSessionAnalyticsSection(
                     gridColor = gridColor,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(8.dp)
+                        .padding(8.dp),
                 )
             }
         }
@@ -105,13 +112,13 @@ fun HeartRateSessionAnalyticsSection(
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Text(
                         "Z$z",
                         style = MaterialTheme.typography.bodySmall,
                         color = zoneColor(z),
-                        modifier = Modifier.padding(end = 4.dp)
+                        modifier = Modifier.padding(end = 4.dp),
                     )
                     LinearProgressIndicator(
                         progress = { frac },
@@ -125,7 +132,7 @@ fun HeartRateSessionAnalyticsSection(
                     Text(
                         formatDurationSeconds(sec),
                         style = MaterialTheme.typography.bodySmall,
-                        color = textSub
+                        color = textSub,
                     )
                 }
             }
@@ -136,14 +143,14 @@ fun HeartRateSessionAnalyticsSection(
                 "By exercise (approx.)",
                 style = MaterialTheme.typography.labelLarge,
                 color = textMain,
-                modifier = Modifier.padding(top = 4.dp)
+                modifier = Modifier.padding(top = 4.dp),
             )
             lines.forEach { (title, detail) ->
                 Text(
                     "• $title — $detail",
                     style = MaterialTheme.typography.bodySmall,
                     color = textSub,
-                    modifier = Modifier.padding(start = 4.dp, top = 2.dp)
+                    modifier = Modifier.padding(start = 4.dp, top = 2.dp),
                 )
             }
         }

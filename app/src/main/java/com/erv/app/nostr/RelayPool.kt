@@ -2,6 +2,7 @@ package com.erv.app.nostr
 
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
+import okhttp3.OkHttpClient
 
 /**
  * Manages connections to multiple Nostr relays simultaneously.
@@ -10,6 +11,8 @@ import kotlinx.coroutines.flow.*
  */
 class RelayPool(
     private val signer: EventSigner,
+    private val okHttpClient: OkHttpClient,
+    private val trustSelfSignedLanTls: Boolean = false,
     private val scope: CoroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 ) {
     data class PublishReport(
@@ -42,7 +45,7 @@ class RelayPool(
     }
 
     private fun addClient(url: String) {
-        val client = NostrClient(signer)
+        val client = NostrClient(signer, okHttpClient, trustSelfSignedLanTls)
         clients[url] = client
         client.connect(url)
 

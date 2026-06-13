@@ -227,6 +227,19 @@ data class CardioHrScaffolding(
     val samples: List<CardioHrSample> = emptyList()
 )
 
+/**
+ * Live metrics captured from a smart erg monitor (e.g. Concept2 PM) during a session.
+ * Distance/speed feed the standard [CardioSession.distanceMeters]; this holds the erg-only extras.
+ */
+@Serializable
+data class CardioErgMetrics(
+    val source: String = "concept2_pm",
+    val avgPowerWatts: Int? = null,
+    val maxPowerWatts: Int? = null,
+    val avgCadenceRpm: Int? = null,
+    val maxCadenceRpm: Int? = null,
+)
+
 @Serializable
 data class CardioActivitySnapshot(
     val builtin: CardioBuiltinActivity? = null,
@@ -340,6 +353,8 @@ data class CardioSession(
      */
     val elevationGainMeters: Double? = null,
     val elevationLossMeters: Double? = null,
+    /** Power / cadence captured from a smart erg monitor (Concept2 PM) when connected. */
+    val erg: CardioErgMetrics? = null,
     val unifiedLink: UnifiedSessionLink? = null
 )
 
@@ -663,7 +678,8 @@ data class CardioTimerSessionDraft(
         elapsedSecondsForDistance: Int? = null,
         gpsPoints: List<CardioGpsPoint> = emptyList(),
         preferredDistanceMeters: Double? = null,
-        splits: List<CardioWorkoutSplit> = emptyList()
+        splits: List<CardioWorkoutSplit> = emptyList(),
+        ergMetrics: CardioErgMetrics? = null
     ): CardioSession {
         val elapsed = elapsedSecondsForDistance ?: (durationMinutes * 60)
         var dist = preferredDistanceMeters
@@ -708,7 +724,8 @@ data class CardioTimerSessionDraft(
             gpsTrack = track,
             ruckLoadKg = ruckLoadKg,
             elevationGainMeters = elevPair?.first,
-            elevationLossMeters = elevPair?.second
+            elevationLossMeters = elevPair?.second,
+            erg = ergMetrics
         )
     }
 

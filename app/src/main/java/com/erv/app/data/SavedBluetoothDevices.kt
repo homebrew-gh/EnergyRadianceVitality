@@ -8,12 +8,14 @@ import kotlinx.serialization.json.Json
 enum class SavedBluetoothDeviceKind {
     HEART_RATE_MONITOR,
     CYCLING_SPEED_CADENCE_SENSOR,
+    CONCEPT2_PM,
 }
 
 fun SavedBluetoothDeviceKind.displayLabel(): String =
     when (this) {
         SavedBluetoothDeviceKind.HEART_RATE_MONITOR -> "Heart rate monitor"
         SavedBluetoothDeviceKind.CYCLING_SPEED_CADENCE_SENSOR -> "Cycling speed/cadence sensor"
+        SavedBluetoothDeviceKind.CONCEPT2_PM -> "Concept2 PM (erg)"
     }
 
 @Serializable

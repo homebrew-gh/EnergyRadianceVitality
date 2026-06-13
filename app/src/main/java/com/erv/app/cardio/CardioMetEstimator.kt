@@ -46,11 +46,25 @@ object CardioMetEstimator {
         customMet: Double?,
         weightKg: Double?
     ): Double? {
+        powerBasedKcal(session)?.let { return it }
         if (weightKg == null || weightKg <= 0) return null
         val met = resolveMet(session, customMet) ?: return null
         val hours = session.durationMinutes / 60.0
         val metKcal = met * weightKg * hours
         return blendWithHeartRate(metKcal, session, weightKg)
+    }
+
+    /**
+     * Calorie estimate from measured average power (Concept2 PM). Mechanical work in kJ is
+     * avgPower(W) × seconds ÷ 1000; gross energy expenditure ≈ that value in kcal because human
+     * cycling/erg efficiency (~24%) and the 4.184 kJ/kcal conversion roughly cancel. This is the
+     * same heuristic Concept2 and most cycling apps use, and it does not depend on body weight.
+     */
+    private fun powerBasedKcal(session: CardioSession): Double? {
+        val avgPower = session.erg?.avgPowerWatts?.takeIf { it > 0 } ?: return null
+        val seconds = session.durationMinutes * 60
+        if (seconds <= 0) return null
+        return avgPower.toDouble() * seconds / 1000.0
     }
 
     private fun blendWithHeartRate(metKcal: Double, session: CardioSession, weightKg: Double?): Double {

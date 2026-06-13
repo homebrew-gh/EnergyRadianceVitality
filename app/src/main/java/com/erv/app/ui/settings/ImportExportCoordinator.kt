@@ -15,7 +15,11 @@ import com.erv.app.dataexport.DataExportCategory
 import com.erv.app.dataexport.DataExportFormat
 import com.erv.app.dataexport.ErvAppDataExport
 import com.erv.app.dataexport.ExportDateSelection
+import com.erv.app.dataexport.HeartRateZoneSettingsExportV1
 import com.erv.app.dataexport.LocalProfileExportV1
+import com.erv.app.dataexport.snapshotAppPreferencesForBackup
+import com.erv.app.fasting.FastingRepository
+import com.erv.app.hr.HeartRateZoneMethod
 import com.erv.app.nostr.EventSigner
 import com.erv.app.nostr.KeyManager
 import com.erv.app.nostr.RelayPool
@@ -63,6 +67,7 @@ class ImportExportCoordinator(
     private val unifiedRoutineRepository: UnifiedRoutineRepository,
     private val bodyTrackerRepository: BodyTrackerRepository,
     private val reminderRepository: RoutineReminderRepository,
+    private val fastingRepository: FastingRepository,
     private val relayPool: RelayPool?,
     private val signer: EventSigner?,
 ) {
@@ -100,6 +105,15 @@ class ImportExportCoordinator(
             pictureUrl = userPreferences.localProfilePictureUrl.first(),
             bio = userPreferences.localProfileBio.first(),
         )
+        val zoneInputs = userPreferences.heartRateZoneInputs.first()
+        val heartRateZones = HeartRateZoneSettingsExportV1(
+            maxBpm = zoneInputs.manualMaxBpm,
+            ageYears = zoneInputs.ageYears,
+            restingBpm = zoneInputs.restingBpm,
+            zoneMethod = zoneInputs.method.name,
+        )
+        val fasting = fastingRepository.currentState()
+        val appPreferences = userPreferences.snapshotAppPreferencesForBackup()
         val bytes = when (format) {
             DataExportFormat.JSON -> {
                 val bundle = ErvAppDataExport.buildBundle(
@@ -120,6 +134,9 @@ class ImportExportCoordinator(
                     goals = goals,
                     savedBluetoothDevices = savedBleDevices,
                     localProfile = localProfile,
+                    heartRateZones = heartRateZones,
+                    fasting = fasting,
+                    appPreferences = appPreferences,
                 )
                 ErvAppDataExport.toJsonString(bundle).toByteArray(StandardCharsets.UTF_8)
             }

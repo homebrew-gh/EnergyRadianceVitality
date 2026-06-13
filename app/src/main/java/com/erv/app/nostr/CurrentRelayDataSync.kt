@@ -63,6 +63,7 @@ object CurrentRelayDataSync {
         signer: EventSigner,
         dataRelayUrls: List<String>,
         localEntries: List<Pair<String, String>>,
+        trustSelfSignedLanTls: Boolean = false,
         timeoutMs: Long = 5000,
     ): CurrentRelayDataCoverage {
         if (dataRelayUrls.isEmpty()) {
@@ -74,7 +75,7 @@ object CurrentRelayDataSync {
             )
         }
 
-        val tempPool = RelayPool(signer)
+        val tempPool = RelayPool(signer, RelayOkHttpClient.create(trustSelfSignedLanTls), trustSelfSignedLanTls)
         try {
             tempPool.setRelays(dataRelayUrls)
             tempPool.awaitAtLeastOneConnected(timeoutMs = timeoutMs)

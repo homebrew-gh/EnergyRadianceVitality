@@ -63,6 +63,7 @@ import com.erv.app.ui.media.playHiitWorkSegmentEndCue
 import com.erv.app.ui.theme.ErvDarkTherapyRedDark
 import com.erv.app.ui.theme.ErvHeaderRed
 import com.erv.app.ui.theme.ErvLightTherapyRedDark
+import com.erv.app.weighttraining.WeightExercise
 import com.erv.app.weighttraining.WeightHiitBlockLog
 import com.erv.app.weighttraining.WeightHiitIntervalPlan
 import com.erv.app.weighttraining.WeightLibraryState
@@ -93,6 +94,7 @@ fun WeightLiveWorkoutScreen(
     onCannotFinishNothingLogged: () -> Unit = {},
     onFinish: () -> Unit,
     onAddExercise: (String) -> Unit,
+    onCreateExercise: (WeightExercise) -> Unit = {},
     onRemoveExerciseAt: (Int) -> Unit,
     onMoveExerciseUp: (Int) -> Unit,
     onMoveExerciseDown: (Int) -> Unit,
@@ -103,6 +105,7 @@ fun WeightLiveWorkoutScreen(
 ) {
     var tick by remember { mutableIntStateOf(0) }
     var showPickExercise by remember { mutableStateOf(false) }
+    var showExerciseCreator by remember { mutableStateOf(false) }
     var showDiscardConfirm by remember { mutableStateOf(false) }
     var showFinishBlocked by remember { mutableStateOf(false) }
     // Start every exercise collapsed (e.g. routine load) so the list is compact until the user expands.
@@ -225,6 +228,26 @@ fun WeightLiveWorkoutScreen(
                 onRecordExerciseActivity(id)
                 showPickExercise = false
                 editingExerciseId = id
+            },
+            onCreateNew = {
+                showPickExercise = false
+                showExerciseCreator = true
+            }
+        )
+    }
+
+    if (showExerciseCreator) {
+        WeightExerciseEditorDialog(
+            initial = null,
+            title = "Add exercise",
+            availableMuscleGroups = library.exercises.map { it.muscleGroup },
+            onDismiss = { showExerciseCreator = false },
+            onSave = { exercise ->
+                onCreateExercise(exercise)
+                onAddExercise(exercise.id)
+                onRecordExerciseActivity(exercise.id)
+                editingExerciseId = exercise.id
+                showExerciseCreator = false
             }
         )
     }

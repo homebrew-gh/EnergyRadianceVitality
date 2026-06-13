@@ -76,7 +76,9 @@ import com.erv.app.data.displayLabel
 import com.erv.app.data.displayName
 import com.erv.app.datadeletion.DataDeletionManager
 import com.erv.app.dataexport.DataExportCategory
+import com.erv.app.cycling.Concept2BleConnectionState
 import com.erv.app.cycling.CyclingCscBleConnectionState
+import com.erv.app.cycling.LocalConcept2Pm
 import com.erv.app.cycling.LocalCyclingCsc
 import com.erv.app.hr.HeartRateBleConnectionState
 import com.erv.app.hr.LocalHeartRateBle
@@ -129,6 +131,7 @@ private object SettingsRoutes {
     const val APPEARANCE = "settings_appearance"
     const val UNITS = "settings_units"
     const val CARDIO = "settings_cardio"
+    const val HEART_RATE_PROGRESS = "settings_heart_rate_progress"
     const val STRENGTH = "settings_strength"
     const val ACCOUNT = "settings_account"
     const val RELAYS = "settings_relays"
@@ -220,6 +223,11 @@ fun SettingsScreen(
     val cardioGpsPreferred by userPreferences.cardioGpsRecordingPreferred.collectAsState(initial = true)
     val cardioGpsTrackRetainOnDevice by userPreferences.cardioGpsTrackRetainOnDevice.collectAsState(initial = true)
     val heartRateMaxBpm by userPreferences.heartRateMaxBpm.collectAsState(initial = null)
+    val heartRateAgeYears by userPreferences.heartRateAgeYears.collectAsState(initial = null)
+    val heartRateRestingBpm by userPreferences.heartRateRestingBpm.collectAsState(initial = null)
+    val heartRateZoneMethod by userPreferences.heartRateZoneMethod.collectAsState(
+        initial = com.erv.app.hr.HeartRateZoneMethod.PERCENT_MAX_HR,
+    )
     val nip96MediaOrigin by userPreferences.nip96MediaServerOrigin.collectAsState(initial = "")
     val blossomPublicSaved by userPreferences.blossomPublicServerOrigin.collectAsState(initial = "")
     val blossomPrivateSaved by userPreferences.blossomPrivateServerOrigin.collectAsState(initial = "")
@@ -228,6 +236,7 @@ fun SettingsScreen(
     )
     val attachRouteToNostr by userPreferences.attachRouteImageToWorkoutNostrShare.collectAsState(initial = true)
     val neverPublishNip65RelayList by userPreferences.neverPublishNip65RelayList.collectAsState(initial = true)
+    val trustSelfSignedLanTls by userPreferences.trustSelfSignedLanTls.collectAsState(initial = false)
     var nip96Draft by remember { mutableStateOf("") }
     var blossomPublicDraft by remember { mutableStateOf("") }
     var blossomPrivateDraft by remember { mutableStateOf("") }
@@ -407,11 +416,28 @@ fun SettingsScreen(
                         onRetainChange = { v -> scope.launch { userPreferences.setCardioGpsTrackRetainOnDevice(v) } }
                     )
                     Spacer(Modifier.height(12.dp))
-                    MaxHeartRateZonesSection(
+                    com.erv.app.hr.HeartRateZoneSettingsSection(
                         maxBpm = heartRateMaxBpm,
-                        onSave = { v -> scope.launch { userPreferences.setHeartRateMaxBpm(v) } }
+                        ageYears = heartRateAgeYears,
+                        restingBpm = heartRateRestingBpm,
+                        zoneMethod = heartRateZoneMethod,
+                        onSave = { max, age, resting, method ->
+                            scope.launch {
+                                userPreferences.applyHeartRateZoneSettings(max, age, resting, method)
+                            }
+                        },
+                        onOpenProgress = { nestedNav.navigate(SettingsRoutes.HEART_RATE_PROGRESS) },
                     )
                 }
+            }
+            composable(SettingsRoutes.HEART_RATE_PROGRESS) {
+                com.erv.app.hr.HeartRateProgressScreen(
+                    userPreferences = userPreferences,
+                    cardioRepository = cardioRepository,
+                    weightRepository = weightRepository,
+                    unifiedRoutineRepository = unifiedRoutineRepository,
+                    onBack = { nestedNav.popBackStack() },
+                )
             }
             composable(SettingsRoutes.SAVED_DEVICES) {
                 SettingsSubScreenScaffold(
@@ -512,7 +538,7 @@ fun SettingsScreen(
                 }
             }
             composable(SettingsRoutes.RELAYS) {
-                LaunchedEffect(relayRevision, dataRelayUrls, signer) {
+                LaunchedEffect(relayRevision, dataRelayUrls, signer, trustSelfSignedLanTls) {
                     if (signer == null || !keyManager.isLoggedIn) {
                         relayCoverage = null
                         relayCoverageLoading = false
@@ -538,6 +564,7 @@ fun SettingsScreen(
                                 signer = signer,
                                 dataRelayUrls = dataRelayUrls,
                                 localEntries = localEntries,
+                                trustSelfSignedLanTls = trustSelfSignedLanTls,
                             )
                         }
                     } catch (_: Exception) {
@@ -581,6 +608,13 @@ fun SettingsScreen(
                             }
                         )
                     }
+                    com.erv.app.ui.onboarding.RelaySelfSignedTlsRow(
+                        checked = trustSelfSignedLanTls,
+                        onCheckedChange = { enabled ->
+                            scope.launch { userPreferences.setTrustSelfSignedLanTls(enabled) }
+                        },
+                        modifier = Modifier.padding(bottom = 12.dp),
+                    )
                     if (pendingRelayUploadCount > 0) {
                         Text(
                             relayUploadCurrentStateText(
@@ -693,6 +727,7 @@ fun SettingsScreen(
                                                 signer = signer,
                                                 dataRelayUrls = dataRelayUrls,
                                                 localEntries = localEntries,
+                                                trustSelfSignedLanTls = trustSelfSignedLanTls,
                                             )
                                         }
                                     } catch (e: Exception) {
@@ -1360,6 +1395,13 @@ private fun SavedBluetoothDevicesSection(
 ) {
     val heartRateBle = LocalHeartRateBle.current
     val cyclingCscBle = LocalCyclingCsc.current
+    val concept2Ble = LocalConcept2Pm.current
+    val savedErgDevices by concept2Ble.savedDevices.collectAsState()
+    val preferredErgAddress by concept2Ble.preferredDeviceAddress.collectAsState()
+    val activeErgAddress by concept2Ble.activeDeviceAddress.collectAsState()
+    val ergConnectionState by concept2Ble.connectionState.collectAsState()
+    val ergScanRows by concept2Ble.scanRows.collectAsState()
+    val ergStatusMessage by concept2Ble.statusMessage.collectAsState()
     val savedHeartRateDevices by heartRateBle.savedDevices.collectAsState()
     val preferredHeartRateAddress by heartRateBle.preferredDeviceAddress.collectAsState()
     val activeHeartRateAddress by heartRateBle.activeDeviceAddress.collectAsState()
@@ -1378,8 +1420,10 @@ private fun SavedBluetoothDevicesSection(
     }
     var heartRateScanDialogOpen by remember { mutableStateOf(false) }
     var cyclingScanDialogOpen by remember { mutableStateOf(false) }
+    var ergScanDialogOpen by remember { mutableStateOf(false) }
     var pendingHeartRateConnectDevice by remember { mutableStateOf<SavedBluetoothDevice?>(null) }
     var pendingCyclingConnectDevice by remember { mutableStateOf<SavedBluetoothDevice?>(null) }
+    var pendingErgConnectDevice by remember { mutableStateOf<SavedBluetoothDevice?>(null) }
     var pendingScanTarget by remember { mutableStateOf<SavedBluetoothDeviceKind?>(null) }
 
     val requestBlePermissions = rememberLauncherForActivityResult(
@@ -1388,22 +1432,33 @@ private fun SavedBluetoothDevicesSection(
         if (heartRateBle.hasScanPermission() && heartRateBle.hasConnectPermission()) {
             val heartRateConnect = pendingHeartRateConnectDevice
             val cyclingConnect = pendingCyclingConnectDevice
+            val ergConnect = pendingErgConnectDevice
             val scanTarget = pendingScanTarget
             pendingHeartRateConnectDevice = null
             pendingCyclingConnectDevice = null
+            pendingErgConnectDevice = null
             pendingScanTarget = null
             when {
                 heartRateConnect != null -> heartRateBle.connectToSavedDevice(heartRateConnect)
                 cyclingConnect != null -> cyclingCscBle.connectToSavedDevice(cyclingConnect)
+                ergConnect != null -> concept2Ble.connectToSavedDevice(ergConnect)
                 scanTarget == SavedBluetoothDeviceKind.HEART_RATE_MONITOR -> {
                     cyclingScanDialogOpen = false
+                    ergScanDialogOpen = false
                     heartRateScanDialogOpen = true
                     heartRateBle.startScanForSensors()
                 }
                 scanTarget == SavedBluetoothDeviceKind.CYCLING_SPEED_CADENCE_SENSOR -> {
                     heartRateScanDialogOpen = false
+                    ergScanDialogOpen = false
                     cyclingScanDialogOpen = true
                     cyclingCscBle.startScanForSensors()
+                }
+                scanTarget == SavedBluetoothDeviceKind.CONCEPT2_PM -> {
+                    heartRateScanDialogOpen = false
+                    cyclingScanDialogOpen = false
+                    ergScanDialogOpen = true
+                    concept2Ble.startScanForSensors()
                 }
             }
         }
@@ -1425,13 +1480,30 @@ private fun SavedBluetoothDevicesSection(
     fun startCyclingScan() {
         pendingHeartRateConnectDevice = null
         pendingCyclingConnectDevice = null
+        pendingErgConnectDevice = null
         pendingScanTarget = SavedBluetoothDeviceKind.CYCLING_SPEED_CADENCE_SENSOR
         if (!cyclingCscBle.hasScanPermission() || !cyclingCscBle.hasConnectPermission()) {
             requestBlePermissions.launch(requiredBlePermissionsForHeartRate())
         } else {
             heartRateScanDialogOpen = false
+            ergScanDialogOpen = false
             cyclingScanDialogOpen = true
             cyclingCscBle.startScanForSensors()
+        }
+    }
+
+    fun startErgScan() {
+        pendingHeartRateConnectDevice = null
+        pendingCyclingConnectDevice = null
+        pendingErgConnectDevice = null
+        pendingScanTarget = SavedBluetoothDeviceKind.CONCEPT2_PM
+        if (!concept2Ble.hasScanPermission() || !concept2Ble.hasConnectPermission()) {
+            requestBlePermissions.launch(requiredBlePermissionsForHeartRate())
+        } else {
+            heartRateScanDialogOpen = false
+            cyclingScanDialogOpen = false
+            ergScanDialogOpen = true
+            concept2Ble.startScanForSensors()
         }
     }
 
@@ -1487,6 +1559,25 @@ private fun SavedBluetoothDevicesSection(
                 ) {
                     Text("Scan CSC")
                 }
+            }
+            Button(
+                onClick = { startErgScan() },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = concept2Ble.bleHardwareAvailable
+            ) {
+                Text("Scan Concept2 erg")
+            }
+            Text(
+                "Concept2 monitors (PM5 on BikeErg, RowErg, SkiErg) stream live power, cadence, distance, and pace over their own Bluetooth protocol.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            if (ergStatusMessage != null && savedErgDevices.isEmpty()) {
+                Text(
+                    ergStatusMessage!!,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
             if (!heartRateBle.bleHardwareAvailable) {
                 Text(
@@ -1631,6 +1722,104 @@ private fun SavedBluetoothDevicesSection(
                 )
             }
         }
+    }
+
+    Spacer(Modifier.height(12.dp))
+
+    Text(
+        "Concept2 erg monitors",
+        style = MaterialTheme.typography.titleMedium,
+        modifier = Modifier.padding(bottom = 8.dp)
+    )
+    if (savedErgDevices.isEmpty()) {
+        ElevatedCard(
+            modifier = Modifier.fillMaxWidth(),
+            elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
+        ) {
+            Text(
+                "No saved Concept2 monitors yet. Pair your BikeErg / RowErg / SkiErg PM5 once to capture power, cadence, and distance in live cycling workouts.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(12.dp)
+            )
+        }
+    } else {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            savedErgDevices.forEach { device ->
+                SavedBluetoothDeviceCard(
+                    device = device,
+                    isPreferred = preferredErgAddress == device.address,
+                    isConnected = activeErgAddress == device.address &&
+                        ergConnectionState == Concept2BleConnectionState.Connected,
+                    isConnecting = activeErgAddress == device.address &&
+                        ergConnectionState == Concept2BleConnectionState.Connecting,
+                    statusMessage = ergStatusMessage,
+                    onConnect = {
+                        if (!concept2Ble.hasConnectPermission()) {
+                            pendingHeartRateConnectDevice = null
+                            pendingCyclingConnectDevice = null
+                            pendingErgConnectDevice = device
+                            pendingScanTarget = null
+                            requestBlePermissions.launch(requiredBlePermissionsForHeartRate())
+                        } else {
+                            concept2Ble.connectToSavedDevice(device)
+                        }
+                    },
+                    onDisconnect = { concept2Ble.disconnectUser() },
+                    onForget = { concept2Ble.forgetSavedDevice(device.address) }
+                )
+            }
+        }
+    }
+
+    if (ergScanDialogOpen) {
+        AlertDialog(
+            onDismissRequest = {
+                ergScanDialogOpen = false
+                concept2Ble.stopScanInternal()
+            },
+            title = { Text("Select a Concept2 monitor") },
+            text = {
+                if (ergScanRows.isEmpty()) {
+                    Text("No Concept2 monitors found yet. Wake the PM5 (press a button or start pedaling) so it advertises.")
+                } else {
+                    Column {
+                        ergScanRows.forEachIndexed { index, row ->
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        ergScanDialogOpen = false
+                                        concept2Ble.connectToScannedRow(row)
+                                    }
+                                    .padding(vertical = 10.dp)
+                            ) {
+                                Text(
+                                    text = row.name?.takeIf { it.isNotBlank() } ?: "Concept2 monitor",
+                                    style = MaterialTheme.typography.bodyLarge
+                                )
+                                Text(
+                                    text = row.address,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            if (index < ergScanRows.lastIndex) {
+                                HorizontalDivider()
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        ergScanDialogOpen = false
+                        concept2Ble.stopScanInternal()
+                    }
+                ) { Text("Stop scanning") }
+            }
+        )
     }
 
     if (heartRateScanDialogOpen) {
@@ -1830,7 +2019,8 @@ private fun SavedBluetoothDeviceCard(
 }
 
 @Composable
-private fun MaxHeartRateZonesSection(
+@Suppress("unused")
+private fun MaxHeartRateZonesSectionLegacy(
     maxBpm: Int?,
     onSave: (Int?) -> Unit
 ) {

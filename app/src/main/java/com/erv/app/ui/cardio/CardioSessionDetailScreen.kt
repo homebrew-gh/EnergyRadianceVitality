@@ -63,6 +63,7 @@ import com.erv.app.cardio.summaryLine
 import com.erv.app.cardio.label
 import com.erv.app.data.UserPreferences
 import com.erv.app.hr.HeartRateSessionAnalyticsSection
+import com.erv.app.hr.HeartRateZoneInputs
 import com.erv.app.ui.theme.ErvHeaderRed
 import java.time.Instant
 import java.time.LocalDate
@@ -87,7 +88,9 @@ fun CardioSessionDetailScreen(
 ) {
     val session = state.logFor(logDate)?.sessions?.firstOrNull { it.id == sessionId }
     val distanceUnit by userPreferences.cardioDistanceUnit.collectAsState(initial = CardioDistanceUnit.MILES)
-    val heartRateMaxPref by userPreferences.heartRateMaxBpm.collectAsState(initial = null)
+    val heartRateZoneInputs by userPreferences.heartRateZoneInputs.collectAsState(
+        initial = HeartRateZoneInputs(),
+    )
     val headerMid = ErvHeaderRed
 
     Scaffold(
@@ -126,7 +129,7 @@ fun CardioSessionDetailScreen(
             CardioSessionDetailBody(
                 session = session,
                 distanceUnit = distanceUnit,
-                userMaxHrBpm = heartRateMaxPref,
+                zoneInputs = heartRateZoneInputs,
                 modifier = Modifier.padding(padding)
             )
         }
@@ -137,8 +140,8 @@ fun CardioSessionDetailScreen(
 private fun CardioSessionDetailBody(
     session: CardioSession,
     distanceUnit: CardioDistanceUnit,
-    userMaxHrBpm: Int?,
-    modifier: Modifier = Modifier
+    zoneInputs: HeartRateZoneInputs,
+    modifier: Modifier = Modifier,
 ) {
     val elapsedGuess = session.durationMinutes * 60
     LazyColumn(
@@ -218,7 +221,7 @@ private fun CardioSessionDetailBody(
                 item {
                     HeartRateSessionAnalyticsSection(
                         heartRate = hr,
-                        userMaxHrBpm = userMaxHrBpm,
+                        zoneInputs = zoneInputs,
                         useLightOnDarkBackground = false,
                         modifier = Modifier.padding(vertical = 4.dp)
                     )

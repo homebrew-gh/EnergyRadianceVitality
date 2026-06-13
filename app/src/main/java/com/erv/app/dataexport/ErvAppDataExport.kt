@@ -14,6 +14,7 @@ import com.erv.app.programs.ProgramsLibraryState
 import com.erv.app.reminders.RoutineReminderState
 import com.erv.app.stretching.StretchLibraryState
 import com.erv.app.supplements.SupplementLibraryState
+import com.erv.app.fasting.FastingLibraryState
 import com.erv.app.unifiedroutines.UnifiedRoutineLibraryState
 import com.erv.app.weighttraining.WeightLibraryState
 import kotlinx.serialization.EncodeDefault
@@ -39,6 +40,8 @@ enum class DataExportCategory(val label: String) {
     BODY_TRACKER("Body tracker"),
     REMINDERS("Reminders"),
     PERSONAL_DATA("Personal data"),
+    FASTING("Fasting"),
+    APP_PREFERENCES("App preferences"),
 }
 
 enum class DataExportFormat {
@@ -59,10 +62,19 @@ data class LocalProfileExportV1(
 )
 
 @Serializable
+data class HeartRateZoneSettingsExportV1(
+    val maxBpm: Int? = null,
+    val ageYears: Int? = null,
+    val restingBpm: Int? = null,
+    val zoneMethod: String? = null,
+)
+
+@Serializable
 data class PersonalDataExportV1(
     val goals: List<UserGoalDefinition> = emptyList(),
     val savedBluetoothDevices: List<SavedBluetoothDevice> = emptyList(),
     val localProfile: LocalProfileExportV1 = LocalProfileExportV1(),
+    val heartRateZones: HeartRateZoneSettingsExportV1? = null,
 )
 
 @Serializable
@@ -102,6 +114,8 @@ data class ErvAppDataExportV1(
     val bodyTracker: BodyTrackerExportV1? = null,
     val reminders: RoutineReminderState? = null,
     val personalData: PersonalDataExportV1? = null,
+    val fasting: FastingLibraryState? = null,
+    val appPreferences: AppPreferencesExportV1? = null,
 )
 
 object ErvAppDataExport {
@@ -137,6 +151,12 @@ object ErvAppDataExport {
 
     fun filterCardioState(state: CardioLibraryState, selection: ExportDateSelection): CardioLibraryState =
         state.copy(logs = state.logs.filter { isDateInSelection(it.date, selection) })
+
+    /** Count cardio sessions that include a stored GPS point list (local backup fidelity). */
+    fun cardioGpsTrackSessionCount(state: CardioLibraryState): Int =
+        state.logs.sumOf { day ->
+            day.sessions.count { session -> session.gpsTrack?.points?.isNotEmpty() == true }
+        }
 
     fun filterStretchState(state: StretchLibraryState, selection: ExportDateSelection): StretchLibraryState =
         state.copy(logs = state.logs.filter { isDateInSelection(it.date, selection) })
@@ -218,6 +238,9 @@ object ErvAppDataExport {
         goals: List<UserGoalDefinition>,
         savedBluetoothDevices: List<SavedBluetoothDevice>,
         localProfile: LocalProfileExportV1,
+        heartRateZones: HeartRateZoneSettingsExportV1? = null,
+        fasting: FastingLibraryState = FastingLibraryState(),
+        appPreferences: AppPreferencesExportV1? = null,
         exportedAtEpochSeconds: Long = System.currentTimeMillis() / 1000,
     ): ErvAppDataExportV1 {
         val label = dateRangeLabel(selection)
@@ -226,6 +249,7 @@ object ErvAppDataExport {
             goals = goals,
             savedBluetoothDevices = savedBluetoothDevices,
             localProfile = localProfile,
+            heartRateZones = heartRateZones,
         )
         fun w() = filterWeightState(weight, selection)
         fun c() = filterCardioState(cardio, selection)
@@ -249,6 +273,8 @@ object ErvAppDataExport {
                 bodyTracker = bodyTracker,
                 reminders = reminders,
                 personalData = personalDataPayload,
+                fasting = fasting,
+                appPreferences = appPreferences,
             )
             DataExportCategory.WEIGHT_TRAINING -> ErvAppDataExportV1(
                 exportedAtEpochSeconds = exportedAtEpochSeconds,
@@ -311,6 +337,16 @@ object ErvAppDataExport {
                 dateRangeLabel = label,
                 fitnessEquipment = equipmentPayload,
                 personalData = personalDataPayload,
+            )
+            DataExportCategory.FASTING -> ErvAppDataExportV1(
+                exportedAtEpochSeconds = exportedAtEpochSeconds,
+                dateRangeLabel = label,
+                fasting = fasting,
+            )
+            DataExportCategory.APP_PREFERENCES -> ErvAppDataExportV1(
+                exportedAtEpochSeconds = exportedAtEpochSeconds,
+                dateRangeLabel = label,
+                appPreferences = appPreferences,
             )
         }
     }
@@ -447,6 +483,8 @@ object ErvAppDataExport {
             DataExportCategory.BODY_TRACKER -> "erv_body_tracker"
             DataExportCategory.REMINDERS -> "erv_reminders"
             DataExportCategory.PERSONAL_DATA -> "erv_personal"
+            DataExportCategory.FASTING -> "erv_fasting"
+            DataExportCategory.APP_PREFERENCES -> "erv_app_preferences"
         }
         return "${slug}_export_$day"
     }

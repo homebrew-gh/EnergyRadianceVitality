@@ -16,7 +16,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.erv.app.R
 import com.erv.app.nostr.ConnectionState
 import com.erv.app.nostr.KeyManager
 import com.erv.app.nostr.RelayPool
@@ -30,6 +32,8 @@ private const val WSS_PREFIX = "wss://"
 fun RelaySetupScreen(
     keyManager: KeyManager,
     relayPool: RelayPool?,
+    trustSelfSignedLanTls: Boolean = false,
+    onTrustTlsChange: (Boolean) -> Unit = {},
     onContinue: () -> Unit
 ) {
     var relayRevision by remember { mutableIntStateOf(0) }
@@ -88,6 +92,13 @@ fun RelaySetupScreen(
             }
 
             Spacer(Modifier.height(16.dp))
+
+            RelaySelfSignedTlsRow(
+                checked = trustSelfSignedLanTls,
+                onCheckedChange = onTrustTlsChange,
+            )
+
+            Spacer(Modifier.height(12.dp))
 
             allRelays.forEach { url ->
                 SetupRelayRow(
@@ -210,6 +221,35 @@ private fun SetupRelayRow(
                 modifier = Modifier.height(28.dp)
             )
         }
+    }
+}
+
+@Composable
+internal fun RelaySelfSignedTlsRow(
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = stringResource(R.string.settings_relays_trust_self_signed_switch),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Text(
+                text = stringResource(R.string.settings_relays_trust_self_signed_helper),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+        )
     }
 }
 

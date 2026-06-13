@@ -73,6 +73,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.erv.app.R
+import com.erv.app.cycling.LocalConcept2Pm
 import com.erv.app.cycling.LocalCyclingCsc
 import com.erv.app.hr.LocalHeartRateBle
 import com.erv.app.nostr.EventSigner
@@ -111,6 +112,7 @@ import com.erv.app.cardio.CardioSync
 import com.erv.app.cardio.CardioTimerSessionDraft
 import com.erv.app.cardio.CardioTimerStyle
 import com.erv.app.cardio.eligibleForPhoneGps
+import com.erv.app.cardio.CardioErgMetrics
 import com.erv.app.cardio.isCyclingActivity
 import com.erv.app.cardio.cardioActivityRowsFor
 import com.erv.app.cardio.effectiveSteps
@@ -190,7 +192,10 @@ import com.erv.app.reminders.RoutineReminderRepository
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import androidx.compose.runtime.withFrameNanos
 import com.erv.app.cardio.label
 import com.erv.app.cardio.nowEpochSeconds
 import com.erv.app.weighttraining.WeightActivityRow
@@ -248,10 +253,16 @@ fun DashboardScreen(
     val context = LocalContext.current
     val heartRateBle = LocalHeartRateBle.current
     val cyclingCscBle = LocalCyclingCsc.current
+    val concept2Ble = LocalConcept2Pm.current
     val cyclingWorkoutDistanceMeters by cyclingCscBle.workoutDistanceMeters.collectAsState()
     val cyclingSpeedKmh by cyclingCscBle.currentSpeedKmh.collectAsState()
     val cyclingCadenceRpm by cyclingCscBle.currentCadenceRpm.collectAsState()
     val cyclingConnectionState by cyclingCscBle.connectionState.collectAsState()
+    val ergConnectionState by concept2Ble.connectionState.collectAsState()
+    val ergWorkoutDistanceMeters by concept2Ble.workoutDistanceMeters.collectAsState()
+    val ergSpeedKmh by concept2Ble.currentSpeedKmh.collectAsState()
+    val ergCadenceRpm by concept2Ble.currentCadenceRpm.collectAsState()
+    val ergPowerWatts by concept2Ble.currentPowerWatts.collectAsState()
     val selectedDate by viewModel.selectedDate.collectAsState()
     val supplementState by supplementRepository.state.collectAsState(initial = SupplementLibraryState())
     val lightState by lightTherapyRepository.state.collectAsState(initial = LightLibraryState())
@@ -414,8 +425,20 @@ fun DashboardScreen(
     val hideDashboardChrome =
         (cardioActiveTimer != null && cardioLiveUiExpanded) || cardioWorkoutSummary != null
 
-    LaunchedEffect(hideDashboardChrome) {
-        if (!hideDashboardChrome) {
+    var launchPadLibrariesReady by remember { mutableStateOf(false) }
+    LaunchedEffect(supplementRepository, lightTherapyRepository) {
+        combine(
+            supplementRepository.state,
+            lightTherapyRepository.state,
+        ) { _, _ -> Unit }.first()
+        launchPadLibrariesReady = true
+    }
+
+    LaunchedEffect(hideDashboardChrome, launchPadLibrariesReady) {
+        if (!hideDashboardChrome && launchPadLibrariesReady) {
+            // Launch Pad content height changes once local libraries hydrate; re-anchor the
+            // category sheet after that layout pass so peek height does not stay stuck elevated.
+            withFrameNanos { }
             scaffoldState.bottomSheetState.partialExpand()
         }
     }
@@ -637,22 +660,20 @@ fun DashboardScreen(
         // hideDashboardChrome: Material3 BottomSheetScaffoldLayout can crash (IndexOutOfBoundsException,
         // empty subcompose slot list on Android 16) when any of those slots compose to nothing or 0.dp.
         // The live cardio / summary overlay is drawn above this scaffold and covers the chrome.
-        sheetPeekHeight = 48.dp,
+        sheetPeekHeight = 52.dp,
         sheetContainerColor = if (darkTheme) ErvDarkCategoryMenuMutedGold else ErvCategoryMenuMutedGold,
         sheetTonalElevation = 0.dp,
         sheetShadowElevation = 4.dp,
         sheetContent = {
-            Box(modifier = Modifier.heightIn(min = 48.dp)) {
-                CategorySheet(
-                    onCategoryClick = { category ->
-                        scope.launch {
-                            scaffoldState.bottomSheetState.partialExpand()
-                            onNavigateToCategory(category)
-                        }
-                    },
-                    modifier = Modifier.wrapContentHeight()
-                )
-            }
+            CategorySheet(
+                onCategoryClick = { category ->
+                    scope.launch {
+                        scaffoldState.bottomSheetState.partialExpand()
+                        onNavigateToCategory(category)
+                    }
+                },
+                modifier = Modifier.wrapContentHeight()
+            )
         },
         sheetDragHandle = {
             Column(modifier = Modifier.fillMaxWidth()) {
@@ -683,7 +704,7 @@ fun DashboardScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 10.dp),
+                        .padding(vertical = 8.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
@@ -780,7 +801,12 @@ fun DashboardScreen(
         },
         modifier = Modifier.fillMaxSize()
     ) { padding ->
-        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
+                .padding(padding)
+        ) {
             // The dashboard keeps routines lightweight: select, preview, then log or edit.
             val dashboardPagerState = rememberPagerState(pageCount = { 2 })
             val routinesScrollState = rememberScrollState()
@@ -870,6 +896,7 @@ fun DashboardScreen(
                                 Spacer(Modifier.height(14.dp))
                                 RoutinesSection(
                                     showSectionHeading = false,
+                                    launchPadLibrariesReady = launchPadLibrariesReady,
                                     dashboardSelectedDate = selectedDate,
                                     userPreferences = userPreferences,
                                     programsLibraryState = programsState,
@@ -1379,18 +1406,20 @@ fun DashboardScreen(
                                 library = cardioRepository.currentState()
                             )
                             cardioRepository.addSession(selectedDate, session)
-                            cardioRepository.currentState().logFor(selectedDate)?.let { log ->
-                                if (relayPool != null && signer != null) {
-                                    CardioSync.publishDailyLog(
-                                        context.applicationContext,
-                                        relayPool,
-                                        signer,
-                                        log,
-                                        keyManager.relayUrlsForKind30078Publish(),
-                                    )
+                            snackbarHostState.showSnackbar("Logged ${r.name}")
+                            launch {
+                                cardioRepository.currentState().logFor(selectedDate)?.let { log ->
+                                    if (relayPool != null && signer != null) {
+                                        CardioSync.publishDailyLog(
+                                            context.applicationContext,
+                                            relayPool,
+                                            signer,
+                                            log,
+                                            keyManager.relayUrlsForKind30078Publish(),
+                                        )
+                                    }
                                 }
                             }
-                            snackbarHostState.showSnackbar("Logged ${r.name}")
                         }
                     },
                     onStartTimer = { r ->
@@ -1453,8 +1482,16 @@ fun DashboardScreen(
             is CardioActiveTimerSession.Single -> {
                 if (cardioLiveUiExpanded) {
                     val draft = ct.draft
-                    val cyclingDistanceMeters =
-                        if (draft.activity.isCyclingActivity()) cyclingWorkoutDistanceMeters else null
+                    val isCycling = draft.activity.isCyclingActivity()
+                    val ergConnected = isCycling &&
+                        ergConnectionState == com.erv.app.cycling.Concept2BleConnectionState.Connected
+                    val cscConnected = isCycling &&
+                        cyclingConnectionState == com.erv.app.cycling.CyclingCscBleConnectionState.Connected
+                    val cyclingDistanceMeters = when {
+                        ergConnected -> ergWorkoutDistanceMeters
+                        cscConnected -> cyclingWorkoutDistanceMeters
+                        else -> null
+                    }
                     val paceOnlyTimer = draft.timerStyle is CardioTimerStyle.CountDownDistance
                     val recordGps =
                         draft.eligibleForPhoneGps() && cardioGpsPreferred && dashboardLocationFineGranted && !paceOnlyTimer
@@ -1468,10 +1505,18 @@ fun DashboardScreen(
                         mid = therapyRedMid,
                         glow = therapyRedGlow,
                         preferredLiveDistanceMeters = cyclingDistanceMeters,
-                        cyclingSensorConnected = draft.activity.isCyclingActivity() &&
-                            cyclingConnectionState == com.erv.app.cycling.CyclingCscBleConnectionState.Connected,
-                        cyclingSpeedKmh = if (draft.activity.isCyclingActivity()) cyclingSpeedKmh else null,
-                        cyclingCadenceRpm = if (draft.activity.isCyclingActivity()) cyclingCadenceRpm else null,
+                        cyclingSensorConnected = ergConnected || cscConnected,
+                        cyclingSpeedKmh = when {
+                            ergConnected -> ergSpeedKmh
+                            cscConnected -> cyclingSpeedKmh
+                            else -> null
+                        },
+                        cyclingCadenceRpm = when {
+                            ergConnected -> ergCadenceRpm
+                            cscConnected -> cyclingCadenceRpm
+                            else -> null
+                        },
+                        ergPowerWatts = if (ergConnected) ergPowerWatts else null,
                         gpsRecordingActive = recordGps,
                         showGpsPermissionHint = showGpsPermissionHint,
                         onRequestLocationPermission = {
@@ -1483,17 +1528,32 @@ fun DashboardScreen(
                             scope.launch {
                                 val durationMinutes = max(1, (elapsedSeconds + 59) / 60)
                                 val end = nowEpochSeconds()
+                                val ergSummary = if (isCycling) concept2Ble.takeWorkoutSummary() else null
+                                val cscDistance = if (isCycling) {
+                                    cyclingCscBle.takeWorkoutSummary()?.distanceMeters
+                                } else {
+                                    null
+                                }
+                                val ergMetrics = ergSummary?.let { s ->
+                                    CardioErgMetrics(
+                                        avgPowerWatts = s.avgPowerWatts,
+                                        maxPowerWatts = s.maxPowerWatts,
+                                        avgCadenceRpm = s.avgCadenceRpm,
+                                        maxCadenceRpm = s.maxCadenceRpm,
+                                    )
+                                }
                                 val raw = draft.toSession(
                                     durationMinutes = durationMinutes,
                                     endEpoch = end,
                                     elapsedSecondsForDistance = elapsedSeconds,
                                     gpsPoints = gpsPoints,
-                                    preferredDistanceMeters = if (draft.activity.isCyclingActivity()) {
-                                        cyclingCscBle.takeWorkoutSummary()?.distanceMeters
+                                    preferredDistanceMeters = if (isCycling) {
+                                        ergSummary?.distanceMeters ?: cscDistance
                                     } else {
                                         null
                                     },
-                                    splits = splits
+                                    splits = splits,
+                                    ergMetrics = ergMetrics
                                 )
                                 val hrSummary = heartRateBle.takeWorkoutHeartRateSummary()
                                 val withHr = hrSummary?.let { raw.copy(heartRate = it) } ?: raw
@@ -1505,15 +1565,17 @@ fun DashboardScreen(
                                 cardioLiveWorkoutViewModel.clearSession()
                                 cardioWorkoutSummary = CardioTimerCompletionResult(session, elapsedSeconds)
                                 cardioRepository.addSession(selectedDate, session)
-                                cardioRepository.currentState().logFor(selectedDate)?.let { log ->
-                                    if (relayPool != null && signer != null) {
-                                        CardioSync.publishDailyLog(
-                                            context.applicationContext,
-                                            relayPool,
-                                            signer,
-                                            log,
-                                            keyManager.relayUrlsForKind30078Publish(),
-                                        )
+                                launch {
+                                    cardioRepository.currentState().logFor(selectedDate)?.let { log ->
+                                        if (relayPool != null && signer != null) {
+                                            CardioSync.publishDailyLog(
+                                                context.applicationContext,
+                                                relayPool,
+                                                signer,
+                                                log,
+                                                keyManager.relayUrlsForKind30078Publish(),
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -1522,6 +1584,7 @@ fun DashboardScreen(
                             drainCardioGpsIfNeeded(recordGps, context.applicationContext)
                             heartRateBle.discardWorkoutRecording()
                             cyclingCscBle.discardWorkoutRecording()
+                            concept2Ble.discardWorkoutRecording()
                             cardioLiveWorkoutViewModel.clearSession()
                         }
                     )
@@ -1560,15 +1623,17 @@ fun DashboardScreen(
                                     cardioLiveWorkoutViewModel.clearSession()
                                     cardioWorkoutSummary = CardioTimerCompletionResult(finalSession, null)
                                     cardioRepository.addSession(selectedDate, finalSession)
-                                    cardioRepository.currentState().logFor(selectedDate)?.let { log ->
-                                        if (relayPool != null && signer != null) {
-                                            CardioSync.publishDailyLog(
-                                                context.applicationContext,
-                                                relayPool,
-                                                signer,
-                                                log,
-                                                keyManager.relayUrlsForKind30078Publish(),
-                                            )
+                                    launch {
+                                        cardioRepository.currentState().logFor(selectedDate)?.let { log ->
+                                            if (relayPool != null && signer != null) {
+                                                CardioSync.publishDailyLog(
+                                                    context.applicationContext,
+                                                    relayPool,
+                                                    signer,
+                                                    log,
+                                                    keyManager.relayUrlsForKind30078Publish(),
+                                                )
+                                            }
                                         }
                                     }
                                 } else if (next != null) {
@@ -2015,6 +2080,7 @@ private fun cardioRoutineShortcutsSubtitle(
 @Composable
 private fun RoutinesSection(
     showSectionHeading: Boolean = true,
+    launchPadLibrariesReady: Boolean = true,
     dashboardSelectedDate: LocalDate,
     userPreferences: UserPreferences,
     programsLibraryState: ProgramsLibraryState,
@@ -2199,7 +2265,8 @@ private fun RoutinesSection(
     }
     ElevatedCard(
         modifier = Modifier.fillMaxWidth(),
-        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 4.dp)
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 4.dp),
+        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface),
     ) {
         Column(
             modifier = Modifier
@@ -2207,7 +2274,7 @@ private fun RoutinesSection(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            if (supplementRoutines.isEmpty() && lightRoutines.isEmpty()) {
+            if (launchPadLibrariesReady && supplementRoutines.isEmpty() && lightRoutines.isEmpty()) {
                 Text(
                     text = "Use your selected sections here. You can long-press any tile to hide, show, or rearrange Launch Pad shortcuts.",
                     style = MaterialTheme.typography.bodyMedium,
@@ -3868,7 +3935,14 @@ private fun RoutineTile(
     ElevatedCard(
         modifier = modifier.aspectRatio(1f),
         elevation = CardDefaults.elevatedCardElevation(defaultElevation = elevation),
-        shape = MaterialTheme.shapes.medium
+        shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.elevatedCardColors(
+            containerColor = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
+                MaterialTheme.colorScheme.surfaceVariant
+            } else {
+                MaterialTheme.colorScheme.surface
+            }
+        ),
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
             Column(

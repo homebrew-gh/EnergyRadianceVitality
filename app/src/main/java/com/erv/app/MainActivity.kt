@@ -68,9 +68,12 @@ import com.erv.app.ui.navigation.LocalRelayDataSyncInProgress
 import com.erv.app.ui.dashboard.DashboardViewModel
 import com.erv.app.ui.weighttraining.WeightLiveWorkoutViewModel
 import com.erv.app.ui.cardio.CardioLiveWorkoutViewModel
+import com.erv.app.cycling.Concept2Pm5BleViewModel
 import com.erv.app.cycling.CyclingCscBleViewModel
 import com.erv.app.hr.HeartRateBleViewModel
 import com.erv.app.hr.HeartRateTopBar
+import com.erv.app.hr.HeartRateZoneInputs
+import com.erv.app.cycling.LocalConcept2Pm
 import com.erv.app.cycling.LocalCyclingCsc
 import com.erv.app.hr.LocalHeartRateBle
 import com.erv.app.hr.requiredBlePermissionsForHeartRate
@@ -206,12 +209,20 @@ private fun ErvApp(
             else null)
     }
     var onboardingPool by remember { mutableStateOf<RelayPool?>(null) }
+    val trustSelfSignedLanTls by userPreferences.trustSelfSignedLanTls.collectAsState(initial = false)
     DisposableEffect(onboardingPool) {
         val pool = onboardingPool
         onDispose { pool?.disconnect() }
     }
 
     val scope = rememberCoroutineScope()
+
+    fun recreateOnboardingPool(signer: EventSigner, trustTls: Boolean) {
+        onboardingPool?.disconnect()
+        val pool = RelayPool(signer, RelayOkHttpClient.create(trustTls), trustTls)
+        pool.setRelays(keyManager.relayUrlsForPool())
+        onboardingPool = pool
+    }
 
     LaunchedEffect(Unit) {
         userPreferences.ensureMediaKeysSplitV1()
@@ -250,9 +261,10 @@ private fun ErvApp(
                             onboardingLoading = false
                             appState = AppState.Ready
                         } else {
-                            val pool = RelayPool(activeSigner)
-                            pool.setRelays(keyManager.relayUrlsForPool())
-                            onboardingPool = pool
+                            recreateOnboardingPool(
+                                activeSigner,
+                                userPreferences.peekTrustSelfSignedLanTls(),
+                            )
                             onboardingLoading = false
                         }
                     }
@@ -275,6 +287,13 @@ private fun ErvApp(
                 RelaySetupScreen(
                     keyManager = keyManager,
                     relayPool = onboardingPool,
+                    trustSelfSignedLanTls = trustSelfSignedLanTls,
+                    onTrustTlsChange = { enabled ->
+                        scope.launch {
+                            userPreferences.setTrustSelfSignedLanTls(enabled)
+                            resolveSigner()?.let { recreateOnboardingPool(it, enabled) }
+                        }
+                    },
                     onContinue = {
                         scope.launch {
                             onboardingPool?.let { pool ->
@@ -347,7 +366,8 @@ private suspend fun runPostLoginSetup(
     signer: EventSigner,
     userPreferences: UserPreferences
 ): Boolean {
-    val pool = RelayPool(signer)
+    val trustTls = userPreferences.peekTrustSelfSignedLanTls()
+    val pool = RelayPool(signer, RelayOkHttpClient.create(trustTls), trustTls)
     try {
         pool.setRelays(keyManager.relayUrlsForPool())
         pool.awaitAtLeastOneConnected(timeoutMs = 15_000)
@@ -415,6 +435,9 @@ private fun MainAppShell(
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentNavRoute = navBackStackEntry?.destination?.route
     val heartRateBannerExpanded by userPreferences.heartRateBannerExpanded.collectAsState(initial = true)
+    val heartRateZoneInputs by userPreferences.heartRateZoneInputs.collectAsState(
+        initial = HeartRateZoneInputs(),
+    )
     val showGlobalHeartRateBar =
         heartRateBannerExpanded && !Routes.isCardioDestination(currentNavRoute)
     val supplementRepository = remember(context) { SupplementRepository(context) }
@@ -434,7 +457,10 @@ private fun MainAppShell(
                 AmberSigner(keyManager.publicKeyHex!!, amberHost, context.contentResolver, keyManager.amberPackageName!!)
             else null)
     }
-    val relayPool = remember(signer) { signer?.let { RelayPool(it) } }
+    val trustSelfSignedLanTls by userPreferences.trustSelfSignedLanTls.collectAsState(initial = false)
+    val relayPool = remember(signer, trustSelfSignedLanTls) {
+        signer?.let { RelayPool(it, RelayOkHttpClient.create(trustSelfSignedLanTls), trustSelfSignedLanTls) }
+    }
     var relayUrlsVersion by remember { mutableIntStateOf(0) }
     var relayDataSyncInProgress by remember { mutableStateOf(false) }
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
@@ -633,6 +659,8 @@ private fun MainAppShell(
             viewModel<HeartRateBleViewModel>(viewModelStoreOwner = activityForLifecycle)
         val cyclingCscBleViewModel =
             viewModel<CyclingCscBleViewModel>(viewModelStoreOwner = activityForLifecycle)
+        val concept2BleViewModel =
+            viewModel<Concept2Pm5BleViewModel>(viewModelStoreOwner = activityForLifecycle)
         val activeWeightWorkout by weightLiveWorkoutViewModel.activeDraft.collectAsState()
         val activeCardioTimer by cardioLiveWorkoutViewModel.activeTimer.collectAsState()
         val activeUnifiedWorkout = unifiedState.activeSession != null
@@ -642,6 +670,7 @@ private fun MainAppShell(
             if (liveWorkoutActive) {
                 heartRateBleViewModel.resetWorkoutRecordingOnLiveStart()
                 cyclingCscBleViewModel.resetWorkoutRecordingOnLiveStart()
+                concept2BleViewModel.resetWorkoutRecordingOnLiveStart()
             }
         }
         val keepScreenAwakeForLiveWorkout = liveWorkoutActive
@@ -661,6 +690,7 @@ private fun MainAppShell(
             LocalRelayDataSyncInProgress provides relayDataSyncInProgress,
             LocalHeartRateBle provides heartRateBleViewModel,
             LocalCyclingCsc provides cyclingCscBleViewModel,
+            LocalConcept2Pm provides concept2BleViewModel,
             LocalKeyManager provides keyManager,
         ) {
             Column(Modifier.fillMaxSize()) {
@@ -669,7 +699,8 @@ private fun MainAppShell(
                         viewModel = heartRateBleViewModel,
                         onRequestBlePermissions = {
                             blePermissionLauncher.launch(requiredBlePermissionsForHeartRate())
-                        }
+                        },
+                        zoneInputs = heartRateZoneInputs,
                     )
                 }
                 ErvNavHost(

@@ -34,6 +34,10 @@ import com.erv.app.cardio.DatedCardioSession
 import com.erv.app.cardio.computeCardioLogStats
 import com.erv.app.cardio.formatCardioDistanceFromMeters
 import com.erv.app.cardio.formatCardioTotalDuration
+import com.erv.app.cardio.formatCardioZoneSummary
+import com.erv.app.hr.HeartRateZoneInputs
+import com.erv.app.hr.formatDurationSeconds
+import com.erv.app.hr.zoneColor
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.ceil
@@ -44,9 +48,10 @@ fun CardioLogStatsBottomSheet(
     entries: List<DatedCardioSession>,
     distanceUnit: CardioDistanceUnit,
     periodLabel: String,
+    zoneInputs: HeartRateZoneInputs = HeartRateZoneInputs(),
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val stats = remember(entries) { computeCardioLogStats(entries) }
+    val stats = remember(entries, zoneInputs) { computeCardioLogStats(entries, zoneInputs) }
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
@@ -120,6 +125,38 @@ fun CardioLogStatsSheetContent(
                 value = "~${k.toInt()} kcal",
                 valueColor = MaterialTheme.colorScheme.onSurface,
             )
+        }
+        if (stats.workoutsWithHeartRate > 0) {
+            Text("Heart rate (this period)", style = MaterialTheme.typography.titleSmall, color = onVar)
+            StatRow(
+                label = "Workouts with HR",
+                value = stats.workoutsWithHeartRate.toString(),
+                valueColor = MaterialTheme.colorScheme.onSurface,
+            )
+            stats.avgHeartRateBpm?.let { avg ->
+                StatRow(
+                    label = "Average HR",
+                    value = "$avg bpm",
+                    valueColor = MaterialTheme.colorScheme.onSurface,
+                )
+            }
+            formatCardioZoneSummary(stats.heartRateZoneSeconds)?.let { summary ->
+                StatRow(
+                    label = "Dominant zone",
+                    value = summary,
+                    valueColor = MaterialTheme.colorScheme.onSurface,
+                )
+            }
+            val totalZone = stats.heartRateZoneSeconds.sum().coerceAtLeast(1)
+            for (z in 1..5) {
+                val sec = stats.heartRateZoneSeconds[z - 1]
+                if (sec <= 0) continue
+                StatRow(
+                    label = "Z$z",
+                    value = formatDurationSeconds(sec),
+                    valueColor = zoneColor(z),
+                )
+            }
         }
         if (stats.primaryActivityCounts.isNotEmpty()) {
             Text("Most common workouts", style = MaterialTheme.typography.titleSmall, color = onVar)

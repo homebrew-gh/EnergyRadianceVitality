@@ -42,7 +42,8 @@ fun WeightPickExerciseDialog(
     exercises: List<WeightExercise>,
     excludeIds: Set<String>,
     onDismiss: () -> Unit,
-    onPick: (String) -> Unit
+    onPick: (String) -> Unit,
+    onCreateNew: (() -> Unit)? = null
 ) {
     val appContext = LocalContext.current.applicationContext
     val userPreferences = remember(appContext) { UserPreferences(appContext) }
@@ -207,6 +208,11 @@ fun WeightPickExerciseDialog(
         },
         confirmButton = {
             TextButton(onClick = onDismiss) { Text("Close") }
+        },
+        dismissButton = {
+            onCreateNew?.let { create ->
+                TextButton(onClick = create) { Text("Create new exercise") }
+            }
         }
     )
 }

@@ -61,6 +61,7 @@ import com.erv.app.weighttraining.WeightLibraryState
 import com.erv.app.weighttraining.WeightRepository
 import com.erv.app.ui.heatcold.HeatColdCategoryScreen
 import com.erv.app.ui.heatcold.HeatColdLogScreen
+import com.erv.app.ui.fasting.FastingLogScreen
 import com.erv.app.ui.fasting.FastingScreen
 import com.erv.app.ui.programs.ProgramDetailScreen
 import com.erv.app.ui.programs.ProgramsCategoryScreen
@@ -105,6 +106,7 @@ object Routes {
     fun weightExerciseDetail(exerciseId: String) = "category/weight_training/exercise/$exerciseId"
     const val heatColdLog = "category/heat_cold/log"
     const val fasting = "category/fasting"
+    const val fastingLog = "category/fasting/log"
     const val stretchingLog = "category/stretching/log"
     const val programsCategory = "category/programs"
     const val programDetailRoute = "category/programs/{programId}"
@@ -544,6 +546,16 @@ fun ErvNavHost(
 
         composable(Routes.fasting) {
             FastingScreen(
+                repository = fastingRepository,
+                onBack = { navController.popBackStack() },
+                onOpenLog = {
+                    navController.navigate(Routes.fastingLog) { launchSingleTop = true }
+                }
+            )
+        }
+
+        composable(Routes.fastingLog) {
+            FastingLogScreen(
                 repository = fastingRepository,
                 onBack = { navController.popBackStack() }
             )

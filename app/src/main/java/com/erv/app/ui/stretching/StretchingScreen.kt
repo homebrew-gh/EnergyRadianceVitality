@@ -602,11 +602,13 @@ fun StretchingCategoryScreen(
                             )
                         }
                     }
-                    log?.let { syncDailyLog(it) }
                     if (activeUnifiedSession != null && activeUnifiedBlockId != null) {
                         onBack()
                     } else {
                         snackbarHostState.showSnackbar("Logged stretching session")
+                    }
+                    launch {
+                        log?.let { syncDailyLog(it) }
                     }
                 }
                 guidedRoutine = null
@@ -1592,8 +1594,8 @@ fun StretchingLogScreen(
                         pendingDelete = null
                         scope.launch {
                             repository.deleteSession(logDate, id)
-                            syncDailyLogForDate(logDate)
                             snackbarHostState.showSnackbar("Session removed")
+                            launch { syncDailyLogForDate(logDate) }
                         }
                     }
                 ) { Text("Remove") }

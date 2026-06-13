@@ -142,9 +142,9 @@ fun WeightTrainingLogScreen(
                                 estimatedKcal = WeightCalorieEstimator.estimateKcal(session, fallbackBodyWeightKg)
                             )
                         )
-                        pushDayLog(target)
                         manualLogEditor = WeightLogEditorState.Hidden
                         snackbarHostState.showSnackbar("Workout saved")
+                        launch { pushDayLog(target) }
                     }
                 },
                 modifier = Modifier.fillMaxSize()
@@ -166,9 +166,9 @@ fun WeightTrainingLogScreen(
                                 estimatedKcal = WeightCalorieEstimator.estimateKcal(session, fallbackBodyWeightKg)
                             )
                         )
-                        pushDayLog(logEditor.logDate)
                         manualLogEditor = WeightLogEditorState.Hidden
                         snackbarHostState.showSnackbar("Workout updated")
+                        launch { pushDayLog(logEditor.logDate) }
                     }
                 },
                 modifier = Modifier.fillMaxSize()
@@ -195,9 +195,9 @@ fun WeightTrainingLogScreen(
             onRemoveFromLog = {
                 scope.launch {
                     repository.deleteWorkout(summaryDate, summarySession.id)
-                    pushDayLog(summaryDate)
                     selectedWorkoutForSummary = null
                     snackbarHostState.showSnackbar("Workout removed")
+                    launch { pushDayLog(summaryDate) }
                 }
             },
             onDone = { selectedWorkoutForSummary = null }
@@ -344,8 +344,8 @@ fun WeightTrainingLogScreen(
                     onClick = {
                         scope.launch {
                             repository.deleteWorkout(deleteDate, w.id)
-                            pushDayLog(deleteDate)
                             snackbarHostState.showSnackbar("Workout removed")
+                            launch { pushDayLog(deleteDate) }
                         }
                         workoutPendingDelete = null
                     }

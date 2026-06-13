@@ -195,7 +195,9 @@ fun WeightWorkoutSummaryFullScreen(
     onOpenLog: (() -> Unit)? = null,
     onDone: () -> Unit
 ) {
-    val maxHrPref by userPreferences.heartRateMaxBpm.collectAsState(initial = null)
+    val heartRateZoneInputs by userPreferences.heartRateZoneInputs.collectAsState(
+        initial = com.erv.app.hr.HeartRateZoneInputs(),
+    )
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     var sharing by remember { mutableStateOf(false) }
@@ -271,7 +273,7 @@ fun WeightWorkoutSummaryFullScreen(
                 }
                 HeartRateSessionAnalyticsSection(
                     heartRate = hr,
-                    userMaxHrBpm = maxHrPref,
+                    zoneInputs = heartRateZoneInputs,
                     useLightOnDarkBackground = true,
                     exerciseCorrelationLines = corr.takeIf { it.isNotEmpty() }
                 )

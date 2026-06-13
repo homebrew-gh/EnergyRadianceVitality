@@ -103,7 +103,9 @@ fun UnifiedWorkoutSummaryScreen(
     val summary = unifiedState.sessionById(sessionId)
     val loadUnit by userPreferences.weightTrainingLoadUnit.collectAsState(initial = BodyWeightUnit.LB)
     val distanceUnit by userPreferences.cardioDistanceUnit.collectAsState(initial = CardioDistanceUnit.MILES)
-    val maxHrPref by userPreferences.heartRateMaxBpm.collectAsState(initial = null)
+    val heartRateZoneInputs by userPreferences.heartRateZoneInputs.collectAsState(
+        initial = com.erv.app.hr.HeartRateZoneInputs(),
+    )
     val nip96Origin by userPreferences.nip96MediaServerOrigin.collectAsState(initial = "")
     val blossomPublicOrigin by userPreferences.blossomPublicServerOrigin.collectAsState(initial = "")
     val workoutMediaBackend by userPreferences.workoutMediaUploadBackend.collectAsState(
@@ -193,7 +195,7 @@ fun UnifiedWorkoutSummaryScreen(
             summary.heartRate?.let { hr ->
                 HeartRateSessionAnalyticsSection(
                     heartRate = hr,
-                    userMaxHrBpm = maxHrPref,
+                    zoneInputs = heartRateZoneInputs,
                     useLightOnDarkBackground = true
                 )
             }

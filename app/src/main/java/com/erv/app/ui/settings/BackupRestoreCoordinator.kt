@@ -3,9 +3,13 @@ package com.erv.app.ui.settings
 import android.content.Context
 import com.erv.app.bodytracker.BodyTrackerRepository
 import com.erv.app.data.UserPreferences
+import com.erv.app.hr.HeartRateZoneMethod
 import com.erv.app.dataexport.BodyTrackerExportV1
 import com.erv.app.dataexport.BodyTrackerPhotoExportV1
+import com.erv.app.dataexport.ErvAppDataExport
 import com.erv.app.dataexport.ErvAppDataExportV1
+import com.erv.app.dataexport.restoreAppPreferencesFromBackup
+import com.erv.app.fasting.FastingRepository
 import com.erv.app.nostr.CurrentRelayDataSync
 import com.erv.app.nostr.EventSigner
 import com.erv.app.nostr.KeyManager
@@ -50,6 +54,7 @@ class BackupRestoreCoordinator(
     private val unifiedRoutineRepository: UnifiedRoutineRepository,
     private val bodyTrackerRepository: BodyTrackerRepository,
     private val reminderRepository: RoutineReminderRepository,
+    private val fastingRepository: FastingRepository,
     private val relayPool: RelayPool?,
     private val signer: EventSigner?,
 ) {
@@ -101,7 +106,21 @@ class BackupRestoreCoordinator(
             userPreferences.setLocalProfileDisplayName(it.localProfile.displayName)
             userPreferences.setLocalProfilePictureUrl(it.localProfile.pictureUrl)
             userPreferences.setLocalProfileBio(it.localProfile.bio)
+            it.heartRateZones?.let { hr ->
+                val method = when (hr.zoneMethod) {
+                    HeartRateZoneMethod.KARVONEN_HRR.name -> HeartRateZoneMethod.KARVONEN_HRR
+                    else -> HeartRateZoneMethod.PERCENT_MAX_HR
+                }
+                userPreferences.applyHeartRateZoneSettings(
+                    maxBpm = hr.maxBpm,
+                    ageYears = hr.ageYears,
+                    restingBpm = hr.restingBpm,
+                    method = method,
+                )
+            }
         }
+        bundle.fasting?.let { fastingRepository.replaceAll(it) }
+        bundle.appPreferences?.let { userPreferences.restoreAppPreferencesFromBackup(it) }
 
         val sectionsRestored = preview.sections.size
         val syncMessage = resyncRelaysIfPossible()
@@ -123,9 +142,11 @@ class BackupRestoreCoordinator(
             )
         }
         bundle.cardio?.let {
+            val gpsSessions = ErvAppDataExport.cardioGpsTrackSessionCount(it)
+            val gpsNote = if (gpsSessions > 0) ", $gpsSessions session(s) with GPS tracks" else ""
             sections += BackupPreviewSection(
                 title = "Cardio",
-                summary = "${it.logs.size} log day(s), ${it.routines.size} routine(s), ${it.quickLaunches.size} quick launch(es)"
+                summary = "${it.logs.size} log day(s), ${it.routines.size} routine(s), ${it.quickLaunches.size} quick launch(es)$gpsNote"
             )
         }
         bundle.stretching?.let {
@@ -191,6 +212,19 @@ class BackupRestoreCoordinator(
             sections += BackupPreviewSection(
                 title = "Personal data",
                 summary = "${bundle.personalData.goals.size} goal(s), ${bundle.personalData.savedBluetoothDevices.size} saved device(s), $profileBits local profile field(s)"
+            )
+        }
+        bundle.fasting?.let {
+            val activeNote = if (it.activeSession != null) "1 active fast" else "no active fast"
+            sections += BackupPreviewSection(
+                title = "Fasting",
+                summary = "${it.history.size} history session(s), $activeNote, plan=${it.intermittentPlan.protocolLabel}"
+            )
+        }
+        bundle.appPreferences?.let {
+            sections += BackupPreviewSection(
+                title = "App preferences",
+                summary = "theme=${it.themeMode}, units, timers, launch pad, and device settings (no relay or private key)"
             )
         }
         return sections

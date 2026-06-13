@@ -67,6 +67,7 @@ import com.erv.app.programs.ProgramSync
 import com.erv.app.programs.ProgramsLibraryState
 import com.erv.app.reminders.RoutineReminderRepository
 import com.erv.app.supplements.SupplementRepository
+import com.erv.app.fasting.FastingRepository
 import com.erv.app.unifiedroutines.UnifiedRoutineRepository
 import com.erv.app.weighttraining.WeightSync
 import com.erv.app.weighttraining.WeightWorkoutEntry
@@ -222,6 +223,7 @@ fun SettingsDataImportExportScreen(
             unifiedRoutineRepository = unifiedRoutineRepository,
             bodyTrackerRepository = bodyTrackerRepository,
             reminderRepository = reminderRepository,
+            fastingRepository = FastingRepository(context.applicationContext),
             relayPool = relayPool,
             signer = signer,
         )
@@ -257,6 +259,7 @@ fun SettingsDataImportExportScreen(
             unifiedRoutineRepository = unifiedRoutineRepository,
             bodyTrackerRepository = bodyTrackerRepository,
             reminderRepository = reminderRepository,
+            fastingRepository = FastingRepository(context.applicationContext),
             relayPool = relayPool,
             signer = signer,
         )
@@ -775,7 +778,7 @@ fun SettingsDataImportExportScreen(
             HorizontalDivider()
             ImportSectionTitle("Backup And Restore")
             Text(
-                "Use ERV backup JSON when you want to archive a section, move to a new device, or restore ERV-shaped snapshots. Restore replaces only the sections present in the file.",
+                "Use ERV backup JSON when you want to archive a section, move to a new device, or restore after reinstall. Full backups include fasting, app preferences, and cardio GPS tracks when stored on device. Private keys and relay URLs are never included.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(bottom = 12.dp)
@@ -853,7 +856,7 @@ fun SettingsDataImportExportScreen(
                 Text("Restore From ERV Backup JSON", modifier = Modifier.padding(start = 8.dp))
             }
             Text(
-                "Restore is replace-oriented for the sections in the file. Omitted sections stay untouched, and relay re-sync only happens if you are signed in.",
+                "Restore is replace-oriented for the sections in the file. Omitted sections stay untouched. Re-enter your Nostr key and relays after reinstall; relay re-sync only happens if you are signed in.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 10.dp, bottom = 16.dp)

@@ -113,7 +113,7 @@
     <string name="settings_cardio_gps_retention_privacy">Your raw GPS points are not included in encrypted cardio logs published to relays—those events only carry summaries. Full tracks exist on your phone only when this setting is on.</string>
     <string name="settings_cardio_gps_retention_storage_title">Local storage path</string>
     <string name="settings_cardio_gps_retention_storage_intro">Workout logs (including GPS tracks when kept) live in app-private storage as JSON inside a DataStore file. Typical path:</string>
-    <string name="settings_cardio_gps_retention_backup">You cannot open this file from Downloads. To back it up, use Android backup, adb, or your device manufacturer’s full backup tools—the app does not export this data for you.</string>
+    <string name="settings_cardio_gps_retention_backup">You cannot open this file from Downloads. When “Keep detailed GPS track” is on, use Settings → Data Interchange + Backup → Export ERV Backup (All categories) before uninstalling. Android cloud backup does not include ERV app data.</string>
     <string name="cardio_timer_gps_allow_location">Allow location for GPS distance</string>
     <string name="cardio_timer_gps_recording">Acquiring GPS…</string>
     <string name="cardio_timer_gps_from_route">From GPS route</string>
@@ -204,6 +204,8 @@
     <!-- Settings → Relays: NIP-65 relay list (kind 10002) -->
     <string name="settings_relays_never_publish_nip65_switch">Never publish NIP-65 relay list</string>
     <string name="settings_relays_never_publish_nip65_helper">When on (recommended for private relays), ERV will not send kind 10002 events that advertise your relay URLs to the network. Encrypted sync and profile publish are unchanged. Turn off only if you want other Nostr clients to auto-discover your relay set.</string>
+    <string name="settings_relays_trust_self_signed_switch">Self-signed LAN certificate</string>
+    <string name="settings_relays_trust_self_signed_helper">Enable for Start9 or other self-hosted relays on your LAN or WireGuard VPN. Only use for relays you control.</string>
     <string name="settings_relays_save_nip65_failed">Relay settings saved, but NIP-65 relay list could not be published.</string>
 
     <!-- Live workout: system media session (track info + transport) -->

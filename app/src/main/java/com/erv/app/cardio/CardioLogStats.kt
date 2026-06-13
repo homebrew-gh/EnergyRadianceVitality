@@ -1,5 +1,9 @@
 package com.erv.app.cardio
 
+import com.erv.app.hr.HeartRateZoneInputs
+import com.erv.app.hr.collectHeartRateWorkoutsFromCardio
+import com.erv.app.hr.computeHeartRateProgressStats
+import com.erv.app.hr.formatDurationSeconds
 import java.time.YearMonth
 
 /** Best-effort distance for one logged session (rollup or sum of segment distances). */
@@ -42,9 +46,16 @@ data class CardioLogAggregatedStats(
     val primaryActivityCounts: List<Pair<String, Int>>,
     val monthlyWorkouts: List<CardioMonthlyWorkoutBucket>,
     val monthlyDistanceMeters: List<CardioMonthlyDistanceBucket>,
+    val workoutsWithHeartRate: Int = 0,
+    /** Seconds in Z1..Z5 for cardio sessions in this period with HR samples. */
+    val heartRateZoneSeconds: IntArray = IntArray(5),
+    val avgHeartRateBpm: Int? = null,
 )
 
-fun computeCardioLogStats(entries: List<DatedCardioSession>): CardioLogAggregatedStats {
+fun computeCardioLogStats(
+    entries: List<DatedCardioSession>,
+    zoneInputs: HeartRateZoneInputs = HeartRateZoneInputs(),
+): CardioLogAggregatedStats {
     if (entries.isEmpty()) {
         return CardioLogAggregatedStats(
             workoutCount = 0,
@@ -104,6 +115,10 @@ fun computeCardioLogStats(entries: List<DatedCardioSession>): CardioLogAggregate
         CardioMonthlyDistanceBucket(m, monthDistance[m] ?: 0.0)
     }
 
+    val hrWorkouts = collectHeartRateWorkoutsFromCardio(entries)
+    val hrStats = computeHeartRateProgressStats(hrWorkouts, zoneInputs)
+    val avgHr = hrWorkouts.mapNotNull { it.heartRate.avgBpm }.takeIf { it.isNotEmpty() }?.average()?.toInt()
+
     return CardioLogAggregatedStats(
         workoutCount = entries.size,
         activeDays = distinctDays.size,
@@ -115,7 +130,18 @@ fun computeCardioLogStats(entries: List<DatedCardioSession>): CardioLogAggregate
         primaryActivityCounts = topPrimary,
         monthlyWorkouts = monthlyW,
         monthlyDistanceMeters = monthlyD,
+        workoutsWithHeartRate = hrStats.workoutsWithHr,
+        heartRateZoneSeconds = hrStats.totalZoneSeconds,
+        avgHeartRateBpm = avgHr,
     )
+}
+
+fun formatCardioZoneSummary(zoneSeconds: IntArray): String? {
+    val total = zoneSeconds.sum()
+    if (total <= 0) return null
+    val dominant = zoneSeconds.indices.maxByOrNull { zoneSeconds[it] } ?: return null
+    val zone = dominant + 1
+    return "Z$zone ${formatDurationSeconds(zoneSeconds[dominant])} (${zoneSeconds[dominant] * 100 / total}%)"
 }
 
 fun formatCardioTotalDuration(minutes: Long): String {

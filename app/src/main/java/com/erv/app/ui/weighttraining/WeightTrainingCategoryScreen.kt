@@ -196,8 +196,8 @@ fun WeightTrainingCategoryScreen(
             onRemoveFromLog = {
                 scope.launch {
                     repository.deleteWorkout(LocalDate.now(), summarySession.id)
-                    pushDayLog(LocalDate.now())
                     completedSessionForSummary = null
+                    launch { pushDayLog(LocalDate.now()) }
                 }
             },
             onOpenLog = {
@@ -487,6 +487,13 @@ fun WeightTrainingCategoryScreen(
                     }
                 },
                 onAddExercise = { id -> liveWorkoutViewModel.addExercise(id) },
+                onCreateExercise = { exercise ->
+                    scope.launch {
+                        repository.upsertExercise(exercise)
+                        pushMasters()
+                        snackbarHostState.showSnackbar("Exercise added")
+                    }
+                },
                 onRemoveExerciseAt = { idx -> liveWorkoutViewModel.removeExerciseAt(idx) },
                 onMoveExerciseUp = { idx -> liveWorkoutViewModel.moveExerciseUp(idx) },
                 onMoveExerciseDown = { idx -> liveWorkoutViewModel.moveExerciseDown(idx) },

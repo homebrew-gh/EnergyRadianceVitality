@@ -4,7 +4,6 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import kotlinx.serialization.json.*
 import okhttp3.*
-import java.util.concurrent.TimeUnit
 
 sealed class ConnectionState {
     data object Disconnected : ConnectionState()
@@ -47,6 +46,8 @@ data class NostrFilter(
  */
 class NostrClient(
     private val signer: EventSigner,
+    private val okHttpClient: OkHttpClient,
+    private val trustSelfSignedLanTls: Boolean = false,
     private val scope: CoroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 ) {
     private data class PublishAck(val success: Boolean, val message: String)
@@ -61,9 +62,6 @@ class NostrClient(
         const val MAX_AUTH_PUBLISH_RETRIES = 1
     }
 
-    private val okHttpClient = OkHttpClient.Builder()
-        .pingInterval(30, TimeUnit.SECONDS)
-        .build()
     private var webSocket: WebSocket? = null
     private var relayUrl: String? = null
     private var reconnectJob: Job? = null
@@ -119,7 +117,9 @@ class NostrClient(
             override fun onFailure(ws: WebSocket, t: Throwable, response: Response?) {
                 if (ws !== webSocket) return
                 webSocket = null
-                _connectionState.value = ConnectionState.Error(t.message ?: "Connection failed")
+                _connectionState.value = ConnectionState.Error(
+                    RelayConnectErrors.format(t, trustSelfSignedLanTls)
+                )
                 failAllPending()
                 scheduleReconnect(url)
             }

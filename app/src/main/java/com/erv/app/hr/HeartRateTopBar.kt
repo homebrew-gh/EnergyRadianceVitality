@@ -49,7 +49,8 @@ fun requiredBlePermissionsForHeartRate(): Array<String> =
 fun HeartRateTopBar(
     viewModel: HeartRateBleViewModel,
     onRequestBlePermissions: () -> Unit,
-    modifier: Modifier = Modifier
+    zoneInputs: HeartRateZoneInputs = HeartRateZoneInputs(),
+    modifier: Modifier = Modifier,
 ) {
     if (!viewModel.bleHardwareAvailable) return
 
@@ -100,6 +101,26 @@ fun HeartRateTopBar(
                                 style = MaterialTheme.typography.labelLarge,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
+                            bpm?.let { liveBpm ->
+                                val maxHr = resolvedMaxHrForZones(
+                                    zoneInputs.manualMaxBpm,
+                                    emptyList(),
+                                    zoneInputs.ageYears,
+                                )
+                                if (zoneInputs.manualMaxBpm != null || zoneInputs.ageYears != null) {
+                                    val zone = heartRateZoneIndex(
+                                        liveBpm,
+                                        maxHr,
+                                        zoneInputs.restingBpm,
+                                        zoneInputs.method,
+                                    )
+                                    Text(
+                                        text = "Z$zone · ${heartRateZoneShortName(zone)}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = zoneColor(zone),
+                                    )
+                                }
+                            }
                             label?.let {
                                 Text(
                                     text = it,

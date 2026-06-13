@@ -1,6 +1,8 @@
 package com.erv.app.data
 
 import com.erv.app.cardio.CardioDistanceUnit
+import com.erv.app.hr.HeartRateZoneInputs
+import com.erv.app.hr.HeartRateZoneMethod
 import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
@@ -101,12 +103,17 @@ class UserPreferences(private val context: Context) {
         val BLE_HEART_RATE_DEVICE_ADDRESS = stringPreferencesKey("ble_heart_rate_device_address_v1")
         /** MAC address of preferred Cycling Speed and Cadence sensor for live cycling workouts. */
         val BLE_CSC_DEVICE_ADDRESS = stringPreferencesKey("ble_csc_device_address_v1")
+        /** MAC address of preferred Concept2 PM erg monitor (proprietary BLE protocol). */
+        val BLE_CONCEPT2_DEVICE_ADDRESS = stringPreferencesKey("ble_concept2_device_address_v1")
         /** Saved BLE devices list for quick reconnects from Settings. */
         val BLE_SAVED_DEVICES_JSON_V1 = stringPreferencesKey("ble_saved_devices_json_v1")
         /** Wheel circumference used to convert CSC wheel revolutions into distance and speed. */
         val CYCLING_WHEEL_CIRCUMFERENCE_MM = intPreferencesKey("cycling_wheel_circumference_mm_v1")
         /** Optional max HR (bpm) for heart rate zone breakdown; empty = use workout peak as proxy. */
         val HEART_RATE_MAX_BPM = stringPreferencesKey("heart_rate_max_bpm_v1")
+        val HEART_RATE_AGE_YEARS = stringPreferencesKey("heart_rate_age_years_v1")
+        val HEART_RATE_RESTING_BPM = stringPreferencesKey("heart_rate_resting_bpm_v1")
+        val HEART_RATE_ZONE_METHOD = stringPreferencesKey("heart_rate_zone_method_v1")
         /** Global BLE heart-rate strip above navigation; cardio screens hide it regardless. */
         val HEART_RATE_BANNER_EXPANDED = booleanPreferencesKey("heart_rate_banner_expanded_v1")
         /** User chose to use the app without creating a Nostr identity yet (local-only shell). */
@@ -140,6 +147,10 @@ class UserPreferences(private val context: Context) {
          * When true (default), ERV does not publish NIP-65 kind 10002 relay list metadata.
          */
         val NEVER_PUBLISH_NIP65_RELAY_LIST_V1 = booleanPreferencesKey("never_publish_nip65_relay_list_v1")
+        /**
+         * Trust self-signed TLS for wss/https relay and media URLs (Start9, WireGuard, LAN).
+         */
+        val TRUST_SELF_SIGNED_LAN_TLS_V1 = booleanPreferencesKey("trust_self_signed_lan_tls_v1")
     }
 
     val themeMode: Flow<ThemeMode> = context.dataStore.data.map { prefs ->
@@ -506,6 +517,19 @@ class UserPreferences(private val context: Context) {
         }
     }
 
+    val trustSelfSignedLanTls: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[Keys.TRUST_SELF_SIGNED_LAN_TLS_V1] ?: false
+    }
+
+    suspend fun setTrustSelfSignedLanTls(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.TRUST_SELF_SIGNED_LAN_TLS_V1] = enabled
+        }
+    }
+
+    suspend fun peekTrustSelfSignedLanTls(): Boolean =
+        context.dataStore.data.map { prefs -> prefs[Keys.TRUST_SELF_SIGNED_LAN_TLS_V1] ?: false }.first()
+
     /** Commercial or other gym access; useful for AI / workout planning. */
     val gymMembership: Flow<Boolean> = context.dataStore.data.map { prefs ->
         prefs[Keys.GYM_MEMBERSHIP] == true
@@ -607,6 +631,18 @@ class UserPreferences(private val context: Context) {
         }
     }
 
+    val bleConcept2DeviceAddress: Flow<String?> = context.dataStore.data.map { prefs ->
+        normalizeBluetoothAddressOrNull(prefs[Keys.BLE_CONCEPT2_DEVICE_ADDRESS])
+    }
+
+    suspend fun setBleConcept2DeviceAddress(address: String?) {
+        context.dataStore.edit { prefs ->
+            val normalized = normalizeBluetoothAddressOrNull(address)
+            if (normalized == null) prefs.remove(Keys.BLE_CONCEPT2_DEVICE_ADDRESS)
+            else prefs[Keys.BLE_CONCEPT2_DEVICE_ADDRESS] = normalized
+        }
+    }
+
     val savedBleDevices: Flow<List<SavedBluetoothDevice>> = context.dataStore.data.map { prefs ->
         sanitizeSavedBluetoothDevices(
             decodeSavedBluetoothDevices(prefs[Keys.BLE_SAVED_DEVICES_JSON_V1])
@@ -688,6 +724,70 @@ class UserPreferences(private val context: Context) {
         context.dataStore.edit { prefs ->
             if (bpm == null || bpm !in 90..230) prefs.remove(Keys.HEART_RATE_MAX_BPM)
             else prefs[Keys.HEART_RATE_MAX_BPM] = bpm.toString()
+        }
+    }
+
+    val heartRateAgeYears: Flow<Int?> = context.dataStore.data.map { prefs ->
+        prefs[Keys.HEART_RATE_AGE_YEARS]?.trim()?.toIntOrNull()?.takeIf { it in 10..100 }
+    }
+
+    suspend fun setHeartRateAgeYears(age: Int?) {
+        context.dataStore.edit { prefs ->
+            if (age == null || age !in 10..100) prefs.remove(Keys.HEART_RATE_AGE_YEARS)
+            else prefs[Keys.HEART_RATE_AGE_YEARS] = age.toString()
+        }
+    }
+
+    val heartRateRestingBpm: Flow<Int?> = context.dataStore.data.map { prefs ->
+        prefs[Keys.HEART_RATE_RESTING_BPM]?.trim()?.toIntOrNull()?.takeIf { it in 35..100 }
+    }
+
+    suspend fun setHeartRateRestingBpm(bpm: Int?) {
+        context.dataStore.edit { prefs ->
+            if (bpm == null || bpm !in 35..100) prefs.remove(Keys.HEART_RATE_RESTING_BPM)
+            else prefs[Keys.HEART_RATE_RESTING_BPM] = bpm.toString()
+        }
+    }
+
+    val heartRateZoneMethod: Flow<HeartRateZoneMethod> = context.dataStore.data.map { prefs ->
+        when (prefs[Keys.HEART_RATE_ZONE_METHOD]?.trim()) {
+            HeartRateZoneMethod.KARVONEN_HRR.name -> HeartRateZoneMethod.KARVONEN_HRR
+            else -> HeartRateZoneMethod.PERCENT_MAX_HR
+        }
+    }
+
+    suspend fun setHeartRateZoneMethod(method: HeartRateZoneMethod) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.HEART_RATE_ZONE_METHOD] = method.name
+        }
+    }
+
+    val heartRateZoneInputs: Flow<HeartRateZoneInputs> = context.dataStore.data.map { prefs ->
+        HeartRateZoneInputs(
+            manualMaxBpm = prefs[Keys.HEART_RATE_MAX_BPM]?.trim()?.toIntOrNull()?.takeIf { it in 90..230 },
+            ageYears = prefs[Keys.HEART_RATE_AGE_YEARS]?.trim()?.toIntOrNull()?.takeIf { it in 10..100 },
+            restingBpm = prefs[Keys.HEART_RATE_RESTING_BPM]?.trim()?.toIntOrNull()?.takeIf { it in 35..100 },
+            method = when (prefs[Keys.HEART_RATE_ZONE_METHOD]?.trim()) {
+                HeartRateZoneMethod.KARVONEN_HRR.name -> HeartRateZoneMethod.KARVONEN_HRR
+                else -> HeartRateZoneMethod.PERCENT_MAX_HR
+            },
+        )
+    }
+
+    suspend fun applyHeartRateZoneSettings(
+        maxBpm: Int?,
+        ageYears: Int?,
+        restingBpm: Int?,
+        method: HeartRateZoneMethod,
+    ) {
+        context.dataStore.edit { prefs ->
+            if (maxBpm == null || maxBpm !in 90..230) prefs.remove(Keys.HEART_RATE_MAX_BPM)
+            else prefs[Keys.HEART_RATE_MAX_BPM] = maxBpm.toString()
+            if (ageYears == null || ageYears !in 10..100) prefs.remove(Keys.HEART_RATE_AGE_YEARS)
+            else prefs[Keys.HEART_RATE_AGE_YEARS] = ageYears.toString()
+            if (restingBpm == null || restingBpm !in 35..100) prefs.remove(Keys.HEART_RATE_RESTING_BPM)
+            else prefs[Keys.HEART_RATE_RESTING_BPM] = restingBpm.toString()
+            prefs[Keys.HEART_RATE_ZONE_METHOD] = method.name
         }
     }
 
@@ -805,6 +905,32 @@ class UserPreferences(private val context: Context) {
     suspend fun peekLastKnownDataRelayUrls(): List<String> =
         context.dataStore.data.map { prefs ->
             decodeStringList(prefs[Keys.LAST_KNOWN_DATA_RELAYS_JSON_V1])
+        }.first()
+
+    val mediaKeysSplitApplied: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[Keys.MEDIA_KEYS_SPLIT_V1] == true
+    }
+
+    suspend fun restoreMediaKeysSplitFlag(applied: Boolean) {
+        context.dataStore.edit { prefs ->
+            if (applied) prefs[Keys.MEDIA_KEYS_SPLIT_V1] = true
+            else prefs.remove(Keys.MEDIA_KEYS_SPLIT_V1)
+        }
+    }
+
+    suspend fun peekProgramDashboardStretchLaunchJson(): String? =
+        context.dataStore.data.map { prefs ->
+            prefs[Keys.PROGRAM_DASHBOARD_STRETCH_LAUNCH_JSON_V1]?.takeIf { it.isNotBlank() }
+        }.first()
+
+    suspend fun peekProgramDashboardHeatColdLaunchJson(): String? =
+        context.dataStore.data.map { prefs ->
+            prefs[Keys.PROGRAM_DASHBOARD_HEAT_COLD_LAUNCH_JSON_V1]?.takeIf { it.isNotBlank() }
+        }.first()
+
+    suspend fun peekProgramDashboardUnifiedRoutineLaunchJson(): String? =
+        context.dataStore.data.map { prefs ->
+            prefs[Keys.PROGRAM_DASHBOARD_UNIFIED_ROUTINE_LAUNCH_JSON_V1]?.takeIf { it.isNotBlank() }
         }.first()
 
     suspend fun setProgramDashboardStretchLaunchJson(json: String?) {
