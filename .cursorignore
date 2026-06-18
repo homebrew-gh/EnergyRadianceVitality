@@ -1,18 +1,12 @@
-/.gradle/
-/build/
-/app/build/
-/local.properties
-/keystore.properties
-*.jks
-*.keystore
-*.p12
-
-# Web companion + Start9 packaging
+# Build outputs — indexing these freezes Cursor during Start9 / Android builds
+.gradle/
+app/build/
 apps/web/.pack/rootfs/
 apps/web/.pack/rootfs.tar
 apps/web/.pack/debian-apt-keyrings/
 apps/web/server/target/
 apps/web/web/node_modules/
+apps/web/web/dist/
 packages/start9/node_modules/
 packages/start9/javascript/
-*.s9pk
+**/*.s9pk

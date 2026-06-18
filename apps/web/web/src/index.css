@@ -1,0 +1,141 @@
+@import "@fontsource/nunito/400.css";
+@import "@fontsource/nunito/600.css";
+@import "@fontsource/nunito/700.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ERV light palette — matches app/src/main/java/com/erv/app/ui/theme/Color.kt */
+html {
+  color-scheme: light;
+  --erv-bg: #fffbf7;
+  --erv-surface: #fff8f0;
+  --erv-surface-variant: #f5e6d8;
+  --erv-chrome: #fff8f0;
+  --erv-input-bg: #ffffff;
+  --erv-primary: #c45c26;
+  --erv-on-primary: #ffffff;
+  --erv-primary-container: #ffe0cc;
+  --erv-on-primary-container: #3d1600;
+  --erv-secondary: #d4a04a;
+  --erv-header: #c62828;
+  --erv-heading: #2c1810;
+  --erv-on-surface: #2c1810;
+  --erv-on-surface-variant: #5c4434;
+  --erv-outline: #8c7060;
+  --erv-error: #ba1a1a;
+  --erv-success: #4caf50;
+  --erv-body-gradient: linear-gradient(180deg, #fffbf7 0%, #fff8f0 45%, #f5e6d8 100%);
+  --erv-shadow-card: 0 1px 2px rgba(44, 24, 16, 0.06), 0 4px 16px rgba(44, 24, 16, 0.08);
+  color: var(--erv-on-surface);
+}
+
+html.dark {
+  color-scheme: dark;
+  --erv-bg: #160b0e;
+  --erv-surface: #251116;
+  --erv-surface-variant: #432126;
+  --erv-chrome: #251116;
+  --erv-input-bg: #432126;
+  --erv-primary: #ffa38a;
+  --erv-on-primary: #5a1d19;
+  --erv-primary-container: #8a2e2a;
+  --erv-on-primary-container: #ffe5e2;
+  --erv-secondary: #ffc48a;
+  --erv-header: #c62828;
+  --erv-heading: #f7e6e4;
+  --erv-on-surface: #f7e6e4;
+  --erv-on-surface-variant: #d9b9b7;
+  --erv-outline: #b07a7a;
+  --erv-error: #ffb4ab;
+  --erv-success: #78dc77;
+  --erv-body-gradient: linear-gradient(180deg, #160b0e 0%, #251116 55%, #432126 100%);
+  --erv-shadow-card: 0 2px 8px rgba(0, 0, 0, 0.45);
+  color: var(--erv-on-surface);
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    -webkit-font-smoothing: antialiased;
+    background-color: var(--erv-bg);
+    background-image: var(--erv-body-gradient);
+    background-attachment: fixed;
+    color: var(--erv-on-surface);
+  }
+
+  input,
+  select,
+  textarea {
+    color: var(--erv-on-surface);
+    background-color: var(--erv-input-bg);
+    border-color: var(--erv-outline);
+  }
+}
+
+.text-muted {
+  color: var(--erv-on-surface-variant);
+}
+
+.text-heading {
+  color: var(--erv-heading);
+}
+
+.text-error {
+  color: var(--erv-error);
+}
+
+@layer components {
+  .app-header {
+    background-color: var(--erv-header);
+    color: #ffffff;
+  }
+
+  .card {
+    background-color: var(--erv-surface);
+    border: 1px solid var(--erv-outline);
+    border-radius: 12px;
+    box-shadow: var(--erv-shadow-card);
+    color: var(--erv-on-surface);
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-pill px-4 py-2 font-semibold transition-opacity disabled:opacity-50 disabled:cursor-not-allowed;
+    background-color: var(--erv-primary);
+    color: var(--erv-on-primary);
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-pill border px-4 py-2 transition-colors disabled:opacity-50;
+    border-color: var(--erv-outline);
+    color: var(--erv-on-surface);
+    background: transparent;
+  }
+  .btn-ghost:hover:not(:disabled) {
+    background-color: var(--erv-surface-variant);
+  }
+
+  .input {
+    @apply w-full rounded-card border px-3 py-2 focus:outline-none focus:ring-2;
+    background-color: var(--erv-input-bg);
+    border-color: var(--erv-outline);
+    color: var(--erv-on-surface);
+  }
+  .input:focus {
+    border-color: var(--erv-primary);
+    --tw-ring-color: var(--erv-primary);
+    --tw-ring-opacity: 0.25;
+  }
+
+  .label {
+    @apply block text-sm font-medium mb-1;
+    color: var(--erv-on-surface-variant);
+  }
+}

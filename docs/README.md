@@ -31,6 +31,7 @@ This folder is organized by purpose so release-critical docs are easy to find an
 - [Protocol graph](architecture/PROTOCOL_GRAPH.md)
 - [Companion web community notes](architecture/COMPANION_WEB_COMMUNITY_PITFALLS_BENEFITS.md)
 - [Weight training spec](architecture/WEIGHT_TRAINING_SPEC.md)
+- [Start9 companion v1 checklist](architecture/START9_COMPANION_V1.md)
 
 ## Archive
 

@@ -1,0 +1,189 @@
+{
+  "_comment": "Minimal fragments illustrating workout construction primitives. Not a runnable program. See docs/import/workouts_import_schema.md",
+  "ervWorkoutImportVersion": 1,
+  "segmentPatterns": {
+    "compositeWarmup": {
+      "kind": "composite",
+      "title": "Warm-up",
+      "restAfterSeconds": 45,
+      "items": [
+        {
+          "type": "cardio",
+          "cardio": {
+            "activity": "STATIONARY_BIKE",
+            "mode": "steady",
+            "targetMinutes": 10,
+            "hrTargetBpm": 115
+          }
+        },
+        {
+          "type": "note",
+          "text": "Easy pace; optional HR cue if monitor connected."
+        }
+      ]
+    },
+    "straightSetsWithRir": {
+      "kind": "straight_sets",
+      "title": "Main lift",
+      "items": [
+        {
+          "type": "weight",
+          "exerciseId": "erv-weight-exercise-squat-v1",
+          "prescription": {
+            "mode": "straight",
+            "setCount": 3,
+            "repRangeMin": 8,
+            "repRangeMax": 12,
+            "targetRir": 2,
+            "restBetweenSetsSeconds": 120,
+            "sets": [{ "reps": 8, "weightKg": null, "rir": 2 }]
+          }
+        }
+      ]
+    },
+    "supersetPair": {
+      "kind": "superset",
+      "title": "Push + pull",
+      "rounds": 3,
+      "restPolicy": {
+        "restBetweenItemsSeconds": 60,
+        "restAfterRoundSeconds": 60
+      },
+      "items": [
+        {
+          "type": "weight",
+          "exerciseId": "erv-weight-exercise-bench-v1",
+          "prescription": {
+            "mode": "straight",
+            "setCount": 1,
+            "repRangeMin": 8,
+            "repRangeMax": 12,
+            "targetRir": 2,
+            "sets": [{ "reps": 8, "weightKg": null }]
+          }
+        },
+        {
+          "type": "weight",
+          "exerciseId": "erv-weight-exercise-bw-pullup-v1",
+          "prescription": { "mode": "max_reps", "setCount": 1 }
+        }
+      ]
+    },
+    "circuitMixedRepsAndTime": {
+      "kind": "circuit",
+      "title": "Core circuit",
+      "rounds": 2,
+      "restPolicy": {
+        "restBetweenItemsSeconds": 10,
+        "restAfterRoundSeconds": 60
+      },
+      "items": [
+        {
+          "type": "weight",
+          "exerciseId": "erv-weight-exercise-bw-hanging-knee-raise-v1",
+          "prescription": {
+            "mode": "straight",
+            "setCount": 1,
+            "sets": [{ "reps": 12 }]
+          }
+        },
+        {
+          "type": "weight",
+          "exerciseId": "erv-weight-exercise-bw-plank-v1",
+          "prescription": { "mode": "time_based", "durationSeconds": 45 }
+        }
+      ]
+    },
+    "intervalNested": {
+      "kind": "interval",
+      "title": "HIIT block",
+      "items": [
+        {
+          "type": "cardio",
+          "cardio": {
+            "activity": "STATIONARY_BIKE",
+            "mode": "interval_template",
+            "outerRounds": 3,
+            "hrTargetBpm": 168,
+            "legs": [{ "workSeconds": 240, "restSeconds": 240 }]
+          }
+        }
+      ]
+    },
+    "intervalSprints": {
+      "kind": "interval",
+      "title": "Sprint intervals",
+      "items": [
+        {
+          "type": "cardio",
+          "cardio": {
+            "activity": "STATIONARY_BIKE",
+            "mode": "sprint_intervals",
+            "rounds": 10,
+            "workSeconds": 60,
+            "restSeconds": 60
+          }
+        }
+      ]
+    },
+    "steadyCardioWithHrRange": {
+      "kind": "cardio",
+      "title": "Zone 2",
+      "items": [
+        {
+          "type": "cardio",
+          "cardio": {
+            "activity": "WALK",
+            "mode": "steady",
+            "targetMinutes": 45,
+            "hrTargetMinBpm": 110,
+            "hrTargetMaxBpm": 130,
+            "logFields": ["INCLINE", "SPEED"]
+          }
+        }
+      ]
+    },
+    "mobilityBlock": {
+      "kind": "mobility",
+      "title": "Cooldown",
+      "items": [
+        {
+          "type": "mobility",
+          "mobility": {
+            "catalogId": "builtin_hip_flexor_lunge",
+            "holdSecondsPerSide": 120,
+            "side": "each"
+          }
+        }
+      ]
+    },
+    "saunaSession": {
+      "kind": "recovery",
+      "title": "Sauna",
+      "items": [{
+        "type": "heat_cold",
+        "heatCold": { "mode": "SAUNA", "targetMinutes": 15 }
+      }]
+    },
+    "redLightSession": {
+      "kind": "recovery",
+      "title": "Red light",
+      "items": [{
+        "type": "light",
+        "light": {
+          "lightRoutineId": "<uuid-from-user-light-library>",
+          "targetMinutes": 10
+        }
+      }]
+    }
+  },
+  "workoutSkeleton": {
+    "name": "Any session — assemble from segmentPatterns",
+    "segments": [
+      { "_ref": "compositeWarmup" },
+      { "_ref": "straightSetsWithRir" },
+      { "_ref": "circuitMixedRepsAndTime" },
+      { "_ref": "mobilityBlock" }
+    ]
+  }
+}

@@ -1,0 +1,19 @@
+# Prebuilt image: host supplies erv-web + dist (see scripts/build-artifacts.sh).
+FROM debian:bookworm-slim
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates curl \
+ && rm -rf /var/lib/apt/lists/*
+COPY erv-web /usr/local/bin/erv-web
+COPY dist /srv/dist
+RUN mkdir -p /data
+ENV ERV_DATA_DIR=/data \
+    ERV_STATIC_DIR=/srv/dist \
+    ERV_PORT=3000 \
+    ERV_BIND=0.0.0.0 \
+    ERV_LOG=info \
+    ERV_INSECURE_RELAY_TLS=1
+VOLUME ["/data"]
+EXPOSE 3000
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD curl -fsS http://127.0.0.1:3000/api/health || exit 1
+ENTRYPOINT ["/usr/local/bin/erv-web"]
