@@ -1523,6 +1523,7 @@ fun DashboardScreen(
                             requestDashboardCardioLocation.launch(Manifest.permission.ACCESS_FINE_LOCATION)
                         },
                         onLeaveTimerUi = { cardioLiveWorkoutViewModel.setCardioLiveUiExpanded(false) },
+                        onBeginWorkout = { cardioLiveWorkoutViewModel.beginTimer() },
                         onStop = { elapsedSeconds, splits ->
                             val gpsPoints = drainCardioGpsIfNeeded(recordGps, context.applicationContext)
                             scope.launch {
@@ -1592,7 +1593,11 @@ fun DashboardScreen(
             }
             is CardioActiveTimerSession.Multi -> {
                 if (cardioLiveUiExpanded) {
-                    val multiKey = ct.state.currentLegIndex to ct.state.completedSegments.size
+                    val multiKey = Triple(
+                        ct.state.workoutStartEpoch,
+                        ct.state.currentLegIndex,
+                        ct.state.completedSegments.size,
+                    )
                     CardioMultiLegTimerFullScreen(
                         state = ct.state,
                         stateKey = multiKey,
@@ -1601,6 +1606,7 @@ fun DashboardScreen(
                         mid = therapyRedMid,
                         glow = therapyRedGlow,
                         onLeaveWorkoutUi = { cardioLiveWorkoutViewModel.setCardioLiveUiExpanded(false) },
+                        onBeginWorkout = { cardioLiveWorkoutViewModel.beginTimer() },
                         onFinishLeg = { elapsedSeconds ->
                             scope.launch {
                                 val durationMinutes = max(1, (elapsedSeconds + 59) / 60)

@@ -80,6 +80,7 @@ import com.erv.app.ui.theme.ErvDarkTherapyRedGlow
 import com.erv.app.ui.theme.ErvDarkTherapyRedMid
 import com.erv.app.ui.theme.ErvHeaderRed
 import com.erv.app.weighttraining.groupExercisesByMuscle
+import com.erv.app.weighttraining.isLogged
 import com.erv.app.ui.theme.ErvLightTherapyRedDark
 import com.erv.app.ui.theme.ErvLightTherapyRedGlow
 import com.erv.app.ui.theme.ErvLightTherapyRedMid
@@ -378,7 +379,7 @@ fun WeightTrainingCategoryScreen(
                     if (draft != null) {
                         val noExercises = draft.exerciseOrder.isEmpty()
                         val noLoggedSets = draft.setsByExerciseId.values.all { rows ->
-                            rows.isEmpty() || rows.all { it.reps <= 0 }
+                            rows.isEmpty() || rows.none { it.isLogged() }
                         }
                         val noHiit = draft.hiitBlocksByExerciseId.isEmpty()
                         if (noExercises && noLoggedSets && noHiit) {

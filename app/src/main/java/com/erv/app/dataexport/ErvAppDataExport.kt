@@ -356,7 +356,7 @@ object ErvAppDataExport {
 
     /** ERV weight CSV v1: one row per set (matches import). HIIT-only entries are omitted. */
     fun weightTrainingToCsv(state: WeightLibraryState): String = buildString {
-        appendLine("date,session_key,exercise_id,set_index,reps,weight_kg,rpe")
+        appendLine("date,session_key,exercise_id,set_index,reps,weight_kg,rpe,duration_seconds")
         for (day in state.logs.sortedBy { it.date }) {
             for (workout in day.workouts) {
                 val sessionKey = workout.id
@@ -367,6 +367,7 @@ object ErvAppDataExport {
                         val reps = set.reps
                         val wkg = set.weightKg?.toString().orEmpty()
                         val rpe = set.rpe?.toString().orEmpty()
+                        val durationSeconds = set.durationSeconds?.toString().orEmpty()
                         append(csvCell(day.date))
                         append(',')
                         append(csvCell(sessionKey))
@@ -380,6 +381,8 @@ object ErvAppDataExport {
                         append(csvCell(wkg))
                         append(',')
                         append(csvCell(rpe))
+                        append(',')
+                        append(csvCell(durationSeconds))
                         appendLine()
                     }
                 }

@@ -129,6 +129,7 @@ import com.erv.app.cardio.CardioLibraryState
 import com.erv.app.cardio.CardioMetEstimator
 import com.erv.app.cardio.CardioModality
 import com.erv.app.cardio.CardioActiveTimerSession
+import com.erv.app.cardio.isPendingStart
 import com.erv.app.cardio.CardioMultiLegTimerState
 import com.erv.app.cardio.CardioTrackShareImage
 import com.erv.app.cardio.CardioRepository
@@ -677,6 +678,7 @@ fun CardioCategoryScreen(
                                 onBack()
                             }
                         },
+                        onBeginWorkout = { cardioLiveWorkoutViewModel.beginTimer() },
                         onStop = { elapsedSeconds, splits ->
                             val gpsPoints = drainCardioGpsIfNeeded(recordGps, timerAppContext)
                             val durationMinutes = max(1, (elapsedSeconds + 59) / 60)
@@ -766,7 +768,11 @@ fun CardioCategoryScreen(
                             ?.firstOrNull { it.id == blockId }
                             ?.type == UnifiedRoutineBlockType.CARDIO
                     }
-                    val multiKey = timer.state.currentLegIndex to timer.state.completedSegments.size
+                    val multiKey = Triple(
+                        timer.state.workoutStartEpoch,
+                        timer.state.currentLegIndex,
+                        timer.state.completedSegments.size,
+                    )
                     CardioMultiLegTimerFullScreen(
                         state = timer.state,
                         stateKey = multiKey,
@@ -787,6 +793,7 @@ fun CardioCategoryScreen(
                                 onBack()
                             }
                         },
+                        onBeginWorkout = { cardioLiveWorkoutViewModel.beginTimer() },
                         onFinishLeg = { elapsedSeconds ->
                             scope.launch {
                                 val durationMinutes = max(1, (elapsedSeconds + 59) / 60)
@@ -2903,6 +2910,28 @@ private fun CardioSplitHistoryDialog(
 }
 
 @Composable
+private fun CardioStartWorkoutButton(
+    onClick: () -> Unit,
+    accentBackground: Color,
+    modifier: Modifier = Modifier,
+) {
+    Button(
+        onClick = onClick,
+        modifier = modifier
+            .fillMaxWidth(0.85f)
+            .height(72.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = Color.White,
+            contentColor = accentBackground,
+        ),
+    ) {
+        Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(36.dp))
+        Spacer(Modifier.width(12.dp))
+        Text("Start Workout", style = MaterialTheme.typography.headlineSmall)
+    }
+}
+
+@Composable
 fun CardioElapsedTimerFullScreen(
     draft: CardioTimerSessionDraft,
     userPreferences: UserPreferences,
@@ -2920,6 +2949,7 @@ fun CardioElapsedTimerFullScreen(
     onRequestLocationPermission: () -> Unit = {},
     /** Back arrow: leave full-screen UI; timer and optional GPS keep running (like weight training). */
     onLeaveTimerUi: (() -> Unit)? = null,
+    onBeginWorkout: () -> Unit = {},
     onStop: (elapsedSeconds: Int, splits: List<CardioWorkoutSplit>) -> Unit,
     onCancel: () -> Unit
 ) {
@@ -2952,13 +2982,14 @@ fun CardioElapsedTimerFullScreen(
     val timeCountdownCap = (draft.timerStyle as? CardioTimerStyle.CountDown)?.totalSeconds
     val distanceCountdownTarget = (draft.timerStyle as? CardioTimerStyle.CountDownDistance)?.targetMeters
     val tickKey = draft.startEpoch
+    val awaitingStart = draft.isPendingStart()
     var showMediaSheet by remember(tickKey) { mutableStateOf(false) }
     var showCyclingSensorDialog by remember(tickKey) { mutableStateOf(false) }
     var showCyclingScanDialog by remember(tickKey) { mutableStateOf(false) }
     var showErgSensorDialog by remember(tickKey) { mutableStateOf(false) }
     var showErgScanDialog by remember(tickKey) { mutableStateOf(false) }
     var showSplitHistoryDialog by remember(tickKey) { mutableStateOf(false) }
-    var running by remember(tickKey) { mutableStateOf(true) }
+    var running by remember(tickKey) { mutableStateOf(!awaitingStart) }
     var finished by remember(tickKey) { mutableStateOf(false) }
     var tick by remember(tickKey) { mutableIntStateOf(0) }
     var workoutSplits by remember(tickKey) { mutableStateOf(emptyList<CardioWorkoutSplit>()) }
@@ -3054,8 +3085,8 @@ fun CardioElapsedTimerFullScreen(
         }
     }
 
-    val workoutElapsedSeconds = remember(tick, draft.startEpoch) {
-        (nowEpochSeconds() - draft.startEpoch).coerceAtLeast(0).toInt()
+    val workoutElapsedSeconds = remember(tick, draft.startEpoch, awaitingStart) {
+        if (awaitingStart) 0 else (nowEpochSeconds() - draft.startEpoch).coerceAtLeast(0).toInt()
     }
 
     fun complete(elapsed: Int) {
@@ -3065,8 +3096,8 @@ fun CardioElapsedTimerFullScreen(
         onStop(elapsed, workoutSplits)
     }
 
-    LaunchedEffect(gpsRecordingActive, tickKey) {
-        if (gpsRecordingActive) {
+    LaunchedEffect(gpsRecordingActive, tickKey, running) {
+        if (gpsRecordingActive && running) {
             try {
                 CardioGpsForegroundService.start(context.applicationContext, draft.title, draft.startEpoch)
             } catch (_: Exception) {
@@ -3206,7 +3237,7 @@ fun CardioElapsedTimerFullScreen(
                             )
                         }
                         Text(
-                            "Session in progress",
+                            if (awaitingStart) "Ready to start" else "Session in progress",
                             style = MaterialTheme.typography.titleLarge,
                             color = Color.White.copy(alpha = 0.9f),
                             modifier = Modifier.weight(1f)
@@ -3279,7 +3310,7 @@ fun CardioElapsedTimerFullScreen(
                     }
                 } else {
                     Text(
-                        "Session in progress",
+                        if (awaitingStart) "Ready to start" else "Session in progress",
                         style = MaterialTheme.typography.titleLarge,
                         color = Color.White.copy(alpha = 0.9f)
                     )
@@ -3312,6 +3343,24 @@ fun CardioElapsedTimerFullScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
+                if (awaitingStart) {
+                    Text(
+                        draft.title,
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = Color.White.copy(alpha = 0.95f)
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        draft.modality.label(),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = Color.White.copy(alpha = 0.8f)
+                    )
+                    Spacer(Modifier.height(28.dp))
+                    CardioStartWorkoutButton(
+                        onClick = onBeginWorkout,
+                        accentBackground = dark,
+                    )
+                } else {
                 Text(
                     when {
                         remainingDistance != null -> "Remaining (est.)"
@@ -3479,6 +3528,7 @@ fun CardioElapsedTimerFullScreen(
                         }
                     }
                 }
+                }
             }
             Column(
                 modifier = Modifier.fillMaxWidth(),
@@ -3539,28 +3589,38 @@ fun CardioElapsedTimerFullScreen(
                         )
                     }
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    OutlinedButton(
-                        onClick = {
-                            if (running && !finished) {
-                                complete(workoutElapsedSeconds)
-                            }
-                        },
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
-                        border = ButtonDefaults.outlinedButtonBorder.copy(brush = SolidColor(Color.White))
-                    ) {
-                        Icon(Icons.Default.Stop, contentDescription = null)
-                        Spacer(Modifier.width(8.dp))
-                        Text("Finish")
-                    }
-                    OutlinedButton(
-                        onClick = {
-                            if (running && !finished) {
+                if (!awaitingStart) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        OutlinedButton(
+                            onClick = {
+                                if (running && !finished) {
+                                    complete(workoutElapsedSeconds)
+                                }
+                            },
+                            enabled = running && !finished,
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                            border = ButtonDefaults.outlinedButtonBorder.copy(brush = SolidColor(Color.White))
+                        ) {
+                            Icon(Icons.Default.Stop, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Finish")
+                        }
+                        OutlinedButton(
+                            onClick = {
                                 running = false
                                 onCancel()
-                            }
-                        },
-                        enabled = running && !finished,
+                            },
+                            enabled = running && !finished,
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                            border = ButtonDefaults.outlinedButtonBorder.copy(brush = SolidColor(Color.White))
+                        ) {
+                            Text("Cancel")
+                        }
+                    }
+                } else {
+                    OutlinedButton(
+                        onClick = onCancel,
+                        modifier = Modifier.fillMaxWidth(),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
                         border = ButtonDefaults.outlinedButtonBorder.copy(brush = SolidColor(Color.White))
                     ) {
@@ -4520,6 +4580,7 @@ fun CardioMultiLegTimerFullScreen(
     mid: Color,
     glow: Color,
     onLeaveWorkoutUi: (() -> Unit)? = null,
+    onBeginWorkout: () -> Unit = {},
     onFinishLeg: (elapsedSeconds: Int) -> Unit,
     onCancel: () -> Unit
 ) {
@@ -4535,11 +4596,12 @@ fun CardioMultiLegTimerFullScreen(
         ) { }
         val targetMinutes = state.currentLeg.targetDurationMinutes?.takeIf { it > 0 }
         val guided = targetMinutes != null
+        val awaitingStart = state.isPendingStart()
         var showMediaSheet by remember { mutableStateOf(false) }
-        var running by remember { mutableStateOf(true) }
+        var running by remember(stateKey) { mutableStateOf(!awaitingStart) }
         var tick by remember(stateKey) { mutableIntStateOf(0) }
         val atWorkoutStart = state.currentLegIndex == 0 && state.completedSegments.isEmpty()
-        val initialPrep = guided && atWorkoutStart
+        val initialPrep = guided && atWorkoutStart && !awaitingStart
         var guidedRemainingSec by remember(stateKey) {
             mutableIntStateOf(
                 when {
@@ -4559,6 +4621,7 @@ fun CardioMultiLegTimerFullScreen(
 
         if (guided) {
             LaunchedEffect(stateKey) {
+                if (state.isPendingStart()) return@LaunchedEffect
                 val targetMin = state.currentLeg.targetDurationMinutes?.takeIf { it > 0 } ?: return@LaunchedEffect
                 val targetSec = targetMin * 60
                 val prepFirst = state.currentLegIndex == 0 && state.completedSegments.isEmpty()
@@ -4597,8 +4660,8 @@ fun CardioMultiLegTimerFullScreen(
                 }
             }
         }
-        val elapsed = remember(tick, state.legStartedEpoch) {
-            (nowEpochSeconds() - state.legStartedEpoch).coerceAtLeast(0).toInt()
+        val elapsed = remember(tick, state.legStartedEpoch, awaitingStart) {
+            if (awaitingStart) 0 else (nowEpochSeconds() - state.legStartedEpoch).coerceAtLeast(0).toInt()
         }
         val isLast = state.currentLegIndex >= state.legs.lastIndex
         Box(
@@ -4713,6 +4776,12 @@ fun CardioMultiLegTimerFullScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
+                    if (awaitingStart) {
+                        CardioStartWorkoutButton(
+                            onClick = onBeginWorkout,
+                            accentBackground = dark,
+                        )
+                    } else {
                     val displaySec = if (guided) guidedRemainingSec.coerceAtLeast(0) else elapsed
                     val mins = displaySec / 60
                     val secs = displaySec % 60
@@ -4731,6 +4800,7 @@ fun CardioMultiLegTimerFullScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = Color.White.copy(alpha = 0.75f)
                     )
+                    }
                 }
                 Column(
                     modifier = Modifier.fillMaxWidth(),
@@ -4751,7 +4821,7 @@ fun CardioMultiLegTimerFullScreen(
                             )
                         }
                     }
-                    if (!guided) {
+                    if (!guided && !awaitingStart) {
                         OutlinedButton(
                             onClick = {
                                 if (running) {
@@ -4770,7 +4840,6 @@ fun CardioMultiLegTimerFullScreen(
                     }
                     OutlinedButton(
                         onClick = onCancel,
-                        enabled = if (guided) true else running,
                         modifier = Modifier.fillMaxWidth(),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
                         border = ButtonDefaults.outlinedButtonBorder.copy(brush = SolidColor(Color.White))

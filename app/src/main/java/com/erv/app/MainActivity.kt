@@ -49,6 +49,7 @@ import com.erv.app.stretching.StretchingSync
 import com.erv.app.heatcold.HeatColdSync
 import com.erv.app.cardio.CardioSync
 import com.erv.app.cardio.CardioLiveWorkoutConstants
+import com.erv.app.cardio.isTimerRunning
 import com.erv.app.weighttraining.WeightLiveWorkoutConstants
 import com.erv.app.weighttraining.WeightRepository
 import com.erv.app.weighttraining.WeightSync
@@ -90,12 +91,20 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+
+/**
+ * Minimum spacing between inbound relay data pulls triggered by app resume / relay reconnect.
+ * Prevents rapid re-syncs (e.g. permission dialogs causing pause/resume) from spamming relays,
+ * while still refreshing promptly when the user returns to the app after time away.
+ */
+private const val RELAY_DATA_SYNC_MIN_INTERVAL_MS = 15_000L
 
 class MainActivity : AppCompatActivity() {
 
@@ -463,6 +472,10 @@ private fun MainAppShell(
     }
     var relayUrlsVersion by remember { mutableIntStateOf(0) }
     var relayDataSyncInProgress by remember { mutableStateOf(false) }
+    val lastRelayDataSyncAtMs = remember { mutableLongStateOf(0L) }
+    // Resume signals trigger an inbound relay pull when the user returns to the app, so activity
+    // logged on another device shows up without requiring a full app restart.
+    val resumeSignals = remember { MutableSharedFlow<Unit>(extraBufferCapacity = 1) }
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { }
@@ -470,10 +483,132 @@ private fun MainAppShell(
     val activityForLifecycle = context as ComponentActivity
     val dashboardViewModel = viewModel<DashboardViewModel>(viewModelStoreOwner = activityForLifecycle)
     val unifiedState by unifiedRoutineRepository.state.collectAsState(initial = UnifiedRoutineLibraryState())
+
+    // Pulls the latest kind-30078 payloads from the relays and merges them into local state.
+    // Runs at startup and whenever the app resumes / a data relay reconnects, so activity logged
+    // on another device propagates here. [force] bypasses the resume debounce (used for startup).
+    suspend fun runRelayDataSync(pool: RelayPool, sig: EventSigner, force: Boolean) {
+        if (relayDataSyncInProgress) return
+        if (!force &&
+            System.currentTimeMillis() - lastRelayDataSyncAtMs.longValue < RELAY_DATA_SYNC_MIN_INTERVAL_MS
+        ) {
+            return
+        }
+        relayDataSyncInProgress = true
+        try {
+            val pubkey = sig.publicKey
+            val appCtx = context.applicationContext
+            val latestByTag = withContext(Dispatchers.IO) {
+                fetchLatestKind30078ByDTag(pool, pubkey, timeoutMs = 8000)
+            }
+            withContext(Dispatchers.IO) {
+                CatalogSync.syncCatalogs(
+                    appCtx,
+                    pool,
+                    sig,
+                    latestByTag,
+                    keyManager.relayUrlsForKind30078Publish(),
+                )
+            }
+            // Decryption (NIP-44), payload merges, and repository writes are CPU-heavy. Keep them off
+            // the main dispatcher so startup / resume sync does not stutter the UI.
+            if (latestByTag.isNotEmpty()) withContext(Dispatchers.Default) {
+                SupplementSync.fromLatestByTag(latestByTag, sig).let { remote ->
+                    val merged = LibraryStateMerge.mergeSupplement(supplementRepository.currentState(), remote)
+                    supplementRepository.replaceAll(merged)
+                    RelayPayloadDigestStore.reconcileIdenticalRemoteMerged(
+                        appCtx,
+                        SupplementSync.fullOutboxEntries(remote),
+                        SupplementSync.fullOutboxEntries(merged),
+                    )
+                }
+                LightSync.fromLatestByTag(latestByTag, sig).let { remote ->
+                    val merged = LibraryStateMerge.mergeLight(lightTherapyRepository.currentState(), remote)
+                    lightTherapyRepository.replaceAll(merged)
+                    RelayPayloadDigestStore.reconcileIdenticalRemoteMerged(
+                        appCtx,
+                        LightSync.fullOutboxEntries(remote),
+                        LightSync.fullOutboxEntries(merged),
+                    )
+                }
+                CardioSync.fromLatestByTag(latestByTag, sig).let { remote ->
+                    val merged = LibraryStateMerge.mergeCardio(cardioRepository.currentState(), remote)
+                    cardioRepository.replaceAll(merged)
+                    RelayPayloadDigestStore.reconcileIdenticalRemoteMerged(
+                        appCtx,
+                        CardioSync.fullOutboxEntries(remote),
+                        CardioSync.fullOutboxEntries(merged),
+                    )
+                }
+                WeightSync.fromLatestByTag(latestByTag, sig).let { remote ->
+                    val merged = LibraryStateMerge.mergeWeight(weightRepository.currentState(), remote)
+                    weightRepository.replaceAll(merged)
+                    RelayPayloadDigestStore.reconcileIdenticalRemoteMerged(
+                        appCtx,
+                        WeightSync.fullOutboxEntries(remote),
+                        WeightSync.fullOutboxEntries(merged),
+                    )
+                }
+                HeatColdSync.fromLatestByTag(latestByTag, sig).let { remote ->
+                    val merged = LibraryStateMerge.mergeHeatCold(heatColdRepository.currentState(), remote)
+                    heatColdRepository.replaceAll(merged)
+                    RelayPayloadDigestStore.reconcileIdenticalRemoteMerged(
+                        appCtx,
+                        HeatColdSync.fullOutboxEntries(remote),
+                        HeatColdSync.fullOutboxEntries(merged),
+                    )
+                }
+                StretchingSync.fromLatestByTag(latestByTag, sig).let { remote ->
+                    val merged = LibraryStateMerge.mergeStretch(stretchingRepository.currentState(), remote)
+                    stretchingRepository.replaceAll(merged)
+                    RelayPayloadDigestStore.reconcileIdenticalRemoteMerged(
+                        appCtx,
+                        StretchingSync.fullOutboxEntries(remote),
+                        StretchingSync.fullOutboxEntries(merged),
+                    )
+                }
+                ProgramSync.fromLatestByTag(latestByTag, sig)?.let { remote ->
+                    val merged = LibraryStateMerge.mergePrograms(programRepository.currentState(), remote)
+                    programRepository.replaceAll(merged)
+                    RelayPayloadDigestStore.reconcileIdenticalRemoteMerged(
+                        appCtx,
+                        ProgramSync.fullOutboxEntries(remote),
+                        ProgramSync.fullOutboxEntries(merged),
+                    )
+                }
+                BodyTrackerSync.fromLatestByTag(latestByTag, sig).let { remote ->
+                    val merged = LibraryStateMerge.mergeBodyTracker(bodyTrackerRepository.currentState(), remote)
+                    bodyTrackerRepository.replaceAll(merged)
+                    RelayPayloadDigestStore.reconcileIdenticalRemoteMerged(
+                        appCtx,
+                        BodyTrackerSync.fullOutboxEntries(remote),
+                        BodyTrackerSync.fullOutboxEntries(merged),
+                    )
+                }
+                latestByTag["erv/equipment"]?.let { event ->
+                    FitnessEquipmentSync.fromLatestEvent(event, sig)
+                }?.let { remote ->
+                    val gym = userPreferences.gymMembership.first()
+                    val equip = userPreferences.ownedEquipment.first()
+                    val merged = LibraryStateMerge.mergeFitnessEquipment(gym, equip, remote)
+                    userPreferences.setGymMembership(merged.gymMembership)
+                    userPreferences.setOwnedEquipment(merged.equipment)
+                    val remotePair = FitnessEquipmentSync.plaintextFor(remote.gymMembership, remote.equipment)
+                    val mergedPair = FitnessEquipmentSync.plaintextFor(merged.gymMembership, merged.equipment)
+                    RelayPayloadDigestStore.reconcileIdenticalRemoteMerged(appCtx, listOf(remotePair), listOf(mergedPair))
+                }
+            }
+            lastRelayDataSyncAtMs.longValue = System.currentTimeMillis()
+        } finally {
+            relayDataSyncInProgress = false
+        }
+    }
+
     DisposableEffect(activityForLifecycle, reminderRepository) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 mainScope.launch { reminderRepository.restoreAllSchedules() }
+                resumeSignals.tryEmit(Unit)
             }
         }
         activityForLifecycle.lifecycle.addObserver(observer)
@@ -501,105 +636,18 @@ private fun MainAppShell(
         programRepository,
         bodyTrackerRepository
     ) {
-        if (relayPool == null || signer == null) {
-            return@LaunchedEffect
-        }
-        relayDataSyncInProgress = true
-        try {
-            delay(1500)
-            val pubkey = signer.publicKey
-            val appCtx = context.applicationContext
-            val latestByTag = withContext(Dispatchers.IO) {
-                fetchLatestKind30078ByDTag(relayPool, pubkey, timeoutMs = 8000)
-            }
-            if (latestByTag.isNotEmpty()) {
-                SupplementSync.fromLatestByTag(latestByTag, signer).let { remote ->
-                    val merged = LibraryStateMerge.mergeSupplement(supplementRepository.currentState(), remote)
-                    supplementRepository.replaceAll(merged)
-                    RelayPayloadDigestStore.reconcileIdenticalRemoteMerged(
-                        appCtx,
-                        SupplementSync.fullOutboxEntries(remote),
-                        SupplementSync.fullOutboxEntries(merged),
-                    )
-                }
-                LightSync.fromLatestByTag(latestByTag, signer).let { remote ->
-                    val merged = LibraryStateMerge.mergeLight(lightTherapyRepository.currentState(), remote)
-                    lightTherapyRepository.replaceAll(merged)
-                    RelayPayloadDigestStore.reconcileIdenticalRemoteMerged(
-                        appCtx,
-                        LightSync.fullOutboxEntries(remote),
-                        LightSync.fullOutboxEntries(merged),
-                    )
-                }
-                CardioSync.fromLatestByTag(latestByTag, signer).let { remote ->
-                    val merged = LibraryStateMerge.mergeCardio(cardioRepository.currentState(), remote)
-                    cardioRepository.replaceAll(merged)
-                    RelayPayloadDigestStore.reconcileIdenticalRemoteMerged(
-                        appCtx,
-                        CardioSync.fullOutboxEntries(remote),
-                        CardioSync.fullOutboxEntries(merged),
-                    )
-                }
-                WeightSync.fromLatestByTag(latestByTag, signer).let { remote ->
-                    val merged = LibraryStateMerge.mergeWeight(weightRepository.currentState(), remote)
-                    weightRepository.replaceAll(merged)
-                    RelayPayloadDigestStore.reconcileIdenticalRemoteMerged(
-                        appCtx,
-                        WeightSync.fullOutboxEntries(remote),
-                        WeightSync.fullOutboxEntries(merged),
-                    )
-                }
-                HeatColdSync.fromLatestByTag(latestByTag, signer).let { remote ->
-                    val merged = LibraryStateMerge.mergeHeatCold(heatColdRepository.currentState(), remote)
-                    heatColdRepository.replaceAll(merged)
-                    RelayPayloadDigestStore.reconcileIdenticalRemoteMerged(
-                        appCtx,
-                        HeatColdSync.fullOutboxEntries(remote),
-                        HeatColdSync.fullOutboxEntries(merged),
-                    )
-                }
-                StretchingSync.fromLatestByTag(latestByTag, signer).let { remote ->
-                    val merged = LibraryStateMerge.mergeStretch(stretchingRepository.currentState(), remote)
-                    stretchingRepository.replaceAll(merged)
-                    RelayPayloadDigestStore.reconcileIdenticalRemoteMerged(
-                        appCtx,
-                        StretchingSync.fullOutboxEntries(remote),
-                        StretchingSync.fullOutboxEntries(merged),
-                    )
-                }
-                ProgramSync.fromLatestByTag(latestByTag, signer)?.let { remote ->
-                    val merged = LibraryStateMerge.mergePrograms(programRepository.currentState(), remote)
-                    programRepository.replaceAll(merged)
-                    RelayPayloadDigestStore.reconcileIdenticalRemoteMerged(
-                        appCtx,
-                        ProgramSync.fullOutboxEntries(remote),
-                        ProgramSync.fullOutboxEntries(merged),
-                    )
-                }
-                BodyTrackerSync.fromLatestByTag(latestByTag, signer).let { remote ->
-                    val merged = LibraryStateMerge.mergeBodyTracker(bodyTrackerRepository.currentState(), remote)
-                    bodyTrackerRepository.replaceAll(merged)
-                    RelayPayloadDigestStore.reconcileIdenticalRemoteMerged(
-                        appCtx,
-                        BodyTrackerSync.fullOutboxEntries(remote),
-                        BodyTrackerSync.fullOutboxEntries(merged),
-                    )
-                }
-                latestByTag["erv/equipment"]?.let { event ->
-                    FitnessEquipmentSync.fromLatestEvent(event, signer)
-                }?.let { remote ->
-                    val gym = userPreferences.gymMembership.first()
-                    val equip = userPreferences.ownedEquipment.first()
-                    val merged = LibraryStateMerge.mergeFitnessEquipment(gym, equip, remote)
-                    userPreferences.setGymMembership(merged.gymMembership)
-                    userPreferences.setOwnedEquipment(merged.equipment)
-                    val remotePair = FitnessEquipmentSync.plaintextFor(remote.gymMembership, remote.equipment)
-                    val mergedPair = FitnessEquipmentSync.plaintextFor(merged.gymMembership, merged.equipment)
-                    RelayPayloadDigestStore.reconcileIdenticalRemoteMerged(appCtx, listOf(remotePair), listOf(mergedPair))
-                }
-            }
-        } finally {
-            relayDataSyncInProgress = false
+        val pool = relayPool ?: return@LaunchedEffect
+        val sig = signer ?: return@LaunchedEffect
+        delay(1500)
+        runRelayDataSync(pool, sig, force = true)
+    }
+    // Re-pull from relays whenever the user returns to the app, so activity logged on another
+    // device appears without a full restart. Debounced via [RELAY_DATA_SYNC_MIN_INTERVAL_MS].
+    LaunchedEffect(relayPool, signer) {
+        val pool = relayPool ?: return@LaunchedEffect
+        val sig = signer ?: return@LaunchedEffect
+        resumeSignals.collect {
+            runRelayDataSync(pool, sig, force = false)
         }
     }
     LaunchedEffect(reminderRepository) {
@@ -647,6 +695,9 @@ private fun MainAppShell(
                         keyManager.relayUrlsForKind30078Publish(),
                     )
                 }
+                // A data relay just (re)connected: pull down anything logged elsewhere while we
+                // were disconnected. Debounced so it does not duplicate the startup pull.
+                runRelayDataSync(pool, sig, force = false)
             }
     }
 
@@ -663,9 +714,10 @@ private fun MainAppShell(
             viewModel<Concept2Pm5BleViewModel>(viewModelStoreOwner = activityForLifecycle)
         val activeWeightWorkout by weightLiveWorkoutViewModel.activeDraft.collectAsState()
         val activeCardioTimer by cardioLiveWorkoutViewModel.activeTimer.collectAsState()
+        val cardioTimerRunning = activeCardioTimer?.isTimerRunning() == true
         val activeUnifiedWorkout = unifiedState.activeSession != null
         val liveWorkoutActive =
-            activeWeightWorkout != null || activeCardioTimer != null || activeUnifiedWorkout
+            activeWeightWorkout != null || cardioTimerRunning || activeUnifiedWorkout
         LaunchedEffect(liveWorkoutActive) {
             if (liveWorkoutActive) {
                 heartRateBleViewModel.resetWorkoutRecordingOnLiveStart()

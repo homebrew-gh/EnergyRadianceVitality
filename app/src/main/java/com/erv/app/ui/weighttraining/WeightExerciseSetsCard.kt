@@ -16,6 +16,8 @@ import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -30,11 +32,14 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
@@ -50,6 +55,7 @@ import com.erv.app.weighttraining.WeightHiitIntervalPlan
 import com.erv.app.weighttraining.WeightSet
 import com.erv.app.weighttraining.WeightWorkoutDraft
 import com.erv.app.weighttraining.formatHiitBlockSummaryLine
+import com.erv.app.weighttraining.formatHoldDuration
 import com.erv.app.weighttraining.formatRpeFieldForSets
 import com.erv.app.weighttraining.formatSetSummaryLine
 import com.erv.app.weighttraining.formatWeightLoadNumber
@@ -73,6 +79,9 @@ internal fun weightFieldText(set: WeightSet, unit: BodyWeightUnit): String =
 
 internal fun rpeFieldText(set: WeightSet): String =
     set.rpe?.let { formatRpeFieldForSets(it) }.orEmpty()
+
+internal fun durationFieldText(set: WeightSet): String =
+    set.durationSeconds?.takeIf { it > 0 }?.toString().orEmpty()
 
 fun <T> List<T>.replaceAt(index: Int, value: T): List<T> =
     mapIndexed { i, t -> if (i == index) value else t }
@@ -100,6 +109,8 @@ fun WeightExerciseInlineSetsCard(
     /** When set, shows a control to open recent logged sessions for this exercise (e.g. live workout reference). */
     onRecentWorkouts: (() -> Unit)? = null,
     hiitCapable: Boolean = false,
+    /** When true, sets are logged as a timed hold (duration + start/stop timer) instead of reps. */
+    timePerSetCapable: Boolean = false,
     hiitBlock: WeightHiitBlockLog? = null,
     onClearHiitBlock: (() -> Unit)? = null,
     onStartHiitTimer: ((WeightHiitIntervalPlan) -> Unit)? = null,
@@ -356,94 +367,109 @@ fun WeightExerciseInlineSetsCard(
                 }
             } else if ((!canCollapseSets || !setsCollapsed) && showSetsTable) {
                 sets.forEachIndexed { idx, set ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.Bottom
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                "Reps",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(bottom = 4.dp)
-                            )
-                            OutlinedTextField(
-                                value = repsFieldText(set.reps),
-                                onValueChange = { t ->
-                                    val r = t.trim().toIntOrNull() ?: 0
-                                    onSetsChange(sets.replaceAt(idx, set.copy(reps = r)))
-                                },
-                                singleLine = true,
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        }
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                loadSuffix,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(bottom = 4.dp)
-                            )
-                            OutlinedTextField(
-                                value = weightFieldText(set, loadUnit),
-                                onValueChange = { t ->
-                                    onSetsChange(
-                                        sets.replaceAt(
-                                            idx,
-                                            set.copy(weightKg = parseWeightInputToKg(t, loadUnit))
-                                        )
-                                    )
-                                },
-                                trailingIcon = if (weightIsAddedLoad) {
-                                    {
-                                        IconButton(onClick = { showAddedLoadInfo = true }) {
-                                            Icon(
-                                                Icons.Outlined.Info,
-                                                contentDescription = stringResource(
-                                                    R.string.weight_added_load_info_icon_cd
-                                                )
-                                            )
-                                        }
-                                    }
-                                } else null,
-                                singleLine = true,
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        }
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                "RPE",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(bottom = 4.dp)
-                            )
-                            OutlinedTextField(
-                                value = rpeFieldText(set),
-                                onValueChange = { t ->
-                                    onSetsChange(
-                                        sets.replaceAt(
-                                            idx,
-                                            set.copy(rpe = t.trim().toDoubleOrNull())
-                                        )
-                                    )
-                                },
-                                singleLine = true,
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        }
-                        IconButton(
-                            onClick = {
-                                if (sets.size > 1) {
-                                    onSetsChange(sets.filterIndexed { i, _ -> i != idx })
-                                }
+                    if (timePerSetCapable) {
+                        WeightTimePerSetRow(
+                            set = set,
+                            loadUnit = loadUnit,
+                            loadSuffix = loadSuffix,
+                            weightIsAddedLoad = weightIsAddedLoad,
+                            canRemove = sets.size > 1,
+                            onChange = { onSetsChange(sets.replaceAt(idx, it)) },
+                            onRemove = {
+                                if (sets.size > 1) onSetsChange(sets.filterIndexed { i, _ -> i != idx })
                             },
-                            enabled = sets.size > 1
+                            onShowAddedLoadInfo = { showAddedLoadInfo = true },
+                        )
+                    } else {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.Bottom
                         ) {
-                            Icon(Icons.Default.Close, contentDescription = "Remove set")
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    "Reps",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(bottom = 4.dp)
+                                )
+                                OutlinedTextField(
+                                    value = repsFieldText(set.reps),
+                                    onValueChange = { t ->
+                                        val r = t.trim().toIntOrNull() ?: 0
+                                        onSetsChange(sets.replaceAt(idx, set.copy(reps = r)))
+                                    },
+                                    singleLine = true,
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    loadSuffix,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(bottom = 4.dp)
+                                )
+                                OutlinedTextField(
+                                    value = weightFieldText(set, loadUnit),
+                                    onValueChange = { t ->
+                                        onSetsChange(
+                                            sets.replaceAt(
+                                                idx,
+                                                set.copy(weightKg = parseWeightInputToKg(t, loadUnit))
+                                            )
+                                        )
+                                    },
+                                    trailingIcon = if (weightIsAddedLoad) {
+                                        {
+                                            IconButton(onClick = { showAddedLoadInfo = true }) {
+                                                Icon(
+                                                    Icons.Outlined.Info,
+                                                    contentDescription = stringResource(
+                                                        R.string.weight_added_load_info_icon_cd
+                                                    )
+                                                )
+                                            }
+                                        }
+                                    } else null,
+                                    singleLine = true,
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    "RPE",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(bottom = 4.dp)
+                                )
+                                OutlinedTextField(
+                                    value = rpeFieldText(set),
+                                    onValueChange = { t ->
+                                        onSetsChange(
+                                            sets.replaceAt(
+                                                idx,
+                                                set.copy(rpe = t.trim().toDoubleOrNull())
+                                            )
+                                        )
+                                    },
+                                    singleLine = true,
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                            IconButton(
+                                onClick = {
+                                    if (sets.size > 1) {
+                                        onSetsChange(sets.filterIndexed { i, _ -> i != idx })
+                                    }
+                                },
+                                enabled = sets.size > 1
+                            ) {
+                                Icon(Icons.Default.Close, contentDescription = "Remove set")
+                            }
                         }
                     }
                 }
@@ -473,6 +499,119 @@ fun WeightExerciseInlineSetsCard(
                     }
                 }
             }
+        }
+    }
+}
+
+/**
+ * One time-based set row (e.g. plank): a hold-duration field with a start/stop count-up timer,
+ * plus optional added load and RPE. The running timer increments [WeightSet.durationSeconds] once
+ * per second via [onChange]; it stops when toggled off or when the row leaves composition.
+ */
+@Composable
+private fun WeightTimePerSetRow(
+    set: WeightSet,
+    loadUnit: BodyWeightUnit,
+    loadSuffix: String,
+    weightIsAddedLoad: Boolean,
+    canRemove: Boolean,
+    onChange: (WeightSet) -> Unit,
+    onRemove: () -> Unit,
+    onShowAddedLoadInfo: () -> Unit,
+) {
+    var running by remember { mutableStateOf(false) }
+    val currentSet by rememberUpdatedState(set)
+    val currentOnChange by rememberUpdatedState(onChange)
+    LaunchedEffect(running) {
+        if (!running) return@LaunchedEffect
+        while (true) {
+            delay(1000)
+            val next = (currentSet.durationSeconds ?: 0) + 1
+            currentOnChange(currentSet.copy(durationSeconds = next))
+        }
+    }
+    val seconds = set.durationSeconds ?: 0
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.Bottom
+    ) {
+        Column(modifier = Modifier.weight(1.2f)) {
+            Text(
+                "Hold (s)",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 4.dp)
+            )
+            OutlinedTextField(
+                value = durationFieldText(set),
+                onValueChange = { t ->
+                    val parsed = t.filter { c -> c.isDigit() }.toIntOrNull()?.takeIf { it > 0 }
+                    onChange(set.copy(durationSeconds = parsed))
+                },
+                trailingIcon = {
+                    IconButton(onClick = { running = !running }) {
+                        if (running) {
+                            Icon(Icons.Default.Stop, contentDescription = "Stop timer")
+                        } else {
+                            Icon(Icons.Default.PlayArrow, contentDescription = "Start timer")
+                        }
+                    }
+                },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                supportingText = if (seconds >= 60) {
+                    { Text(formatHoldDuration(seconds)) }
+                } else null,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                loadSuffix,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 4.dp)
+            )
+            OutlinedTextField(
+                value = weightFieldText(set, loadUnit),
+                onValueChange = { t ->
+                    onChange(set.copy(weightKg = parseWeightInputToKg(t, loadUnit)))
+                },
+                trailingIcon = if (weightIsAddedLoad) {
+                    {
+                        IconButton(onClick = onShowAddedLoadInfo) {
+                            Icon(
+                                Icons.Outlined.Info,
+                                contentDescription = stringResource(
+                                    R.string.weight_added_load_info_icon_cd
+                                )
+                            )
+                        }
+                    }
+                } else null,
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+        Column(modifier = Modifier.weight(0.9f)) {
+            Text(
+                "RPE",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 4.dp)
+            )
+            OutlinedTextField(
+                value = rpeFieldText(set),
+                onValueChange = { t -> onChange(set.copy(rpe = t.trim().toDoubleOrNull())) },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+        IconButton(onClick = onRemove, enabled = canRemove) {
+            Icon(Icons.Default.Close, contentDescription = "Remove set")
         }
     }
 }

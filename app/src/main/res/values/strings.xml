@@ -104,10 +104,10 @@
     <string name="cardio_gps_notification_channel_desc">Records your route during outdoor walk, run, hike, or ruck timer sessions when you allow GPS.</string>
     <string name="cardio_gps_notification_title">Outdoor cardio</string>
     <string name="cardio_gps_notification_text">Recording GPS route — tap to return</string>
-    <string name="settings_cardio_gps_title">Cardio GPS tracking</string>
+    <string name="settings_cardio_gps_title">Cardio GPS Tracking</string>
     <string name="settings_cardio_gps_switch">Record GPS for outdoor walk, run, hike, ruck, cycling</string>
     <string name="settings_cardio_gps_helper">When on, timer workouts for those supported outdoor activities can log distance from your route if you allow location access. Raw GPS point lists are never sent to Nostr relays (only session summaries sync). Android shows an ongoing notification while recording. Use the next option to control whether point lists are kept on this device after each workout is saved.</string>
-    <string name="settings_cardio_gps_retention_title">GPS track on device</string>
+    <string name="settings_cardio_gps_retention_title">GPS Track On Device</string>
     <string name="settings_cardio_gps_retention_switch">Keep detailed GPS track on device</string>
     <string name="settings_cardio_gps_retention_switch_helper">When off, lat/lon point lists are not stored after a workout is saved. Distance, duration, estimated calories, and elevation gain/loss (when derived from the route) are still kept. Interactive maps, splits, exports, or other future features that need the full path may be limited.</string>
     <string name="settings_cardio_gps_retention_privacy">Your raw GPS points are not included in encrypted cardio logs published to relays—those events only carry summaries. Full tracks exist on your phone only when this setting is on.</string>
@@ -203,7 +203,7 @@
 
     <!-- Settings → Relays: NIP-65 relay list (kind 10002) -->
     <string name="settings_relays_never_publish_nip65_switch">Never publish NIP-65 relay list</string>
-    <string name="settings_relays_never_publish_nip65_helper">When on (recommended for private relays), ERV will not send kind 10002 events that advertise your relay URLs to the network. Encrypted sync and profile publish are unchanged. Turn off only if you want other Nostr clients to auto-discover your relay set.</string>
+    <string name="settings_relays_never_publish_nip65_helper">Recommended for private relays. Keeps your relay list off the public network; encrypted sync is unchanged. Turn off to let other Nostr clients discover your relays.</string>
     <string name="settings_relays_trust_self_signed_switch">Self-signed LAN certificate</string>
     <string name="settings_relays_trust_self_signed_helper">Enable for Start9 or other self-hosted relays on your LAN or WireGuard VPN. Only use for relays you control.</string>
     <string name="settings_relays_save_nip65_failed">Relay settings saved, but NIP-65 relay list could not be published.</string>

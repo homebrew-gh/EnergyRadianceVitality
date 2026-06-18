@@ -45,6 +45,7 @@ import com.erv.app.ui.theme.ErvLightTherapyRedDark
 import com.erv.app.ui.theme.ErvLightTherapyRedMid
 import com.erv.app.weighttraining.WeightLibraryState
 import com.erv.app.weighttraining.WeightSet
+import com.erv.app.weighttraining.isLogged
 import com.erv.app.weighttraining.WeightWorkoutSession
 import com.erv.app.weighttraining.buildSessionFromLogEditor
 import com.erv.app.weighttraining.displayLabel
@@ -155,7 +156,7 @@ fun WeightManualWorkoutEditorScreen(
                                 onClick = {
                                     val hasAny = exerciseOrder.any { id ->
                                         hiitBlocksByExerciseId[id] != null ||
-                                            setsByExerciseId[id].orEmpty().any { it.reps > 0 }
+                                            setsByExerciseId[id].orEmpty().any { it.isLogged() }
                                     }
                                     if (!hasAny) {
                                         showNothingLogged = true
@@ -263,6 +264,7 @@ fun WeightManualWorkoutEditorScreen(
                                 },
                                 onRecentWorkouts = { recentWorkoutsExerciseId = exerciseId },
                                 hiitCapable = ex?.hiitCapable == true,
+                                timePerSetCapable = ex?.timePerSetCapable == true,
                                 hiitBlock = hiitBlocksByExerciseId[exerciseId],
                                 onClearHiitBlock = {
                                     hiitBlocksByExerciseId = hiitBlocksByExerciseId - exerciseId

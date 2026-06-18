@@ -7,8 +7,13 @@ fun formatRpeFieldForSets(v: Double): String =
     if (v == v.toLong().toDouble()) v.toLong().toString()
     else String.format("%.1f", v)
 
+/** Hold duration as `45s` (under a minute) or `M:SS` (e.g. `1:30`). */
+fun formatHoldDuration(seconds: Int): String =
+    if (seconds < 60) "${seconds}s" else "%d:%02d".format(seconds / 60, seconds % 60)
+
 /**
  * One line per set; matches the live workout collapsed set summary (reps, load, RPE).
+ * Time-based sets (e.g. planks) show the hold duration in place of reps.
  */
 fun formatSetSummaryLine(
     set: WeightSet,
@@ -18,7 +23,12 @@ fun formatSetSummaryLine(
     /** When true (e.g. bodyweight / station exercises), weight is shown as added load. */
     weightIsAddedLoad: Boolean = false
 ): String {
-    val repsPart = if (set.reps > 0) "${set.reps} reps" else "— reps"
+    val duration = set.durationSeconds?.takeIf { it > 0 }
+    val repsPart = when {
+        duration != null -> "${formatHoldDuration(duration)} hold"
+        set.reps > 0 -> "${set.reps} reps"
+        else -> "— reps"
+    }
     val weightPart = set.weightKg?.let { w ->
         val num = formatWeightLoadNumber(w, loadUnit)
         if (weightIsAddedLoad) " @ +$num $loadSuffix"

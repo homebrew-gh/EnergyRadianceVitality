@@ -46,6 +46,11 @@ data class WeightExercise(
      */
     val hiitCapable: Boolean = false,
     /**
+     * When true, sets for this movement are logged as a timed hold (duration per set) instead of
+     * reps — e.g. planks. Built-ins resolve this from catalog rules; weight/RPE remain optional.
+     */
+    val timePerSetCapable: Boolean = false,
+    /**
      * Per-workout rollup for this exercise only (date + workout id, volume, est. 1RM).
      * Rebuilt from [WeightLibraryState.logs] on save; omitted when syncing the shared exercise list.
      */
@@ -70,8 +75,13 @@ data class WeightRoutine(
 data class WeightSet(
     val reps: Int,
     val weightKg: Double? = null,
-    val rpe: Double? = null
+    val rpe: Double? = null,
+    /** Hold duration for time-based movements (e.g. planks). Mutually exclusive with [reps] in practice. */
+    val durationSeconds: Int? = null
 )
+
+/** A set is "logged" (worth keeping) when it has reps or a timed hold. */
+fun WeightSet.isLogged(): Boolean = reps > 0 || (durationSeconds ?: 0) > 0
 
 /** Logged result of completing a guided interval block for one exercise in a session. */
 @Serializable
@@ -260,7 +270,7 @@ private fun WeightWorkoutDraft.entryForOrderedExercise(id: String): WeightWorkou
     if (hiit != null) {
         return WeightWorkoutEntry(exerciseId = id, sets = emptyList(), hiitBlock = hiit)
     }
-    val s = setsByExerciseId[id].orEmpty().filter { it.reps > 0 }
+    val s = setsByExerciseId[id].orEmpty().filter { it.isLogged() }
     if (s.isEmpty()) return null
     return WeightWorkoutEntry(exerciseId = id, sets = s)
 }
@@ -335,7 +345,7 @@ fun buildSessionFromLogEditor(
         if (hiit != null) {
             WeightWorkoutEntry(exerciseId = id, sets = emptyList(), hiitBlock = hiit)
         } else {
-            val s = setsByExerciseId[id].orEmpty().filter { it.reps > 0 }
+            val s = setsByExerciseId[id].orEmpty().filter { it.isLogged() }
             if (s.isEmpty()) null else WeightWorkoutEntry(exerciseId = id, sets = s)
         }
     }

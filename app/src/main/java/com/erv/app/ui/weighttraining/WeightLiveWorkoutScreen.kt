@@ -69,6 +69,7 @@ import com.erv.app.weighttraining.WeightHiitIntervalPlan
 import com.erv.app.weighttraining.WeightLibraryState
 import com.erv.app.weighttraining.WeightSet
 import com.erv.app.weighttraining.displayLabel
+import com.erv.app.weighttraining.isLogged
 import com.erv.app.weighttraining.WeightWorkoutDraft
 import com.erv.app.weighttraining.weightNowEpochSeconds
 import kotlinx.coroutines.delay
@@ -411,7 +412,7 @@ fun WeightLiveWorkoutScreen(
                         onClick = {
                             val hasLogged = draft.exerciseOrder.any { id ->
                                 draft.hiitBlocksByExerciseId[id] != null ||
-                                    draft.setsByExerciseId[id].orEmpty().any { it.reps > 0 }
+                                    draft.setsByExerciseId[id].orEmpty().any { it.isLogged() }
                             }
                             if (!hasLogged) {
                                 onCannotFinishNothingLogged()
@@ -525,6 +526,7 @@ fun WeightLiveWorkoutScreen(
                             },
                             onRecentWorkouts = { recentWorkoutsExerciseId = editingId },
                             hiitCapable = ex?.hiitCapable == true,
+                            timePerSetCapable = ex?.timePerSetCapable == true,
                             hiitBlock = draft.hiitBlocksByExerciseId[editingId],
                             onClearHiitBlock = { onClearHiitBlock(editingId) },
                             onStartHiitTimer = { plan ->
@@ -600,6 +602,7 @@ fun WeightLiveWorkoutScreen(
                                 },
                                 onRecentWorkouts = { recentWorkoutsExerciseId = exerciseId },
                                 hiitCapable = ex?.hiitCapable == true,
+                                timePerSetCapable = ex?.timePerSetCapable == true,
                                 hiitBlock = draft.hiitBlocksByExerciseId[exerciseId],
                                 onClearHiitBlock = { onClearHiitBlock(exerciseId) },
                                 onStartHiitTimer = { plan ->

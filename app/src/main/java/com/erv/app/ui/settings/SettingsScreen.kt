@@ -386,7 +386,10 @@ fun SettingsScreen(
                         value = bodyWeightValue,
                         unit = bodyWeightUnit,
                         onSave = { raw, u ->
-                            scope.launch { userPreferences.setFallbackBodyWeight(raw, u) }
+                            scope.launch {
+                                userPreferences.setFallbackBodyWeight(raw, u)
+                                snackbarMessage = "Body weight saved"
+                            }
                         }
                     )
                     Spacer(Modifier.height(12.dp))
@@ -424,6 +427,7 @@ fun SettingsScreen(
                         onSave = { max, age, resting, method ->
                             scope.launch {
                                 userPreferences.applyHeartRateZoneSettings(max, age, resting, method)
+                                snackbarMessage = "Heart rate zones saved"
                             }
                         },
                         onOpenProgress = { nestedNav.navigate(SettingsRoutes.HEART_RATE_PROGRESS) },
@@ -578,172 +582,11 @@ fun SettingsScreen(
                     onBack = { nestedNav.popBackStack() }
                 ) {
                     Text(
-                        "Toggle Data (encrypted activity) and Social (public posts) per relay.",
+                        "Tap Data (encrypted health activity) or Social (public posts) to set what each relay carries.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(bottom = 8.dp)
+                        modifier = Modifier.padding(bottom = 12.dp)
                     )
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = stringResource(R.string.settings_relays_never_publish_nip65_switch),
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-                            Text(
-                                text = stringResource(R.string.settings_relays_never_publish_nip65_helper),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(top = 4.dp)
-                            )
-                        }
-                        Switch(
-                            checked = neverPublishNip65RelayList,
-                            onCheckedChange = { v ->
-                                scope.launch { userPreferences.setNeverPublishNip65RelayList(v) }
-                            }
-                        )
-                    }
-                    com.erv.app.ui.onboarding.RelaySelfSignedTlsRow(
-                        checked = trustSelfSignedLanTls,
-                        onCheckedChange = { enabled ->
-                            scope.launch { userPreferences.setTrustSelfSignedLanTls(enabled) }
-                        },
-                        modifier = Modifier.padding(bottom = 12.dp),
-                    )
-                    if (pendingRelayUploadCount > 0) {
-                        Text(
-                            relayUploadCurrentStateText(
-                                count = pendingRelayUploadCount,
-                                status = relayOutboxStatus,
-                                items = pendingRelayItems,
-                                dataRelayUrls = dataRelayUrls,
-                                relayStates = relayStates,
-                            ),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(bottom = 8.dp)
-                        )
-                        Text(
-                            relayUploadQueueHint(pendingRelayUploadCount),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(bottom = 10.dp)
-                        )
-                        relayUploadDiagnosticsText(
-                            count = pendingRelayUploadCount,
-                            status = relayOutboxStatus,
-                            dataRelayUrls = dataRelayUrls,
-                            relayStates = relayStates,
-                        )?.let { detail ->
-                            Text(
-                                detail,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(bottom = 10.dp)
-                            )
-                        }
-                        PendingRelayItemsDebugList(
-                            items = pendingRelayItems,
-                            failuresByDTag = relayOutboxStatus.failuresByDTag,
-                            modifier = Modifier.padding(bottom = 10.dp)
-                        )
-                    }
-                    Text(
-                        relayUploadStatusGuideText(),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(bottom = 10.dp)
-                    )
-                    Text(
-                        "ERV saves encrypted uploads locally first. If you are offline or your data relays are disconnected, uploads stay queued here until a relay reconnects. Once a relay accepts an item, it leaves the queue and is treated as sent.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(bottom = 10.dp)
-                    )
-                    if (signer != null && relayPool != null) {
-                        Text(
-                            "Current data relay sync",
-                            style = MaterialTheme.typography.titleSmall,
-                            modifier = Modifier.padding(bottom = 4.dp)
-                        )
-                        val coverageText = when {
-                            relayCoverageLoading -> "Checking current encrypted payload coverage on connected data relays…"
-                            else -> relayCurrentCoverageText(relayCoverage)
-                        }
-                        Text(
-                            coverageText,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(bottom = 10.dp)
-                        )
-                        OutlinedButton(
-                            onClick = {
-                                scope.launch {
-                                    relayResyncing = true
-                                    try {
-                                        val localEntries = withContext(Dispatchers.IO) {
-                                            CurrentRelayDataSync.buildCurrentEntries(
-                                                userPreferences = userPreferences,
-                                                weightRepository = weightRepository,
-                                                cardioRepository = cardioRepository,
-                                                stretchingRepository = stretchingRepository,
-                                                heatColdRepository = heatColdRepository,
-                                                lightTherapyRepository = lightTherapyRepository,
-                                                supplementRepository = supplementRepository,
-                                                programRepository = programRepository,
-                                                bodyTrackerRepository = bodyTrackerRepository,
-                                            )
-                                        }
-                                        val drain = withContext(Dispatchers.IO) {
-                                            CurrentRelayDataSync.forceResync(
-                                                appContext = context.applicationContext,
-                                                relayPool = relayPool,
-                                                signer = signer,
-                                                dataRelayUrls = dataRelayUrls,
-                                                localEntries = localEntries,
-                                            )
-                                        }
-                                        snackbarMessage = buildString {
-                                            append("Queued ${localEntries.size} current relay payload(s).")
-                                            if (drain.publishedOk > 0 || drain.publishedFail > 0) {
-                                                append(" Sent ${drain.publishedOk} now")
-                                                if (drain.publishedFail > 0) {
-                                                    append(", ${drain.publishedFail} failed and will retry")
-                                                }
-                                                append('.')
-                                            }
-                                            if (drain.remaining > 0) {
-                                                append(" ${drain.remaining} payload(s) remain queued.")
-                                            }
-                                        }
-                                        relayCoverageLoading = true
-                                        relayCoverage = withContext(Dispatchers.IO) {
-                                            CurrentRelayDataSync.probeCoverage(
-                                                signer = signer,
-                                                dataRelayUrls = dataRelayUrls,
-                                                localEntries = localEntries,
-                                                trustSelfSignedLanTls = trustSelfSignedLanTls,
-                                            )
-                                        }
-                                    } catch (e: Exception) {
-                                        snackbarMessage = "Resync failed: ${e.message}"
-                                    } finally {
-                                        relayCoverageLoading = false
-                                        relayResyncing = false
-                                    }
-                                }
-                            },
-                            enabled = !relayResyncing && dataRelayUrls.isNotEmpty(),
-                            modifier = Modifier.padding(bottom = 12.dp)
-                        ) {
-                            Text(if (relayResyncing) "Resyncing…" else "Resync Current Data")
-                        }
-                    }
                     allRelays.forEach { url ->
                         RelayRow(
                             url = url,
@@ -844,6 +687,149 @@ fun SettingsScreen(
                             Text(if (saving) "Saving…" else "Save")
                         }
                     }
+
+                    SettingsHubSectionLabel("Options")
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 4.dp, bottom = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = stringResource(R.string.settings_relays_never_publish_nip65_switch),
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            Text(
+                                text = stringResource(R.string.settings_relays_never_publish_nip65_helper),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(top = 4.dp)
+                            )
+                        }
+                        Switch(
+                            checked = neverPublishNip65RelayList,
+                            onCheckedChange = { v ->
+                                scope.launch { userPreferences.setNeverPublishNip65RelayList(v) }
+                            }
+                        )
+                    }
+                    com.erv.app.ui.onboarding.RelaySelfSignedTlsRow(
+                        checked = trustSelfSignedLanTls,
+                        onCheckedChange = { enabled ->
+                            scope.launch { userPreferences.setTrustSelfSignedLanTls(enabled) }
+                        },
+                        modifier = Modifier.padding(bottom = 12.dp),
+                    )
+
+                    if (signer != null && relayPool != null) {
+                        SettingsHubSectionLabel("Sync")
+                        val coverageText = when {
+                            relayCoverageLoading -> "Checking coverage on connected data relays…"
+                            else -> relayCurrentCoverageText(relayCoverage)
+                        }
+                        Text(
+                            coverageText,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 4.dp, bottom = 8.dp)
+                        )
+                        if (pendingRelayUploadCount > 0) {
+                            Text(
+                                relayUploadCurrentStateText(
+                                    count = pendingRelayUploadCount,
+                                    status = relayOutboxStatus,
+                                    items = pendingRelayItems,
+                                    dataRelayUrls = dataRelayUrls,
+                                    relayStates = relayStates,
+                                ),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(bottom = 6.dp)
+                            )
+                            relayUploadDiagnosticsText(
+                                count = pendingRelayUploadCount,
+                                status = relayOutboxStatus,
+                                dataRelayUrls = dataRelayUrls,
+                                relayStates = relayStates,
+                            )?.let { detail ->
+                                Text(
+                                    detail,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(bottom = 8.dp)
+                                )
+                            }
+                            PendingRelayItemsDebugList(
+                                items = pendingRelayItems,
+                                failuresByDTag = relayOutboxStatus.failuresByDTag,
+                                modifier = Modifier.padding(bottom = 8.dp)
+                            )
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                scope.launch {
+                                    relayResyncing = true
+                                    try {
+                                        val localEntries = withContext(Dispatchers.IO) {
+                                            CurrentRelayDataSync.buildCurrentEntries(
+                                                userPreferences = userPreferences,
+                                                weightRepository = weightRepository,
+                                                cardioRepository = cardioRepository,
+                                                stretchingRepository = stretchingRepository,
+                                                heatColdRepository = heatColdRepository,
+                                                lightTherapyRepository = lightTherapyRepository,
+                                                supplementRepository = supplementRepository,
+                                                programRepository = programRepository,
+                                                bodyTrackerRepository = bodyTrackerRepository,
+                                            )
+                                        }
+                                        val drain = withContext(Dispatchers.IO) {
+                                            CurrentRelayDataSync.forceResync(
+                                                appContext = context.applicationContext,
+                                                relayPool = relayPool,
+                                                signer = signer,
+                                                dataRelayUrls = dataRelayUrls,
+                                                localEntries = localEntries,
+                                            )
+                                        }
+                                        snackbarMessage = buildString {
+                                            append("Queued ${localEntries.size} current relay payload(s).")
+                                            if (drain.publishedOk > 0 || drain.publishedFail > 0) {
+                                                append(" Sent ${drain.publishedOk} now")
+                                                if (drain.publishedFail > 0) {
+                                                    append(", ${drain.publishedFail} failed and will retry")
+                                                }
+                                                append('.')
+                                            }
+                                            if (drain.remaining > 0) {
+                                                append(" ${drain.remaining} payload(s) remain queued.")
+                                            }
+                                        }
+                                        relayCoverageLoading = true
+                                        relayCoverage = withContext(Dispatchers.IO) {
+                                            CurrentRelayDataSync.probeCoverage(
+                                                signer = signer,
+                                                dataRelayUrls = dataRelayUrls,
+                                                localEntries = localEntries,
+                                                trustSelfSignedLanTls = trustSelfSignedLanTls,
+                                            )
+                                        }
+                                    } catch (e: Exception) {
+                                        snackbarMessage = "Resync failed: ${e.message}"
+                                    } finally {
+                                        relayCoverageLoading = false
+                                        relayResyncing = false
+                                    }
+                                }
+                            },
+                            enabled = !relayResyncing && dataRelayUrls.isNotEmpty(),
+                            modifier = Modifier.padding(bottom = 12.dp)
+                        ) {
+                            Text(if (relayResyncing) "Resyncing…" else "Resync current data")
+                        }
+                    }
+
                     Spacer(Modifier.height(16.dp))
                     CardioNostrRouteShareSection(
                         uploadBackend = workoutMediaBackend,
@@ -888,15 +874,6 @@ fun SettingsScreen(
     }
 }
 
-private fun relayUploadQueueHint(count: Int): String {
-    val head = when {
-        count > 99 -> "More than 99 encrypted activity updates are"
-        count == 1 -> "1 encrypted activity update is"
-        else -> "$count encrypted activity updates are"
-    }
-    return "$head queued for relay upload. Keep the app open online; they retry automatically."
-}
-
 private fun relaySettingsSubtitle(count: Int): String {
     return if (count > 0) {
         if (count == 1) {
@@ -934,10 +911,6 @@ private fun relayUploadCurrentStateText(
     }
 }
 
-private fun relayUploadStatusGuideText(): String {
-    return "Queued = saved locally and waiting. Sent = left the queue after a relay accepted it. Retrying = ERV will try again automatically after backoff or reconnection. Failed = the last attempt returned an error; details appear below while the item stays queued."
-}
-
 private fun relayUploadDiagnosticsText(
     count: Int,
     status: RelayOutboxStatus,
@@ -971,7 +944,7 @@ private fun relayCurrentCoverageText(coverage: CurrentRelayDataCoverage?): Strin
     if (coverage.connectedRelayCount == 0) {
         return "No data relays are connected right now, so current payload coverage could not be checked."
     }
-    return "${coverage.foundPayloadCount}/${coverage.totalPayloadCount} current encrypted payloads were found on connected data relays. Connected relays: ${coverage.connectedRelayCount}/${coverage.configuredRelayCount}. This checks the latest payload for each current section, not historical replaced copies."
+    return "${coverage.foundPayloadCount}/${coverage.totalPayloadCount} current payloads found on connected data relays (${coverage.connectedRelayCount}/${coverage.configuredRelayCount} relays connected)."
 }
 
 @Composable
@@ -2077,7 +2050,7 @@ private fun BodyWeightSection(
     var draft by remember(value) { mutableStateOf(value) }
     var draftUnit by remember(unit) { mutableStateOf(unit) }
     Text(
-        "Body weight (for cardio calories)",
+        "Body Weight (Calorie Calc)",
         style = MaterialTheme.typography.titleMedium,
         modifier = Modifier.padding(bottom = 8.dp)
     )
@@ -2213,7 +2186,7 @@ private fun WeightTrainingLoadSection(
     onUnitChange: (BodyWeightUnit) -> Unit
 ) {
     Text(
-        "Weight training loads",
+        "Weight Training Loads",
         style = MaterialTheme.typography.titleMedium,
         modifier = Modifier.padding(bottom = 8.dp)
     )
@@ -2249,7 +2222,7 @@ private fun CardioDistanceSection(
     onUnitChange: (CardioDistanceUnit) -> Unit
 ) {
     Text(
-        "Cardio distance & elevation",
+        "Cardio Distance & Elevation",
         style = MaterialTheme.typography.titleMedium,
         modifier = Modifier.padding(bottom = 8.dp)
     )
@@ -2293,28 +2266,32 @@ private fun CardioGpsSettingsSection(
         modifier = Modifier.fillMaxWidth(),
         elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                Text(
-                    stringResource(R.string.settings_cardio_gps_switch),
-                    style = MaterialTheme.typography.bodyLarge
-                )
+            SettingsCollapsibleHelp {
                 Text(
                     stringResource(R.string.settings_cardio_gps_helper),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            Switch(
-                checked = enabled,
-                onCheckedChange = onChange
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    stringResource(R.string.settings_cardio_gps_switch),
+                    style = MaterialTheme.typography.bodyLarge,
+                    modifier = Modifier.weight(1f).padding(end = 8.dp)
+                )
+                Switch(
+                    checked = enabled,
+                    onCheckedChange = onChange
+                )
+            }
         }
     }
 }
@@ -2338,52 +2315,53 @@ private fun CardioGpsRetentionSettingsSection(
         elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
     ) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            SettingsCollapsibleHelp {
+                Text(
+                    stringResource(R.string.settings_cardio_gps_retention_switch_helper),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    stringResource(R.string.settings_cardio_gps_retention_privacy),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    stringResource(R.string.settings_cardio_gps_retention_storage_title),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    stringResource(R.string.settings_cardio_gps_retention_storage_intro),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    cardioDatastoreFile.absolutePath,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    stringResource(R.string.settings_cardio_gps_retention_backup),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                    Text(
-                        stringResource(R.string.settings_cardio_gps_retention_switch),
-                        style = MaterialTheme.typography.bodyLarge
-                    )
-                    Text(
-                        stringResource(R.string.settings_cardio_gps_retention_switch_helper),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+                Text(
+                    stringResource(R.string.settings_cardio_gps_retention_switch),
+                    style = MaterialTheme.typography.bodyLarge,
+                    modifier = Modifier.weight(1f).padding(end = 8.dp)
+                )
                 Switch(
                     checked = retainOnDevice,
                     onCheckedChange = onRetainChange
                 )
             }
-            Text(
-                stringResource(R.string.settings_cardio_gps_retention_privacy),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Text(
-                stringResource(R.string.settings_cardio_gps_retention_storage_title),
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Text(
-                stringResource(R.string.settings_cardio_gps_retention_storage_intro),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Text(
-                cardioDatastoreFile.absolutePath,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            Text(
-                stringResource(R.string.settings_cardio_gps_retention_backup),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
         }
     }
 }

@@ -345,6 +345,63 @@ class WeightModelsSerializationTest {
     }
 
     @Test
+    fun defaultCatalog_timePerSetFlags_planks() {
+        val catalog = defaultCatalogExercises()
+        val plank = catalog.first { it.id == "erv-weight-exercise-bw-plank-v1" }
+        val sidePlank = catalog.first { it.id == "erv-weight-exercise-bw-side-plank-v1" }
+        val bench = catalog.first { it.id == "erv-weight-exercise-bench-v1" }
+        assertTrue(plank.timePerSetCapable)
+        assertTrue(sidePlank.timePerSetCapable)
+        assertFalse(bench.timePerSetCapable)
+    }
+
+    @Test
+    fun weightSet_durationRoundTripsAndIsLogged() {
+        val set = WeightSet(reps = 0, durationSeconds = 45, rpe = 8.0)
+        val decoded = json.decodeFromString(
+            WeightSet.serializer(),
+            json.encodeToString(WeightSet.serializer(), set)
+        )
+        assertEquals(set, decoded)
+        assertTrue(set.isLogged())
+        assertFalse(WeightSet(reps = 0).isLogged())
+        assertTrue(WeightSet(reps = 5).isLogged())
+    }
+
+    @Test
+    fun weightSet_legacyJsonWithoutDuration_decodesToNull() {
+        val legacy = """{"reps":10,"weightKg":60.0}"""
+        val decoded = json.decodeFromString(WeightSet.serializer(), legacy)
+        assertNull(decoded.durationSeconds)
+        assertEquals(10, decoded.reps)
+    }
+
+    @Test
+    fun toFinishedLiveSession_keepsTimedSets() {
+        val plank = "erv-weight-exercise-bw-plank-v1"
+        val draft = WeightWorkoutDraft(
+            startedAtEpochSeconds = 1000L,
+            exerciseOrder = listOf(plank),
+            setsByExerciseId = mapOf(plank to listOf(WeightSet(reps = 0, durationSeconds = 60)))
+        )
+        val session = draft.toFinishedLiveSession()
+        assertNotNull(session)
+        assertEquals(1, session!!.entries.size)
+        assertEquals(60, session.entries.first().sets.first().durationSeconds)
+    }
+
+    @Test
+    fun formatSetSummaryLine_showsHoldForTimedSet() {
+        val line = formatSetSummaryLine(
+            set = WeightSet(reps = 0, durationSeconds = 90),
+            setNumber = 1,
+            loadUnit = com.erv.app.data.BodyWeightUnit.KG,
+            loadSuffix = "kg"
+        )
+        assertTrue(line.contains("1:30 hold"))
+    }
+
+    @Test
     fun buildSessionFromLogEditor_withHiitBlock() {
         val e = "e-kb"
         val block = WeightHiitBlockLog(5, 20, 10, weightKg = 16.0)

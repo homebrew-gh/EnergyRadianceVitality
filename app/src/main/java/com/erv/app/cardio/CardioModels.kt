@@ -739,7 +739,7 @@ data class CardioTimerSessionDraft(
                 activity = leg.activity,
                 modality = leg.modality,
                 treadmill = leg.treadmill,
-                startEpoch = nowEpochSeconds(),
+                startEpoch = CARDIO_TIMER_PENDING_START_EPOCH,
                 routineId = routine.id,
                 routineName = routine.name,
                 timerStyle = CardioTimerStyle.CountUp,
@@ -763,7 +763,7 @@ data class CardioTimerSessionDraft(
             activity = activity,
             modality = modality,
             treadmill = treadmill,
-            startEpoch = nowEpochSeconds(),
+            startEpoch = CARDIO_TIMER_PENDING_START_EPOCH,
             routineId = null,
             routineName = null,
             timerStyle = timerStyle,
@@ -812,15 +812,14 @@ data class CardioMultiLegTimerState(
         fun fromRoutine(routine: CardioRoutine): CardioMultiLegTimerState? {
             val legs = routine.effectiveSteps()
             if (legs.size <= 1) return null
-            val now = nowEpochSeconds()
             return CardioMultiLegTimerState(
                 routineId = routine.id,
                 routineName = routine.name,
                 legs = legs,
                 completedSegments = emptyList(),
                 currentLegIndex = 0,
-                workoutStartEpoch = now,
-                legStartedEpoch = now
+                workoutStartEpoch = CARDIO_TIMER_PENDING_START_EPOCH,
+                legStartedEpoch = CARDIO_TIMER_PENDING_START_EPOCH
             )
         }
 
@@ -869,15 +868,14 @@ data class CardioMultiLegTimerState(
                     }
                 }
             }
-            val now = nowEpochSeconds()
             return CardioMultiLegTimerState(
                 routineId = null,
                 routineName = routineName,
                 legs = legs,
                 completedSegments = emptyList(),
                 currentLegIndex = 0,
-                workoutStartEpoch = now,
-                legStartedEpoch = now
+                workoutStartEpoch = CARDIO_TIMER_PENDING_START_EPOCH,
+                legStartedEpoch = CARDIO_TIMER_PENDING_START_EPOCH
             )
         }
     }
@@ -893,6 +891,34 @@ sealed class CardioActiveTimerSession {
 fun CardioActiveTimerSession.timerStartEpochSeconds(): Long = when (this) {
     is CardioActiveTimerSession.Single -> draft.startEpoch
     is CardioActiveTimerSession.Multi -> state.workoutStartEpoch
+}
+
+/** Live timers are created with this epoch until the user taps Start Workout. */
+const val CARDIO_TIMER_PENDING_START_EPOCH = 0L
+
+fun CardioTimerSessionDraft.isPendingStart(): Boolean =
+    startEpoch == CARDIO_TIMER_PENDING_START_EPOCH
+
+fun CardioTimerSessionDraft.withStartedNow(): CardioTimerSessionDraft =
+    if (isPendingStart()) copy(startEpoch = nowEpochSeconds()) else this
+
+fun CardioMultiLegTimerState.isPendingStart(): Boolean =
+    workoutStartEpoch == CARDIO_TIMER_PENDING_START_EPOCH
+
+fun CardioMultiLegTimerState.withStartedNow(): CardioMultiLegTimerState {
+    if (!isPendingStart()) return this
+    val now = nowEpochSeconds()
+    return copy(workoutStartEpoch = now, legStartedEpoch = now)
+}
+
+fun CardioActiveTimerSession.isTimerRunning(): Boolean = when (this) {
+    is CardioActiveTimerSession.Single -> !draft.isPendingStart()
+    is CardioActiveTimerSession.Multi -> !state.isPendingStart()
+}
+
+fun CardioActiveTimerSession.withStartedNow(): CardioActiveTimerSession = when (this) {
+    is CardioActiveTimerSession.Single -> copy(draft = draft.withStartedNow())
+    is CardioActiveTimerSession.Multi -> copy(state = state.withStartedNow())
 }
 
 /** Shown after Stop & log; [elapsedSeconds] is exact timer time when from a single-leg timer, else null. */

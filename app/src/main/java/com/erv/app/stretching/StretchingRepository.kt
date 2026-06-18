@@ -6,6 +6,8 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.erv.app.nostr.CatalogStore
+import com.erv.app.stretching.StretchCatalogEntry
 import com.erv.app.unifiedroutines.UnifiedSessionLink
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -21,8 +23,12 @@ class StretchingRepository(context: Context) {
 
     private val appContext = context.applicationContext
 
-    /** Bundled catalog; not persisted or synced. */
-    val catalog: List<StretchCatalogEntry> = StretchCatalogLoader.load(appContext)
+    /** Effective stretch catalog: bundled APK copy merged with relay when synced. */
+    val catalog: List<StretchCatalogEntry>
+        get() {
+            CatalogStore.get(appContext).ensureHydratedBlocking()
+            return CatalogStore.get(appContext).effectiveStretchCatalog()
+        }
 
     private object Keys {
         val STATE = stringPreferencesKey("stretching_state")

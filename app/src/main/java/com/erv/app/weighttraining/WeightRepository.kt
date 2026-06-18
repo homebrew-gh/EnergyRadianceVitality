@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.erv.app.nostr.CatalogStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -142,6 +143,11 @@ class WeightRepository(context: Context) {
         }
     }
 
+    private fun catalogExercises(): List<WeightExercise> {
+        CatalogStore.get(appContext).ensureHydratedBlocking()
+        return CatalogStore.get(appContext).effectiveWeightExercisesBlocking()
+    }
+
     private fun decodeState(raw: String?): WeightLibraryState {
         val base = if (raw.isNullOrBlank()) {
             WeightLibraryState()
@@ -155,25 +161,32 @@ class WeightRepository(context: Context) {
             }
         }
         val merged = when {
-            base.exercises.isEmpty() -> base.copy(exercises = defaultCatalogExercises())
-            else -> base.mergeMissingCatalogExercises()
+            base.exercises.isEmpty() -> base.copy(exercises = catalogExercises())
+            else -> base.mergeMissingCatalogExercises(catalogExercises())
         }
-        val catalogById = defaultCatalogExercises().associateBy { it.id }
+        val catalogById = catalogExercises().associateBy { it.id }
         return merged
             .copy(
                 exercises = merged.exercises.map { ex ->
                     val fromCatalog = catalogById[ex.id]
                     val migrated = ex.withMigratedArmsMuscleGroup()
-                    fromCatalog?.let { migrated.copy(hiitCapable = it.hiitCapable) } ?: migrated
+                    fromCatalog?.let {
+                        migrated.copy(
+                            hiitCapable = it.hiitCapable,
+                            timePerSetCapable = it.timePerSetCapable,
+                        )
+                    } ?: migrated
                 }
             )
             .withRebuiltExerciseSessionSummaries()
     }
 }
 
-private fun WeightLibraryState.mergeMissingCatalogExercises(): WeightLibraryState {
+private fun WeightLibraryState.mergeMissingCatalogExercises(
+    catalog: List<WeightExercise>,
+): WeightLibraryState {
     val existingIds = exercises.map { it.id }.toSet()
-    val toAdd = defaultCatalogExercises().filter { it.id !in existingIds }
+    val toAdd = catalog.filter { it.id !in existingIds }
     return if (toAdd.isEmpty()) this else copy(exercises = exercises + toAdd)
 }
 

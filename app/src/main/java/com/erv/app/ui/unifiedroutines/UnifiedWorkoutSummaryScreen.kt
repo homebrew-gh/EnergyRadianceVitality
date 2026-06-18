@@ -596,7 +596,12 @@ private fun formatUnifiedSharedSetSummaryLine(
     loadUnit: BodyWeightUnit,
     weightIsAddedLoad: Boolean
 ): String {
-    val repsPart = if (set.reps > 0) "${set.reps} reps" else "— reps"
+    val duration = set.durationSeconds?.takeIf { it > 0 }
+    val repsPart = when {
+        duration != null -> "${com.erv.app.weighttraining.formatHoldDuration(duration)} hold"
+        set.reps > 0 -> "${set.reps} reps"
+        else -> "— reps"
+    }
     val weightPart = set.weightKg?.let { weightKg ->
         val num = com.erv.app.weighttraining.formatWeightLoadNumber(weightKg, loadUnit)
         val suffix = weightLoadUnitSuffix(loadUnit)

@@ -45,12 +45,14 @@ object WeightCalorieEstimator {
         durationSeconds: Int,
         bodyWeightKg: Double
     ): Double {
-        val regularSets = session.entries.sumOf { it.sets.size }
         val hiitIntervals = session.entries.sumOf { it.hiitBlock?.intervals ?: 0 }
         val hiitWorkSeconds = session.entries.sumOf { entry ->
             entry.hiitBlock?.let { it.intervals * it.workSeconds } ?: 0
         }
-        val estimatedSetWorkSeconds = regularSets * 35
+        // Timed holds (e.g. planks) contribute their actual duration; rep-based sets use a ~35s estimate.
+        val estimatedSetWorkSeconds = session.entries.sumOf { entry ->
+            entry.sets.sumOf { s -> s.durationSeconds?.takeIf { it > 0 } ?: 35 }
+        }
         val activeRatio = ((hiitWorkSeconds + estimatedSetWorkSeconds).toDouble() / durationSeconds)
             .coerceIn(0.0, 1.0)
         val setsPerMinute = session.totalSetCount() / (durationSeconds / 60.0)

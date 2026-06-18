@@ -28,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.erv.app.data.UserPreferences
+import com.erv.app.ui.settings.SettingsCollapsibleHelp
 
 @Composable
 fun HeartRateZoneSettingsSection(
@@ -53,7 +54,7 @@ fun HeartRateZoneSettingsSection(
 
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
-            "Heart rate zones",
+            "Heart Rate Zones",
             style = MaterialTheme.typography.titleMedium,
             modifier = Modifier.padding(bottom = 4.dp),
         )
@@ -65,12 +66,14 @@ fun HeartRateZoneSettingsSection(
                 modifier = Modifier.padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text(
-                    "Set your max HR, age, or resting HR for accurate Z1–Z5 charts during BLE workouts. " +
-                        "Workouts already record heart rate — zones are calculated from those samples.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                SettingsCollapsibleHelp {
+                    Text(
+                        "Set your max HR, age, or resting HR for accurate Z1–Z5 charts during BLE workouts. " +
+                            "Workouts already record heart rate — zones are calculated from those samples.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 OutlinedTextField(
                     value = maxDraft,
                     onValueChange = { maxDraft = it.filter { ch -> ch.isDigit() }.take(3) },

@@ -23,6 +23,7 @@ object WeightCsvHistoryImport {
         val colReps = headerCells.indexOfFirst { it == "reps" }
         val colWeight = headerCells.indexOfFirst { it == "weight_kg" || it == "weightkg" }
         val colRpe = headerCells.indexOfFirst { it == "rpe" }
+        val colDuration = headerCells.indexOfFirst { it == "duration_seconds" || it == "durationseconds" }
         if (colDate < 0 || colSession < 0 || colEx < 0 || colSetIdx < 0 || colReps < 0) {
             return null to listOf(
                 "CSV header must include: date, session_key, exercise_id, set_index, reps (optional: weight_kg, rpe)"
@@ -36,6 +37,7 @@ object WeightCsvHistoryImport {
             add(colReps)
             if (colWeight >= 0) add(colWeight)
             if (colRpe >= 0) add(colRpe)
+            if (colDuration >= 0) add(colDuration)
         }
         val minCols = indexBounds.max() + 1
 
@@ -117,13 +119,31 @@ object WeightCsvHistoryImport {
                     }
                 }
             }
+            var durationSeconds: Int? = null
+            if (colDuration >= 0 && colDuration < cells.size) {
+                val d = cells[colDuration].trim()
+                if (d.isNotEmpty()) {
+                    val parsed = d.toIntOrNull()
+                    when {
+                        parsed == null -> {
+                            errors += "Line $n: duration_seconds must be an integer or empty"
+                            rowOk = false
+                        }
+                        parsed < 0 -> {
+                            errors += "Line $n: duration_seconds cannot be negative"
+                            rowOk = false
+                        }
+                        else -> durationSeconds = parsed.takeIf { it > 0 }
+                    }
+                }
+            }
             if (rowOk && setIndex != null && reps != null) {
                 rows += Row(
                     date = date,
                     sessionKey = sessionKey,
                     exerciseId = exerciseId,
                     setIndex = setIndex,
-                    set = WeightSet(reps = reps, weightKg = weightKg, rpe = rpe),
+                    set = WeightSet(reps = reps, weightKg = weightKg, rpe = rpe, durationSeconds = durationSeconds),
                 )
             }
         }

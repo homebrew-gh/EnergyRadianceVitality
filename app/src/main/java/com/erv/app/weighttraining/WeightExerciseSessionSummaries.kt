@@ -42,7 +42,7 @@ fun WeightWorkoutEntry.bestEstOneRmKgForEntry(): Double? {
 
 fun WeightWorkoutEntry.workingSetCount(): Int {
     hiitBlock?.let { return it.intervals.coerceAtLeast(0) }
-    return sets.count { it.reps > 0 }
+    return sets.count { it.isLogged() }
 }
 
 /**

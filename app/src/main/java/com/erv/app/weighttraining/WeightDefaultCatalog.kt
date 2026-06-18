@@ -280,12 +280,26 @@ internal fun builtinHiitCapableForId(id: String): Boolean {
     return id in NonKbBuiltinHiitCapableIds
 }
 
-private fun WeightExercise.withResolvedBuiltinHiitFlag(): WeightExercise =
-    copy(hiitCapable = builtinHiitCapableForId(id))
+/**
+ * Built-in isometric holds logged as time-per-set (duration) rather than reps.
+ */
+private val TimePerSetCapableIds: Set<String> = setOf(
+    "erv-weight-exercise-bw-plank-v1",
+    "erv-weight-exercise-bw-side-plank-v1",
+)
 
-/** Full built-in catalog: four compounds + [builtinCatalogBeyondCompounds], with HIIT flags applied. */
+/** Resolves [WeightExercise.timePerSetCapable] for stable built-in ids; custom exercises use stored flag only. */
+internal fun builtinTimePerSetCapableForId(id: String): Boolean = id in TimePerSetCapableIds
+
+private fun WeightExercise.withResolvedBuiltinFlags(): WeightExercise =
+    copy(
+        hiitCapable = builtinHiitCapableForId(id),
+        timePerSetCapable = builtinTimePerSetCapableForId(id),
+    )
+
+/** Full built-in catalog: four compounds + [builtinCatalogBeyondCompounds], with logging-style flags applied. */
 fun defaultCatalogExercises(): List<WeightExercise> =
-    (defaultCompoundExercises() + builtinCatalogBeyondCompounds()).map { it.withResolvedBuiltinHiitFlag() }
+    (defaultCompoundExercises() + builtinCatalogBeyondCompounds()).map { it.withResolvedBuiltinFlags() }
 
 private object CatalogBicepsTricepsIds {
     val biceps: Set<String> by lazy {

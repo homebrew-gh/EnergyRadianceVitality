@@ -5,7 +5,9 @@ import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import com.erv.app.cardio.CardioActiveTimerSession
 import com.erv.app.cardio.CardioLiveWorkoutForegroundService
+import com.erv.app.cardio.isTimerRunning
 import com.erv.app.cardio.timerStartEpochSeconds
+import com.erv.app.cardio.withStartedNow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -23,15 +25,19 @@ class CardioLiveWorkoutViewModel(application: Application) : AndroidViewModel(ap
     private val _cardioLiveUiExpanded = MutableStateFlow(true)
     val cardioLiveUiExpanded: StateFlow<Boolean> = _cardioLiveUiExpanded.asStateFlow()
 
+    private var suppressNotificationForActiveSession = false
+
     val hasActiveTimer: Boolean get() = _activeTimer.value != null
+
+    val isTimerRunning: Boolean get() = _activeTimer.value?.isTimerRunning() == true
 
     fun setCardioLiveUiExpanded(expanded: Boolean) {
         _cardioLiveUiExpanded.value = expanded
     }
 
     /**
-     * Begins tracking [session], starts the live-timer foreground service, and expands the full-screen UI.
-     * Returns false if a session is already active.
+     * Opens the live workout UI for [session]. The timer, GPS, and foreground notification begin only
+     * after [beginTimer] (Start Workout) unless the session was already started elsewhere.
      */
     fun tryStartSession(
         session: CardioActiveTimerSession,
@@ -39,7 +45,8 @@ class CardioLiveWorkoutViewModel(application: Application) : AndroidViewModel(ap
     ): Boolean {
         if (_activeTimer.value != null) return false
         return try {
-            if (!suppressNotification) {
+            suppressNotificationForActiveSession = suppressNotification
+            if (!suppressNotification && session.isTimerRunning()) {
                 CardioLiveWorkoutForegroundService.start(getApplication(), session.timerStartEpochSeconds())
             }
             _activeTimer.value = session
@@ -47,6 +54,23 @@ class CardioLiveWorkoutViewModel(application: Application) : AndroidViewModel(ap
             true
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start cardio live timer foreground service", e)
+            false
+        }
+    }
+
+    /** Starts the session clock, GPS, and optional foreground notification after Start Workout. */
+    fun beginTimer(): Boolean {
+        val current = _activeTimer.value ?: return false
+        if (current.isTimerRunning()) return true
+        val started = current.withStartedNow()
+        return try {
+            if (!suppressNotificationForActiveSession) {
+                CardioLiveWorkoutForegroundService.start(getApplication(), started.timerStartEpochSeconds())
+            }
+            _activeTimer.value = started
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to begin cardio live timer", e)
             false
         }
     }
@@ -62,5 +86,6 @@ class CardioLiveWorkoutViewModel(application: Application) : AndroidViewModel(ap
         }
         _activeTimer.value = null
         _cardioLiveUiExpanded.value = true
+        suppressNotificationForActiveSession = false
     }
 }
