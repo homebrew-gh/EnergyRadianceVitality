@@ -43,6 +43,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.erv.app.ui.components.FieldLabel
 import com.erv.app.cardio.CardioDistanceUnit
 import com.erv.app.cardio.CardioSession
 import com.erv.app.cardio.CardioTrackShareImage
@@ -283,7 +284,7 @@ fun UnifiedWorkoutSummaryScreen(
                     onValueChange = { sharePersonalMessage = it },
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !sharing && !shared,
-                    label = { Text("Personal message") },
+                    label = { FieldLabel("Personal message") },
                     minLines = 2,
                     maxLines = 5,
                     colors = summaryTextFieldColors()
@@ -293,7 +294,7 @@ fun UnifiedWorkoutSummaryScreen(
                     onValueChange = { shareHashtags = it },
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !sharing && !shared,
-                    label = { Text("Hashtags") },
+                    label = { FieldLabel("Hashtags") },
                     minLines = 2,
                     maxLines = 4,
                     colors = summaryTextFieldColors()
@@ -386,7 +387,7 @@ fun UnifiedWorkoutSummaryScreen(
                     value = saveRoutineName,
                     onValueChange = { saveRoutineName = it },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Routine name") },
+                    label = { FieldLabel("Routine name") },
                     singleLine = true
                 )
             },

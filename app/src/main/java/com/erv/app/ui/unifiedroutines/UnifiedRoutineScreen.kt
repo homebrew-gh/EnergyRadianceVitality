@@ -65,6 +65,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.erv.app.ui.components.FieldLabel
 import com.erv.app.cardio.CardioBuiltinActivity
 import com.erv.app.cardio.CardioDistanceUnit
 import com.erv.app.cardio.CardioQuickLaunch
@@ -864,14 +865,14 @@ private fun UnifiedRoutineEditorDialog(
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("Routine name") },
+                    label = { FieldLabel("Routine name") },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
                 )
                 OutlinedTextField(
                     value = notes,
                     onValueChange = { notes = it },
-                    label = { Text("Notes") },
+                    label = { FieldLabel("Notes") },
                     modifier = Modifier.fillMaxWidth(),
                     minLines = 2
                 )
@@ -1116,14 +1117,14 @@ private fun UnifiedRoutineBlockEditorDialog(
                 OutlinedTextField(
                     value = title,
                     onValueChange = { title = it },
-                    label = { Text("Title (optional)") },
+                    label = { FieldLabel("Title (optional)") },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
                 )
                 OutlinedTextField(
                     value = notes,
                     onValueChange = { notes = it },
-                    label = { Text("Notes") },
+                    label = { FieldLabel("Notes") },
                     modifier = Modifier.fillMaxWidth(),
                     minLines = 2
                 )
@@ -1415,7 +1416,7 @@ private fun UnifiedRoutineBlockEditorDialog(
                         OutlinedTextField(
                             value = holdSeconds,
                             onValueChange = { holdSeconds = it.filter { ch -> ch.isDigit() } },
-                            label = { Text("Hold seconds per stretch") },
+                            label = { FieldLabel("Hold seconds per stretch") },
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true
                         )
@@ -1588,7 +1589,7 @@ private fun UnifiedRoutineBlockEditorDialog(
                 OutlinedTextField(
                     value = saveAsRoutineName,
                     onValueChange = { saveAsRoutineName = it },
-                    label = { Text("Routine name") },
+                    label = { FieldLabel("Routine name") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -1629,7 +1630,7 @@ private fun UnifiedRoutineBlockEditorDialog(
                 OutlinedTextField(
                     value = saveAsStretchRoutineName,
                     onValueChange = { saveAsStretchRoutineName = it },
-                    label = { Text("Routine name") },
+                    label = { FieldLabel("Routine name") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )

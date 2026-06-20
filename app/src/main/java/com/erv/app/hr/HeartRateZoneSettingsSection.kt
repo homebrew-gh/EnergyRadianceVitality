@@ -27,6 +27,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.erv.app.ui.components.FieldLabel
+import com.erv.app.ui.components.FormSectionLabel
 import com.erv.app.data.UserPreferences
 import com.erv.app.ui.settings.SettingsCollapsibleHelp
 
@@ -77,7 +79,7 @@ fun HeartRateZoneSettingsSection(
                 OutlinedTextField(
                     value = maxDraft,
                     onValueChange = { maxDraft = it.filter { ch -> ch.isDigit() }.take(3) },
-                    label = { Text("Max HR (bpm)") },
+                    label = { FieldLabel("Max HR (bpm)") },
                     supportingText = {
                         Text("Optional. Overrides age estimate (90–230).")
                     },
@@ -88,7 +90,7 @@ fun HeartRateZoneSettingsSection(
                 OutlinedTextField(
                     value = ageDraft,
                     onValueChange = { ageDraft = it.filter { ch -> ch.isDigit() }.take(3) },
-                    label = { Text("Age (years)") },
+                    label = { FieldLabel("Age (years)") },
                     supportingText = {
                         val est = ageDraft.trim().toIntOrNull()?.takeIf { it in 10..100 }
                             ?.let { "Estimated max ≈ ${estimateMaxHrFromAge(it)} bpm" }
@@ -101,13 +103,13 @@ fun HeartRateZoneSettingsSection(
                 OutlinedTextField(
                     value = restingDraft,
                     onValueChange = { restingDraft = it.filter { ch -> ch.isDigit() }.take(3) },
-                    label = { Text("Resting HR (bpm)") },
+                    label = { FieldLabel("Resting HR (bpm)") },
                     supportingText = { Text("Optional. Required for Karvonen (heart-rate reserve) zones.") },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.fillMaxWidth(),
                 )
-                Text("Zone formula", style = MaterialTheme.typography.labelLarge)
+                FormSectionLabel("Zone formula")
                 SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                     SegmentedButton(
                         selected = methodDraft == HeartRateZoneMethod.PERCENT_MAX_HR,

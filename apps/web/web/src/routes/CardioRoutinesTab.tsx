@@ -1,3 +1,4 @@
+import { FieldLabel } from "../components/FieldLabel";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { ReorderableList } from "../components/ReorderableList";
@@ -166,7 +167,7 @@ export function CardioRoutinesTab() {
           </p>
           <div>
             <label className="label" htmlFor="cardio-routine-name">
-              Name
+              <FieldLabel>Name</FieldLabel>
             </label>
             <input
               id="cardio-routine-name"
@@ -178,7 +179,9 @@ export function CardioRoutinesTab() {
             />
           </div>
           <div>
-            <p className="label">Activity legs ({steps.length})</p>
+            <p className="label">
+              <FieldLabel>{`Activity legs (${steps.length})`}</FieldLabel>
+            </p>
             {steps.length === 0 ? (
               <p className="text-sm text-muted">
                 Add activities from the library sidebar. Each click adds a leg.
@@ -235,7 +238,7 @@ export function CardioRoutinesTab() {
           </div>
           <div>
             <label className="label" htmlFor="cardio-notes">
-              Notes (optional)
+              <FieldLabel>Notes (optional)</FieldLabel>
             </label>
             <textarea
               id="cardio-notes"

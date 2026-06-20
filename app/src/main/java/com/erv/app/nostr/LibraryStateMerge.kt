@@ -38,6 +38,9 @@ import com.erv.app.weighttraining.WeightExercise
 import com.erv.app.weighttraining.WeightLibraryState
 import com.erv.app.weighttraining.WeightRoutine
 import com.erv.app.weighttraining.WeightWorkoutSession
+import com.erv.app.workouts.Workout
+import com.erv.app.workouts.WorkoutLibraryState
+import com.erv.app.workouts.sanitized
 import kotlin.math.max
 
 /**
@@ -366,6 +369,36 @@ object LibraryStateMerge {
             mergeProgramCompletionMark(localState.completionState[key], remoteState.completionState[key])
         }
         return mergedMaster.copy(completionState = mergedCompletion).sanitized()
+    }
+
+    fun mergeWorkouts(local: WorkoutLibraryState, remote: WorkoutLibraryState): WorkoutLibraryState {
+        val localState = local.sanitized()
+        val remoteState = remote.sanitized()
+        val mergedWorkouts = mergeWorkoutsByLastModified(remoteState.workouts, localState.workouts)
+        return WorkoutLibraryState(
+            workouts = mergedWorkouts,
+            activeRun = localState.activeRun?.takeIf { run ->
+                mergedWorkouts.any { it.id == run.workoutId }
+            },
+            libraryUpdatedAtEpochSeconds = max(
+                localState.libraryUpdatedAtEpochSeconds,
+                remoteState.libraryUpdatedAtEpochSeconds,
+            ),
+        ).sanitized()
+    }
+
+    private fun mergeWorkoutsByLastModified(remote: List<Workout>, local: List<Workout>): List<Workout> {
+        val ids = (local.map { it.id } + remote.map { it.id }).toSet()
+        return ids.map { id ->
+            val l = local.firstOrNull { it.id == id }
+            val r = remote.firstOrNull { it.id == id }
+            when {
+                l == null -> r!!
+                r == null -> l
+                l.lastModifiedEpochSeconds >= r.lastModifiedEpochSeconds -> l
+                else -> r
+            }
+        }.sortedBy { it.name.lowercase() }
     }
 
     private fun mergeStretchDay(local: StretchDayLog, remote: StretchDayLog): StretchDayLog {

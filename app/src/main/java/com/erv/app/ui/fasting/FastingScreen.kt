@@ -56,6 +56,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.erv.app.ui.components.FieldLabel
+import com.erv.app.ui.components.FormSectionLabel
 import com.erv.app.SectionLogDateFilter
 import com.erv.app.fasting.FastingCompletionScheduler
 import com.erv.app.fasting.FastingForegroundService
@@ -282,13 +284,13 @@ private fun FastingModeSelector(
         FilterChip(
             selected = selectedMode == FastingMode.INTERMITTENT,
             onClick = { onSelected(FastingMode.INTERMITTENT) },
-            label = { Text("Intermittent") },
+            label = { FieldLabel("Intermittent") },
             modifier = Modifier.weight(1f),
         )
         FilterChip(
             selected = selectedMode == FastingMode.EXTENDED,
             onClick = { onSelected(FastingMode.EXTENDED) },
-            label = { Text("1-3 day fast") },
+            label = { FieldLabel("1-3 day fast") },
             modifier = Modifier.weight(1f),
         )
     }
@@ -353,7 +355,7 @@ private fun IntermittentFastingCard(
                     )
                 }
             }
-            Text("Eating window starts", style = MaterialTheme.typography.labelLarge)
+            FormSectionLabel("Eating window starts")
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 startOptions.take(3).forEach { minute ->
                     FilterChip(
@@ -649,7 +651,7 @@ private fun ActiveFastingCard(
 private fun FastingStatChip(label: String, value: String) {
     AssistChip(
         onClick = {},
-        label = { Text("$label: $value") },
+        label = { FieldLabel("$label: $value") },
     )
 }
 
@@ -732,7 +734,7 @@ private fun FastingCompletionDialog(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Text("How did it feel?", style = MaterialTheme.typography.labelLarge)
+                FormSectionLabel("How did it feel?")
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FastingMood.entries.forEach { option ->
                         FilterChip(
@@ -745,7 +747,7 @@ private fun FastingCompletionDialog(
                 OutlinedTextField(
                     value = weight,
                     onValueChange = { weight = it },
-                    label = { Text("Weight (optional)") },
+                    label = { FieldLabel("Weight (optional)") },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     modifier = Modifier.fillMaxWidth(),
@@ -753,7 +755,7 @@ private fun FastingCompletionDialog(
                 OutlinedTextField(
                     value = notes,
                     onValueChange = { notes = it },
-                    label = { Text("Notes (optional)") },
+                    label = { FieldLabel("Notes (optional)") },
                     minLines = 3,
                     modifier = Modifier.fillMaxWidth(),
                 )

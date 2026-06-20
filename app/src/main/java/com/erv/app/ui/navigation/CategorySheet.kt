@@ -33,6 +33,7 @@ data class Category(
  * When a feature ships, add its [Category.id] here and the menu tile returns to full color.
  */
 val implementedCategoryIds: Set<String> = setOf(
+    "training",
     "supplements",
     "light_therapy",
     "cardio",
@@ -48,6 +49,7 @@ val implementedCategoryIds: Set<String> = setOf(
 fun Category.isImplemented(): Boolean = id in implementedCategoryIds
 
 val categories = listOf(
+    Category("training", "Training", Icons.Default.Sports, "category/training"),
     Category("stretching", "Stretching", Icons.Default.FavoriteBorder, "category/stretching"),
     Category("unified_routines", "Unified Workouts", Icons.Default.PlaylistPlay, "category/unified_routines"),
     Category("weight_training", "Weight Training", Icons.Default.FitnessCenter, "category/weight_training"),

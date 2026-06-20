@@ -138,4 +138,27 @@ html.dark {
     @apply block text-sm font-medium mb-1;
     color: var(--erv-on-surface-variant);
   }
+
+  .erv-section-label {
+    @apply text-xs font-semibold tracking-wide;
+    color: var(--erv-on-surface-variant);
+  }
+
+  @keyframes erv-pulse-border {
+    0%,
+    100% {
+      border-color: var(--erv-primary);
+      box-shadow: 0 0 0 0 color-mix(in srgb, var(--erv-primary) 35%, transparent);
+    }
+    50% {
+      border-color: var(--erv-secondary);
+      box-shadow: 0 0 0 4px color-mix(in srgb, var(--erv-primary) 18%, transparent);
+    }
+  }
+
+  .erv-pulse-border {
+    border-width: 2px !important;
+    border-style: solid !important;
+    animation: erv-pulse-border 2s ease-in-out infinite;
+  }
 }

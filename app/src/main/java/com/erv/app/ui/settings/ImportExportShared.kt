@@ -6,6 +6,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.clickable
+import com.erv.app.ui.components.titleCaseWords
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -145,7 +146,7 @@ fun shareMarkdownFromCache(context: Context, file: File): Boolean = try {
 @Composable
 fun ImportSectionTitle(text: String, first: Boolean = false) {
     Text(
-        text,
+        text.titleCaseWords(),
         style = MaterialTheme.typography.titleMedium,
         modifier = Modifier.padding(top = if (first) 0.dp else 18.dp, bottom = 6.dp)
     )

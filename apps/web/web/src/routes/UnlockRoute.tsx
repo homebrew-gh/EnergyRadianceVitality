@@ -1,3 +1,4 @@
+import { FieldLabel } from "../components/FieldLabel";
 import { useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import { AuthCard } from "../components/AuthCard";
@@ -42,7 +43,7 @@ export function UnlockRoute() {
         <form className="space-y-4" onSubmit={onSubmit}>
           <div>
             <label className="label" htmlFor="pass">
-              Passphrase
+              <FieldLabel>Passphrase</FieldLabel>
             </label>
             <SecretInput
               id="pass"

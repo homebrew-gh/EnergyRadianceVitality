@@ -1,3 +1,4 @@
+import { FieldLabel } from "../components/FieldLabel";
 import { useEffect, useRef, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import { AuthCard } from "../components/AuthCard";
@@ -78,7 +79,7 @@ export function SetupRoute() {
         {status ? <DetectedRelayNotice status={status} /> : null}
         <div>
           <label className="label" htmlFor="nsec">
-            Nostr secret key (nsec)
+            <FieldLabel>Nostr secret key (nsec)</FieldLabel>
           </label>
           <SecretInput
             id="nsec"
@@ -90,7 +91,7 @@ export function SetupRoute() {
         </div>
         <div>
           <label className="label" htmlFor="relay">
-            Relay URL
+            <FieldLabel>Relay URL</FieldLabel>
           </label>
           <input
             id="relay"
@@ -106,7 +107,7 @@ export function SetupRoute() {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label className="label" htmlFor="pass">
-              Passphrase
+              <FieldLabel>Passphrase</FieldLabel>
             </label>
             <SecretInput
               id="pass"
@@ -117,7 +118,7 @@ export function SetupRoute() {
           </div>
           <div>
             <label className="label" htmlFor="confirm">
-              Confirm
+              <FieldLabel>Confirm</FieldLabel>
             </label>
             <SecretInput
               id="confirm"

@@ -37,6 +37,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
+import com.erv.app.ui.components.FieldLabel
 import com.erv.app.datadeletion.DataDeletionManager
 import com.erv.app.dataexport.DataExportCategory
 import com.erv.app.dataexport.UserDataSection
@@ -275,7 +276,7 @@ fun SettingsDataManagementScreen(
                     OutlinedTextField(
                         value = confirmText,
                         onValueChange = { confirmText = it },
-                        label = { Text("Confirmation") },
+                        label = { FieldLabel("Confirmation") },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters),
                         modifier = Modifier.fillMaxWidth()

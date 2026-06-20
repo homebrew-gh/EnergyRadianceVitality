@@ -1,3 +1,4 @@
+import { FieldLabel } from "./FieldLabel";
 import { useState } from "react";
 import { ApiError } from "../lib/api";
 import { useAuth } from "../lib/auth";
@@ -39,7 +40,7 @@ export function RemoveAccountForm({ onRemoved, compact }: RemoveAccountFormProps
       ) : null}
       <div>
         <label className="label" htmlFor="remove-pass">
-          Passphrase
+          <FieldLabel>Passphrase</FieldLabel>
         </label>
         <SecretInput
           id="remove-pass"
@@ -50,7 +51,7 @@ export function RemoveAccountForm({ onRemoved, compact }: RemoveAccountFormProps
       </div>
       <div>
         <label className="label" htmlFor="remove-confirm">
-          Type DELETE to confirm
+          <FieldLabel>Type DELETE to confirm</FieldLabel>
         </label>
         <input
           id="remove-confirm"

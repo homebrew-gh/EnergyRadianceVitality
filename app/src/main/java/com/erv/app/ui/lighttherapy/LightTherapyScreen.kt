@@ -37,6 +37,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.isSystemInDarkTheme
+import com.erv.app.ui.components.FieldLabel
 import com.erv.app.lighttherapy.*
 import com.erv.app.nostr.EventSigner
 import com.erv.app.nostr.LibraryStateMerge
@@ -922,7 +923,7 @@ private fun LightRoutineEditorDialog(
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("Routine name") },
+                    label = { FieldLabel("Routine name") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -939,7 +940,7 @@ private fun LightRoutineEditorDialog(
                 OutlinedTextField(
                     value = durationMinutes,
                     onValueChange = { durationMinutes = it.filter { c -> c.isDigit() }.take(3) },
-                    label = { Text("Duration (minutes)") },
+                    label = { FieldLabel("Duration (minutes)") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -992,7 +993,7 @@ private fun LightRoutineEditorDialog(
                 OutlinedTextField(
                     value = notes,
                     onValueChange = { notes = it },
-                    label = { Text("Notes") },
+                    label = { FieldLabel("Notes") },
                     minLines = 2,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -1054,14 +1055,14 @@ private fun LightDeviceEditorDialog(
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("Name") },
+                    label = { FieldLabel("Name") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
                 OutlinedTextField(
                     value = brand,
                     onValueChange = { brand = it },
-                    label = { Text("Brand") },
+                    label = { FieldLabel("Brand") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -1089,21 +1090,21 @@ private fun LightDeviceEditorDialog(
                 OutlinedTextField(
                     value = wavelengths,
                     onValueChange = { wavelengths = it },
-                    label = { Text("Wavelengths (e.g. 660nm, 850nm)") },
+                    label = { FieldLabel("Wavelengths (e.g. 660nm, 850nm)") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
                 OutlinedTextField(
                     value = powerOutput,
                     onValueChange = { powerOutput = it },
-                    label = { Text("Power output") },
+                    label = { FieldLabel("Power output") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
                 OutlinedTextField(
                     value = recommendedMinutes,
                     onValueChange = { recommendedMinutes = it.filter { c -> c.isDigit() }.take(3) },
-                    label = { Text("Recommended duration (min)") },
+                    label = { FieldLabel("Recommended duration (min)") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
@@ -1111,7 +1112,7 @@ private fun LightDeviceEditorDialog(
                 OutlinedTextField(
                     value = notes,
                     onValueChange = { notes = it },
-                    label = { Text("Notes") },
+                    label = { FieldLabel("Notes") },
                     minLines = 2,
                     modifier = Modifier.fillMaxWidth()
                 )

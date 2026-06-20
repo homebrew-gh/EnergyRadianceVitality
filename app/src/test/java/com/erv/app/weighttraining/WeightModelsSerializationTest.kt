@@ -1,5 +1,7 @@
 package com.erv.app.weighttraining
 
+import com.erv.app.weighttraining.WeightSetLoggingStyle
+import com.erv.app.weighttraining.setLoggingStyle
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -352,7 +354,19 @@ class WeightModelsSerializationTest {
         val bench = catalog.first { it.id == "erv-weight-exercise-bench-v1" }
         assertTrue(plank.timePerSetCapable)
         assertTrue(sidePlank.timePerSetCapable)
+        assertFalse(plank.repPerSetCapable)
         assertFalse(bench.timePerSetCapable)
+    }
+
+    @Test
+    fun defaultCatalog_loggingStyle_carries_and_swings() {
+        val catalog = defaultCatalogExercises()
+        val farmers = catalog.first { it.id == "erv-weight-exercise-db-farmers-carry-v1" }
+        val kbSwing = catalog.first { it.id == "erv-weight-exercise-kb-swing-v1" }
+        val windmill = catalog.first { it.id == "erv-weight-exercise-kb-windmill-v1" }
+        assertEquals(WeightSetLoggingStyle.TIME_ONLY, farmers.setLoggingStyle())
+        assertEquals(WeightSetLoggingStyle.REPS_OR_TIME, kbSwing.setLoggingStyle())
+        assertEquals(WeightSetLoggingStyle.REPS, windmill.setLoggingStyle())
     }
 
     @Test

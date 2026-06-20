@@ -28,6 +28,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.erv.app.ui.components.FieldLabel
 import com.erv.app.data.UserPreferences
 import com.erv.app.weighttraining.WeightExercise
 import com.erv.app.weighttraining.WeightExercisePickerFilter
@@ -108,7 +109,7 @@ fun WeightPickExerciseDialog(
                     FilterChip(
                         selected = equipmentFilter == WeightExercisePickerFilter.HOME_READY,
                         onClick = { equipmentFilter = WeightExercisePickerFilter.HOME_READY },
-                        label = { Text("Home-Ready") }
+                        label = { FieldLabel("Home-Ready") }
                     )
                 }
                 if (equipmentFilter == WeightExercisePickerFilter.HOME_READY && ownedEquipment.isEmpty()) {
@@ -157,7 +158,7 @@ fun WeightPickExerciseDialog(
                             FilterChip(
                                 selected = selectedPushPull == null,
                                 onClick = { selectedPushPull = null },
-                                label = { Text("All") }
+                                label = { FieldLabel("All") }
                             )
                             FilterChip(
                                 selected = selectedPushPull == WeightPushPull.PUSH,

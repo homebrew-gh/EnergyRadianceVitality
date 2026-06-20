@@ -281,21 +281,51 @@ internal fun builtinHiitCapableForId(id: String): Boolean {
 }
 
 /**
- * Built-in isometric holds logged as time-per-set (duration) rather than reps.
+ * Built-in isometric holds and carries — duration per set, not reps.
  */
-private val TimePerSetCapableIds: Set<String> = setOf(
+private val TimeOnlyPerSetIds: Set<String> = setOf(
     "erv-weight-exercise-bw-plank-v1",
     "erv-weight-exercise-bw-side-plank-v1",
+    "erv-weight-exercise-db-farmers-carry-v1",
+    "erv-weight-exercise-kb-carry-v1",
 )
 
-/** Resolves [WeightExercise.timePerSetCapable] for stable built-in ids; custom exercises use stored flag only. */
-internal fun builtinTimePerSetCapableForId(id: String): Boolean = id in TimePerSetCapableIds
+/** Skill-heavy kettlebell patterns — rep-based only. */
+private val KbRepOnlySkillIds: Set<String> = setOf(
+    "erv-weight-exercise-kb-windmill-v1",
+    "erv-weight-exercise-kb-turkish-getup-v1",
+)
 
-private fun WeightExercise.withResolvedBuiltinFlags(): WeightExercise =
-    copy(
+/** Resolves built-in prescription/logging style for stable catalog ids. */
+internal fun builtinSetLoggingStyleForId(id: String): WeightSetLoggingStyle {
+    if (id in TimeOnlyPerSetIds) return WeightSetLoggingStyle.TIME_ONLY
+    if (id in NonKbBuiltinHiitCapableIds && id !in TimeOnlyPerSetIds) {
+        return WeightSetLoggingStyle.REPS_OR_TIME
+    }
+    if (id.startsWith("erv-weight-exercise-kb-") &&
+        id !in KbRepOnlySkillIds &&
+        id !in TimeOnlyPerSetIds
+    ) {
+        return WeightSetLoggingStyle.REPS_OR_TIME
+    }
+    return WeightSetLoggingStyle.REPS
+}
+
+/** Resolves [WeightExercise.timePerSetCapable] for stable built-in ids; custom exercises use stored flag only. */
+internal fun builtinTimePerSetCapableForId(id: String): Boolean =
+    builtinSetLoggingStyleForId(id) != WeightSetLoggingStyle.REPS
+
+internal fun builtinRepPerSetCapableForId(id: String): Boolean =
+    builtinSetLoggingStyleForId(id) != WeightSetLoggingStyle.TIME_ONLY
+
+private fun WeightExercise.withResolvedBuiltinFlags(): WeightExercise {
+    val style = builtinSetLoggingStyleForId(id)
+    return copy(
         hiitCapable = builtinHiitCapableForId(id),
-        timePerSetCapable = builtinTimePerSetCapableForId(id),
+        timePerSetCapable = style != WeightSetLoggingStyle.REPS,
+        repPerSetCapable = style != WeightSetLoggingStyle.TIME_ONLY,
     )
+}
 
 /** Full built-in catalog: four compounds + [builtinCatalogBeyondCompounds], with logging-style flags applied. */
 fun defaultCatalogExercises(): List<WeightExercise> =

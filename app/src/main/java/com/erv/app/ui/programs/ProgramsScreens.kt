@@ -80,6 +80,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
+import com.erv.app.ui.components.FieldLabel
 import com.erv.app.cardio.CardioBuiltinActivity
 import com.erv.app.cardio.CardioLibraryState
 import com.erv.app.cardio.cardioBuiltinActivitiesForUserSelection
@@ -649,7 +650,7 @@ private fun ProgramStrategyEditorDialog(
                         OutlinedTextField(
                             value = rotationStartDate,
                             onValueChange = { rotationStartDate = it },
-                            label = { Text("Rotation start date (YYYY-MM-DD)") },
+                            label = { FieldLabel("Rotation start date (YYYY-MM-DD)") },
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true
                         )
@@ -695,7 +696,7 @@ private fun ProgramStrategyEditorDialog(
                                                 if (it.id == entry.id) it.copy(repeatWeeks = weeks) else it
                                             }
                                         },
-                                        label = { Text("Weeks") },
+                                        label = { FieldLabel("Weeks") },
                                         modifier = Modifier.fillMaxWidth(),
                                         singleLine = true
                                     )
@@ -721,7 +722,7 @@ private fun ProgramStrategyEditorDialog(
                         OutlinedTextField(
                             value = challengeName,
                             onValueChange = { challengeName = it },
-                            label = { Text("Challenge name") },
+                            label = { FieldLabel("Challenge name") },
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true
                         )
@@ -734,14 +735,14 @@ private fun ProgramStrategyEditorDialog(
                         OutlinedTextField(
                             value = challengeStartDate,
                             onValueChange = { challengeStartDate = it },
-                            label = { Text("Start date (YYYY-MM-DD)") },
+                            label = { FieldLabel("Start date (YYYY-MM-DD)") },
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true
                         )
                         OutlinedTextField(
                             value = challengeLengthDays,
                             onValueChange = { challengeLengthDays = it.filter(Char::isDigit) },
-                            label = { Text("Duration days") },
+                            label = { FieldLabel("Duration days") },
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true
                         )
@@ -1162,7 +1163,7 @@ fun ProgramDetailScreen(
                                     lastModifiedEpochSeconds = System.currentTimeMillis() / 1000
                                 )
                             },
-                            label = { Text("Program name") },
+                            label = { FieldLabel("Program name") },
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true
                         )
@@ -1175,7 +1176,7 @@ fun ProgramDetailScreen(
                                     lastModifiedEpochSeconds = System.currentTimeMillis() / 1000
                                 )
                             },
-                            label = { Text("Description") },
+                            label = { FieldLabel("Description") },
                             modifier = Modifier.fillMaxWidth(),
                             minLines = 2
                         )
@@ -1188,7 +1189,7 @@ fun ProgramDetailScreen(
                                     lastModifiedEpochSeconds = System.currentTimeMillis() / 1000
                                 )
                             },
-                            label = { Text("Source label (coach, AI, etc.)") },
+                            label = { FieldLabel("Source label (coach, AI, etc.)") },
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true
                         )
@@ -1272,7 +1273,7 @@ fun ProgramDetailScreen(
                                     weekPlanListState.animateScrollToItem(2 + idx)
                                 }
                             },
-                            label = { Text("${isoDayOfWeekLabel(dow).take(3)} · $nBlocks") }
+                            label = { FieldLabel("${isoDayOfWeekLabel(dow).take(3)} · $nBlocks") }
                         )
                     }
                 }
@@ -1635,7 +1636,7 @@ private fun BlockEditorDialog(
                 OutlinedTextField(
                     value = saveAsRoutineName,
                     onValueChange = { saveAsRoutineName = it },
-                    label = { Text("Routine name") },
+                    label = { FieldLabel("Routine name") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -1686,7 +1687,7 @@ private fun BlockEditorDialog(
                 OutlinedTextField(
                     value = saveAsStretchRoutineName,
                     onValueChange = { saveAsStretchRoutineName = it },
-                    label = { Text("Routine name") },
+                    label = { FieldLabel("Routine name") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -1808,7 +1809,7 @@ private fun BlockEditorDialog(
                     OutlinedTextField(
                         value = title,
                         onValueChange = { title = it },
-                        label = { Text("Title (optional)") },
+                        label = { FieldLabel("Title (optional)") },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
                     )
@@ -1816,7 +1817,7 @@ private fun BlockEditorDialog(
                     OutlinedTextField(
                         value = notes,
                         onValueChange = { notes = it },
-                        label = { Text("Notes") },
+                        label = { FieldLabel("Notes") },
                         modifier = Modifier.fillMaxWidth(),
                         minLines = 2
                     )
@@ -1825,7 +1826,7 @@ private fun BlockEditorDialog(
                         OutlinedTextField(
                             value = targetMin,
                             onValueChange = { targetMin = it.filter { ch -> ch.isDigit() } },
-                            label = { Text("Target minutes (optional)") },
+                            label = { FieldLabel("Target minutes (optional)") },
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true
                         )
@@ -1858,7 +1859,7 @@ private fun BlockEditorDialog(
                                     ?: if (weightRoutineId.isBlank()) "None" else "Unknown routine",
                                 onValueChange = {},
                                 readOnly = true,
-                                label = { Text("Weight routine") },
+                                label = { FieldLabel("Weight routine") },
                                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = routineExpanded) },
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -2081,7 +2082,7 @@ private fun BlockEditorDialog(
                                     ?: if (unifiedRoutineId.isBlank()) "Choose unified workout" else "Unknown workout",
                                 onValueChange = {},
                                 readOnly = true,
-                                label = { Text("Unified workout") },
+                                label = { FieldLabel("Unified workout") },
                                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = unifiedExpanded) },
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -2122,7 +2123,7 @@ private fun BlockEditorDialog(
                                 value = label.replace('_', ' ').lowercase().replaceFirstChar { it.titlecase() },
                                 onValueChange = {},
                                 readOnly = true,
-                                label = { Text("Activity") },
+                                label = { FieldLabel("Activity") },
                                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = cardioExpanded) },
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -2154,7 +2155,7 @@ private fun BlockEditorDialog(
                                     ?: if (cardioRId.isBlank()) "No cardio routine" else "Unknown",
                                 onValueChange = {},
                                 readOnly = true,
-                                label = { Text("Cardio routine (optional)") },
+                                label = { FieldLabel("Cardio routine (optional)") },
                                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = crExpanded) },
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -2213,7 +2214,7 @@ private fun BlockEditorDialog(
                                     ?: if (stretchRId.isBlank()) "None" else "Unknown routine",
                                 onValueChange = {},
                                 readOnly = true,
-                                label = { Text("Stretch routine") },
+                                label = { FieldLabel("Stretch routine") },
                                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = srExpanded) },
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -2297,7 +2298,7 @@ private fun BlockEditorDialog(
                         OutlinedTextField(
                             value = stretchHoldSec,
                             onValueChange = { stretchHoldSec = it.filter { ch -> ch.isDigit() } },
-                            label = { Text("Hold seconds per stretch") },
+                            label = { FieldLabel("Hold seconds per stretch") },
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true
                         )
@@ -2400,13 +2401,13 @@ private fun BlockEditorDialog(
                             FilterChip(
                                 selected = heatMode == "SAUNA",
                                 onClick = { heatMode = "SAUNA" },
-                                label = { Text("Sauna") }
+                                label = { FieldLabel("Sauna") }
                             )
                             Spacer(Modifier.padding(4.dp))
                             FilterChip(
                                 selected = heatMode == "COLD_PLUNGE",
                                 onClick = { heatMode = "COLD_PLUNGE" },
-                                label = { Text("Cold plunge") }
+                                label = { FieldLabel("Cold plunge") }
                             )
                         }
                     }
@@ -2426,7 +2427,7 @@ private fun BlockEditorDialog(
                                 OutlinedTextField(
                                     value = line,
                                     onValueChange = { v -> checklistLines[index] = v },
-                                    label = { Text("Item ${index + 1}") },
+                                    label = { FieldLabel("Item ${index + 1}") },
                                     modifier = Modifier.weight(1f),
                                     singleLine = false,
                                     maxLines = 2

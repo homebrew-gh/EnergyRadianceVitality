@@ -1,3 +1,4 @@
+import { FieldLabel } from "../components/FieldLabel";
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { ReorderableList } from "../components/ReorderableList";
@@ -149,7 +150,7 @@ export function WeightRoutinesTab() {
           </p>
           <div>
             <label className="label" htmlFor="routine-name">
-              Name
+              <FieldLabel>Name</FieldLabel>
             </label>
             <input
               id="routine-name"
@@ -162,7 +163,7 @@ export function WeightRoutinesTab() {
           </div>
           <div>
             <label className="label" htmlFor="routine-notes">
-              Notes (optional)
+              <FieldLabel>Notes (optional)</FieldLabel>
             </label>
             <textarea
               id="routine-notes"
@@ -172,7 +173,9 @@ export function WeightRoutinesTab() {
             />
           </div>
           <div>
-            <p className="label">Exercises ({selected.length})</p>
+            <p className="label">
+              <FieldLabel>{`Exercises (${selected.length})`}</FieldLabel>
+            </p>
             {selected.length === 0 ? (
               <p className="text-sm text-muted">Use the sidebar to add exercises.</p>
             ) : (

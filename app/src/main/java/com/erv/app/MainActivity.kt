@@ -32,6 +32,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.erv.app.ui.components.FieldLabel
 import com.erv.app.data.ThemeMode
 import com.erv.app.data.UserPreferences
 import com.erv.app.data.WorkoutMediaUploadBackend
@@ -55,6 +56,8 @@ import com.erv.app.weighttraining.WeightRepository
 import com.erv.app.weighttraining.WeightSync
 import com.erv.app.unifiedroutines.UnifiedLiveWorkoutConstants
 import com.erv.app.unifiedroutines.UnifiedRoutineRepository
+import com.erv.app.workouts.WorkoutRepository
+import com.erv.app.workouts.WorkoutSync
 import com.erv.app.unifiedroutines.UnifiedRoutineForegroundService
 import com.erv.app.unifiedroutines.UnifiedRoutineLibraryState
 import com.erv.app.lighttherapy.LightSync
@@ -458,6 +461,7 @@ private fun MainAppShell(
     val stretchingRepository = remember(context) { StretchingRepository(context) }
     val programRepository = remember(context) { ProgramRepository(context) }
     val unifiedRoutineRepository = remember(context) { UnifiedRoutineRepository(context) }
+    val workoutRepository = remember(context) { WorkoutRepository(context) }
     val bodyTrackerRepository = remember(context) { BodyTrackerRepository(context) }
     val reminderRepository = remember(context) { RoutineReminderRepository(context) }
     val signer = remember(keyManager, amberHost) {
@@ -576,6 +580,15 @@ private fun MainAppShell(
                         ProgramSync.fullOutboxEntries(merged),
                     )
                 }
+                WorkoutSync.fromLatestByTag(latestByTag, sig)?.let { remote ->
+                    val merged = LibraryStateMerge.mergeWorkouts(workoutRepository.currentState(), remote)
+                    workoutRepository.replaceAll(merged)
+                    RelayPayloadDigestStore.reconcileIdenticalRemoteMerged(
+                        appCtx,
+                        WorkoutSync.fullOutboxEntries(remote),
+                        WorkoutSync.fullOutboxEntries(merged),
+                    )
+                }
                 BodyTrackerSync.fromLatestByTag(latestByTag, sig).let { remote ->
                     val merged = LibraryStateMerge.mergeBodyTracker(bodyTrackerRepository.currentState(), remote)
                     bodyTrackerRepository.replaceAll(merged)
@@ -634,7 +647,8 @@ private fun MainAppShell(
         heatColdRepository,
         stretchingRepository,
         programRepository,
-        bodyTrackerRepository
+        bodyTrackerRepository,
+        workoutRepository,
     ) {
         val pool = relayPool ?: return@LaunchedEffect
         val sig = signer ?: return@LaunchedEffect
@@ -771,6 +785,7 @@ private fun MainAppShell(
                     stretchingRepository = stretchingRepository,
                     programRepository = programRepository,
                     unifiedRoutineRepository = unifiedRoutineRepository,
+                    workoutRepository = workoutRepository,
                     bodyTrackerRepository = bodyTrackerRepository,
                     reminderRepository = reminderRepository,
                     weightLiveWorkoutViewModel = weightLiveWorkoutViewModel,
@@ -942,7 +957,7 @@ private fun ExistingUserScreen(
         OutlinedTextField(
             value = nsecInput,
             onValueChange = { nsecInput = it; errorMessage = null },
-            label = { Text("Private key (nsec or hex)") },
+            label = { FieldLabel("Private key (nsec or hex)") },
             singleLine = true,
             visualTransformation = PasswordVisualTransformation(),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),

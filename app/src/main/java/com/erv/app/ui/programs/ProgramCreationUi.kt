@@ -1,6 +1,9 @@
 package com.erv.app.ui.programs
 
+
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import com.erv.app.ui.components.FormSectionLabel
+import com.erv.app.ui.components.FormSectionLabelMedium
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
@@ -41,6 +44,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.erv.app.ui.components.FieldLabel
 import com.erv.app.programs.FitnessProgram
 import com.erv.app.programs.ProgramBlockKind
 import com.erv.app.programs.ProgramDayBlock
@@ -193,27 +197,27 @@ fun CustomProgramWizardSheet(
                         OutlinedTextField(
                             value = draft.name,
                             onValueChange = { draft = draft.copy(name = it) },
-                            label = { Text("Program name") },
+                            label = { FieldLabel("Program name") },
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true
                         )
                         OutlinedTextField(
                             value = draft.description,
                             onValueChange = { draft = draft.copy(description = it) },
-                            label = { Text("Description") },
+                            label = { FieldLabel("Description") },
                             modifier = Modifier.fillMaxWidth(),
                             minLines = 2
                         )
                         OutlinedTextField(
                             value = draft.sourceLabel,
                             onValueChange = { draft = draft.copy(sourceLabel = it) },
-                            label = { Text("Source label (optional)") },
+                            label = { FieldLabel("Source label (optional)") },
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true
                         )
                     }
                     1 -> {
-                        Text("Training days", style = MaterialTheme.typography.labelMedium)
+                        FormSectionLabelMedium("Training days")
                         FlowRow(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -395,7 +399,7 @@ fun ProgramTemplatePickerSheet(
                     FilterChip(
                         selected = selectedCategory == null,
                         onClick = { selectedCategory = null },
-                        label = { Text("All") }
+                        label = { FieldLabel("All") }
                     )
                     ProgramTemplateCategory.entries.forEach { category ->
                         FilterChip(
@@ -480,14 +484,14 @@ fun ProgramTemplateCustomizeSheet(
             OutlinedTextField(
                 value = name,
                 onValueChange = { name = it },
-                label = { Text("Program name") },
+                label = { FieldLabel("Program name") },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true
             )
             OutlinedTextField(
                 value = description,
                 onValueChange = { description = it },
-                label = { Text("Description") },
+                label = { FieldLabel("Description") },
                 modifier = Modifier.fillMaxWidth(),
                 minLines = 2
             )

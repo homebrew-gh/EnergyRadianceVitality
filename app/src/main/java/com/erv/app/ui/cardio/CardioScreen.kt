@@ -1,8 +1,11 @@
 @file:OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 
+
 package com.erv.app.ui.cardio
 
 import android.Manifest
+import com.erv.app.ui.components.FormSectionLabel
+import com.erv.app.ui.components.FormSectionLabelMedium
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
@@ -105,6 +108,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.erv.app.ui.components.FieldLabel
 import com.erv.app.cardio.CardioActivitySnapshot
 import com.erv.app.cardio.CardioBuiltinActivity
 import com.erv.app.cardio.cardioBuiltinActivitiesForUserSelection
@@ -1179,12 +1183,12 @@ private fun WorkoutBuilderBottomSheet(
                 FilterChip(
                     selected = !useCustom,
                     onClick = { useCustom = false },
-                    label = { Text("Built-in") }
+                    label = { FieldLabel("Built-in") }
                 )
                 FilterChip(
                     selected = useCustom,
                     onClick = { useCustom = true },
-                    label = { Text("Custom") }
+                    label = { FieldLabel("Custom") }
                 )
             }
             if (useCustom) {
@@ -1230,30 +1234,30 @@ private fun WorkoutBuilderBottomSheet(
             }
 
             if (modality == CardioModality.INDOOR_TREADMILL && treadmillApplicable) {
-                Text("Belt speed & incline", style = MaterialTheme.typography.labelLarge)
+                FormSectionLabel("Belt speed & incline")
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(
                         selected = speedUnit == CardioSpeedUnit.MPH,
                         onClick = { speedUnit = CardioSpeedUnit.MPH },
-                        label = { Text("mph") }
+                        label = { FieldLabel("mph") }
                     )
                     FilterChip(
                         selected = speedUnit == CardioSpeedUnit.KMH,
                         onClick = { speedUnit = CardioSpeedUnit.KMH },
-                        label = { Text("km/h") }
+                        label = { FieldLabel("km/h") }
                     )
                 }
                 OutlinedTextField(
                     value = speedStr,
                     onValueChange = { speedStr = it },
-                    label = { Text("Speed") },
+                    label = { FieldLabel("Speed") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     modifier = Modifier.fillMaxWidth()
                 )
                 OutlinedTextField(
                     value = inclineStr,
                     onValueChange = { inclineStr = it },
-                    label = { Text("Incline %") },
+                    label = { FieldLabel("Incline %") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -1268,7 +1272,7 @@ private fun WorkoutBuilderBottomSheet(
                     OutlinedTextField(
                         value = loadStr,
                         onValueChange = { loadStr = it },
-                        label = { Text("Pack weight (lb)") },
+                        label = { FieldLabel("Pack weight (lb)") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -1287,7 +1291,7 @@ private fun WorkoutBuilderBottomSheet(
                     OutlinedTextField(
                         value = loadStr,
                         onValueChange = { loadStr = it },
-                        label = { Text("Pack weight (lb)") },
+                        label = { FieldLabel("Pack weight (lb)") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -1313,18 +1317,18 @@ private fun WorkoutBuilderBottomSheet(
                         FilterChip(
                             selected = outdoorPaceUnit == CardioSpeedUnit.MPH,
                             onClick = { outdoorPaceUnit = CardioSpeedUnit.MPH },
-                            label = { Text("mph") }
+                            label = { FieldLabel("mph") }
                         )
                         FilterChip(
                             selected = outdoorPaceUnit == CardioSpeedUnit.KMH,
                             onClick = { outdoorPaceUnit = CardioSpeedUnit.KMH },
-                            label = { Text("km/h") }
+                            label = { FieldLabel("km/h") }
                         )
                     }
                     OutlinedTextField(
                         value = outdoorPaceStr,
                         onValueChange = { outdoorPaceStr = it },
-                        label = { Text("Avg speed (optional)") },
+                        label = { FieldLabel("Avg speed (optional)") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -1334,22 +1338,22 @@ private fun WorkoutBuilderBottomSheet(
             OutlinedTextField(
                 value = durationStr,
                 onValueChange = { durationStr = it },
-                label = { Text("Duration (minutes)") },
+                label = { FieldLabel("Duration (minutes)") },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.fillMaxWidth()
             )
             if (!logOnlyMode) {
-                Text("Live timer", style = MaterialTheme.typography.labelLarge)
+                FormSectionLabel("Live timer")
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(
                         selected = !useCountDownTimer,
                         onClick = { useCountDownTimer = false },
-                        label = { Text("Count up") }
+                        label = { FieldLabel("Count up") }
                     )
                     FilterChip(
                         selected = useCountDownTimer,
                         onClick = { useCountDownTimer = true },
-                        label = { Text("Count down") }
+                        label = { FieldLabel("Count down") }
                     )
                 }
                 if (useCountDownTimer) {
@@ -1363,7 +1367,7 @@ private fun WorkoutBuilderBottomSheet(
                 OutlinedTextField(
                     value = routineNameStr,
                     onValueChange = { routineNameStr = it },
-                    label = { Text("Routine name (save only)") },
+                    label = { FieldLabel("Routine name (save only)") },
                     modifier = Modifier.fillMaxWidth()
                 )
             }
@@ -1721,25 +1725,25 @@ private fun StartCardioModalityForTimerDialog(
                         FilterChip(
                             selected = speedUnit == CardioSpeedUnit.MPH,
                             onClick = { speedUnit = CardioSpeedUnit.MPH },
-                            label = { Text("mph") }
+                            label = { FieldLabel("mph") }
                         )
                         FilterChip(
                             selected = speedUnit == CardioSpeedUnit.KMH,
                             onClick = { speedUnit = CardioSpeedUnit.KMH },
-                            label = { Text("km/h") }
+                            label = { FieldLabel("km/h") }
                         )
                     }
                     OutlinedTextField(
                         value = speedStr,
                         onValueChange = { speedStr = it },
-                        label = { Text("Speed") },
+                        label = { FieldLabel("Speed") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         modifier = Modifier.fillMaxWidth()
                     )
                     OutlinedTextField(
                         value = inclineStr,
                         onValueChange = { inclineStr = it },
-                        label = { Text("Incline %") },
+                        label = { FieldLabel("Incline %") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -1754,7 +1758,7 @@ private fun StartCardioModalityForTimerDialog(
                         OutlinedTextField(
                             value = loadStr,
                             onValueChange = { loadStr = it },
-                            label = { Text("Pack weight (lb)") },
+                            label = { FieldLabel("Pack weight (lb)") },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                             modifier = Modifier.fillMaxWidth()
                         )
@@ -1885,32 +1889,32 @@ private fun CardioTimerStartOptionsDialog(
                     style = MaterialTheme.typography.bodyMedium
                 )
                 if (!isSprint) {
-                    Text("Main clock", style = MaterialTheme.typography.labelLarge)
+                    FormSectionLabel("Main clock")
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         FilterChip(
                             selected = !countDown,
                             onClick = { countDown = false },
-                            label = { Text("Count up") }
+                            label = { FieldLabel("Count up") }
                         )
                         FilterChip(
                             selected = countDown,
                             onClick = { countDown = true },
-                            label = { Text("Count down") }
+                            label = { FieldLabel("Count down") }
                         )
                     }
                 }
                 if (sprintOutdoor) {
-                    Text("Sprint target", style = MaterialTheme.typography.labelLarge)
+                    FormSectionLabel("Sprint target")
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         FilterChip(
                             selected = sprintOutdoorByTime,
                             onClick = { sprintOutdoorByTime = true },
-                            label = { Text("Time") }
+                            label = { FieldLabel("Time") }
                         )
                         FilterChip(
                             selected = !sprintOutdoorByTime,
                             onClick = { sprintOutdoorByTime = false },
-                            label = { Text("Distance") }
+                            label = { FieldLabel("Distance") }
                         )
                     }
                 }
@@ -1918,7 +1922,7 @@ private fun CardioTimerStartOptionsDialog(
                     OutlinedTextField(
                         value = countDownMinutesStr,
                         onValueChange = { countDownMinutesStr = it },
-                        label = { Text("Countdown (minutes)") },
+                        label = { FieldLabel("Countdown (minutes)") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -1933,12 +1937,12 @@ private fun CardioTimerStartOptionsDialog(
                         FilterChip(
                             selected = outdoorPaceUnit == CardioSpeedUnit.MPH,
                             onClick = { outdoorPaceUnit = CardioSpeedUnit.MPH },
-                            label = { Text("mph") }
+                            label = { FieldLabel("mph") }
                         )
                         FilterChip(
                             selected = outdoorPaceUnit == CardioSpeedUnit.KMH,
                             onClick = { outdoorPaceUnit = CardioSpeedUnit.KMH },
-                            label = { Text("km/h") }
+                            label = { FieldLabel("km/h") }
                         )
                     }
                     OutlinedTextField(
@@ -1958,7 +1962,7 @@ private fun CardioTimerStartOptionsDialog(
                     OutlinedTextField(
                         value = outdoorPaceStr,
                         onValueChange = { outdoorPaceStr = it },
-                        label = { Text("Average speed") },
+                        label = { FieldLabel("Average speed") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -1977,18 +1981,18 @@ private fun CardioTimerStartOptionsDialog(
                         FilterChip(
                             selected = outdoorPaceUnit == CardioSpeedUnit.MPH,
                             onClick = { outdoorPaceUnit = CardioSpeedUnit.MPH },
-                            label = { Text("mph") }
+                            label = { FieldLabel("mph") }
                         )
                         FilterChip(
                             selected = outdoorPaceUnit == CardioSpeedUnit.KMH,
                             onClick = { outdoorPaceUnit = CardioSpeedUnit.KMH },
-                            label = { Text("km/h") }
+                            label = { FieldLabel("km/h") }
                         )
                     }
                     OutlinedTextField(
                         value = outdoorPaceStr,
                         onValueChange = { outdoorPaceStr = it },
-                        label = { Text("Avg speed (optional)") },
+                        label = { FieldLabel("Avg speed (optional)") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -1997,7 +2001,7 @@ private fun CardioTimerStartOptionsDialog(
                     OutlinedTextField(
                         value = ruckLoadStr,
                         onValueChange = { ruckLoadStr = it },
-                        label = { Text("Pack weight (lb, optional)") },
+                        label = { FieldLabel("Pack weight (lb, optional)") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -2146,21 +2150,21 @@ private fun CardioHiitIntervalParamsDialog(
                 OutlinedTextField(
                     value = roundsStr,
                     onValueChange = { roundsStr = it },
-                    label = { Text("Work rounds") },
+                    label = { FieldLabel("Work rounds") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.fillMaxWidth()
                 )
                 OutlinedTextField(
                     value = workStr,
                     onValueChange = { workStr = it },
-                    label = { Text("Minutes per work round") },
+                    label = { FieldLabel("Minutes per work round") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.fillMaxWidth()
                 )
                 OutlinedTextField(
                     value = restStr,
                     onValueChange = { restStr = it },
-                    label = { Text("Minutes active recovery between rounds") },
+                    label = { FieldLabel("Minutes active recovery between rounds") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -3770,7 +3774,7 @@ private fun CyclingSensorSessionDialog(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 } else {
-                    Text("Saved sensors", style = MaterialTheme.typography.labelLarge)
+                    FormSectionLabel("Saved sensors")
                     savedDevices.forEachIndexed { index, device ->
                         TextButton(
                             onClick = { onConnectSavedDevice(device) },
@@ -3925,7 +3929,7 @@ private fun Concept2SensorSessionDialog(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 } else {
-                    Text("Saved monitors", style = MaterialTheme.typography.labelLarge)
+                    FormSectionLabel("Saved monitors")
                     savedDevices.forEachIndexed { index, device ->
                         TextButton(
                             onClick = { onConnectSavedDevice(device) },
@@ -4883,13 +4887,13 @@ private fun CustomActivityDialog(
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("Name") },
+                    label = { FieldLabel("Name") },
                     modifier = Modifier.fillMaxWidth()
                 )
                 OutlinedTextField(
                     value = metStr,
                     onValueChange = { metStr = it },
-                    label = { Text("MET (optional)") },
+                    label = { FieldLabel("MET (optional)") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -5047,7 +5051,7 @@ private fun RoutineEditorDialog(
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("Routine name") },
+                    label = { FieldLabel("Routine name") },
                     modifier = Modifier.fillMaxWidth()
                 )
                 steps.forEachIndexed { index, draft ->
@@ -5107,12 +5111,12 @@ private fun RoutineEditorDialog(
                                             s.copy(useCustom = false, modality = mod)
                                         }
                                     },
-                                    label = { Text("Built-in") }
+                                    label = { FieldLabel("Built-in") }
                                 )
                                 FilterChip(
                                     selected = draft.useCustom,
                                     onClick = { updateStep(index) { it.copy(useCustom = true, modality = CardioModality.OUTDOOR) } },
-                                    label = { Text("Custom") }
+                                    label = { FieldLabel("Custom") }
                                 )
                             }
                             if (draft.useCustom) {
@@ -5152,7 +5156,7 @@ private fun RoutineEditorDialog(
                                     FilterChip(
                                         selected = draft.modality == CardioModality.OUTDOOR,
                                         onClick = { updateStep(index) { it.copy(modality = CardioModality.OUTDOOR) } },
-                                        label = { Text("Outdoor") }
+                                        label = { FieldLabel("Outdoor") }
                                     )
                                     FilterChip(
                                         selected = draft.modality == CardioModality.INDOOR_TREADMILL,
@@ -5166,24 +5170,24 @@ private fun RoutineEditorDialog(
                                     FilterChip(
                                         selected = draft.speedUnit == CardioSpeedUnit.MPH,
                                         onClick = { updateStep(index) { it.copy(speedUnit = CardioSpeedUnit.MPH) } },
-                                        label = { Text("mph") }
+                                        label = { FieldLabel("mph") }
                                     )
                                     FilterChip(
                                         selected = draft.speedUnit == CardioSpeedUnit.KMH,
                                         onClick = { updateStep(index) { it.copy(speedUnit = CardioSpeedUnit.KMH) } },
-                                        label = { Text("km/h") }
+                                        label = { FieldLabel("km/h") }
                                     )
                                 }
                                 OutlinedTextField(
                                     draft.speedStr,
                                     { v -> updateStep(index) { s -> s.copy(speedStr = v) } },
-                                    label = { Text("Speed") },
+                                    label = { FieldLabel("Speed") },
                                     modifier = Modifier.fillMaxWidth()
                                 )
                                 OutlinedTextField(
                                     draft.inclineStr,
                                     { v -> updateStep(index) { s -> s.copy(inclineStr = v) } },
-                                    label = { Text("Incline %") },
+                                    label = { FieldLabel("Incline %") },
                                     modifier = Modifier.fillMaxWidth()
                                 )
                                 OutlinedTextField(
@@ -5196,7 +5200,7 @@ private fun RoutineEditorDialog(
                                     OutlinedTextField(
                                         draft.loadStr,
                                         { v -> updateStep(index) { s -> s.copy(loadStr = v) } },
-                                        label = { Text("Pack lb") },
+                                        label = { FieldLabel("Pack lb") },
                                         modifier = Modifier.fillMaxWidth()
                                     )
                                 }
@@ -5204,7 +5208,7 @@ private fun RoutineEditorDialog(
                             OutlinedTextField(
                                 draft.targetMinutesStr,
                                 { v -> updateStep(index) { s -> s.copy(targetMinutesStr = v) } },
-                                label = { Text("Target minutes (this leg)") },
+                                label = { FieldLabel("Target minutes (this leg)") },
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                 modifier = Modifier.fillMaxWidth()
                             )
@@ -5222,10 +5226,10 @@ private fun RoutineEditorDialog(
                 OutlinedTextField(
                     value = notes,
                     onValueChange = { notes = it },
-                    label = { Text("Notes") },
+                    label = { FieldLabel("Notes") },
                     modifier = Modifier.fillMaxWidth()
                 )
-                Text("Repeat days", style = MaterialTheme.typography.labelMedium)
+                FormSectionLabelMedium("Repeat days")
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     CardioWeekday.entries.forEach { d ->
                         val sel = d in selectedDaySet

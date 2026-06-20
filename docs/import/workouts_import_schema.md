@@ -10,7 +10,7 @@ It is **not** a fixed program. Use these **primitives** and **segment patterns**
 - Product UX — [WORKOUT_PLAN_EDITOR_SPEC.md](../architecture/WORKOUT_PLAN_EDITOR_SPEC.md).
 - Minimal JSON fragments — [../architecture/examples/workout_schema_minimal_examples.json](../architecture/examples/workout_schema_minimal_examples.json).
 
-**Status:** Draft (`ervWorkoutImportVersion: 1`). Not implemented in the app yet.
+**Status:** **`ervWorkoutImportVersion: 1` implemented** in Android + web (June 2026). Core library sync, merge-by-id, and multi-modality segments are live. Full grammar (intervals, recovery silos, plan refs) remains Phase 2–3 work — see [WORKOUT_PLAN_EDITOR_SPEC.md §12.2](../architecture/WORKOUT_PLAN_EDITOR_SPEC.md) and [START9_COMPANION_V1.md Phase 2](../architecture/START9_COMPANION_V1.md).
 
 ---
 
@@ -78,7 +78,7 @@ If the user has not added light devices yet, the composer can offer **“add dev
 
 Unknown top-level keys should be omitted.
 
-**Merge (planned):** keyed by `workout.id`; same id replaces existing library entry.
+**Merge:** keyed by `workout.id`; same id replaces existing library entry. **Implemented** in `WorkoutImport.kt` / `WorkoutRepository.kt` (Android) and web workout library publish.
 
 ---
 
@@ -207,7 +207,9 @@ Red-light / NIR or other light therapy — references the user’s Light Therapy
 | --- | --- |
 | `sets[]` | Array of `PrescriptionSet` |
 | `setCount` | Shorthand when all working sets match |
+| **`targetReps`** | **Shipped (June 2026).** Single rep target for live UI ghost display; use when all working sets share one rep count. Distinct from `repRangeMin`/`Max`. |
 | `repRangeMin`, `repRangeMax` | When reps vary by feel (e.g. 8–12) |
+| **`durationSeconds`** | **Shipped (June 2026).** Hold/plank target at exercise level; live run shows countdown (30s default if unset). Prefer `time_based` mode when full mode switch ships. |
 | `targetRir` | Reps in reserve target for the exercise |
 | `intensityLabel` | Display-only: `"strict 2 RIR"` |
 | `restBetweenSetsSeconds` | Between sets of **this** exercise |
@@ -570,23 +572,30 @@ Full plan envelope: [programs_import_ai_guide.md](programs_import_ai_guide.md). 
 
 ## 12. Capability checklist (acceptance for “any workout”)
 
-The builder and schema are complete when **all** of the following are expressible without workarounds:
+The builder and schema are complete when **all** of the following are expressible without workarounds.
 
-- [ ] Steady cardio with duration and optional HR target or range
-- [ ] Flat work/rest intervals and nested multi-round interval templates
-- [ ] Straight sets with fixed reps, rep ranges, RIR/RPE, and null weight
-- [ ] Superset with separate between-exercise and after-round rest
-- [ ] Circuit with round count and mixed rep / time-based items
-- [ ] Time-based and max-reps strength items
-- [ ] Per-side reps and per-side stretch holds
-- [ ] Composite segments (cardio + mobility + notes)
-- [ ] Exercise alternatives (OR picker)
-- [ ] Cardio log prompts (incline, speed, etc.)
-- [ ] Custom exercises in envelope
-- [ ] **Sauna and cold plunge** (`heat_cold` items → Hot+Cold timer)
-- [ ] **Light therapy** (`light` items → device/routine picker + timer)
-- [ ] Plan assigns workout by id only
-- [ ] **Cross-silo picker**: one UI searches weight + cardio + stretch libraries; recovery picks mode/device
+**Legend:** ✅ · 🟡 partial · ❌
+
+- [x] Straight sets with fixed reps, rep ranges, RIR/RPE, and null weight — ✅ (🟡 no full per-set editor)
+- [x] Superset with separate between-exercise and after-round rest — ✅
+- [x] Circuit with round count — ✅ (🟡 weight items only in live run round-robin)
+- [x] Composite segments (cardio + mobility + notes) — ✅ web Flow block
+- [x] **`targetReps` ghost target** for live logging — ✅ *(see WORKOUT_PLAN_EDITOR_SPEC §15)*
+- [x] Timed holds via `durationSeconds` — 🟡 live countdown; not full `time_based` mode
+- [x] Per-side stretch holds — ✅ web (`holdSecondsPerSide`)
+- [x] Cross-silo picker (weight + cardio + stretch in one builder) — ✅ web
+- [x] Nostr sync `erv/workouts/library` — ✅
+- [ ] Steady cardio with duration and optional HR target or range — 🟡 duration + single BPM; no range
+- [ ] Flat work/rest intervals and nested multi-round interval templates — ❌
+- [ ] Time-based and max-reps strength items — ❌ (enum exists; UI pending)
+- [ ] Per-side reps (strength) — ❌
+- [ ] Exercise alternatives (OR picker) — ❌
+- [ ] Cardio log prompts (incline, speed, etc.) — ❌
+- [ ] Custom exercises in envelope — ❌ (merge supports; no import UI)
+- [ ] **Sauna and cold plunge** (`heat_cold` items → Hot+Cold timer) — ❌
+- [ ] **Light therapy** (`light` items → device/routine picker + timer) — ❌
+- [ ] Plan assigns workout by id only — ❌ Phase 3
+- [ ] Live run launches silo timers for cardio/mobility/recovery — 🟡 weight ✅; others stub
 
 Hybrid multi-day programs are **not** a special case — they are N workouts built from this checklist, assigned on a plan.
 
@@ -598,4 +607,4 @@ When generating workouts, output **one envelope** with `workouts[]`. Use §7 min
 
 ---
 
-*Last updated: June 2026 — construction grammar; not a fixed program.*
+*Last updated: June 2026 — v1 implemented in app; checklist reflects partial Phase 2 completion.*

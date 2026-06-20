@@ -8,6 +8,7 @@ type RoutineBuilderLayoutProps = {
   selectedIds?: ReadonlySet<string>;
   onPick: Parameters<typeof LibrarySidebar>[0]["onPick"];
   pickLabel?: string;
+  pickDisabled?: boolean;
   weightCatalog: Parameters<typeof LibrarySidebar>[0]["weightCatalog"];
   stretchCatalog: Parameters<typeof LibrarySidebar>[0]["stretchCatalog"];
   cardioCatalog: Parameters<typeof LibrarySidebar>[0]["cardioCatalog"];
@@ -20,6 +21,7 @@ export function RoutineBuilderLayout({
   selectedIds,
   onPick,
   pickLabel,
+  pickDisabled,
   weightCatalog,
   stretchCatalog,
   cardioCatalog,
@@ -34,6 +36,7 @@ export function RoutineBuilderLayout({
         selectedIds={selectedIds}
         onPick={onPick}
         pickLabel={pickLabel}
+        pickDisabled={pickDisabled}
         weightCatalog={weightCatalog}
         stretchCatalog={stretchCatalog}
         cardioCatalog={cardioCatalog}

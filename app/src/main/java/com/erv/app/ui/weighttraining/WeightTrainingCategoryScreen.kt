@@ -64,6 +64,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.erv.app.ui.components.FieldLabel
 import com.erv.app.R
 import com.erv.app.data.BodyWeightUnit
 import com.erv.app.data.UserPreferences
@@ -676,12 +677,12 @@ private fun ExercisesTabBody(
             FilterChip(
                 selected = !loggedBeforeOnly,
                 onClick = { loggedBeforeOnly = false },
-                label = { Text("All Exercises") }
+                label = { FieldLabel("All Exercises") }
             )
             FilterChip(
                 selected = loggedBeforeOnly,
                 onClick = { loggedBeforeOnly = true },
-                label = { Text("Logged Before") }
+                label = { FieldLabel("Logged Before") }
             )
             FilterChip(
                 selected = equipmentFilter == WeightExercisePickerFilter.HOME_READY,
@@ -693,7 +694,7 @@ private fun ExercisesTabBody(
                             WeightExercisePickerFilter.HOME_READY
                         }
                 },
-                label = { Text("Home-Ready") }
+                label = { FieldLabel("Home-Ready") }
             )
         }
 

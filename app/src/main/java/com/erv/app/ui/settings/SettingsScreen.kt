@@ -62,6 +62,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.erv.app.ui.components.FieldLabel
 import com.erv.app.R
 import com.erv.app.cardio.CardioDistanceUnit
 import com.erv.app.data.BodyWeightUnit
@@ -112,6 +113,7 @@ import com.erv.app.supplements.SupplementRepository
 import com.erv.app.programs.ProgramRepository
 import com.erv.app.unifiedroutines.UnifiedRoutineRepository
 import com.erv.app.weighttraining.WeightRepository
+import com.erv.app.workouts.WorkoutRepository
 import com.erv.app.ui.navigation.RelayDataSyncTopBarIcon
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -163,6 +165,7 @@ fun SettingsScreen(
     supplementRepository: SupplementRepository,
     programRepository: ProgramRepository,
     unifiedRoutineRepository: UnifiedRoutineRepository,
+    workoutRepository: WorkoutRepository,
     bodyTrackerRepository: BodyTrackerRepository,
     reminderRepository: RoutineReminderRepository,
     relayPool: RelayPool?,
@@ -332,6 +335,7 @@ fun SettingsScreen(
                     supplementRepository = supplementRepository,
                     programRepository = programRepository,
                     unifiedRoutineRepository = unifiedRoutineRepository,
+                    workoutRepository = workoutRepository,
                     bodyTrackerRepository = bodyTrackerRepository,
                     reminderRepository = reminderRepository,
                     relayPool = relayPool,
@@ -559,9 +563,10 @@ fun SettingsScreen(
                                 heatColdRepository = heatColdRepository,
                                 lightTherapyRepository = lightTherapyRepository,
                                 supplementRepository = supplementRepository,
-                                programRepository = programRepository,
-                                bodyTrackerRepository = bodyTrackerRepository,
-                            )
+                programRepository = programRepository,
+                bodyTrackerRepository = bodyTrackerRepository,
+                workoutRepository = workoutRepository,
+            )
                         }
                         relayCoverage = withContext(Dispatchers.IO) {
                             CurrentRelayDataSync.probeCoverage(
@@ -780,9 +785,10 @@ fun SettingsScreen(
                                                 heatColdRepository = heatColdRepository,
                                                 lightTherapyRepository = lightTherapyRepository,
                                                 supplementRepository = supplementRepository,
-                                                programRepository = programRepository,
-                                                bodyTrackerRepository = bodyTrackerRepository,
-                                            )
+                programRepository = programRepository,
+                bodyTrackerRepository = bodyTrackerRepository,
+                workoutRepository = workoutRepository,
+            )
                                         }
                                         val drain = withContext(Dispatchers.IO) {
                                             CurrentRelayDataSync.forceResync(
@@ -1585,7 +1591,7 @@ private fun SavedBluetoothDevicesSection(
             OutlinedTextField(
                 value = wheelCircumferenceDraft,
                 onValueChange = { wheelCircumferenceDraft = it.filter { ch -> ch.isDigit() }.take(4) },
-                label = { Text("Wheel circumference (mm)") },
+                label = { FieldLabel("Wheel circumference (mm)") },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.fillMaxWidth()
@@ -2016,7 +2022,7 @@ private fun MaxHeartRateZonesSectionLegacy(
             OutlinedTextField(
                 value = draft,
                 onValueChange = { s -> draft = s.filter { ch -> ch.isDigit() }.take(3) },
-                label = { Text("Max HR (bpm)") },
+                label = { FieldLabel("Max HR (bpm)") },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.fillMaxWidth()
@@ -2067,7 +2073,7 @@ private fun BodyWeightSection(
             OutlinedTextField(
                 value = draft,
                 onValueChange = { draft = it },
-                label = { Text("Weight") },
+                label = { FieldLabel("Weight") },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                 modifier = Modifier.fillMaxWidth()
@@ -3088,7 +3094,7 @@ private fun RelayAddRow(
                     modifier = Modifier.padding(end = 8.dp)
                 )
             },
-            label = { Text("Add relay") },
+            label = { FieldLabel("Add relay") },
             singleLine = true,
             modifier = Modifier.weight(1f)
         )
@@ -3151,13 +3157,13 @@ private fun RelayRow(
             FilterChip(
                 selected = isData,
                 onClick = { onToggleData(!isData) },
-                label = { Text("Data", style = MaterialTheme.typography.labelSmall) },
+                label = { FieldLabel("Data", style = MaterialTheme.typography.labelSmall) },
                 modifier = Modifier.height(28.dp)
             )
             FilterChip(
                 selected = isSocial,
                 onClick = { onToggleSocial(!isSocial) },
-                label = { Text("Social", style = MaterialTheme.typography.labelSmall) },
+                label = { FieldLabel("Social", style = MaterialTheme.typography.labelSmall) },
                 modifier = Modifier.height(28.dp)
             )
         }

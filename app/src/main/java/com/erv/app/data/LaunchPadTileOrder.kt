@@ -6,6 +6,7 @@ import kotlinx.serialization.json.Json
 
 @Serializable
 enum class LaunchPadTileId {
+    TRAINING,
     PROGRAMS,
     WORKOUT_LAUNCHER,
     STRETCHING,
@@ -19,6 +20,7 @@ enum class LaunchPadTileId {
 }
 
 val defaultLaunchPadTileOrder: List<LaunchPadTileId> = listOf(
+    LaunchPadTileId.TRAINING,
     LaunchPadTileId.PROGRAMS,
     LaunchPadTileId.WORKOUT_LAUNCHER,
     LaunchPadTileId.STRETCHING,
@@ -32,6 +34,7 @@ val defaultLaunchPadTileOrder: List<LaunchPadTileId> = listOf(
 )
 
 val defaultFirstRunLaunchPadTileIds: Set<LaunchPadTileId> = setOf(
+    LaunchPadTileId.TRAINING,
     LaunchPadTileId.CARDIO,
     LaunchPadTileId.WEIGHT_TRAINING,
     LaunchPadTileId.STRETCHING,

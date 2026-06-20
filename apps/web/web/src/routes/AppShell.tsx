@@ -32,7 +32,7 @@ export function AppShell() {
           <header className="app-header px-4 py-3 flex items-center justify-between shadow-md">
             <div>
               <p className="text-lg font-bold tracking-tight">ERV</p>
-              <p className="text-xs opacity-90">Relay-synced training planner</p>
+              <p className="text-xs opacity-90">Relay-synced training library editor</p>
             </div>
             <div className="flex items-center gap-2">
               {status?.npub ? (
@@ -63,6 +63,9 @@ export function AppShell() {
           <RelayStatus />
           <main className="flex-1 p-4 max-w-5xl mx-auto w-full">
             <nav className="flex flex-wrap gap-2 mb-4">
+              <NavLink to="/app/workouts" className={navLinkClass}>
+                Workout builder
+              </NavLink>
               <NavLink to="/app/routines" className={navLinkClass}>
                 Routines
               </NavLink>

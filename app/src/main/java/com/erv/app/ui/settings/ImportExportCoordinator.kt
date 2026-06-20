@@ -39,6 +39,9 @@ import com.erv.app.unifiedroutines.UnifiedRoutineRepository
 import com.erv.app.weighttraining.WeightImportOutcome
 import com.erv.app.weighttraining.WeightRepository
 import com.erv.app.weighttraining.WeightSync
+import com.erv.app.workouts.WorkoutImportEnvelope
+import com.erv.app.workouts.WorkoutRepository
+import com.erv.app.workouts.WorkoutSync
 import java.io.BufferedReader
 import java.io.File
 import java.io.InputStreamReader
@@ -65,6 +68,7 @@ class ImportExportCoordinator(
     private val supplementRepository: SupplementRepository,
     private val programRepository: ProgramRepository,
     private val unifiedRoutineRepository: UnifiedRoutineRepository,
+    private val workoutRepository: WorkoutRepository,
     private val bodyTrackerRepository: BodyTrackerRepository,
     private val reminderRepository: RoutineReminderRepository,
     private val fastingRepository: FastingRepository,
@@ -248,6 +252,31 @@ class ImportExportCoordinator(
             dataRelayUrls = keyManager.relayUrlsForKind30078Publish(),
         )
         return "Merged $count program(s).$activeNote Synced to relays."
+    }
+
+    suspend fun commitWorkoutImport(envelope: WorkoutImportEnvelope): String {
+        val before = workoutRepository.currentState()
+        workoutRepository.mergeImported(envelope)
+        val replaced = envelope.workouts.count { w -> before.workoutById(w.id) != null }
+        val added = envelope.workouts.size - replaced
+        val baseMsg = buildString {
+            append("Merged ${envelope.workouts.size} workout(s): $added new")
+            if (replaced > 0) append(", $replaced replaced (same id)")
+            append(".")
+        }
+        val activeRelayPool = relayPool
+        val activeSigner = signer
+        if (activeRelayPool == null || activeSigner == null) {
+            return baseMsg
+        }
+        WorkoutSync.publishLibraryIfSignedIn(
+            appContext = appContext,
+            relayPool = activeRelayPool,
+            signer = activeSigner,
+            state = workoutRepository.currentState(),
+            dataRelayUrls = keyManager.relayUrlsForKind30078Publish(),
+        )
+        return "$baseMsg Synced to relays."
     }
 
     private fun relayResultMessage(

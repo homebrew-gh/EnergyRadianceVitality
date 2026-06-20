@@ -28,6 +28,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.erv.app.ui.components.FieldLabel
 import com.erv.app.ui.media.playHiitSoftSegmentStartCue
 import com.erv.app.ui.media.playHiitWorkCountdownTickCue
 import com.erv.app.ui.media.playHiitWorkSegmentEndCue
@@ -104,7 +105,7 @@ fun WeightHiitIntervalTimerOverlay(
                     OutlinedTextField(
                         value = rpeText,
                         onValueChange = { rpeText = it },
-                        label = { Text("RPE (optional)") },
+                        label = { FieldLabel("RPE (optional)") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )

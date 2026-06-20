@@ -5,6 +5,8 @@
  * empty relays and remain the fallback when offline.
  */
 
+import { withResolvedBuiltinExerciseFlags } from "./exerciseLogging";
+
 export const WEIGHT_CATALOG_D_TAG = "erv/catalog/weight";
 export const STRETCH_CATALOG_D_TAG = "erv/catalog/stretch";
 export const CARDIO_CATALOG_D_TAG = "erv/catalog/cardio";
@@ -24,6 +26,8 @@ export type WeightCatalogExercise = {
   exercisePackId?: string | null;
   hiitCapable?: boolean;
   timePerSetCapable?: boolean;
+  /** When false with timePerSetCapable, exercise is time-only. Default true. */
+  repPerSetCapable?: boolean;
 };
 
 export type WeightCatalogPayload = {
@@ -172,7 +176,7 @@ export function catalogsFromAppData(
   ].filter((v): v is number => typeof v === "number");
 
   return {
-    weight: weightPayload?.exercises ?? [],
+    weight: (weightPayload?.exercises ?? []).map(withResolvedBuiltinExerciseFlags),
     stretch: stretchPayload?.stretches ?? [],
     cardio: cardioPayload?.activities ?? [],
     catalogVersion: versions.length > 0 ? Math.max(...versions) : null,
@@ -193,7 +197,9 @@ export function mergeWeightExerciseLibrary(
       byId.set(exercise.id, exercise);
     }
   }
-  return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
+  return [...byId.values()]
+    .map(withResolvedBuiltinExerciseFlags)
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export function stretchLabel(

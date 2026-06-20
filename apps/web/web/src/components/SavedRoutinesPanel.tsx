@@ -9,6 +9,7 @@ type SavedRoutinesPanelProps<T> = {
   getDetail: (routine: T) => string;
   onEdit: (routine: T) => void;
   onDelete: (routine: T) => void;
+  onDuplicate?: (routine: T) => void;
 };
 
 export function SavedRoutinesPanel<T>({
@@ -22,6 +23,7 @@ export function SavedRoutinesPanel<T>({
   getDetail,
   onEdit,
   onDelete,
+  onDuplicate,
 }: SavedRoutinesPanelProps<T>) {
   return (
     <section className="space-y-3">
@@ -68,6 +70,15 @@ export function SavedRoutinesPanel<T>({
                     >
                       Edit
                     </button>
+                    {onDuplicate ? (
+                      <button
+                        type="button"
+                        className="btn-ghost text-xs py-1 px-2"
+                        onClick={() => onDuplicate(routine)}
+                      >
+                        Duplicate
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       className="btn-ghost text-xs py-1 px-2"

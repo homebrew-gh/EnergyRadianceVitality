@@ -9,6 +9,7 @@ import {
   type StretchCatalogEntry,
   type WeightCatalogExercise,
 } from "../lib/catalog";
+import { titleCaseWords } from "../lib/titleCase";
 
 export type LibraryItemKind = "weight" | "stretch" | "cardio";
 
@@ -30,6 +31,8 @@ type LibrarySidebarProps = {
   selectionKind?: LibraryItemKind;
   onPick: (item: LibraryPick) => void;
   pickLabel?: string;
+  /** When true, catalog rows are greyed out and pick buttons are disabled. */
+  pickDisabled?: boolean;
   className?: string;
 };
 
@@ -44,6 +47,7 @@ export function LibrarySidebar({
   selectionKind,
   onPick,
   pickLabel = "Add",
+  pickDisabled = false,
   className = "",
 }: LibrarySidebarProps) {
   const [query, setQuery] = useState("");
@@ -155,6 +159,7 @@ export function LibrarySidebar({
                       })
                     }
                     pickLabel={pickLabel}
+                    pickDisabled={pickDisabled}
                   />
                 ))}
               </SidebarGroup>
@@ -179,6 +184,7 @@ export function LibrarySidebar({
                       })
                     }
                     pickLabel={pickLabel}
+                    pickDisabled={pickDisabled}
                   />
                 ))}
               </SidebarGroup>
@@ -203,6 +209,7 @@ export function LibrarySidebar({
                       })
                     }
                     pickLabel={pickLabel}
+                    pickDisabled={pickDisabled}
                   />
                 ))}
               </SidebarGroup>
@@ -228,8 +235,8 @@ function SidebarGroup({
 }) {
   return (
     <div>
-      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted px-1 mb-1">
-        {title}
+      <p className="text-[10px] font-semibold tracking-wide text-muted px-1 mb-1">
+        {titleCaseWords(title)}
       </p>
       <div className="space-y-1">{children}</div>
     </div>
@@ -242,16 +249,20 @@ function SidebarRow({
   selected,
   onPick,
   pickLabel,
+  pickDisabled,
 }: {
   name: string;
   meta?: string;
   selected: boolean;
   onPick: () => void;
   pickLabel: string;
+  pickDisabled: boolean;
 }) {
   return (
     <div
-      className={`flex items-center gap-2 rounded-card border px-2 py-1.5 text-sm ${
+      className={`flex items-center gap-2 rounded-card border px-2 py-1.5 text-sm transition-opacity ${
+        pickDisabled ? "opacity-45" : ""
+      } ${
         selected
           ? "border-[var(--erv-primary)] bg-[var(--erv-primary-container)]"
           : "border-outline/30 bg-[var(--erv-input-bg)]"
@@ -259,7 +270,12 @@ function SidebarRow({
     >
       <span className="flex-1 min-w-0 truncate">{name}</span>
       {meta ? <span className="text-[10px] text-muted shrink-0">{meta}</span> : null}
-      <button type="button" className="btn-ghost text-xs py-0.5 px-2 shrink-0" onClick={onPick}>
+      <button
+        type="button"
+        className="btn-ghost text-xs py-0.5 px-2 shrink-0"
+        disabled={pickDisabled}
+        onClick={onPick}
+      >
         {selected ? "✓" : pickLabel}
       </button>
     </div>

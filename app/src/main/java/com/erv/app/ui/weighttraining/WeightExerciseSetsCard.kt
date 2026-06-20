@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -46,7 +47,10 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.erv.app.ui.components.FieldLabel
 import com.erv.app.R
 import com.erv.app.data.BodyWeightUnit
 import com.erv.app.weighttraining.WeightEquipment
@@ -82,6 +86,46 @@ internal fun rpeFieldText(set: WeightSet): String =
 
 internal fun durationFieldText(set: WeightSet): String =
     set.durationSeconds?.takeIf { it > 0 }?.toString().orEmpty()
+
+private const val DEFAULT_TIMED_HOLD_SECONDS = 30
+
+@Composable
+private fun ShadowOutlinedNumberField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    shadowText: String?,
+    label: String,
+    modifier: Modifier = Modifier,
+    trailingIcon: @Composable (() -> Unit)? = null,
+    supportingText: @Composable (() -> Unit)? = null,
+) {
+    Box(modifier = modifier) {
+        OutlinedTextField(
+            value = value,
+            onValueChange = onValueChange,
+            label = label.takeIf { it.isNotEmpty() }?.let { { Text(it) } },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            trailingIcon = trailingIcon,
+            supportingText = supportingText,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        if (value.isEmpty() && !shadowText.isNullOrEmpty()) {
+            Text(
+                text = shadowText,
+                style = MaterialTheme.typography.headlineMedium.copy(
+                    fontSize = 28.sp,
+                    textAlign = TextAlign.Center,
+                ),
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.14f),
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp),
+            )
+        }
+    }
+}
 
 fun <T> List<T>.replaceAt(index: Int, value: T): List<T> =
     mapIndexed { i, t -> if (i == index) value else t }
@@ -252,12 +296,12 @@ fun WeightExerciseInlineSetsCard(
                     FilterChip(
                         selected = hiitUiMode == "standard",
                         onClick = { hiitUiMode = "standard" },
-                        label = { Text("Standard sets") }
+                        label = { FieldLabel("Standard sets") }
                     )
                     FilterChip(
                         selected = hiitUiMode == "intervals",
                         onClick = { hiitUiMode = "intervals" },
-                        label = { Text("Intervals") }
+                        label = { FieldLabel("Intervals") }
                     )
                 }
             }
@@ -278,7 +322,7 @@ fun WeightExerciseInlineSetsCard(
                     OutlinedTextField(
                         value = hiitIntervals,
                         onValueChange = { hiitIntervals = it.filter { c -> c.isDigit() } },
-                        label = { Text("Intervals") },
+                        label = { FieldLabel("Intervals") },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier.weight(1f)
@@ -286,7 +330,7 @@ fun WeightExerciseInlineSetsCard(
                     OutlinedTextField(
                         value = hiitWorkSec,
                         onValueChange = { hiitWorkSec = it.filter { c -> c.isDigit() } },
-                        label = { Text("Work s") },
+                        label = { FieldLabel("Work s") },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier.weight(1f)
@@ -294,7 +338,7 @@ fun WeightExerciseInlineSetsCard(
                     OutlinedTextField(
                         value = hiitRestSec,
                         onValueChange = { hiitRestSec = it.filter { c -> c.isDigit() } },
-                        label = { Text("Rest s") },
+                        label = { FieldLabel("Rest s") },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier.weight(1f)
@@ -393,15 +437,14 @@ fun WeightExerciseInlineSetsCard(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.padding(bottom = 4.dp)
                                 )
-                                OutlinedTextField(
+                                ShadowOutlinedNumberField(
                                     value = repsFieldText(set.reps),
                                     onValueChange = { t ->
                                         val r = t.trim().toIntOrNull() ?: 0
                                         onSetsChange(sets.replaceAt(idx, set.copy(reps = r)))
                                     },
-                                    singleLine = true,
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                    modifier = Modifier.fillMaxWidth()
+                                    shadowText = set.targetReps?.takeIf { it > 0 }?.toString(),
+                                    label = "",
                                 )
                             }
                             Column(modifier = Modifier.weight(1f)) {
@@ -477,7 +520,13 @@ fun WeightExerciseInlineSetsCard(
                     onClick = {
                         onAfterAddSet?.invoke()
                         onSetsChange(
-                            sets + WeightSet(reps = 0, weightKg = null, rpe = null)
+                            sets + WeightSet(
+                                reps = 0,
+                                weightKg = null,
+                                rpe = null,
+                                targetReps = sets.lastOrNull()?.targetReps,
+                                targetDurationSeconds = sets.lastOrNull()?.targetDurationSeconds,
+                            )
                         )
                     },
                     modifier = Modifier.padding(start = 4.dp)
@@ -504,9 +553,9 @@ fun WeightExerciseInlineSetsCard(
 }
 
 /**
- * One time-based set row (e.g. plank): a hold-duration field with a start/stop count-up timer,
- * plus optional added load and RPE. The running timer increments [WeightSet.durationSeconds] once
- * per second via [onChange]; it stops when toggled off or when the row leaves composition.
+ * One time-based set row (e.g. plank): a hold-duration field with a start/stop countdown timer,
+ * plus optional added load and RPE. When the timer runs with no logged hold yet, it counts down
+ * from the field value, prescription target, or [DEFAULT_TIMED_HOLD_SECONDS].
  */
 @Composable
 private fun WeightTimePerSetRow(
@@ -520,17 +569,35 @@ private fun WeightTimePerSetRow(
     onShowAddedLoadInfo: () -> Unit,
 ) {
     var running by remember { mutableStateOf(false) }
+    var countdownRemaining by remember { mutableStateOf<Int?>(null) }
     val currentSet by rememberUpdatedState(set)
     val currentOnChange by rememberUpdatedState(onChange)
-    LaunchedEffect(running) {
-        if (!running) return@LaunchedEffect
-        while (true) {
-            delay(1000)
-            val next = (currentSet.durationSeconds ?: 0) + 1
-            currentOnChange(currentSet.copy(durationSeconds = next))
-        }
+    val goalSeconds = remember(set.targetDurationSeconds, durationFieldText(set)) {
+        durationFieldText(set).toIntOrNull()?.takeIf { it > 0 }
+            ?: set.targetDurationSeconds?.takeIf { it > 0 }
+            ?: DEFAULT_TIMED_HOLD_SECONDS
     }
-    val seconds = set.durationSeconds ?: 0
+    LaunchedEffect(running, countdownRemaining) {
+        if (!running) return@LaunchedEffect
+        val remaining = countdownRemaining
+        if (remaining != null) {
+            if (remaining <= 0) {
+                running = false
+                countdownRemaining = null
+                currentOnChange(currentSet.copy(durationSeconds = goalSeconds))
+                return@LaunchedEffect
+            }
+            delay(1000)
+            countdownRemaining = remaining - 1
+            return@LaunchedEffect
+        }
+        delay(1000)
+        val next = (currentSet.durationSeconds ?: 0) + 1
+        currentOnChange(currentSet.copy(durationSeconds = next))
+    }
+    val loggedSeconds = set.durationSeconds ?: 0
+    val displaySeconds = countdownRemaining ?: loggedSeconds
+    val holdShadow = set.targetDurationSeconds?.takeIf { it > 0 }?.toString()
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -543,14 +610,37 @@ private fun WeightTimePerSetRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(bottom = 4.dp)
             )
-            OutlinedTextField(
-                value = durationFieldText(set),
+            ShadowOutlinedNumberField(
+                value = if (countdownRemaining != null) countdownRemaining.toString() else durationFieldText(set),
                 onValueChange = { t ->
+                    countdownRemaining = null
                     val parsed = t.filter { c -> c.isDigit() }.toIntOrNull()?.takeIf { it > 0 }
                     onChange(set.copy(durationSeconds = parsed))
                 },
+                shadowText = if (countdownRemaining == null) holdShadow else null,
+                label = "Hold (s)",
                 trailingIcon = {
-                    IconButton(onClick = { running = !running }) {
+                    IconButton(
+                        onClick = {
+                            if (running) {
+                                running = false
+                                val remaining = countdownRemaining
+                                countdownRemaining = null
+                                if (remaining != null) {
+                                    onChange(
+                                        set.copy(
+                                            durationSeconds = (goalSeconds - remaining).coerceAtLeast(1),
+                                        ),
+                                    )
+                                }
+                            } else {
+                                if ((set.durationSeconds ?: 0) <= 0) {
+                                    countdownRemaining = goalSeconds
+                                }
+                                running = true
+                            }
+                        }
+                    ) {
                         if (running) {
                             Icon(Icons.Default.Stop, contentDescription = "Stop timer")
                         } else {
@@ -558,12 +648,9 @@ private fun WeightTimePerSetRow(
                         }
                     }
                 },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                supportingText = if (seconds >= 60) {
-                    { Text(formatHoldDuration(seconds)) }
+                supportingText = if (displaySeconds >= 60) {
+                    { Text(formatHoldDuration(displaySeconds)) }
                 } else null,
-                modifier = Modifier.fillMaxWidth()
             )
         }
         Column(modifier = Modifier.weight(1f)) {

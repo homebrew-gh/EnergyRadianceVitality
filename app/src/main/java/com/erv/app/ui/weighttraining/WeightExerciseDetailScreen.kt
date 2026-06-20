@@ -49,6 +49,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.unit.dp
+import com.erv.app.ui.components.FieldLabel
 import com.erv.app.data.BodyWeightUnit
 import com.erv.app.nostr.EventSigner
 import com.erv.app.nostr.LocalKeyManager
@@ -290,14 +291,14 @@ fun WeightExerciseDetailScreen(
                                     FilterChip(
                                         selected = selectedProgressMetric == ExerciseProgressMetric.EstimatedOneRm,
                                         onClick = { selectedProgressMetric = ExerciseProgressMetric.EstimatedOneRm },
-                                        label = { Text("1RM") }
+                                        label = { FieldLabel("1RM") }
                                     )
                                 }
                                 if (ExerciseProgressMetric.Volume in availableMetrics) {
                                     FilterChip(
                                         selected = selectedProgressMetric == ExerciseProgressMetric.Volume,
                                         onClick = { selectedProgressMetric = ExerciseProgressMetric.Volume },
-                                        label = { Text("Volume") }
+                                        label = { FieldLabel("Volume") }
                                     )
                                 }
                             }

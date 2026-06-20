@@ -12,6 +12,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.erv.app.ui.components.FieldLabel
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -94,7 +95,7 @@ fun DateNavigator(
             ) {
                 AssistChip(
                     onClick = onTodayClick,
-                    label = { Text("Today") }
+                    label = { FieldLabel("Today") }
                 )
             }
         }

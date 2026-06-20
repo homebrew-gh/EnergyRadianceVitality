@@ -27,6 +27,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.erv.app.ui.components.FieldLabel
 import com.erv.app.cardio.CardioActivitySnapshot
 import com.erv.app.cardio.CardioBuiltinActivity
 import com.erv.app.cardio.cardioBuiltinActivitiesForUserSelection
@@ -73,7 +74,7 @@ fun OutdoorRuckPackWeightDialog(
                 OutlinedTextField(
                     value = loadLbStr,
                     onValueChange = { loadLbStr = it },
-                    label = { Text("Pack weight (lb)") },
+                    label = { FieldLabel("Pack weight (lb)") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -229,7 +230,7 @@ fun CardioQuickLaunchEditorDialog(
                 OutlinedTextField(
                     value = nameStr,
                     onValueChange = { nameStr = it },
-                    label = { Text("Name") },
+                    label = { FieldLabel("Name") },
                     modifier = Modifier.fillMaxWidth()
                 )
                 Text("Activity", style = MaterialTheme.typography.labelLarge)
@@ -237,12 +238,12 @@ fun CardioQuickLaunchEditorDialog(
                     FilterChip(
                         selected = !useCustom,
                         onClick = { useCustom = false },
-                        label = { Text("Built-in") }
+                        label = { FieldLabel("Built-in") }
                     )
                     FilterChip(
                         selected = useCustom,
                         onClick = { useCustom = true },
-                        label = { Text("Custom") }
+                        label = { FieldLabel("Custom") }
                     )
                 }
                 if (useCustom) {
@@ -292,25 +293,25 @@ fun CardioQuickLaunchEditorDialog(
                         FilterChip(
                             selected = speedUnit == CardioSpeedUnit.MPH,
                             onClick = { speedUnit = CardioSpeedUnit.MPH },
-                            label = { Text("mph") }
+                            label = { FieldLabel("mph") }
                         )
                         FilterChip(
                             selected = speedUnit == CardioSpeedUnit.KMH,
                             onClick = { speedUnit = CardioSpeedUnit.KMH },
-                            label = { Text("km/h") }
+                            label = { FieldLabel("km/h") }
                         )
                     }
                     OutlinedTextField(
                         value = speedStr,
                         onValueChange = { speedStr = it },
-                        label = { Text("Speed") },
+                        label = { FieldLabel("Speed") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         modifier = Modifier.fillMaxWidth()
                     )
                     OutlinedTextField(
                         value = inclineStr,
                         onValueChange = { inclineStr = it },
-                        label = { Text("Incline %") },
+                        label = { FieldLabel("Incline %") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -325,7 +326,7 @@ fun CardioQuickLaunchEditorDialog(
                         OutlinedTextField(
                             value = loadStr,
                             onValueChange = { loadStr = it },
-                            label = { Text("Pack weight (lb)") },
+                            label = { FieldLabel("Pack weight (lb)") },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                             modifier = Modifier.fillMaxWidth()
                         )
@@ -337,19 +338,19 @@ fun CardioQuickLaunchEditorDialog(
                     FilterChip(
                         selected = timerMode == CardioQuickTimerMode.COUNT_UP,
                         onClick = { timerMode = CardioQuickTimerMode.COUNT_UP },
-                        label = { Text("Count up") }
+                        label = { FieldLabel("Count up") }
                     )
                     FilterChip(
                         selected = timerMode == CardioQuickTimerMode.COUNT_DOWN,
                         onClick = { timerMode = CardioQuickTimerMode.COUNT_DOWN },
-                        label = { Text("Count down") }
+                        label = { FieldLabel("Count down") }
                     )
                 }
                 if (timerMode == CardioQuickTimerMode.COUNT_DOWN) {
                     OutlinedTextField(
                         value = countDownMinStr,
                         onValueChange = { countDownMinStr = it },
-                        label = { Text("Countdown (minutes)") },
+                        label = { FieldLabel("Countdown (minutes)") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -369,18 +370,18 @@ fun CardioQuickLaunchEditorDialog(
                         FilterChip(
                             selected = outdoorPaceUnit == CardioSpeedUnit.MPH,
                             onClick = { outdoorPaceUnit = CardioSpeedUnit.MPH },
-                            label = { Text("mph") }
+                            label = { FieldLabel("mph") }
                         )
                         FilterChip(
                             selected = outdoorPaceUnit == CardioSpeedUnit.KMH,
                             onClick = { outdoorPaceUnit = CardioSpeedUnit.KMH },
-                            label = { Text("km/h") }
+                            label = { FieldLabel("km/h") }
                         )
                     }
                     OutlinedTextField(
                         value = outdoorPaceStr,
                         onValueChange = { outdoorPaceStr = it },
-                        label = { Text("Avg speed (optional)") },
+                        label = { FieldLabel("Avg speed (optional)") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -390,7 +391,7 @@ fun CardioQuickLaunchEditorDialog(
                     OutlinedTextField(
                         value = defaultRuckLbStr,
                         onValueChange = { defaultRuckLbStr = it },
-                        label = { Text("Default pack weight (lb, optional)") },
+                        label = { FieldLabel("Default pack weight (lb, optional)") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         modifier = Modifier.fillMaxWidth()
                     )

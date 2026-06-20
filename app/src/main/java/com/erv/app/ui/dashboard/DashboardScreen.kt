@@ -49,6 +49,7 @@ import androidx.compose.material.icons.filled.MonitorWeight
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Sports
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -72,6 +73,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.erv.app.ui.components.FieldLabel
 import com.erv.app.R
 import com.erv.app.cycling.LocalConcept2Pm
 import com.erv.app.cycling.LocalCyclingCsc
@@ -355,6 +357,7 @@ fun DashboardScreen(
     val supplementCategory = remember { categories.first { it.id == "supplements" } }
     val lightTherapyCategory = remember { categories.first { it.id == "light_therapy" } }
     val programsCategory = remember { categories.first { it.id == "programs" } }
+    val trainingCategory = remember { categories.first { it.id == "training" } }
     val today = remember { LocalDate.now() }
     val scope = rememberCoroutineScope()
     var showCalendar by remember { mutableStateOf(false) }
@@ -396,6 +399,7 @@ fun DashboardScreen(
     val keyManager = LocalKeyManager.current
     val availableLaunchPadTileIds = remember {
         buildSet {
+            add(LaunchPadTileId.TRAINING)
             add(LaunchPadTileId.PROGRAMS)
             add(LaunchPadTileId.WORKOUT_LAUNCHER)
             add(LaunchPadTileId.STRETCHING)
@@ -1001,6 +1005,7 @@ fun DashboardScreen(
                                     onOpenFastingCategory = { onNavigateToCategory(fastingCategory) },
                                     stretchRoutineCount = stretchState.routines.size,
                                     onOpenStretchingCategory = { onNavigateToCategory(stretchingCategory) },
+                                    onOpenTraining = { onNavigateToCategory(trainingCategory) },
                                     onOpenBodyTrackerCategory = { onNavigateToCategory(bodyTrackerCategory) },
                                     launchPadEditMode = launchPadEditMode,
                                     draftLaunchPadTileIds = draftLaunchPadTileIds
@@ -2125,6 +2130,7 @@ private fun RoutinesSection(
     onOpenFastingCategory: () -> Unit,
     stretchRoutineCount: Int,
     onOpenStretchingCategory: () -> Unit,
+    onOpenTraining: () -> Unit,
     onOpenBodyTrackerCategory: () -> Unit,
     launchPadEditMode: Boolean,
     draftLaunchPadTileIds: List<LaunchPadTileId>,
@@ -2304,6 +2310,23 @@ private fun RoutinesSection(
                 onOpenBodyTrackerCategory,
             ) {
                 buildMap<LaunchPadTileId, QuickLogTileSpec> {
+                    put(
+                        LaunchPadTileId.TRAINING,
+                        QuickLogTileSpec(
+                            id = LaunchPadTileId.TRAINING,
+                            icon = Icons.Default.Sports,
+                            label = "Training",
+                            subtitle = when {
+                                unifiedRoutines.isEmpty() && activeProgram == null ->
+                                    "Workouts, plans & building blocks"
+                                activeProgram != null ->
+                                    "Active plan · ${unifiedRoutines.size} workouts"
+                                else ->
+                                    "${unifiedRoutines.size} mixed workouts"
+                            },
+                            onClick = onOpenTraining,
+                        )
+                    )
                     put(
                         LaunchPadTileId.PROGRAMS,
                         QuickLogTileSpec(
@@ -3753,14 +3776,14 @@ private fun RoutineModifyDialog(
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("Routine name") },
+                    label = { FieldLabel("Routine name") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
                 OutlinedTextField(
                     value = notes,
                     onValueChange = { notes = it },
-                    label = { Text("Notes") },
+                    label = { FieldLabel("Notes") },
                     minLines = 2,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -3854,7 +3877,7 @@ private fun RoutineStepRow(
                 value = selectedSupplement?.name.orEmpty(),
                 onValueChange = {},
                 readOnly = true,
-                label = { Text("Supplement") },
+                label = { FieldLabel("Supplement") },
                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
                 modifier = Modifier
                     .menuAnchor()
@@ -3896,7 +3919,7 @@ private fun RoutineStepRow(
         OutlinedTextField(
             value = step.quantity,
             onValueChange = { onStepChange(step.copy(quantity = it.filter { ch -> ch.isDigit() })) },
-            label = { Text("Quantity (multiplier)") },
+            label = { FieldLabel("Quantity (multiplier)") },
             supportingText = { Text("e.g. 2 = 2× the serving size above") },
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -3906,7 +3929,7 @@ private fun RoutineStepRow(
         OutlinedTextField(
             value = step.note,
             onValueChange = { onStepChange(step.copy(note = it)) },
-            label = { Text("Step note (optional)") },
+            label = { FieldLabel("Step note (optional)") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth()
         )

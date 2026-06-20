@@ -28,6 +28,16 @@ enum class WeightEquipment {
 }
 
 @Serializable
+enum class WeightSetLoggingStyle {
+    /** Standard rep-based sets (default). */
+    @SerialName("reps") REPS,
+    /** Duration per set only (carries, isometric holds). */
+    @SerialName("time_only") TIME_ONLY,
+    /** Prescription may use reps or timed sets (swings, conditioning). */
+    @SerialName("reps_or_time") REPS_OR_TIME,
+}
+
+@Serializable
 data class WeightExercise(
     val id: String = UUID.randomUUID().toString(),
     val name: String,
@@ -51,12 +61,33 @@ data class WeightExercise(
      */
     val timePerSetCapable: Boolean = false,
     /**
+     * When false with [timePerSetCapable], sets are time-only (no rep prescription).
+     * When true with [timePerSetCapable], builder offers reps or time ([WeightSetLoggingStyle.REPS_OR_TIME]).
+     */
+    val repPerSetCapable: Boolean = true,
+    /**
      * Per-workout rollup for this exercise only (date + workout id, volume, est. 1RM).
      * Rebuilt from [WeightLibraryState.logs] on save; omitted when syncing the shared exercise list.
      */
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val sessionSummaries: List<WeightExerciseSessionSummary> = emptyList()
 )
+
+/** How a workout builder / live run should prescribe and log sets for this movement. */
+fun WeightExercise.setLoggingStyle(): WeightSetLoggingStyle = when {
+    timePerSetCapable && !repPerSetCapable -> WeightSetLoggingStyle.TIME_ONLY
+    timePerSetCapable && repPerSetCapable -> WeightSetLoggingStyle.REPS_OR_TIME
+    else -> WeightSetLoggingStyle.REPS
+}
+
+/** Whether live UI should show timed-set rows for this exercise given prescription hints. */
+fun WeightExercise.useTimedSetLogging(sets: List<WeightSet> = emptyList()): Boolean =
+    when (setLoggingStyle()) {
+        WeightSetLoggingStyle.TIME_ONLY -> true
+        WeightSetLoggingStyle.REPS_OR_TIME ->
+            sets.any { (it.targetDurationSeconds ?: 0) > 0 }
+        WeightSetLoggingStyle.REPS -> false
+    }
 
 @Serializable
 data class WeightRoutine(
@@ -76,8 +107,18 @@ data class WeightSet(
     val reps: Int,
     val weightKg: Double? = null,
     val rpe: Double? = null,
+    /** Reps in reserve hint for prescription / live ghost display. */
+    val rir: Int? = null,
+    /** Per-side or per-leg rep target when [side] is set. */
+    val repsPerSide: Int? = null,
+    /** `left`, `right`, `each`, or `alternating`. */
+    val side: String? = null,
     /** Hold duration for time-based movements (e.g. planks). Mutually exclusive with [reps] in practice. */
-    val durationSeconds: Int? = null
+    val durationSeconds: Int? = null,
+    /** Builder / prescription hint shown as a ghost value until the athlete logs reps. */
+    val targetReps: Int? = null,
+    /** Builder / prescription hint for timed holds; live timer defaults to this or 30s. */
+    val targetDurationSeconds: Int? = null,
 )
 
 /** A set is "logged" (worth keeping) when it has reps or a timed hold. */

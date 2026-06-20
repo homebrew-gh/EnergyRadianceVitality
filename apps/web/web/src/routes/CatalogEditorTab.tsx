@@ -1,3 +1,4 @@
+import { FieldLabel } from "../components/FieldLabel";
 import { useMemo, useState, type FormEvent, type ReactNode } from "react";
 import {
   formatCategoryLabel,
@@ -132,7 +133,7 @@ export function CatalogEditorTab() {
         <div className="flex flex-wrap items-end gap-3">
           <div className="flex-1 min-w-[200px]">
             <label className="label" htmlFor="catalog-search">
-              Search
+              <FieldLabel>Search</FieldLabel>
             </label>
             <input
               id="catalog-search"
@@ -582,10 +583,26 @@ function WeightExerciseModal({
           <input
             type="checkbox"
             checked={form.timePerSetCapable ?? false}
-            onChange={(e) => setForm({ ...form, timePerSetCapable: e.target.checked })}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                timePerSetCapable: e.target.checked,
+                repPerSetCapable: e.target.checked ? form.repPerSetCapable ?? true : true,
+              })
+            }
           />
           Timed sets
         </label>
+        {form.timePerSetCapable ? (
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={form.repPerSetCapable !== false}
+              onChange={(e) => setForm({ ...form, repPerSetCapable: e.target.checked })}
+            />
+            Also allow rep-based sets
+          </label>
+        ) : null}
       </div>
       <p className="text-xs text-muted font-mono break-all">id: {form.id}</p>
     </ModalShell>
@@ -732,7 +749,7 @@ function CardioActivityModal({
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div>
-      <span className="label">{label}</span>
+      <FieldLabel className="label">{label}</FieldLabel>
       {children}
     </div>
   );

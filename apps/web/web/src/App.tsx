@@ -7,6 +7,7 @@ import { CardioRoutinesTab } from "./routes/CardioRoutinesTab";
 import { RoutinesLayout } from "./routes/RoutinesLayout";
 import { StretchRoutinesTab } from "./routes/StretchRoutinesTab";
 import { WeightRoutinesTab } from "./routes/WeightRoutinesTab";
+import { WorkoutsTab } from "./routes/WorkoutsTab";
 import { SettingsTab } from "./routes/SettingsTab";
 import { SetupRoute } from "./routes/SetupRoute";
 import { UnlockRoute } from "./routes/UnlockRoute";
@@ -36,7 +37,7 @@ function Gate() {
       <Route path="/setup" element={<SetupRoute />} />
       <Route path="/unlock" element={<UnlockRoute />} />
       <Route path="/app" element={<AppShell />}>
-        <Route index element={<Navigate to="routines/weight" replace />} />
+        <Route index element={<Navigate to="workouts" replace />} />
         <Route path="routines" element={<RoutinesLayout />}>
           <Route index element={<Navigate to="weight" replace />} />
           <Route path="weight" element={<WeightRoutinesTab />} />
@@ -44,6 +45,7 @@ function Gate() {
           <Route path="cardio" element={<CardioRoutinesTab />} />
         </Route>
         <Route path="catalog" element={<CatalogEditorTab />} />
+        <Route path="workouts" element={<WorkoutsTab />} />
         <Route path="settings" element={<SettingsTab />} />
       </Route>
       <Route path="*" element={<RootRedirect status={status} />} />

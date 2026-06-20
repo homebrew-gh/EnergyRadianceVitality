@@ -1,8 +1,11 @@
 @file:OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 
+
 package com.erv.app.ui.reminders
 
 import android.Manifest
+import com.erv.app.ui.components.FormSectionLabel
+import com.erv.app.ui.components.FormSectionLabelMedium
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -29,6 +32,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.erv.app.ui.components.FieldLabel
 import com.erv.app.reminders.RoutineReminderDraft
 import com.erv.app.reminders.RoutineReminderFrequency
 import com.erv.app.reminders.RoutineReminderScheduler
@@ -121,7 +125,7 @@ fun RoutineReminderFormSection(
         if (reminderDraft.frequency == RoutineReminderFrequency.WEEKLY ||
             reminderDraft.frequency == RoutineReminderFrequency.CUSTOM_DAYS
         ) {
-            Text("Select days", style = MaterialTheme.typography.labelMedium)
+            FormSectionLabelMedium("Select days")
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -184,7 +188,7 @@ private fun ReminderFrequencyDropdown(
             value = label(value),
             onValueChange = {},
             readOnly = true,
-            label = { Text("Repeat") },
+            label = { FieldLabel("Repeat") },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             modifier = Modifier
                 .menuAnchor()

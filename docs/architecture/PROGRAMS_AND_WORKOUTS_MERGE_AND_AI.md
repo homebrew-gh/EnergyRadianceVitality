@@ -27,6 +27,20 @@ That yields **three authoring paths**, **two giant AlertDialog-heavy editors**, 
 
 The [workout construction schema](../import/workouts_import_schema.md) is the **proof** that merge works: one **Workout** entity holds every modality ERV already tracks (weight, cardio, stretch, sauna/cold, red light), and one **Plan** only schedules those workouts plus habits/rest. That replaces today’s split between Programs inline blocks and Unified Workouts.
 
+### 1.1 Current interim state (June 2026)
+
+Merge is **not** complete. Phase 2 workout composer is in progress (~65%). Three coexisting surfaces:
+
+| Surface | Models | Scheduling | Live run |
+|---------|--------|------------|----------|
+| **Programs** | `FitnessProgram`, inline blocks | ✅ strategy + habits | Silo refs / unified refs |
+| **Unified Workouts** | `UnifiedRoutine` | ❌ no dates | ✅ unified pipeline |
+| **Workouts (Training)** | `Workout` + segments | ❌ no dates | 🟡 new pipeline; weight ✅, cardio/mobility stubs |
+
+**Canonical direction:** `Workout` replaces `UnifiedRoutine` over time; `Plan` will reference `workoutId` only (Phase 3). Until then, do **not** remove Programs or Unified Workouts tiles.
+
+**Start9:** workout builder is the default web landing; silo routines remain library ingredients. See [START9_COMPANION_V1.md](START9_COMPANION_V1.md) Phase 2 and [WORKOUT_PLAN_EDITOR_SPEC.md §9.3](WORKOUT_PLAN_EDITOR_SPEC.md).
+
 ---
 
 ## 2. Target architecture
@@ -287,31 +301,38 @@ Longer term: [USER_AGENT_NOSTR_AUTHORIZATION.md](../archive/planning/USER_AGENT_
 
 **Models & data**
 
-- [ ] `UnifiedRoutineModels.kt` — block types + fields
-- [ ] `ProgramModels.kt` — slim `ProgramDayBlock` / `ProgramBlockKind`
-- [ ] Migration helper + tests
-- [ ] `UnifiedRoutineRepository.kt`, `ProgramRepository.kt` — merge APIs, workout library
+- [x] **`WorkoutModels.kt`** — `Workout`, segments, items, prescriptions (Phase 2; no `heat_cold`/`light` yet)
+- [x] **`WorkoutRepository.kt`**, **`WorkoutSync.kt`**, **`WorkoutImport.kt`** — library + Nostr + merge
+- [x] **`WorkoutRunEngine.kt`** — segment advance, circuit/superset round-robin
+- [ ] `UnifiedRoutineModels.kt` — block types + fields (legacy; deprecate after Phase 3)
+- [ ] `ProgramModels.kt` — slim `ProgramDayBlock` / `workoutRefs` migration
+- [ ] Migration helper + tests (inline blocks → workout refs)
+- [ ] Merge APIs: single workout library replacing unified + program inline blocks
 
 **UI**
 
-- [ ] New `WorkoutBuilderScreen`, `PlanBuilderScreen`, merged category shell
+- [x] **`WorkoutLibraryScreen`**, **`WorkoutComposerScreen`**, **`WorkoutLiveRunScreen`** — Phase 2 MVP
+- [x] **`WeightExerciseSetsCard.kt`** — ghost `targetReps`, hold countdown in live run
+- [x] Web **`WorkoutsTab.tsx`**, **`WorkoutSegmentEditor.tsx`** — multi-modality builder
+- [ ] New merged **`PlanBuilderScreen`** / Planner shell (Phase 3)
 - [ ] Retire or shrink `ProgramsScreens.kt`, unify with `UnifiedRoutineScreen.kt` patterns
-- [ ] `DashboardScreen.kt` — single tile; update program sheet
-- [ ] `LaunchPadTileOrder.kt`, `FirstRunSetupScreen.kt`, `ErvNavHost.kt`
+- [ ] `DashboardScreen.kt` — today card (Phase 4); single tile after nav merge
+- [ ] `LaunchPadTileOrder.kt`, `ErvNavHost.kt` — Planner replaces two tiles (Phase 3)
 
 **AI**
 
 - [ ] `com.erv.app.ai.*` package
 - [ ] `UserPreferences.kt` — AI + Maple settings
 - [ ] Merged section: provider selector + generate/edit entry points
-- [ ] Workout import envelope + preview dialog
+- [ ] Workout import envelope + preview dialog (file picker)
 - [ ] Extend `ImportExportCoordinator` context bundle for workouts
 
 **Docs**
 
-- [ ] [WORKOUT_PLAN_EDITOR_SPEC.md](WORKOUT_PLAN_EDITOR_SPEC.md) — authoring UX (this is the editor source of truth)
-- [ ] Update `programs_import_ai_guide.md` when plan day schema changes
-- [ ] Add `workouts_import_schema.md` to app assets when import ships (mirror programs AI guide)
+- [x] [WORKOUT_PLAN_EDITOR_SPEC.md](WORKOUT_PLAN_EDITOR_SPEC.md) — authoring UX + **implementation status (§9.3, §14–§15)**
+- [x] [START9_COMPANION_V1.md](START9_COMPANION_V1.md) — Phase 2 progress checklist
+- [x] [workouts_import_schema.md](../import/workouts_import_schema.md) — status + checklist updated
+- [ ] Update `programs_import_ai_guide.md` when plan day schema changes (Phase 3)
 
 ---
 
@@ -331,4 +352,4 @@ Longer term: [USER_AGENT_NOSTR_AUTHORIZATION.md](../archive/planning/USER_AGENT_
 
 ---
 
-*Last updated: June 2026 — merge-first sequencing; Maple Proxy as optional AI provider.*
+*Last updated: June 2026 — merge-first sequencing; Phase 2 Workout entity shipped in parallel; Phase 3 nav merge pending.*

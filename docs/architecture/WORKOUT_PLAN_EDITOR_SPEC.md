@@ -4,7 +4,7 @@ This document defines the **authoring experience** for ERV training content: a r
 
 **Scope:** product and UX — not implementation detail at the code level.
 
-**Related companion checklist:** [START9_COMPANION_V1.md](START9_COMPANION_V1.md) (web silo routine editors shipped; workout composer and planner are later phases).
+**Related companion checklist:** [START9_COMPANION_V1.md](START9_COMPANION_V1.md) (Phase 1 silo routines shipped; **Phase 2 workout composer ~65%** — see §9.3, §12.2, §14–§15 below).
 
 ---
 
@@ -563,9 +563,20 @@ Prescription → execution handoff:
 | AI generate plan / workout | **4+** | After composer grammar is stable (B8) |
 | Multi-week pinch zoom grid | **3.1** | Nice-to-have after single-week planner |
 
-### 9.3 Interim state (current shipping)
+### 9.3 Interim state (current shipping — June 2026)
 
-Until Phase 3, Android keeps separate Programs and Unified Workouts tiles. Web companion ships **silo routine editors** and **catalog editor** ([START9_COMPANION_V1.md](START9_COMPANION_V1.md)) — these are library ingredients, not the scheduling layer. **Do not** change top-level Android navigation or add calendar assignment to routines before the Planner ships.
+Until Phase 3, Android keeps separate **Programs** and **Unified Workouts** Launch Pad tiles — **as planned**. A third parallel surface now exists:
+
+| Surface | Status | Role |
+|---------|--------|------|
+| **Programs** | Unchanged | Weekly plan, strategy, habits (legacy block model) |
+| **Unified Workouts** | Unchanged | Legacy multi-block session templates + unified live run |
+| **Training → Workouts** | **Phase 2 MVP shipped** | New canonical `Workout` library, composer, live run, Nostr sync |
+| **Start9 web** | Phase 1 + **Phase 2 partial** | Silo routines + catalog + **workout builder** (default landing) |
+
+**Do not** merge Launch Pad tiles or add calendar assignment to silo routines before Phase 3 Planner ships.
+
+**Web companion:** deep authoring on Start9; **builder-only** — no live session start on web (phone executes). Workout builder is the **first nav tab** and default route `/app/workouts`.
 
 ---
 
@@ -587,7 +598,7 @@ Until Phase 3, Android keeps separate Programs and Unified Workouts tiles. Web c
 |----------|-------------------|
 | Segment vs block naming in code | Prefer **segment** in UX copy; internal may stay `WorkoutBlock` for migration |
 | Prescription on silo `WeightRoutine` | Deprecate silo routine as authorable template over time; **Workout is canonical**; weight routine remains library ingredient + legacy/import alias |
-| Nostr d-tag for workout library | `erv/workouts/library` (planned Phase 2) |
+| Nostr d-tag for workout library | **`erv/workouts/library`** — ✅ shipped (Phase 2) |
 | Planner tile name | “Planner”, “Training plan”, or “Plans & workouts” — pick before Android nav merge |
 | Day drop creates vs appends workout | Default: **one workout per day slot**; append segments on repeat drops; “Add another workout” for AM/PM |
 | Start9 SPA stack | React (`apps/web/web/`) — in use for companion |
@@ -627,40 +638,46 @@ A complex week = **multiple workouts** in the library, each its own ordered segm
 
 ### 12.2 Capability checklist (acceptance)
 
-Real-world hybrid training (cardio + intervals + circuits + lifting + flex in one week) motivated this list — but the builder must satisfy it **generically**:
+Real-world hybrid training (cardio + intervals + circuits + lifting + flex in one week) motivated this list — but the builder must satisfy it **generically**.
 
-| Capability | Schema hook |
-|------------|-------------|
-| HR-target or HR-range cardio | `hrTargetBpm`, `hrTargetMinBpm` / `Max` on `cardio` |
-| Nested multi-round intervals | `outerRounds` + `legs[]` |
-| Flat sprint intervals | `mode: sprint_intervals`, `rounds`, work/rest seconds |
-| Circuits with round count | `kind: circuit`, `rounds`, `restPolicy` |
-| Time-based strength | `prescription.mode: time_based` |
-| Reps per side | `repsPerSide`, `side` |
-| Rep ranges + RIR | `repRangeMin/Max`, `targetRir` |
-| Max reps | `mode: max_reps` |
-| Superset rest (between vs after round) | `restPolicy` on `superset` |
-| Composite warm-ups | `kind: composite`, mixed `items` |
-| Exercise alternatives | `alternativeExerciseIds` |
-| Equipment / log prompts | `equipmentNotes`, `logFields` |
-| Per-side stretch holds | `holdSecondsPerSide` |
-| Custom lifts | `customExercises[]` in envelope |
-| Sauna / cold plunge | `heat_cold` items |
-| Light therapy (device/routine) | `light` items |
-| Cross-silo content pickers | Weight + cardio + stretch + recovery libraries |
+**Legend:** ✅ shipped · 🟡 partial · ❌ not started
 
-When every row is implemented, **any** workout composable from the schema — not one fixed template.
+| Capability | Schema hook | Status |
+|------------|-------------|--------|
+| HR-target or HR-range cardio | `hrTargetBpm`, `hrTargetMinBpm` / `Max` on `cardio` | 🟡 single BPM target on web; no range; live run stub |
+| Nested multi-round intervals | `outerRounds` + `legs[]` | ❌ |
+| Flat sprint intervals | `mode: sprint_intervals`, `rounds`, work/rest seconds | ❌ |
+| Circuits with round count | `kind: circuit`, `rounds`, `restPolicy` | ✅ web + Android |
+| Time-based strength | `prescription.mode: time_based` | 🟡 `durationSeconds` + live countdown; no composer mode tab |
+| Reps per side | `repsPerSide`, `side` | ❌ |
+| Rep ranges + RIR | `repRangeMin/Max`, `targetRir` | ✅ web + Android composer |
+| **`targetReps` ghost in live UI** | `targetReps` on prescription | ✅ *(implementation addition — §15)* |
+| Max reps | `mode: max_reps` | ❌ |
+| Superset rest (between vs after round) | `restPolicy` on `superset` | ✅ |
+| Composite warm-ups | `kind: composite`, mixed `items` | ✅ web Flow block; Android run |
+| Dedicated cardio / mobility segments | `kind: cardio` / `mobility` | ✅ web *(implementation addition — §15)* |
+| Exercise alternatives | `alternativeExerciseIds` | ❌ |
+| Equipment / log prompts | `equipmentNotes`, `logFields` | ❌ |
+| Per-side stretch holds | `holdSecondsPerSide` | ✅ web builder |
+| Custom lifts | `customExercises[]` in envelope | ❌ merge only; no UI |
+| Sauna / cold plunge | `heat_cold` items | ❌ |
+| Light therapy (device/routine) | `light` items | ❌ |
+| Cross-silo content pickers | Weight + cardio + stretch libraries | ✅ web Flow block sidebar |
+| Nostr workout library sync | `erv/workouts/library` | ✅ |
+| Plan assigns workout by id | `workoutRefs` on `PlanDay` | ❌ Phase 3 |
+
+When every row is ✅, **any** workout composable from the schema — not one fixed template.
 
 ### 12.3 Live run (segment order)
 
 Unified session walks `segments[]` top to bottom:
 
-1. **Cardio / interval** → timer + optional HR banner + log prompts  
-2. **Circuit** → round counter; cycle items; apply `restPolicy`  
-3. **Superset** → A → rest → B → rest after round  
-4. **Straight sets** → weight live UI with pre-filled prescription  
-5. **Mobility / composite** → hold timers; run items in order  
-6. **Recovery (`heat_cold` / `light`)** → Hot+Cold or Light Therapy timer; prescribed duration; optional temp at log  
+1. **Cardio / interval** → timer + optional HR banner + log prompts — 🟡 **stub** (summary + Continue; no Cardio silo launch yet)
+2. **Circuit** → round counter; cycle items; apply `restPolicy` — ✅ weight items only
+3. **Superset** → A → rest → B → rest after round — ✅ weight items only
+4. **Straight sets** → weight live UI with pre-filled prescription — ✅ incl. ghost `targetReps` / hold countdown
+5. **Mobility / composite** → hold timers; run items in order — 🟡 **stub** for mobility/cardio items
+6. **Recovery (`heat_cold` / `light`)** → Hot+Cold or Light Therapy timer — ❌ not in schema yet
 
 Structure is fixed at run time; user only confirms or adjusts **actuals**.
 
@@ -694,20 +711,30 @@ Templates are **insert segment** actions in the composer `+` menu; users rename,
 
 Phases align [START9_COMPANION_V1.md](START9_COMPANION_V1.md) web work, Android merge ([PROGRAMS_AND_WORKOUTS_MERGE_AND_AI.md](PROGRAMS_AND_WORKOUTS_MERGE_AND_AI.md)), and the construction checklist (§12.2).
 
-### 14.1 Phase 2 — Workout composer (session level)
+### 14.1 Phase 2 — Workout composer (session level) — **~90% complete**
+
+**Product note:** Sauna, cold plunge, and red-light sessions are **not** workout segment items. They extend total session time and are already available as standalone silos (Hot+Cold, Light Therapy) after the user finishes a workout.
 
 **Goal:** Ship the construction grammar and library palette. **Do not** change how workouts are presented in the Android app yet (no Planner tile, no date assignment).
 
-| Sub-phase | Deliverable | Surfaces |
-|-----------|-------------|----------|
-| **B1 — Schema** | Types in §3 + [workouts_import_schema.md](../import/workouts_import_schema.md) | Android models, import/export |
-| **B2 — Composer MVP** | Storyboard, straight sets, rep range + RIR, circuits, composite segments | Android Composer route |
-| **B3 — Cardio + HR** | Steady, HR targets/ranges, log fields, nested + flat intervals (HIIT) | Android + web types |
-| **B4 — Superset + time** | Rest policy, time-based, max reps, per-side reps | Android Composer |
-| **B5 — Mobility + recovery** | Per-side holds, alternatives; **heat_cold** + **light** items and silo launch | Android Composer |
-| **B7 (partial) — Web composer** | `erv/workouts/library` publish; segment templates; drag-reorder storyboard | Start9 companion |
+| Sub-phase | Deliverable | Surfaces | Status |
+|-----------|-------------|----------|--------|
+| **B1 — Schema** | Types in §3 + [workouts_import_schema.md](../import/workouts_import_schema.md) | Android models, import/export | 🟡 core types + Nostr sync; `heat_cold`/`light` deferred (post-workout only) |
+| **B2 — Composer MVP** | Storyboard, straight sets, rep range + RIR, circuits, composite segments | Android Composer route | 🟡 lifting + cardio/mobility/flow on device |
+| **B3 — Cardio + HR** | Steady, HR targets/ranges, log fields, nested + flat intervals (HIIT) | Android + web types | 🟡 steady + HR range + routine ref + intervals |
+| **B4 — Superset + time** | Rest policy, time-based, max reps, per-side reps | Android Composer | ✅ rest policy + max reps + per-side + per-set editor |
+| **B5 — Mobility + recovery** | Per-side holds, alternatives; stretch in live run | Android Composer | ✅ mobility on web + Android; recovery silos **out of scope** (separate app flows) |
+| **B7 (partial) — Web composer** | `erv/workouts/library` publish; segment templates; drag-reorder storyboard | Start9 companion | 🟡 templates + multi-modality builder shipped |
 
 **Phase 2 acceptance test:** Build two unrelated workouts (e.g. cardio-only + lift+circuit) from templates only; publish to relay; import JSON on Android; run one with segment auto-advance.
+
+| Step | Status |
+|------|--------|
+| Build on web (multi-modality) | ✅ |
+| Publish to relay | ✅ |
+| Android sync | ✅ |
+| Run with full silo integration | ✅ weight + cardio timer + stretch (recovery excluded by design) |
+| JSON import on Android | ✅ Settings → Workouts |
 
 **Phase 2 anti-patterns (do not ship):**
 
@@ -718,24 +745,24 @@ Phases align [START9_COMPANION_V1.md](START9_COMPANION_V1.md) web work, Android 
 
 Silo routine editors (web Phase 1) continue as **ingredients** — weight / stretch / cardio lists with edit/delete and multi-leg cardio.
 
-### 14.2 Phase 3 — Weekly planner (presentation shift)
+### 14.2 Phase 3 — Weekly planner (presentation shift) — **not started**
 
 **Goal:** One **Planner** section showcasing **all workouts for the week**; week-first drag-and-drop (§2, §5). This is when the product changes how training is organized — not before the composer exists.
 
-| Sub-phase | Deliverable | Surfaces |
-|-----------|-------------|----------|
-| **B6 — Plan calendar MVP** | `workoutRefs` on `PlanDay`; week grid; drop palette (§2.2); auto-create/update workouts on drop | Android Planner + web |
-| **3a — Nav merge** | Retire separate Programs + Unified Workouts tiles → **Planner** | Android Launch Pad |
-| **3b — Plan richness** | Strategy (repeat / rotation / challenge), habit checklists, rest/custom notes, multi-week templates | Android (+ web follow) |
+| Sub-phase | Deliverable | Surfaces | Status |
+|-----------|-------------|----------|--------|
+| **B6 — Plan calendar MVP** | `workoutRefs` on `PlanDay`; week grid; drop palette (§2.2); auto-create/update workouts on drop | Android Planner + web | ❌ |
+| **3a — Nav merge** | Retire separate Programs + Unified Workouts tiles → **Planner** | Android Launch Pad | ❌ |
+| **3b — Plan richness** | Strategy (repeat / rotation / challenge), habit checklists, rest/custom notes, multi-week templates | Android (+ web follow) | ❌ (Programs unchanged) |
 
 **Phase 3 acceptance test:** Drag a circuit template and a cardio routine onto two days; sync plan + workouts via relay; Android week view matches; tap day → run live session.
 
-### 14.3 Phase 4 — Today surfacing + AI
+### 14.3 Phase 4 — Today surfacing + AI — **not started**
 
-| Sub-phase | Deliverable |
-|-----------|-------------|
-| **Dashboard today card** | Read active plan → show planned workout for calendar today (§5.4) |
-| **B8 — AI** | Generate valid workout/plan envelopes from construction grammar; Maple on Start9 |
+| Sub-phase | Deliverable | Status |
+|-----------|-------------|--------|
+| **Dashboard today card** | Read active plan → show planned workout for calendar today (§5.4) | ❌ |
+| **B8 — AI** | Generate valid workout/plan envelopes from construction grammar; Maple on StartOS | ❌ |
 
 ### 14.4 Sub-phase reference (original B1–B8)
 
@@ -752,7 +779,29 @@ Silo routine editors (web Phase 1) continue as **ingredients** — weight / stre
 
 ---
 
-## 15. References
+## 15. Implementation additions (June 2026)
+
+Items shipped during Phase 2 that were **not** in the original product spec but are now part of the implementation contract:
+
+| Addition | Rationale | Surfaces |
+|----------|-----------|----------|
+| **`targetReps`** on `WorkoutWeightPrescription` | Ghost rep target in live logging; editable during session | Android live run, web builder, both models |
+| **Timed hold countdown** from `durationSeconds` (30s default) | Planks / holds show countdown before user logs | Android `WeightExerciseSetsCard.kt` |
+| **Web builder as default landing** | Desktop is for deep authoring, not silo routines first | `/app/workouts` default route; Workout builder first in nav |
+| **Builder-only web** | StartOS composes; phone executes with BLE/GPS | No live-start button on web |
+| **Focus UX on web builder** | Reduce mis-clicks when no segment selected | Greyed catalog (`pickDisabled`); pulse on segment-type buttons + active segment (`erv-pulse-border`) |
+| **Library ADD affordance** | Clear “add to segment” vs browse | Sidebar buttons say **ADD** only |
+| **Dedicated `cardio` / `mobility` segment kinds** | Not only composite — matches unified workout chapter model | Web segment menu; Android enum + labels |
+| **Flow block** label for `composite` | User-facing name for multi-modality warm-up/cooldown | Web UI |
+| **Android Training → Workouts hub** | Phase 2 surface without merging Launch Pad yet | Parallel to legacy Unified Workouts |
+| **Passive rest items + segment rest countdown** | Coach cues and transition rest in storyboard | Web + Android composer; live run timer |
+| **Continue cards** for non-weight steps | Teleprompter until silo integration | Android live run (cardio, mobility, note, rest) |
+
+When updating schema docs or AI prompts, include `targetReps` where a single rep target is intended (distinct from `repRangeMin`/`Max`).
+
+---
+
+## 16. References
 
 | Doc | Relevance |
 |-----|-----------|
@@ -767,4 +816,4 @@ Silo routine editors (web Phase 1) continue as **ingredients** — weight / stre
 
 ---
 
-*Last updated: June 2026 — Planner phasing; week-first drag-and-drop; workout-backed storage; Phase 2 composer vs Phase 3 weekly planner vs Phase 4 dashboard today.*
+*Last updated: June 2026 — Phase 2 ~65% complete; implementation status in §9.3, §12.2, §14, §15.*

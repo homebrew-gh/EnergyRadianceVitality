@@ -40,9 +40,11 @@ That builds the web SPA + Rust server and stages `apps/web/.pack/` (binary, dist
 One command from repo root:
 
 ```bash
-chmod +x packages/start9/build.sh
-./packages/start9/build.sh    # → packages/start9/erv-web_x86_64.s9pk
+RELEASE_NOTES="What changed in this build." ./packages/start9/build.sh
+# → packages/start9/erv-web_x86_64.s9pk (version auto-bumped for in-place update)
 ```
+
+Each build **bumps the downstream version** (`0.1.2:0` → `0.1.2:1`) so sideloading updates the existing install without uninstalling. Set `SKIP_VERSION_BUMP=1` only for local repacks that will not be installed.
 
 Or step by step (always from repo root):
 
@@ -57,6 +59,14 @@ make verify               # optional sanity check
 ### Install on your StartOS server
 
 **Sideload (recommended first time):** StartOS web UI → **Sideload** → upload `erv-web_x86_64.s9pk`.
+
+**Update an existing install:** Build with `./packages/start9/build.sh` (auto-bumps version), then sideload the new `.s9pk` — no uninstall needed. Or via CLI:
+
+```bash
+start-cli package install erv-web 0.1.2:1 --sideload packages/start9/erv-web_x86_64.s9pk
+```
+
+Use the version printed at the end of `build.sh`.
 
 **CLI install (same LAN):** Add to `~/.startos/config.yaml`:
 

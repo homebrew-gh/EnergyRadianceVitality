@@ -1,3 +1,4 @@
+import { FieldLabel } from "../components/FieldLabel";
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { ReorderableList } from "../components/ReorderableList";
@@ -142,7 +143,7 @@ export function StretchRoutinesTab() {
           </p>
           <div>
             <label className="label" htmlFor="stretch-routine-name">
-              Name
+              <FieldLabel>Name</FieldLabel>
             </label>
             <input
               id="stretch-routine-name"
@@ -155,7 +156,7 @@ export function StretchRoutinesTab() {
           </div>
           <div>
             <label className="label" htmlFor="stretch-hold">
-              Hold seconds per stretch
+              <FieldLabel>Hold seconds per stretch</FieldLabel>
             </label>
             <input
               id="stretch-hold"
@@ -168,7 +169,9 @@ export function StretchRoutinesTab() {
             />
           </div>
           <div>
-            <p className="label">Routine order ({draftIds.length})</p>
+            <p className="label">
+              <FieldLabel>{`Routine order (${draftIds.length})`}</FieldLabel>
+            </p>
             {draftIds.length === 0 ? (
               <p className="text-sm text-muted">Add stretches from the sidebar.</p>
             ) : (

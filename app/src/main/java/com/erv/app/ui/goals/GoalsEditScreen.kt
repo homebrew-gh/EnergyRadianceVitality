@@ -38,6 +38,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.text.KeyboardOptions
+import com.erv.app.ui.components.FieldLabel
 import com.erv.app.data.GoalTemplateOption
 import com.erv.app.data.GoalTemplateOptions
 import com.erv.app.data.UserPreferences
@@ -279,7 +280,7 @@ private fun GoalEditorDialog(
                 OutlinedTextField(
                     value = title,
                     onValueChange = { title = it },
-                    label = { Text("Goal title") },
+                    label = { FieldLabel("Goal title") },
                     singleLine = true,
                     modifier = Modifier
                         .fillMaxWidth(),
@@ -287,7 +288,7 @@ private fun GoalEditorDialog(
                 OutlinedTextField(
                     value = target,
                     onValueChange = { target = it.filter(Char::isDigit) },
-                    label = { Text("Weekly target") },
+                    label = { FieldLabel("Weekly target") },
                     singleLine = true,
                     isError = targetError,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),

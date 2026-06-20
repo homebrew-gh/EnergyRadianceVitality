@@ -33,6 +33,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import com.erv.app.ui.components.FieldLabel
 import com.erv.app.weighttraining.WeightExercise
 import com.erv.app.weighttraining.WeightRoutine
 import com.erv.app.weighttraining.displayLabel
@@ -83,7 +84,7 @@ fun WeightRoutineEditorDialog(
                 OutlinedTextField(
                     value = routineName,
                     onValueChange = { routineName = it },
-                    label = { Text("Routine name") },
+                    label = { FieldLabel("Routine name") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -91,7 +92,7 @@ fun WeightRoutineEditorDialog(
                 OutlinedTextField(
                     value = notes,
                     onValueChange = { notes = it },
-                    label = { Text("Notes (optional)") },
+                    label = { FieldLabel("Notes (optional)") },
                     modifier = Modifier.fillMaxWidth()
                 )
                 Spacer(Modifier.height(16.dp))

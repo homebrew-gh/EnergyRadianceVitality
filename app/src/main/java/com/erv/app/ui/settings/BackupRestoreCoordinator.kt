@@ -22,6 +22,7 @@ import com.erv.app.stretching.StretchingRepository
 import com.erv.app.supplements.SupplementRepository
 import com.erv.app.unifiedroutines.UnifiedRoutineRepository
 import com.erv.app.weighttraining.WeightRepository
+import com.erv.app.workouts.WorkoutRepository
 import com.erv.app.cardio.CardioRepository
 import java.io.File
 import java.util.Base64
@@ -52,6 +53,7 @@ class BackupRestoreCoordinator(
     private val supplementRepository: SupplementRepository,
     private val programRepository: ProgramRepository,
     private val unifiedRoutineRepository: UnifiedRoutineRepository,
+    private val workoutRepository: WorkoutRepository,
     private val bodyTrackerRepository: BodyTrackerRepository,
     private val reminderRepository: RoutineReminderRepository,
     private val fastingRepository: FastingRepository,
@@ -269,6 +271,7 @@ class BackupRestoreCoordinator(
             supplementRepository = supplementRepository,
             programRepository = programRepository,
             bodyTrackerRepository = bodyTrackerRepository,
+            workoutRepository = workoutRepository,
         )
         val drain = CurrentRelayDataSync.forceResync(
             appContext = appContext,

@@ -30,6 +30,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.erv.app.ui.components.FieldLabel
 import com.erv.app.data.BattleRopeHeft
 import com.erv.app.data.BattleRopeOwnership
 import com.erv.app.data.BenchOwnership
@@ -634,25 +635,25 @@ fun MobilityToolsEquipmentDialog(
                 FilterChip(
                     selected = foam,
                     onClick = { foam = !foam },
-                    label = { Text("Foam roller") },
+                    label = { FieldLabel("Foam roller") },
                     modifier = Modifier.fillMaxWidth()
                 )
                 FilterChip(
                     selected = lax,
                     onClick = { lax = !lax },
-                    label = { Text("Lacrosse ball") },
+                    label = { FieldLabel("Lacrosse ball") },
                     modifier = Modifier.fillMaxWidth()
                 )
                 FilterChip(
                     selected = peanut,
                     onClick = { peanut = !peanut },
-                    label = { Text("Peanut / double ball") },
+                    label = { FieldLabel("Peanut / double ball") },
                     modifier = Modifier.fillMaxWidth()
                 )
                 FilterChip(
                     selected = gun,
                     onClick = { gun = !gun },
-                    label = { Text("Massage gun") },
+                    label = { FieldLabel("Massage gun") },
                     modifier = Modifier.fillMaxWidth()
                 )
                 ModalityPicker(modalities = modalities, onChange = { modalities = it })
@@ -705,13 +706,13 @@ fun ParallettesRingsEquipmentDialog(
                 FilterChip(
                     selected = par,
                     onClick = { par = !par },
-                    label = { Text("Parallettes") },
+                    label = { FieldLabel("Parallettes") },
                     modifier = Modifier.fillMaxWidth()
                 )
                 FilterChip(
                     selected = rings,
                     onClick = { rings = !rings },
-                    label = { Text("Gymnastic rings") },
+                    label = { FieldLabel("Gymnastic rings") },
                     modifier = Modifier.fillMaxWidth()
                 )
                 ModalityPicker(modalities = modalities, onChange = { modalities = it })

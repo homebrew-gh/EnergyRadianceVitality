@@ -32,6 +32,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.erv.app.ui.components.FieldLabel
 import com.erv.app.cardio.CardioDistanceUnit
 import com.erv.app.cardio.CardioHistoryImport
 import com.erv.app.cardio.CardioImportOutcome
@@ -56,6 +57,10 @@ import com.erv.app.weighttraining.WeightImportDatedSession
 import com.erv.app.weighttraining.WeightImportOutcome
 import com.erv.app.weighttraining.WeightLibraryState
 import com.erv.app.weighttraining.WeightRepository
+import com.erv.app.workouts.WorkoutImportEnvelope
+import com.erv.app.workouts.WorkoutLibraryState
+import com.erv.app.workouts.WorkoutRepository
+import com.erv.app.workouts.decodeWorkoutImportEnvelope
 import com.erv.app.heatcold.HeatColdRepository
 import com.erv.app.lighttherapy.LightTherapyRepository
 import com.erv.app.stretching.StretchingRepository
@@ -86,6 +91,7 @@ private enum class ImportSilo {
     WEIGHT,
     CARDIO,
     PROGRAMS,
+    WORKOUTS,
     BACKUP_RESTORE,
 }
 
@@ -103,6 +109,11 @@ private data class PendingCardioImport(
 private data class PendingProgramImport(
     val envelope: ProgramImportEnvelope,
     val libraryBeforePreview: ProgramsLibraryState,
+)
+
+private data class PendingWorkoutImport(
+    val envelope: WorkoutImportEnvelope,
+    val libraryBeforePreview: WorkoutLibraryState,
 )
 
 private data class PendingBackupRestore(
@@ -158,6 +169,7 @@ fun SettingsDataImportExportScreen(
     supplementRepository: SupplementRepository,
     programRepository: ProgramRepository,
     unifiedRoutineRepository: UnifiedRoutineRepository,
+    workoutRepository: WorkoutRepository,
     bodyTrackerRepository: BodyTrackerRepository,
     reminderRepository: RoutineReminderRepository,
     relayPool: RelayPool?,
@@ -204,6 +216,7 @@ fun SettingsDataImportExportScreen(
         supplementRepository,
         programRepository,
         unifiedRoutineRepository,
+        workoutRepository,
         bodyTrackerRepository,
         reminderRepository,
         relayPool,
@@ -221,6 +234,7 @@ fun SettingsDataImportExportScreen(
             supplementRepository = supplementRepository,
             programRepository = programRepository,
             unifiedRoutineRepository = unifiedRoutineRepository,
+            workoutRepository = workoutRepository,
             bodyTrackerRepository = bodyTrackerRepository,
             reminderRepository = reminderRepository,
             fastingRepository = FastingRepository(context.applicationContext),
@@ -240,6 +254,7 @@ fun SettingsDataImportExportScreen(
         supplementRepository,
         programRepository,
         unifiedRoutineRepository,
+        workoutRepository,
         bodyTrackerRepository,
         reminderRepository,
         relayPool,
@@ -257,6 +272,7 @@ fun SettingsDataImportExportScreen(
             supplementRepository = supplementRepository,
             programRepository = programRepository,
             unifiedRoutineRepository = unifiedRoutineRepository,
+            workoutRepository = workoutRepository,
             bodyTrackerRepository = bodyTrackerRepository,
             reminderRepository = reminderRepository,
             fastingRepository = FastingRepository(context.applicationContext),
@@ -301,10 +317,12 @@ fun SettingsDataImportExportScreen(
     var pendingWeightImport by remember { mutableStateOf<PendingWeightImport?>(null) }
     var pendingCardioImport by remember { mutableStateOf<PendingCardioImport?>(null) }
     var pendingProgramImport by remember { mutableStateOf<PendingProgramImport?>(null) }
+    var pendingWorkoutImport by remember { mutableStateOf<PendingWorkoutImport?>(null) }
     var parseErrorMessages by remember { mutableStateOf<List<String>?>(null) }
     var weightReferenceExpanded by remember { mutableStateOf(false) }
     var cardioReferenceExpanded by remember { mutableStateOf(false) }
     var programReferenceExpanded by remember { mutableStateOf(false) }
+    var workoutReferenceExpanded by remember { mutableStateOf(false) }
 
     val pickLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
@@ -360,6 +378,22 @@ fun SettingsDataImportExportScreen(
                         )
                     }
                 }
+                ImportSilo.WORKOUTS -> {
+                    val librarySnapshot = workoutRepository.currentState()
+                    decodeWorkoutImportEnvelope(text).fold(
+                        onSuccess = { envelope ->
+                            pendingWorkoutImport = PendingWorkoutImport(
+                                envelope = envelope,
+                                libraryBeforePreview = librarySnapshot,
+                            )
+                        },
+                        onFailure = {
+                            parseErrorMessages = listOf(
+                                it.message ?: "This file is not a valid workout import envelope.",
+                            )
+                        },
+                    )
+                }
                 ImportSilo.BACKUP_RESTORE -> {
                     backupRestoreCoordinator.previewBackupText(text).fold(
                         onSuccess = { pendingBackupRestore = PendingBackupRestore(it) },
@@ -413,6 +447,20 @@ fun SettingsDataImportExportScreen(
                 pendingProgramImport = null
                 scope.launch {
                     snackbarHostState.showSnackbar(exportCoordinator.commitProgramsImport(toApply.envelope))
+                }
+            },
+        )
+    }
+
+    pendingWorkoutImport?.let { pending ->
+        WorkoutImportPreviewDialog(
+            pending = pending,
+            onDismiss = { pendingWorkoutImport = null },
+            onConfirm = {
+                val toApply = pending
+                pendingWorkoutImport = null
+                scope.launch {
+                    snackbarHostState.showSnackbar(exportCoordinator.commitWorkoutImport(toApply.envelope))
                 }
             },
         )
@@ -490,7 +538,7 @@ fun SettingsDataImportExportScreen(
                     value = exportCategory.label,
                     onValueChange = {},
                     readOnly = true,
-                    label = { Text("Category") },
+                    label = { FieldLabel("Category") },
                     trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = exportCategoryMenuExpanded) },
                     modifier = Modifier
                         .menuAnchor()
@@ -519,12 +567,12 @@ fun SettingsDataImportExportScreen(
                 FilterChip(
                     selected = exportFormat == DataExportFormat.JSON,
                     onClick = { exportFormat = DataExportFormat.JSON },
-                    label = { Text("JSON") }
+                    label = { FieldLabel("JSON") }
                 )
                 FilterChip(
                     selected = exportFormat == DataExportFormat.CSV,
                     onClick = { exportFormat = DataExportFormat.CSV },
-                    label = { Text("CSV") }
+                    label = { FieldLabel("CSV") }
                 )
             }
             if (!ErvAppDataExport.csvSupported(exportCategory, exportFormat)) {
@@ -540,12 +588,12 @@ fun SettingsDataImportExportScreen(
                 FilterChip(
                     selected = exportDateAllTime,
                     onClick = { exportDateAllTime = true },
-                    label = { Text("All time") }
+                    label = { FieldLabel("All time") }
                 )
                 FilterChip(
                     selected = !exportDateAllTime,
                     onClick = { exportDateAllTime = false },
-                    label = { Text("Date range") }
+                    label = { FieldLabel("Date range") }
                 )
             }
             if (!exportDateAllTime) {
@@ -776,6 +824,41 @@ fun SettingsDataImportExportScreen(
 
             Spacer(Modifier.height(8.dp))
             HorizontalDivider()
+            ImportSectionTitle("Workouts")
+            Text(
+                "Session storyboards merge by workout id. Use the envelope from Start9 or docs/import/workouts_import_schema.md.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 10.dp)
+            )
+            OutlinedButton(
+                onClick = {
+                    activeImportSilo = ImportSilo.WORKOUTS
+                    pickLauncher.launch(arrayOf("application/json", "text/plain", "*/*"))
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Default.Upload, contentDescription = null)
+                Text("Import Workouts File", modifier = Modifier.padding(start = 8.dp))
+            }
+            ImportReferenceCollapsibleSection(
+                sectionTitle = "Reference (Workouts)",
+                summaryWhenCollapsed = "Envelope v1 merges by workout id — see docs/import/workouts_import_schema.md in the repo.",
+                expanded = workoutReferenceExpanded,
+                onExpandedChange = { workoutReferenceExpanded = it },
+                modifier = Modifier.padding(top = 14.dp),
+                onShareBundle = {},
+            ) {
+                Text(
+                    "Expected top-level shape: { \"ervWorkoutImportVersion\": 1, \"workouts\": [ ... ] }. " +
+                        "Each workout id upserts into your library. Publish from Start9 or re-import to sync.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            Spacer(Modifier.height(8.dp))
+            HorizontalDivider()
             ImportSectionTitle("Backup And Restore")
             Text(
                 "Use ERV backup JSON when you want to archive a section, move to a new device, or restore after reinstall. Full backups include fasting, app preferences, and cardio GPS tracks when stored on device. Private keys and relay URLs are never included.",
@@ -794,7 +877,7 @@ fun SettingsDataImportExportScreen(
                     value = backupExportCategory.label,
                     onValueChange = {},
                     readOnly = true,
-                    label = { Text("Backup scope") },
+                    label = { FieldLabel("Backup scope") },
                     trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = backupCategoryMenuExpanded) },
                     modifier = Modifier
                         .menuAnchor()
@@ -1256,6 +1339,66 @@ private fun BackupRestorePreviewDialog(
         },
         confirmButton = {
             TextButton(onClick = onConfirm) { Text("Restore") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        },
+    )
+}
+
+@Composable
+private fun WorkoutImportPreviewDialog(
+    pending: PendingWorkoutImport,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    val env = pending.envelope
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Workouts Import Preview") },
+        text = {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 420.dp)
+                    .verticalScroll(rememberScrollState())
+            ) {
+                val before = pending.libraryBeforePreview
+                val replaced = env.workouts.count { before.workoutById(it.id) != null }
+                val added = env.workouts.size - replaced
+                Text(
+                    buildString {
+                        append("${env.workouts.size} workout(s) will merge: ")
+                        append("$added new")
+                        if (replaced > 0) append(", $replaced replace existing (same id)")
+                        append(".")
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+                Text(
+                    "Workouts in file",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(bottom = 4.dp)
+                )
+                env.workouts.forEachIndexed { idx, workout ->
+                    Text(
+                        "${idx + 1}. ${workout.name}",
+                        style = MaterialTheme.typography.titleSmall,
+                        modifier = Modifier.padding(top = if (idx == 0) 0.dp else 8.dp, bottom = 2.dp)
+                    )
+                    Text(
+                        workout.segments.joinToString(" · ") { segment ->
+                            "${com.erv.app.ui.workouts.defaultWorkoutSegmentKindLabel(segment.kind)} (${segment.items.size})"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) { Text("Merge") }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("Cancel") }

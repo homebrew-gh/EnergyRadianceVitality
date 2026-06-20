@@ -1,7 +1,10 @@
 @file:OptIn(ExperimentalLayoutApi::class)
+
 package com.erv.app.ui.supplements
 
 import android.Manifest
+import com.erv.app.ui.components.FormSectionLabel
+import com.erv.app.ui.components.FormSectionLabelMedium
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -38,6 +41,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.erv.app.ui.components.FieldLabel
 import com.erv.app.nostr.EventSigner
 import com.erv.app.nostr.LibraryStateMerge
 import com.erv.app.nostr.LocalKeyManager
@@ -1132,14 +1136,14 @@ private fun SupplementEditorDialog(
                 OutlinedTextField(
                     value = draft.name,
                     onValueChange = { draft = draft.copy(name = it) },
-                    label = { Text("Name") },
+                    label = { FieldLabel("Name") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
                 OutlinedTextField(
                     value = draft.brand,
                     onValueChange = { draft = draft.copy(brand = it) },
-                    label = { Text("Brand") },
+                    label = { FieldLabel("Brand") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -1163,7 +1167,7 @@ private fun SupplementEditorDialog(
                         OutlinedTextField(
                             value = "-",
                             onValueChange = { },
-                            label = { Text("Unit") },
+                            label = { FieldLabel("Unit") },
                             readOnly = true,
                             enabled = false,
                             modifier = Modifier.weight(1f)
@@ -1195,7 +1199,7 @@ private fun SupplementEditorDialog(
 
                 ElevatedCard(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(12.dp)) {
-                        Text("Label preview", style = MaterialTheme.typography.labelMedium)
+                        FormSectionLabelMedium("Label preview")
                         Spacer(Modifier.height(4.dp))
                         val preview = plan.summary()
                         Text(
@@ -1209,7 +1213,7 @@ private fun SupplementEditorDialog(
                 OutlinedTextField(
                     value = draft.notes,
                     onValueChange = { draft = draft.copy(notes = it) },
-                    label = { Text("Notes") },
+                    label = { FieldLabel("Notes") },
                     minLines = 2,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -1284,14 +1288,14 @@ private fun RoutineEditorDialog(
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("Routine name") },
+                    label = { FieldLabel("Routine name") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
                 OutlinedTextField(
                     value = notes,
                     onValueChange = { notes = it },
-                    label = { Text("Notes") },
+                    label = { FieldLabel("Notes") },
                     minLines = 2,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -1541,7 +1545,7 @@ private fun RoutineStepRow(
                     OutlinedTextField(
                         value = step.dosageOverride.ifBlank { recommendedServing },
                         onValueChange = { onStepChange(step.copy(dosageOverride = it)) },
-                        label = { Text("Daily serving (edit if needed)") },
+                        label = { FieldLabel("Daily serving (edit if needed)") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -1550,7 +1554,7 @@ private fun RoutineStepRow(
                 OutlinedTextField(
                     value = step.quantity,
                     onValueChange = { onStepChange(step.copy(quantity = it.filter { ch -> ch.isDigit() })) },
-                    label = { Text("Quantity (multiplier)") },
+                    label = { FieldLabel("Quantity (multiplier)") },
                     supportingText = { Text("e.g. 2 = 2× the serving size above") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
@@ -1559,7 +1563,7 @@ private fun RoutineStepRow(
                 OutlinedTextField(
                     value = step.note,
                     onValueChange = { onStepChange(step.copy(note = it)) },
-                    label = { Text("Step note (optional)") },
+                    label = { FieldLabel("Step note (optional)") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -1873,7 +1877,7 @@ fun SupplementDetailScreen(
                             OutlinedTextField(
                                 value = query,
                                 onValueChange = { query = it },
-                                label = { Text("Search query") },
+                                label = { FieldLabel("Search query") },
                                 singleLine = true,
                                 modifier = Modifier.fillMaxWidth()
                             )

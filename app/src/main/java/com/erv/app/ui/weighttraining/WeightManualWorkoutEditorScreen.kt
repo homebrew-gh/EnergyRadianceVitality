@@ -37,6 +37,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.erv.app.ui.components.FieldLabel
 import com.erv.app.data.BodyWeightUnit
 import com.erv.app.ui.theme.ErvDarkTherapyRedDark
 import com.erv.app.ui.theme.ErvDarkTherapyRedMid
@@ -143,13 +144,13 @@ fun WeightManualWorkoutEditorScreen(
                             FilterChip(
                                 selected = loadUnit == BodyWeightUnit.KG,
                                 onClick = { onLoadUnitChange(BodyWeightUnit.KG) },
-                                label = { Text("kg") }
+                                label = { FieldLabel("kg") }
                             )
                             Spacer(Modifier.width(6.dp))
                             FilterChip(
                                 selected = loadUnit == BodyWeightUnit.LB,
                                 onClick = { onLoadUnitChange(BodyWeightUnit.LB) },
-                                label = { Text("lb") }
+                                label = { FieldLabel("lb") }
                             )
                             Spacer(Modifier.width(8.dp))
                             TextButton(

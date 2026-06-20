@@ -18,6 +18,8 @@ import com.erv.app.supplements.SupplementRepository
 import com.erv.app.supplements.SupplementSync
 import com.erv.app.weighttraining.WeightRepository
 import com.erv.app.weighttraining.WeightSync
+import com.erv.app.workouts.WorkoutRepository
+import com.erv.app.workouts.WorkoutSync
 import kotlinx.coroutines.flow.first
 
 data class CurrentRelayDataCoverage(
@@ -39,6 +41,7 @@ object CurrentRelayDataSync {
         supplementRepository: SupplementRepository,
         programRepository: ProgramRepository,
         bodyTrackerRepository: BodyTrackerRepository,
+        workoutRepository: WorkoutRepository,
     ): List<Pair<String, String>> {
         val pairs = mutableListOf<Pair<String, String>>()
         pairs += WeightSync.fullOutboxEntries(weightRepository.currentState())
@@ -48,6 +51,7 @@ object CurrentRelayDataSync {
         pairs += LightSync.fullOutboxEntries(lightTherapyRepository.currentState())
         pairs += SupplementSync.fullOutboxEntries(supplementRepository.currentState())
         pairs += ProgramSync.fullOutboxEntries(programRepository.currentState())
+        pairs += WorkoutSync.fullOutboxEntries(workoutRepository.currentState())
         pairs += BodyTrackerSync.fullOutboxEntries(bodyTrackerRepository.currentState())
 
         val gymMembership = userPreferences.gymMembership.first()

@@ -99,6 +99,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.foundation.isSystemInDarkTheme
+import com.erv.app.ui.components.FieldLabel
+import com.erv.app.ui.components.FormSectionLabel
 import com.erv.app.data.StretchGuidedTtsVoice
 import com.erv.app.data.UserPreferences
 import com.erv.app.nostr.EventSigner
@@ -759,7 +761,7 @@ private fun StretchesCatalogTab(repository: StretchingRepository) {
             value = filter,
             onValueChange = { filter = it },
             modifier = Modifier.fillMaxWidth(),
-            label = { Text("Search stretches") },
+            label = { FieldLabel("Search stretches") },
             leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
             singleLine = true
         )
@@ -772,7 +774,7 @@ private fun StretchesCatalogTab(repository: StretchingRepository) {
                 FilterChip(
                     selected = selectedCategoryKey == null,
                     onClick = { selectedCategoryKey = null },
-                    label = { Text("All") }
+                    label = { FieldLabel("All") }
                 )
             }
             items(categoriesForChips, key = { it }) { cat ->
@@ -1283,14 +1285,14 @@ private fun StretchRoutineEditorDialog(
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("Routine name") },
+                    label = { FieldLabel("Routine name") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
                 OutlinedTextField(
                     value = holdSecText,
                     onValueChange = { if (it.all { c -> c.isDigit() } && it.length <= 3) holdSecText = it },
-                    label = { Text("Hold seconds per stretch") },
+                    label = { FieldLabel("Hold seconds per stretch") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
@@ -1304,7 +1306,7 @@ private fun StretchRoutineEditorDialog(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                Text("Stretches (in order)", style = MaterialTheme.typography.labelLarge)
+                FormSectionLabel("Stretches (in order)")
                 if (orderedIds.isEmpty()) {
                     Text(
                         "Tap Add stretch to build your routine.",

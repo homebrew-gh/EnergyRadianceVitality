@@ -41,6 +41,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.erv.app.ui.components.FieldLabel
 import com.erv.app.bodytracker.BodyTrackerRepository
 import com.erv.app.cardio.CardioDistanceUnit
 import com.erv.app.cardio.CardioRepository
@@ -99,6 +100,11 @@ private val quickEquipmentOptions: List<QuickEquipmentOption> = listOf(
 )
 
 private val setupSectionOptions: List<SetupSectionOption> = listOf(
+    SetupSectionOption(
+        LaunchPadTileId.TRAINING,
+        "Training",
+        "Hub for workouts, weekly plans, and silo routines — the home for planning and mixed sessions."
+    ),
     SetupSectionOption(
         LaunchPadTileId.CARDIO,
         "Cardio",
@@ -450,7 +456,7 @@ fun FirstRunSetupScreen(
                     OutlinedTextField(
                         value = bodyWeightValue,
                         onValueChange = { bodyWeightValue = it },
-                        label = { Text("Current body weight (optional)") },
+                        label = { FieldLabel("Current body weight (optional)") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                     )

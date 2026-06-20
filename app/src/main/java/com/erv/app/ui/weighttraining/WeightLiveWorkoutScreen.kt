@@ -69,6 +69,7 @@ import com.erv.app.weighttraining.WeightHiitIntervalPlan
 import com.erv.app.weighttraining.WeightLibraryState
 import com.erv.app.weighttraining.WeightSet
 import com.erv.app.weighttraining.displayLabel
+import com.erv.app.weighttraining.useTimedSetLogging
 import com.erv.app.weighttraining.isLogged
 import com.erv.app.weighttraining.WeightWorkoutDraft
 import com.erv.app.weighttraining.weightNowEpochSeconds
@@ -526,8 +527,9 @@ fun WeightLiveWorkoutScreen(
                             },
                             onRecentWorkouts = { recentWorkoutsExerciseId = editingId },
                             hiitCapable = ex?.hiitCapable == true,
-                            timePerSetCapable = ex?.timePerSetCapable == true,
-                            hiitBlock = draft.hiitBlocksByExerciseId[editingId],
+                            timePerSetCapable = ex?.useTimedSetLogging(
+                                draft.setsByExerciseId[editingId].orEmpty(),
+                            ) == true,
                             onClearHiitBlock = { onClearHiitBlock(editingId) },
                             onStartHiitTimer = { plan ->
                                 onRecordExerciseActivity(editingId)
@@ -602,8 +604,9 @@ fun WeightLiveWorkoutScreen(
                                 },
                                 onRecentWorkouts = { recentWorkoutsExerciseId = exerciseId },
                                 hiitCapable = ex?.hiitCapable == true,
-                                timePerSetCapable = ex?.timePerSetCapable == true,
-                                hiitBlock = draft.hiitBlocksByExerciseId[exerciseId],
+                                timePerSetCapable = ex?.useTimedSetLogging(
+                                    draft.setsByExerciseId[exerciseId].orEmpty(),
+                                ) == true,
                                 onClearHiitBlock = { onClearHiitBlock(exerciseId) },
                                 onStartHiitTimer = { plan ->
                                     onRecordExerciseActivity(exerciseId)

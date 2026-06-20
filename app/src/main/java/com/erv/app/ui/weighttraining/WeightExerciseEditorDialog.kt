@@ -24,6 +24,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
+import com.erv.app.ui.components.FieldLabel
+import com.erv.app.ui.components.FormSectionLabel
 import com.erv.app.weighttraining.WeightEquipment
 import com.erv.app.weighttraining.WeightExercise
 import com.erv.app.weighttraining.WeightPushPull
@@ -74,11 +76,11 @@ fun WeightExerciseEditorDialog(
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("Name") },
+                    label = { FieldLabel("Name") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
-                Text("Muscle group", style = MaterialTheme.typography.labelLarge)
+                FormSectionLabel("Muscle group")
                 FlowRow(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -101,14 +103,14 @@ fun WeightExerciseEditorDialog(
                             useCustomMuscleGroup = true
                             selectedMuscleGroup = ""
                         },
-                        label = { Text("New group") }
+                        label = { FieldLabel("New group") }
                     )
                 }
                 if (useCustomMuscleGroup) {
                     OutlinedTextField(
                         value = customMuscleGroup,
                         onValueChange = { customMuscleGroup = it },
-                        label = { Text("New muscle group") },
+                        label = { FieldLabel("New muscle group") },
                         supportingText = { Text("This label will become available for future exercises.") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
@@ -118,15 +120,15 @@ fun WeightExerciseEditorDialog(
                     FilterChip(
                         selected = pushOrPull == WeightPushPull.PUSH,
                         onClick = { pushOrPull = WeightPushPull.PUSH },
-                        label = { Text("Push") }
+                        label = { FieldLabel("Push") }
                     )
                     FilterChip(
                         selected = pushOrPull == WeightPushPull.PULL,
                         onClick = { pushOrPull = WeightPushPull.PULL },
-                        label = { Text("Pull") }
+                        label = { FieldLabel("Pull") }
                     )
                 }
-                Text("Equipment", style = MaterialTheme.typography.labelLarge)
+                FormSectionLabel("Equipment")
                 FlowRow(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),

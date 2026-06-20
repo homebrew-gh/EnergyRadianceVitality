@@ -70,6 +70,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.erv.app.ui.components.FieldLabel
 import com.erv.app.bodytracker.BodyMeasurementKey
 import com.erv.app.bodytracker.BodyMeasurementLengthUnit
 import com.erv.app.bodytracker.BodyTrackerDayLog
@@ -204,7 +205,7 @@ private fun BodyTrackerLengthUnitChips(
                     )
                 }
             },
-            label = { Text("cm") }
+            label = { FieldLabel("cm") }
         )
         FilterChip(
             selected = state.lengthUnit == BodyMeasurementLengthUnit.INCHES,
@@ -223,7 +224,7 @@ private fun BodyTrackerLengthUnitChips(
                     )
                 }
             },
-            label = { Text("in") }
+            label = { FieldLabel("in") }
         )
     }
 }
@@ -844,7 +845,7 @@ private fun BodyTrackerEditorScaffold(
                     onValueChange = { noteText = it },
                     modifier = Modifier.fillMaxWidth(),
                     minLines = 2,
-                    label = { Text("Note") }
+                    label = { FieldLabel("Note") }
                 )
                 Spacer(Modifier.height(20.dp))
                 OutlinedButton(

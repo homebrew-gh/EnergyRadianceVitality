@@ -47,6 +47,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.erv.app.ui.components.FieldLabel
 import com.erv.app.data.BandOwnership
 import com.erv.app.data.BandResistanceTier
 import com.erv.app.data.BarbellOwnership
@@ -130,7 +131,7 @@ fun ManualEquipmentDialog(
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it.take(MAX_MANUAL_NAME_LEN) },
-                    label = { Text("Name") },
+                    label = { FieldLabel("Name") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -217,7 +218,7 @@ fun BarbellEquipmentDialog(
                     OutlinedTextField(
                         value = customNameText,
                         onValueChange = { customNameText = it },
-                        label = { Text("Bar name") },
+                        label = { FieldLabel("Bar name") },
                         placeholder = { Text("e.g. REP Open Trap, Eleiko, garage bar") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
@@ -528,7 +529,7 @@ fun DumbbellEquipmentDialog(
                         OutlinedTextField(
                             value = selMin,
                             onValueChange = { selMin = it },
-                            label = { Text("Min (${if (weightUnit == BodyWeightUnit.KG) "kg" else "lb"})") },
+                            label = { FieldLabel("Min (${if (weightUnit == BodyWeightUnit.KG) "kg" else "lb"})") },
                             singleLine = true,
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                             modifier = Modifier.fillMaxWidth()
@@ -536,7 +537,7 @@ fun DumbbellEquipmentDialog(
                         OutlinedTextField(
                             value = selMax,
                             onValueChange = { selMax = it },
-                            label = { Text("Max (${if (weightUnit == BodyWeightUnit.KG) "kg" else "lb"})") },
+                            label = { FieldLabel("Max (${if (weightUnit == BodyWeightUnit.KG) "kg" else "lb"})") },
                             singleLine = true,
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                             modifier = Modifier.fillMaxWidth()
@@ -544,7 +545,7 @@ fun DumbbellEquipmentDialog(
                         OutlinedTextField(
                             value = selInc,
                             onValueChange = { selInc = it },
-                            label = { Text("Increment (${if (weightUnit == BodyWeightUnit.KG) "kg" else "lb"})") },
+                            label = { FieldLabel("Increment (${if (weightUnit == BodyWeightUnit.KG) "kg" else "lb"})") },
                             singleLine = true,
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                             modifier = Modifier.fillMaxWidth()
@@ -821,25 +822,25 @@ fun BandEquipmentDialog(
                 FilterChip(
                     selected = miniLoop,
                     onClick = { miniLoop = !miniLoop },
-                    label = { Text("Mini loop / hip band set") },
+                    label = { FieldLabel("Mini loop / hip band set") },
                     modifier = Modifier.fillMaxWidth()
                 )
                 FilterChip(
                     selected = longLoop,
                     onClick = { longLoop = !longLoop },
-                    label = { Text("Long loop / pull-down band") },
+                    label = { FieldLabel("Long loop / pull-down band") },
                     modifier = Modifier.fillMaxWidth()
                 )
                 FilterChip(
                     selected = pullAssist,
                     onClick = { pullAssist = !pullAssist },
-                    label = { Text("Pull-up assist band") },
+                    label = { FieldLabel("Pull-up assist band") },
                     modifier = Modifier.fillMaxWidth()
                 )
                 FilterChip(
                     selected = tubeHandles,
                     onClick = { tubeHandles = !tubeHandles },
-                    label = { Text("Tube bands with handles") },
+                    label = { FieldLabel("Tube bands with handles") },
                     modifier = Modifier.fillMaxWidth()
                 )
                 ModalityPicker(modalities = modalities, onChange = { modalities = it })

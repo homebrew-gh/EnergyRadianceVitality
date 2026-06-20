@@ -18,6 +18,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.erv.app.ui.components.FieldLabel
 import com.erv.app.R
 import com.erv.app.nostr.ConnectionState
 import com.erv.app.nostr.KeyManager
@@ -137,7 +138,7 @@ fun RelaySetupScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     },
-                    label = { Text("Add relay") },
+                    label = { FieldLabel("Add relay") },
                     singleLine = true,
                     modifier = Modifier.weight(1f)
                 )
@@ -211,13 +212,13 @@ private fun SetupRelayRow(
             FilterChip(
                 selected = isData,
                 onClick = { onToggleData(!isData) },
-                label = { Text("Data", style = MaterialTheme.typography.labelSmall) },
+                label = { FieldLabel("Data", style = MaterialTheme.typography.labelSmall) },
                 modifier = Modifier.height(28.dp)
             )
             FilterChip(
                 selected = isSocial,
                 onClick = { onToggleSocial(!isSocial) },
-                label = { Text("Social", style = MaterialTheme.typography.labelSmall) },
+                label = { FieldLabel("Social", style = MaterialTheme.typography.labelSmall) },
                 modifier = Modifier.height(28.dp)
             )
         }

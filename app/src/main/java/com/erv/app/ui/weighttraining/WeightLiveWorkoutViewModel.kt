@@ -4,11 +4,14 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.erv.app.data.UserPreferences
+import com.erv.app.weighttraining.setLoggingStyle
 import com.erv.app.weighttraining.WeightLibraryState
 import com.erv.app.weighttraining.WeightLiveWorkoutForegroundService
 import com.erv.app.weighttraining.WeightHiitBlockLog
 import com.erv.app.weighttraining.WeightRoutine
 import com.erv.app.weighttraining.WeightSet
+import com.erv.app.workouts.WorkoutWeightPrescription
+import com.erv.app.workouts.resolvedSets
 import com.erv.app.weighttraining.WeightExerciseFocusMark
 import com.erv.app.weighttraining.WeightWorkoutDraft
 import com.erv.app.weighttraining.weightNowEpochSeconds
@@ -107,6 +110,37 @@ class WeightLiveWorkoutViewModel(application: Application) : AndroidViewModel(ap
             routineId = routine.id,
             routineName = routine.name,
             exerciseFocusMarks = initialMarks
+        )
+        _activeDraft.value = draft
+        _liveWorkoutUiExpanded.value = true
+        viewModelScope.launch {
+            userPreferences.setLiveWeightWorkoutNotificationSuppressed(suppressNotification)
+            if (!suppressNotification) {
+                WeightLiveWorkoutForegroundService.start(getApplication(), draft.startedAtEpochSeconds)
+            }
+            persistDraft()
+        }
+        return true
+    }
+
+    fun tryStartFromWorkoutPrescription(
+        exerciseId: String,
+        prescription: WorkoutWeightPrescription,
+        library: WeightLibraryState,
+        sessionLabel: String?,
+        suppressNotification: Boolean = false,
+    ): Boolean {
+        if (_activeDraft.value != null) return false
+        val exercise = library.exerciseById(exerciseId) ?: return false
+        val sets = prescription.resolvedSets(loggingStyle = exercise.setLoggingStyle())
+        val started = weightNowEpochSeconds()
+        val draft = WeightWorkoutDraft(
+            startedAtEpochSeconds = started,
+            exerciseOrder = listOf(exerciseId),
+            setsByExerciseId = mapOf(exerciseId to sets),
+            hiitBlocksByExerciseId = emptyMap(),
+            routineName = sessionLabel,
+            exerciseFocusMarks = listOf(WeightExerciseFocusMark(exerciseId, started)),
         )
         _activeDraft.value = draft
         _liveWorkoutUiExpanded.value = true

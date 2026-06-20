@@ -18,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.erv.app.cardio.CardioHrScaffolding
+import com.erv.app.ui.components.FormSectionLabel
 
 @Composable
 fun HeartRateSessionAnalyticsSection(
@@ -104,7 +105,7 @@ fun HeartRateSessionAnalyticsSection(
         }
 
         if (showZones) {
-            Text("Time in zones", style = MaterialTheme.typography.labelLarge, color = textMain)
+            FormSectionLabel("Time in zones", color = textMain)
             for (z in 1..5) {
                 val sec = zoneSec[z - 1]
                 if (sec <= 0) continue

@@ -1,0 +1,56 @@
+---
+description: Title-case multi-word field labels and section headers (web + Android)
+alwaysApply: true
+---
+
+# UI label title case
+
+Multi-word **field labels** and **section headers** must use title case (capitalize the first letter of each word).
+
+Do **not** use `uppercase`, `tracking-wide`, or ALL CAPS styling for these labels.
+
+## Scope
+
+Apply to:
+- Form field captions (`<label>`, `OutlinedTextField` labels, `legend`, etc.)
+- Section group headings above controls (Templates, Flow, Muscle group, Log prompts, …)
+
+Do **not** apply to:
+- Dynamic content (exercise names, routine names, user-entered text)
+- Button text, dialog titles, page titles, nav labels, toasts
+- Single-word labels (already correct as-is)
+
+## Web (`apps/web/web`)
+
+Use the shared helpers — never raw text for multi-word labels:
+
+```tsx
+import { FieldLabel, SectionHeader } from "../components/FieldLabel";
+
+<label className="label" htmlFor="name">
+  <FieldLabel>Workout name</FieldLabel>
+</label>
+
+<SectionHeader>Rest between sets</SectionHeader>
+```
+
+Source text may stay lowercase in code; `FieldLabel` / `SectionHeader` call `titleCaseWords()`.
+
+## Android (`app`)
+
+Use the shared composables — never raw `Text("multi word …")` for field/section captions:
+
+```kotlin
+import com.erv.app.ui.components.FieldLabel
+import com.erv.app.ui.components.FormSectionLabel
+import com.erv.app.ui.components.FormSectionLabelMedium
+
+// OutlinedTextField / text input
+label = { FieldLabel("Rest between sets (seconds)") }
+
+// Section above a control group
+FormSectionLabel("Muscle group")
+FormSectionLabelMedium("Log prompts")
+```
+
+For dynamic label strings, use `Text(label)` without title-casing.

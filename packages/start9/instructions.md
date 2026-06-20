@@ -6,7 +6,8 @@
 4. **Setup** with the same **nsec** and **relay URL** as your Android ERV app.
 5. Use **Catalog** to browse/edit weight, stretch, and cardio catalogs (`erv/catalog/*`).
 6. Use **Routines** (Weight / Stretch / Cardio) to create, edit, and publish routines.
-7. On your phone: open ERV → sync → check the matching silo under Routines.
+7. Use **Workouts** to compose circuit / superset sessions and publish `erv/workouts/library`.
+8. On your phone: open ERV → sync → check the matching silo under Routines or Training → Workouts.
 
 When **Nostr RS Relay** or **Haven** is installed, ERV detects it automatically and pre-fills setup with the correct relay URL (internal `ws://…startos` for container sync, or the LAN `wss://` URL when available). If neither relay is installed, enter an external `wss://` relay manually.
 
