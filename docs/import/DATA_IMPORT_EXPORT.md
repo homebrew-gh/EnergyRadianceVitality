@@ -1,8 +1,8 @@
 # ERV — Data import, export, and agent interoperability
 
-This document describes how **Energy Radiance Vitality (ERV)** can support **moving data in and out** of the app, and how **external agents and tools** (including LLM-assisted workflows) can **author routines, programs, and protocols** in a controlled way. It stays consistent with [PLAN_OF_ACTION.md](../architecture/PLAN_OF_ACTION.md): local-first storage, optional Nostr sync, strong privacy, and **no requirement** to integrate proprietary platforms (e.g. Google Health Connect) for core workflows.
+This document describes how **Energy Radiance Vitality (ERV)** can support **moving data in and out** of the app, and how **external agents and tools** (including LLM-assisted workflows) can **author routines, programs, and protocols** in a controlled way. It stays consistent with [PLAN_OF_ACTION.md](../archive/PLAN_OF_ACTION.md): local-first storage, optional Nostr sync, strong privacy, and **no requirement** to integrate proprietary platforms (e.g. Google Health Connect) for core workflows.
 
-**Social discovery and forking** of protocols (web of trust, lineage) is described at a product level in [PROTOCOL_GRAPH.md](../architecture/PROTOCOL_GRAPH.md). **This document** is the right place to define the **technical contract**: what structured data ERV accepts so that imports, exports, and agent-generated bundles all speak the **same language**.
+**Social discovery and forking** of protocols (web of trust, lineage) is described at a product level in [PROTOCOL_GRAPH.md](../archive/vision/PROTOCOL_GRAPH.md). **This document** is the right place to define the **technical contract**: what structured data ERV accepts so that imports, exports, and agent-generated bundles all speak the **same language**.
 
 ---
 
@@ -64,7 +64,7 @@ Reasonable scopes for those workflows:
 
 ### 3.2 Suggested representation
 
-- **Primary:** **JSON** (or **JSON Lines** for very large append-only logs) with a **top-level `ervExportVersion`** field and per-silo sections that align with the **encrypted JSON shapes** already described in [PLAN_OF_ACTION.md](../architecture/PLAN_OF_ACTION.md) (same field names where possible, so docs stay single-sourced conceptually).
+- **Primary:** **JSON** (or **JSON Lines** for very large append-only logs) with a **top-level `ervExportVersion`** field and per-silo sections that align with the **encrypted JSON shapes** already described in [PLAN_OF_ACTION.md](../archive/PLAN_OF_ACTION.md) (same field names where possible, so docs stay single-sourced conceptually).
 - **Secondary:** **CSV** only where it genuinely helps humans (e.g. body-weight diary, simple tables)—optional and derived from the same canonical models.
 
 ### 3.3 Security of exported files
@@ -146,7 +146,7 @@ A **canonical import** + **user-controlled mapping** keeps ERV honest: we implem
 
 ### 5.1 Why reuse the import contract
 
-- **One schema to maintain** — Master lists and templates (routines, programs, protocols) use the same JSON shapes as in [PLAN_OF_ACTION.md](../architecture/PLAN_OF_ACTION.md): e.g. `erv/weight/routines`, `erv/cardio/routines`, `erv/heatcold/routines`, supplement device lists, etc.
+- **One schema to maintain** — Master lists and templates (routines, programs, protocols) use the same JSON shapes as in [PLAN_OF_ACTION.md](../archive/PLAN_OF_ACTION.md): e.g. `erv/weight/routines`, `erv/cardio/routines`, `erv/heatcold/routines`, supplement device lists, etc.
 - **Review before commit** — Agents do not get a **hidden write path**. The user sees **validation + preview + merge policy**, same as migration import.
 - **Documentation doubles as an API** — A published **JSON Schema** (or equivalent) plus examples is enough for humans and agents to target **without** a bespoke server API in v1.
 
@@ -160,13 +160,13 @@ A **canonical import** + **user-controlled mapping** keeps ERV honest: we implem
 | **Supplement** stacks | `erv/supplements/list` entries + optional schedule hints in daily logs if the spec allows |
 | **Stretch** programs | `erv/stretching/routines` (and poses catalog if applicable) |
 
-Exact field names and merge rules stay **authoritative** in PLAN_OF_ACTION and silo specs ([WEIGHT_TRAINING_SPEC.md](../architecture/WEIGHT_TRAINING_SPEC.md), etc.). This document only states that **agent bundles** should **reuse those shapes** inside the import/export wrapper (see §8).
+Exact field names and merge rules stay **authoritative** in PLAN_OF_ACTION and silo specs ([WEIGHT_TRAINING_SPEC.md](../archive/WEIGHT_TRAINING_SPEC.md), etc.). This document only states that **agent bundles** should **reuse those shapes** inside the import/export wrapper (see §8).
 
 ### 5.3 Prompting and tooling
 
 - Ship **machine-readable schema** + **minimal valid examples** (one routine, one week block, etc.).
 - Optionally ship a **prompt template** (“You are converting a natural-language program into ERV JSON…”) with **strict output rules**: valid JSON only, no commentary, unknown fields omitted, **do not fabricate** medical claims in `notes` beyond the user’s text.
-- For **protocol lineage** and social forking, see [PROTOCOL_GRAPH.md](../architecture/PROTOCOL_GRAPH.md); the **import bundle** can still carry **provenance** in app-defined optional fields (e.g. `sourceLabel`, `parentProtocolId`) once those are added to the schema.
+- For **protocol lineage** and social forking, see [PROTOCOL_GRAPH.md](../archive/vision/PROTOCOL_GRAPH.md); the **import bundle** can still carry **provenance** in app-defined optional fields (e.g. `sourceLabel`, `parentProtocolId`) once those are added to the schema.
 
 ### 5.4 Relationship to a future API or relay features
 
@@ -205,12 +205,12 @@ ERV can still provide **schema + examples** without operating a conversion servi
 
 ## 8. Relationship to Nostr event payloads
 
-Where possible, **import/export JSON** should **reuse the same nested structures** as the encrypted content described in [PLAN_OF_ACTION.md](../architecture/PLAN_OF_ACTION.md) for each `erv/...` silo, so there is one conceptual model:
+Where possible, **import/export JSON** should **reuse the same nested structures** as the encrypted content described in [PLAN_OF_ACTION.md](../archive/PLAN_OF_ACTION.md) for each `erv/...` silo, so there is one conceptual model:
 
 - **Export:** serialize local state (or decrypt-and-repack relay state) into the bundle.
 - **Import:** validate, then **merge into local storage** and **publish** updated replaceable events if the user uses sync—subject to the same merge rules as normal app edits.
 
-Exact merge semantics per silo remain defined in **PLAN_OF_ACTION** and silo specs (e.g. [WEIGHT_TRAINING_SPEC.md](../architecture/WEIGHT_TRAINING_SPEC.md)).
+Exact merge semantics per silo remain defined in **PLAN_OF_ACTION** and silo specs (e.g. [WEIGHT_TRAINING_SPEC.md](../archive/WEIGHT_TRAINING_SPEC.md)).
 
 ---
 
@@ -239,7 +239,7 @@ Phases can overlap; **A + B** deliver most of the “data ownership” story; **
 
 ## 11. Shipped references (import docs)
 
-These files are **copied into the app bundle** under **Settings → Import And Export**. They are written so **users and AI assistants** can map foreign exports → ERV import JSON/CSV **without** reading internal planning docs. (Repository-only **PLAN_OF_ACTION.md** remains for engineers.)
+These files are **copied into the app bundle** under **Settings → Import And Export**. They are written so **users and AI assistants** can map foreign exports → ERV import JSON/CSV **without** reading internal planning docs. (Repository-only **[PLAN_OF_ACTION.md](../archive/PLAN_OF_ACTION.md)** remains for engineers.)
 
 - **Weight training (implemented import):** **`docs/import/weight_training_import_ai_guide.md`** (JSON contract + optional §9 Nostr overview), **`docs/import/weight_training_import_csv_guide.md`**, **`docs/import/weight_training_builtin_exercise_ids.md`** (authoritative lift ids). Relay encoding uses kind **30078** and `erv/weight/...` d-tags—see **PLAN_OF_ACTION.md** / **PROTOCOL_GRAPH.md** if you need more than the short note in the AI guide.
 - Sessions created from weight file import use `source`: **`IMPORTED`** in encrypted day payloads (`erv/weight/<date>`).
@@ -255,6 +255,6 @@ These are product/engineering choices to settle when implementing:
 - **Identity of exercises** on import: match by **name**, **stable ID**, or **always create new** custom exercises.
 - **Maximum file size** and streaming vs load-all for validation.
 - Whether **import** also triggers **immediate relay publish** or waits for the next normal sync.
-- **Provenance fields** for agent-authored programs (`sourceLabel`, `parentProtocolId`, fork lineage) and how they map to [PROTOCOL_GRAPH.md](../architecture/PROTOCOL_GRAPH.md) when that layer ships.
+- **Provenance fields** for agent-authored programs (`sourceLabel`, `parentProtocolId`, fork lineage) and how they map to [PROTOCOL_GRAPH.md](../archive/vision/PROTOCOL_GRAPH.md) when that layer ships.
 
 Document conclusions here as they are decided.

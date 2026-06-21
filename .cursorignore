@@ -10,3 +10,7 @@ apps/web/web/dist/
 packages/start9/node_modules/
 packages/start9/javascript/
 **/*.s9pk
+
+# Heavy docs — markdown tables can freeze the IDE on some machines
+docs/archive/PLAN_OF_ACTION.md
+docs/architecture/WORKOUT_PLAN_EDITOR_SPEC.md

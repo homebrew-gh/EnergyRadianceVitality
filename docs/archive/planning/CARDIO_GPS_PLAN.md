@@ -1,6 +1,6 @@
 # Cardio outdoor tracking: GPS, BLE bike sensors & share cards — implementation plan
 
-This document turns the product direction in [PLAN_OF_ACTION.md §2.4](../../architecture/PLAN_OF_ACTION.md) into an actionable sequence for:
+This document turns the product direction in [PLAN_OF_ACTION.md §2.4](../PLAN_OF_ACTION.md) into an actionable sequence for:
 
 1. **GPS** — track + OSM review + **privacy-first sharing** (full **OSM map** *or* **track-only** / no basemap for social relays).
 2. **Bluetooth bike speed sensors** — wheel-based speed/distance via the standard **Cycling Speed and Cadence (CSC)** BLE profile (e.g. Garmin / Wahoo–class accessories), aligned with ERV’s **direct BLE** approach (no Health Connect; see PLAN §8).
@@ -160,7 +160,7 @@ Derived fields (can be recomputed): total distance from GPS polyline (Haversine 
 
 ## 9. References in repo
 
-- [PLAN_OF_ACTION.md §2.4 — GPS track and map](../../architecture/PLAN_OF_ACTION.md) (parent spec).
-- [PLAN_OF_ACTION.md §7.5 — GPS tracking (app-wide)](../../architecture/PLAN_OF_ACTION.md).
+- [PLAN_OF_ACTION.md §2.4 — GPS track and map](../PLAN_OF_ACTION.md) (parent spec).
+- [PLAN_OF_ACTION.md §7.5 — GPS tracking (app-wide)](../PLAN_OF_ACTION.md).
 - Bluetooth **Cycling Speed and Cadence** — [Bluetooth SIG profile](https://www.bluetooth.com/specifications/specs/cycling-speed-and-cadence-profile-1-1/) (implementation reference for GATT).
 - Reference UX: track-only card (polyline + Distance / Pace / Time, no basemap) — user-provided mockup used to align share-card layout.

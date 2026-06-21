@@ -55,15 +55,16 @@ A [GitHub Actions](.github/workflows/android-build.yml) workflow runs on pushes 
 
 ## Documentation
 
-- [Documentation index](docs/README.md) — Overview of release, policy, import/reference, architecture, and archived planning docs.
-- [Plan of action](docs/architecture/PLAN_OF_ACTION.md) — Data model, Nostr event design, and implementation roadmap. **Phase 1 (scaffold and docs)** is complete: Kotlin + Compose + Gradle, README/CONTRIBUTING/CODE_OF_CONDUCT/SECURITY/LICENSE, GitHub Action (build + unit tests), and `UserFeedback` toast helper for publish/sync.
+- [Documentation index](docs/README.md) — Release, import/reference, active architecture, and archive.
+- **[Phased roadmap](docs/PHASES.md)** — Current Phase 1–4 status (start here).
+- [Start9 companion checklist](docs/architecture/START9_COMPANION_V1.md) — Web companion + workout composer progress.
+- [Workout plan editor spec](docs/architecture/WORKOUT_PLAN_EDITOR_SPEC.md) — Composer grammar and phasing.
 - [Privacy policy](docs/policies/PRIVACY_POLICY.md) — What ERV can guarantee, what depends on the user device, and what third-party relays or tools may still observe or retain.
 - [Android release signing](docs/release/ANDROID_RELEASE_SIGNING.md) — How to create a release keystore, configure Gradle, build a signed APK, and prepare the checksum.
 - [Zapstore release checklist](docs/release/ZAPSTORE_RELEASE_CHECKLIST.md) — Prioritized trust, privacy, deletion, and release-readiness work for the open-source app store launch.
 - [Zapstore store listing draft](docs/release/ZAPSTORE_STORE_LISTING.md) — Paste-ready summary, privacy notes, and support contact copy for the first Zapstore release.
 - [Manual release test checklist](docs/release/MANUAL_RELEASE_TEST_CHECKLIST.md) — Focused smoke-test checklist for release candidates before publishing.
-- [Protocol graph (WOT + sharing)](docs/architecture/PROTOCOL_GRAPH.md) — Trust-filtered routine discovery, forking, and why a full website may complement the app.
-- [Companion web: community benefits & pitfalls](docs/architecture/COMPANION_WEB_COMMUNITY_PITFALLS_BENEFITS.md) — Tradeoffs for fitness promotion and community if a companion site imports routines into user profiles.
+- [Archive](docs/archive/README.md) — Whole-app plan of action, vision docs, and historical specs.
 
 ## Release Prep
 

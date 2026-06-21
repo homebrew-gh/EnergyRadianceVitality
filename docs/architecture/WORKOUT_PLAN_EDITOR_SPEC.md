@@ -462,7 +462,7 @@ A **StartOS service** (same packaging model as [maple-proxy-startos](https://git
 | **Android** | Execute workouts, quick edits, BLE/GPS, offline |
 | **Start9 editor** | Multi-week planning, bulk exercise entry, keyboard workflows, AI on large screen next to editor |
 
-Philosophy matches [COMPANION_WEB_COMMUNITY_PITFALLS_BENEFITS.md](COMPANION_WEB_COMMUNITY_PITFALLS_BENEFITS.md): **compose on server/LAN, execute on device** — but scoped to **personal** use first (no social graph required for v1).
+Philosophy matches [COMPANION_WEB_COMMUNITY_PITFALLS_BENEFITS.md](../archive/vision/COMPANION_WEB_COMMUNITY_PITFALLS_BENEFITS.md): **compose on server/LAN, execute on device** — but scoped to **personal** use first (no social graph required for v1).
 
 ### 6.2 Package architecture
 
