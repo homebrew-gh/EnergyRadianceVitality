@@ -4,9 +4,12 @@ import android.content.Context
 import com.erv.app.nostr.EventSigner
 import com.erv.app.nostr.dTagOrNull
 import com.erv.app.nostr.fetchLatestKind30078ByDTag
+import com.erv.app.nostr.isTrainingDayLogDTag
 import com.erv.app.nostr.NostrEvent
+import com.erv.app.nostr.RelayPayloadDigestStore
 import com.erv.app.nostr.RelayPool
 import com.erv.app.nostr.RelayPublishOutbox
+import com.erv.app.nostr.TrainingDayLogRelaySync
 import java.time.LocalDate
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
@@ -47,17 +50,29 @@ object CardioSync {
 
     suspend fun publishDailyLog(
         appContext: Context,
-        relayPool: RelayPool,
-        signer: EventSigner,
+        relayPool: RelayPool?,
+        signer: EventSigner?,
         log: CardioDayLog,
         dataRelayUrls: List<String>,
     ): Boolean {
-        val content = json.encodeToString(CardioDayLog.serializer(), log.withoutGpsTracks())
-        return publishEvent(appContext, relayPool, signer, dailyTag(log.date), content, dataRelayUrls)
+        queueDayLogForRelay(appContext, log)
+        return relayPool != null && signer != null && dataRelayUrls.isNotEmpty()
+    }
+
+    /** Always queues a cardio day log for relay upload (does not require an active [RelayPool]). */
+    suspend fun queueDayLogForRelay(appContext: Context, log: CardioDayLog) {
+        if (log.sessions.isEmpty()) return
+        val content = json.encodeToString(CardioDayLog.serializer(), log.relaySafeForPublish())
+        TrainingDayLogRelaySync.queueTrainingDayLog(appContext, dailyTag(log.date), content)
     }
 
     fun fullOutboxEntries(state: CardioLibraryState): List<Pair<String, String>> =
         cardioImportOutboxEntries(state, state.logs.map { it.date })
+
+    /** Day logs only (for Progress / silo log resync). Skips empty days and the routines master. */
+    fun dayLogOutboxEntries(state: CardioLibraryState): List<Pair<String, String>> =
+        cardioImportOutboxEntries(state, state.logs.map { it.date })
+            .filter { it.first != CARDIO_MASTER_D_TAG }
 
     fun clearOutboxEntries(state: CardioLibraryState): List<Pair<String, String>> {
         val pairs = mutableListOf<Pair<String, String>>()
@@ -92,9 +107,10 @@ object CardioSync {
         )
         for (dateIso in affectedDates.distinct().sorted()) {
             val log = state.logFor(LocalDate.parse(dateIso)) ?: continue
+            if (log.sessions.isEmpty()) continue
             pairs += dailyTag(dateIso) to json.encodeToString(
                 CardioDayLog.serializer(),
-                log.withoutGpsTracks()
+                log.relaySafeForPublish()
             )
         }
         return pairs
@@ -106,7 +122,7 @@ object CardioSync {
         pubkeyHex: String,
         timeoutMs: Long = 6000
     ): CardioLibraryState? {
-        val latestByTag = fetchLatestKind30078ByDTag(relayPool, pubkeyHex, timeoutMs)
+        val latestByTag = fetchLatestKind30078ByDTag(relayPool, pubkeyHex, timeoutMs, signer = signer)
         if (latestByTag.isEmpty()) return null
         return fromLatestByTag(latestByTag, signer)
     }
@@ -143,6 +159,9 @@ object CardioSync {
         plaintext: String,
         dataRelayUrls: List<String>,
     ): Boolean {
+        if (isTrainingDayLogDTag(dTag)) {
+            RelayPayloadDigestStore.get(appContext).clearDigests(listOf(dTag))
+        }
         val r = RelayPublishOutbox.get(appContext).enqueueReplaceByDTagAndKickDrain(
             appContext,
             relayPool,

@@ -269,6 +269,14 @@ fun CardioActivitySnapshot.isCyclingActivity(): Boolean =
         else -> false
     }
 
+/** Indoor bike activities (stationary / air bike) that pair with a Concept2 BikeErg PM. */
+fun CardioActivitySnapshot.isStationaryBikeActivity(): Boolean =
+    when (builtin) {
+        CardioBuiltinActivity.STATIONARY_BIKE,
+        CardioBuiltinActivity.AIR_BIKE -> true
+        else -> false
+    }
+
 @Serializable
 data class CardioGpsPoint(
     val lat: Double,
@@ -295,6 +303,18 @@ fun CardioDayLog.withoutGpsTracks(): CardioDayLog =
             session.copy(gpsTrack = null)
         }
     )
+
+/** Slim day log for kind-30078 publish: no GPS paths or per-second HR samples (Progress/web only needs summaries). */
+fun CardioSession.relaySafeForPublish(): CardioSession =
+    copy(
+        gpsTrack = null,
+        heartRate = heartRate?.let { hr ->
+            if (hr.samples.isEmpty()) hr else hr.copy(samples = emptyList())
+        },
+    )
+
+fun CardioDayLog.relaySafeForPublish(): CardioDayLog =
+    copy(sessions = sessions.map { it.relaySafeForPublish() })
 
 @Serializable
 data class CardioSessionSegment(
@@ -355,7 +375,8 @@ data class CardioSession(
     val elevationLossMeters: Double? = null,
     /** Power / cadence captured from a smart erg monitor (Concept2 PM) when connected. */
     val erg: CardioErgMetrics? = null,
-    val unifiedLink: UnifiedSessionLink? = null
+    val unifiedLink: UnifiedSessionLink? = null,
+    val workoutLink: com.erv.app.workouts.WorkoutSessionLink? = null,
 )
 
 /** Prefer stored values; otherwise derive from [CardioSession.gpsTrack] points. */

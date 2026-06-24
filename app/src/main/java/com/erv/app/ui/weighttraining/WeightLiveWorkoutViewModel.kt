@@ -10,8 +10,18 @@ import com.erv.app.weighttraining.WeightLiveWorkoutForegroundService
 import com.erv.app.weighttraining.WeightHiitBlockLog
 import com.erv.app.weighttraining.WeightRoutine
 import com.erv.app.weighttraining.WeightSet
+import com.erv.app.workouts.WorkoutSegment
 import com.erv.app.workouts.WorkoutWeightPrescription
+import com.erv.app.workouts.advanceAfterSlot
+import com.erv.app.workouts.buildCircuitSetsSeed
+import com.erv.app.workouts.buildWorkoutCircuitRun
+import com.erv.app.workouts.circuitSlotKey
+import com.erv.app.workouts.currentSlot
+import com.erv.app.workouts.isCurrentSlotLogged
+import com.erv.app.workouts.pendingRestBeforeAdvance
 import com.erv.app.workouts.resolvedSets
+import com.erv.app.workouts.toWorkoutRunPosition
+import com.erv.app.weighttraining.WeightWorkoutCircuitRun
 import com.erv.app.weighttraining.WeightExerciseFocusMark
 import com.erv.app.weighttraining.WeightWorkoutDraft
 import com.erv.app.weighttraining.weightNowEpochSeconds
@@ -24,6 +34,13 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+
+data class CircuitAdvanceResult(
+    val restSeconds: Int?,
+    val isSegmentComplete: Boolean,
+    val segmentIndex: Int?,
+    val workoutRunPosition: com.erv.app.workouts.WorkoutRunPosition?,
+)
 
 class WeightLiveWorkoutViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -152,6 +169,96 @@ class WeightLiveWorkoutViewModel(application: Application) : AndroidViewModel(ap
             persistDraft()
         }
         return true
+    }
+
+    fun tryStartFromWorkoutCircuit(
+        segment: WorkoutSegment,
+        workoutId: String,
+        workoutName: String?,
+        library: WeightLibraryState,
+        segmentIndex: Int,
+        initialRound: Int = 1,
+        initialSlotIndex: Int = 0,
+        suppressNotification: Boolean = false,
+    ): Boolean {
+        if (_activeDraft.value != null) return false
+        val circuit = buildWorkoutCircuitRun(
+            segment = segment,
+            workoutId = workoutId,
+            segmentIndex = segmentIndex,
+            initialRound = initialRound,
+            initialSlotIndex = initialSlotIndex,
+        ) ?: return false
+        val exerciseIds = circuit.slots.map { it.exerciseId }
+        val setsSeed = segment.buildCircuitSetsSeed(library)
+        val started = weightNowEpochSeconds()
+        val firstExerciseId = circuit.currentSlot()?.exerciseId
+        val draft = WeightWorkoutDraft(
+            startedAtEpochSeconds = started,
+            exerciseOrder = exerciseIds,
+            setsByExerciseId = setsSeed,
+            hiitBlocksByExerciseId = emptyMap(),
+            routineName = workoutName?.let { name ->
+                buildString {
+                    append(name)
+                    circuit.segmentTitle?.takeIf { it.isNotBlank() }?.let { append(" · $it") }
+                }
+            },
+            exerciseFocusMarks = firstExerciseId?.let {
+                listOf(WeightExerciseFocusMark(it, started))
+            } ?: emptyList(),
+            circuitRun = circuit,
+        )
+        _activeDraft.value = draft
+        _liveWorkoutUiExpanded.value = true
+        viewModelScope.launch {
+            userPreferences.setLiveWeightWorkoutNotificationSuppressed(suppressNotification)
+            if (!suppressNotification) {
+                WeightLiveWorkoutForegroundService.start(getApplication(), draft.startedAtEpochSeconds)
+            }
+            persistDraft()
+        }
+        return true
+    }
+
+    fun tryAdvanceCircuitAfterSlotComplete(): CircuitAdvanceResult? {
+        val draft = _activeDraft.value ?: return null
+        val circuit = draft.circuitRun ?: return null
+        if (circuit.isComplete) {
+            return CircuitAdvanceResult(
+                restSeconds = null,
+                isSegmentComplete = true,
+                segmentIndex = circuit.segmentIndex,
+                workoutRunPosition = null,
+            )
+        }
+        if (!circuit.isCurrentSlotLogged(draft.setsByExerciseId, draft.hiitBlocksByExerciseId)) {
+            return null
+        }
+        val slotKey = circuitSlotKey(circuit.currentRound, circuit.currentSlotIndex)
+        if (slotKey == circuit.lastAcknowledgedSlotKey) return null
+        val restSeconds = circuit.pendingRestBeforeAdvance()
+        val withRest = circuit.advanceAfterSlot().copy(pendingRestSeconds = restSeconds)
+        _activeDraft.value = draft.copy(circuitRun = withRest)
+        persistDraft()
+        return CircuitAdvanceResult(
+            restSeconds = restSeconds,
+            isSegmentComplete = withRest.isComplete,
+            segmentIndex = withRest.segmentIndex,
+            workoutRunPosition = if (!withRest.isComplete) {
+                withRest.toWorkoutRunPosition(withRest.segmentIndex)
+            } else {
+                null
+            },
+        )
+    }
+
+    fun clearCircuitPendingRest() {
+        val draft = _activeDraft.value ?: return
+        val circuit = draft.circuitRun ?: return
+        if (circuit.pendingRestSeconds == null) return
+        _activeDraft.value = draft.copy(circuitRun = circuit.copy(pendingRestSeconds = null))
+        persistDraft()
     }
 
     fun clearDraft() {

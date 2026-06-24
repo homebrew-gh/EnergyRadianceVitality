@@ -75,6 +75,12 @@ import com.erv.app.nostr.RelayPayloadDigestStore
 import com.erv.app.nostr.RelayPool
 import com.erv.app.unifiedroutines.UnifiedRoutineLibraryState
 import com.erv.app.unifiedroutines.UnifiedRoutineRepository
+import com.erv.app.workouts.WorkoutLibraryState
+import com.erv.app.workouts.WorkoutLoggedItemKind
+import com.erv.app.workouts.WorkoutRepository
+import com.erv.app.workouts.activeWorkoutWeightLaunch
+import com.erv.app.workouts.finalCircuitRunPosition
+import com.erv.app.workouts.linkFor
 import com.erv.app.unifiedroutines.linkFor
 import com.erv.app.ui.theme.ErvDarkTherapyRedDark
 import com.erv.app.ui.theme.ErvDarkTherapyRedGlow
@@ -116,6 +122,7 @@ private enum class WeightTrainingTab { Exercises, Routines }
 fun WeightTrainingCategoryScreen(
     repository: WeightRepository,
     unifiedRoutineRepository: UnifiedRoutineRepository,
+    workoutRepository: WorkoutRepository,
     liveWorkoutViewModel: WeightLiveWorkoutViewModel,
     cardioLiveWorkoutViewModel: CardioLiveWorkoutViewModel,
     userPreferences: UserPreferences,
@@ -124,12 +131,14 @@ fun WeightTrainingCategoryScreen(
     signer: EventSigner?,
     onBack: () -> Unit,
     onReturnToUnifiedRun: (String) -> Unit = {},
+    onReturnToWorkoutRun: (String) -> Unit = {},
     onOpenLog: () -> Unit,
     onOpenExerciseDetail: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val heartRateBle = LocalHeartRateBle.current
     val unifiedState by unifiedRoutineRepository.state.collectAsState(initial = UnifiedRoutineLibraryState())
+    val workoutState by workoutRepository.state.collectAsState(initial = WorkoutLibraryState())
     val loadUnit by userPreferences.weightTrainingLoadUnit.collectAsState(initial = BodyWeightUnit.LB)
     val fallbackBodyWeightKg by userPreferences.fallbackBodyWeightKg.collectAsState(initial = null)
     val liveDraft by liveWorkoutViewModel.activeDraft.collectAsState()
@@ -356,6 +365,114 @@ fun WeightTrainingCategoryScreen(
                     ?.firstOrNull { it.id == blockId }
                     ?.type == com.erv.app.unifiedroutines.UnifiedRoutineBlockType.WEIGHT
             }
+            val activeWorkoutWeightLaunch = workoutState.activeWorkoutWeightLaunch()
+            val activeWorkoutRun = workoutState.activeRun
+            fun returnToParentRun(): Boolean = when {
+                activeUnifiedSession != null && activeUnifiedWeightBlockId != null -> {
+                    onReturnToUnifiedRun(activeUnifiedSession.routineId)
+                    true
+                }
+                activeWorkoutWeightLaunch != null -> {
+                    onReturnToWorkoutRun(activeWorkoutWeightLaunch.workoutId)
+                    true
+                }
+                expandedDraft.circuitRun != null && activeWorkoutRun != null -> {
+                    onReturnToWorkoutRun(activeWorkoutRun.workoutId)
+                    true
+                }
+                else -> false
+            }
+            suspend fun persistFinishedLiveDraft() {
+                val current = liveWorkoutViewModel.activeDraft.value ?: return
+                val workoutLaunch = workoutRepository.currentState().activeWorkoutWeightLaunch()
+                    ?: expandedDraft.circuitRun?.let { circuit ->
+                        com.erv.app.workouts.ActiveWorkoutItemLaunch(
+                            workoutId = circuit.workoutId,
+                            segmentId = circuit.segmentId,
+                            itemId = circuit.slots.first().workoutItemId,
+                        )
+                    }
+                val circuit = current.circuitRun
+                if (circuit != null && workoutLaunch != null) {
+                    val segment = workoutRepository.currentState().activeRun
+                        ?.workoutSnapshot
+                        ?.segments
+                        ?.getOrNull(circuit.segmentIndex)
+                    if (segment != null) {
+                        workoutRepository.updateRunPosition(
+                            segment.finalCircuitRunPosition(circuit.segmentIndex),
+                        )
+                    }
+                }
+                val hr = if (workoutLaunch == null) {
+                    heartRateBle.takeWorkoutHeartRateSummary()
+                } else {
+                    null
+                }
+                val end = weightNowEpochSeconds()
+                val segments = if (hr != null) {
+                    buildWeightExerciseHrSegments(
+                        current.exerciseFocusMarks,
+                        current.startedAtEpochSeconds,
+                        end,
+                        hr.samples.orEmpty(),
+                    )
+                } else {
+                    emptyList()
+                }
+                val session = current.toFinishedLiveSession(
+                    heartRate = hr,
+                    heartRateExerciseSegments = segments,
+                ) ?: return
+                val estimatedKcal = WeightCalorieEstimator.estimateKcal(session, fallbackBodyWeightKg)
+                val today = LocalDate.now()
+                val workoutRun = workoutRepository.currentState().activeRun?.takeIf { workoutLaunch != null }
+                val storedSession = when {
+                    activeUnifiedSession != null && activeUnifiedWeightBlockId != null -> {
+                        val recap = unifiedState.sessionById(activeUnifiedSession.sessionId)
+                        session.copy(
+                            estimatedKcal = estimatedKcal,
+                            unifiedLink = recap?.linkFor(activeUnifiedWeightBlockId),
+                        )
+                    }
+                    workoutLaunch != null && workoutRun != null -> {
+                        session.copy(
+                            estimatedKcal = estimatedKcal,
+                            workoutLink = workoutRun.linkFor(workoutLaunch.segmentId, workoutLaunch.itemId),
+                        )
+                    }
+                    else -> session.copy(estimatedKcal = estimatedKcal)
+                }
+                repository.addWorkout(today, storedSession)
+                if (activeUnifiedSession != null && activeUnifiedWeightBlockId != null) {
+                    unifiedRoutineRepository.attachLoggedBlock(
+                        routineId = activeUnifiedSession.routineId,
+                        blockId = activeUnifiedWeightBlockId,
+                        logDate = today.toString(),
+                        entryId = storedSession.id,
+                    )
+                }
+                when {
+                    activeUnifiedSession != null && activeUnifiedWeightBlockId != null -> {
+                        liveWorkoutViewModel.clearDraft()
+                        onReturnToUnifiedRun(activeUnifiedSession.routineId)
+                    }
+                    workoutLaunch != null -> {
+                        workoutRepository.completeLaunchedItem(
+                            logDate = today.toString(),
+                            entryId = storedSession.id,
+                            kind = WorkoutLoggedItemKind.WEIGHT,
+                        )
+                        liveWorkoutViewModel.clearDraft()
+                        onReturnToWorkoutRun(workoutLaunch.workoutId)
+                    }
+                    else -> {
+                        liveWorkoutViewModel.clearDraft()
+                        completedSessionForSummary = storedSession
+                    }
+                }
+                pushDayLog(today)
+            }
             WeightLiveWorkoutScreen(
                 modifier = Modifier.fillMaxSize(),
                 draft = expandedDraft,
@@ -368,7 +485,19 @@ fun WeightTrainingCategoryScreen(
                     } else {
                         null
                     },
+                composedWorkoutStartedAtEpochSeconds = expandedDraft.circuitRun?.let {
+                    activeWorkoutRun?.startedAtEpochSeconds
+                },
                 onRecordExerciseActivity = { id -> liveWorkoutViewModel.recordExerciseFocus(id) },
+                onAfterCircuitSetLogged = {
+                    scope.launch {
+                        val advance = liveWorkoutViewModel.tryAdvanceCircuitAfterSlotComplete() ?: return@launch
+                        advance.workoutRunPosition?.let { workoutRepository.updateRunPosition(it) }
+                    }
+                },
+                onCircuitSegmentComplete = {
+                    scope.launch { persistFinishedLiveDraft() }
+                },
                 onLeaveWorkoutUi = {
                     fun returnToUnifiedRun(): Boolean {
                         val routineId = activeUnifiedSession?.routineId ?: return false
@@ -386,14 +515,14 @@ fun WeightTrainingCategoryScreen(
                         if (noExercises && noLoggedSets && noHiit) {
                             heartRateBle.discardWorkoutRecording()
                             liveWorkoutViewModel.clearDraft()
-                            val returnedToUnified = returnToUnifiedRun()
-                            if (!returnedToUnified && activeUnifiedSession != null && activeUnifiedWeightBlockId != null) {
+                            val returnedToParent = returnToParentRun()
+                            if (!returnedToParent && activeUnifiedSession != null && activeUnifiedWeightBlockId != null) {
                                 onBack()
                             }
                         } else {
-                            val returnedToUnified = returnToUnifiedRun()
+                            val returnedToParent = returnToParentRun()
                             liveWorkoutViewModel.setLiveWorkoutUiExpanded(false)
-                            if (!returnedToUnified && activeUnifiedSession != null && activeUnifiedWeightBlockId != null) {
+                            if (!returnedToParent && activeUnifiedSession != null && activeUnifiedWeightBlockId != null) {
                                 onBack()
                             }
                         }
@@ -402,14 +531,8 @@ fun WeightTrainingCategoryScreen(
                 onDiscardWorkout = {
                     heartRateBle.discardWorkoutRecording()
                     liveWorkoutViewModel.clearDraft()
-                    val returnedToUnified =
-                        if (activeUnifiedSession != null && activeUnifiedWeightBlockId != null) {
-                            onReturnToUnifiedRun(activeUnifiedSession.routineId)
-                            true
-                        } else {
-                            false
-                        }
-                    if (!returnedToUnified && activeUnifiedSession != null && activeUnifiedWeightBlockId != null) {
+                    val returnedToParent = returnToParentRun()
+                    if (!returnedToParent && activeUnifiedSession != null && activeUnifiedWeightBlockId != null) {
                         onBack()
                     }
                 },
@@ -422,70 +545,19 @@ fun WeightTrainingCategoryScreen(
                 },
                 onFinish = {
                     scope.launch {
-                        val current = liveWorkoutViewModel.activeDraft.value
-                        if (current == null) {
+                        if (liveWorkoutViewModel.activeDraft.value == null) {
                             snackbarHostState.showSnackbar(
                                 appContext.getString(R.string.weight_live_finish_snackbar_no_draft)
                             )
                             return@launch
                         }
-                        val hr = heartRateBle.takeWorkoutHeartRateSummary()
-                        val end = weightNowEpochSeconds()
-                        val segments = buildWeightExerciseHrSegments(
-                            current.exerciseFocusMarks,
-                            current.startedAtEpochSeconds,
-                            end,
-                            hr?.samples.orEmpty()
-                        )
-                        val session = current.toFinishedLiveSession(
-                            heartRate = hr,
-                            heartRateExerciseSegments = segments
-                        )
-                        if (session == null) {
+                        if (liveWorkoutViewModel.activeDraft.value?.toFinishedLiveSession() == null) {
                             snackbarHostState.showSnackbar(
                                 appContext.getString(R.string.weight_live_finish_snackbar_nothing_to_save)
                             )
                             return@launch
                         }
-                        val estimatedKcal = WeightCalorieEstimator.estimateKcal(session, fallbackBodyWeightKg)
-                        val today = LocalDate.now()
-                        val activeUnifiedSession = unifiedState.activeSession
-                        val activeUnifiedBlockId = activeUnifiedSession?.lastLaunchedBlockId?.takeIf { blockId ->
-                            unifiedState
-                                .routineById(activeUnifiedSession.routineId)
-                                ?.blocks
-                                ?.firstOrNull { it.id == blockId }
-                                ?.type == com.erv.app.unifiedroutines.UnifiedRoutineBlockType.WEIGHT
-                        }
-                        val storedSession = if (activeUnifiedSession != null && activeUnifiedBlockId != null) {
-                            val recap = unifiedState.sessionById(activeUnifiedSession.sessionId)
-                            session.copy(
-                                estimatedKcal = estimatedKcal,
-                                unifiedLink = recap?.linkFor(activeUnifiedBlockId)
-                            )
-                        } else {
-                            session.copy(estimatedKcal = estimatedKcal)
-                        }
-                        repository.addWorkout(today, storedSession)
-                        if (activeUnifiedSession != null && activeUnifiedBlockId != null) {
-                            unifiedRoutineRepository.attachLoggedBlock(
-                                routineId = activeUnifiedSession.routineId,
-                                blockId = activeUnifiedBlockId,
-                                logDate = today.toString(),
-                                entryId = storedSession.id
-                            )
-                        }
-                        // Update UI BEFORE the relay push: kickDrain inside pushDayLog can
-                        // block for many seconds (or up to 120s on backoff) and would otherwise
-                        // make Finish appear to do nothing. Local save is already complete.
-                        if (activeUnifiedSession != null && activeUnifiedBlockId != null) {
-                            liveWorkoutViewModel.clearDraft()
-                            onReturnToUnifiedRun(activeUnifiedSession.routineId)
-                        } else {
-                            liveWorkoutViewModel.clearDraft()
-                            completedSessionForSummary = storedSession
-                        }
-                        scope.launch { pushDayLog(today) }
+                        persistFinishedLiveDraft()
                     }
                 },
                 onAddExercise = { id -> liveWorkoutViewModel.addExercise(id) },

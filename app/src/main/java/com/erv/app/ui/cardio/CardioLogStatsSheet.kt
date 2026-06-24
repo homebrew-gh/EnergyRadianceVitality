@@ -37,6 +37,7 @@ import com.erv.app.cardio.formatCardioTotalDuration
 import com.erv.app.cardio.formatCardioZoneSummary
 import com.erv.app.hr.HeartRateZoneInputs
 import com.erv.app.hr.formatDurationSeconds
+import com.erv.app.ui.components.FormSectionLabelSmall
 import com.erv.app.hr.zoneColor
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -127,7 +128,7 @@ fun CardioLogStatsSheetContent(
             )
         }
         if (stats.workoutsWithHeartRate > 0) {
-            Text("Heart rate (this period)", style = MaterialTheme.typography.titleSmall, color = onVar)
+            FormSectionLabelSmall("Heart rate (this period)", color = onVar)
             StatRow(
                 label = "Workouts with HR",
                 value = stats.workoutsWithHeartRate.toString(),
@@ -159,7 +160,7 @@ fun CardioLogStatsSheetContent(
             }
         }
         if (stats.primaryActivityCounts.isNotEmpty()) {
-            Text("Most common workouts", style = MaterialTheme.typography.titleSmall, color = onVar)
+            FormSectionLabelSmall("Most common workouts", color = onVar)
             stats.primaryActivityCounts.forEach { (label, count) ->
                 StatRow(
                     label = label,
@@ -170,7 +171,7 @@ fun CardioLogStatsSheetContent(
         }
         val chartBuckets = stats.monthlyWorkouts.takeLast(12)
         if (chartBuckets.isNotEmpty()) {
-            Text("Workouts by month", style = MaterialTheme.typography.titleSmall, color = onVar)
+            FormSectionLabelSmall("Workouts by month", color = onVar)
             Text(
                 if (stats.monthlyWorkouts.size > chartBuckets.size) {
                     "Showing last ${chartBuckets.size} months"

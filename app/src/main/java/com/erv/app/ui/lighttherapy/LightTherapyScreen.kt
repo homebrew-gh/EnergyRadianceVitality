@@ -38,6 +38,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.isSystemInDarkTheme
 import com.erv.app.ui.components.FieldLabel
+import com.erv.app.ui.components.FormSectionLabelSmall
 import com.erv.app.lighttherapy.*
 import com.erv.app.nostr.EventSigner
 import com.erv.app.nostr.LibraryStateMerge
@@ -927,7 +928,7 @@ private fun LightRoutineEditorDialog(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
-                Text("Time of day", style = MaterialTheme.typography.titleSmall)
+                FormSectionLabelSmall("Time of day")
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     LightTimeOfDay.entries.forEach { slot ->
                         FilterChip(
@@ -944,7 +945,7 @@ private fun LightRoutineEditorDialog(
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.fillMaxWidth()
                 )
-                Text("Device (optional)", style = MaterialTheme.typography.titleSmall)
+                FormSectionLabelSmall("Device (optional)")
                 ExposedDropdownMenuBox(
                     expanded = deviceExpanded,
                     onExpandedChange = { deviceExpanded = !deviceExpanded }
@@ -971,7 +972,7 @@ private fun LightRoutineEditorDialog(
                         }
                     }
                 }
-                Text("Repeat on days (empty = every day)", style = MaterialTheme.typography.titleSmall)
+                FormSectionLabelSmall("Repeat on days (empty = every day)")
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                     modifier = Modifier.fillMaxWidth()
@@ -1066,7 +1067,7 @@ private fun LightDeviceEditorDialog(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
-                Text("Type", style = MaterialTheme.typography.titleSmall)
+                FormSectionLabelSmall("Type")
                 ExposedDropdownMenuBox(
                     expanded = typeExpanded,
                     onExpandedChange = { typeExpanded = !typeExpanded }

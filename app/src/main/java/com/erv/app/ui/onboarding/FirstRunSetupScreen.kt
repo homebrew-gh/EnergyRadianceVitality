@@ -42,6 +42,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.erv.app.ui.components.FieldLabel
+import com.erv.app.ui.components.SectionHeader
 import com.erv.app.bodytracker.BodyTrackerRepository
 import com.erv.app.cardio.CardioDistanceUnit
 import com.erv.app.cardio.CardioRepository
@@ -502,7 +503,7 @@ fun FirstRunSetupScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("Gym membership", style = MaterialTheme.typography.titleMedium)
+                            SectionHeader("Gym membership")
                             Text(
                                 "Turn this on if you train with access to a full gym.",
                                 style = MaterialTheme.typography.bodySmall,

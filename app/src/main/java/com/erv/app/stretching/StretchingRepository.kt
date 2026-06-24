@@ -9,6 +9,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.erv.app.nostr.CatalogStore
 import com.erv.app.stretching.StretchCatalogEntry
 import com.erv.app.unifiedroutines.UnifiedSessionLink
+import com.erv.app.workouts.WorkoutSessionLink
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -75,7 +76,8 @@ class StretchingRepository(context: Context) {
         routineName: String? = null,
         stretchIds: List<String>,
         totalMinutes: Int,
-        unifiedLink: UnifiedSessionLink? = null
+        unifiedLink: UnifiedSessionLink? = null,
+        workoutLink: WorkoutSessionLink? = null
     ) {
         updateState { current ->
             val log = current.logFor(date) ?: StretchDayLog(date = date.toString())
@@ -86,7 +88,8 @@ class StretchingRepository(context: Context) {
                 totalMinutes = totalMinutes.coerceAtLeast(0),
                 loggedAtEpochSeconds = nowEpochSeconds(),
                 id = UUID.randomUUID().toString(),
-                unifiedLink = unifiedLink
+                unifiedLink = unifiedLink,
+                workoutLink = workoutLink,
             )
             current.copy(
                 logs = current.logs.upsert(
@@ -102,6 +105,25 @@ class StretchingRepository(context: Context) {
             val newSessions = log.sessions.filterNot { it.id == sessionId }
             if (newSessions.size == log.sessions.size) return@updateState current
             current.copy(logs = current.logs.upsert(log.copy(sessions = newSessions)))
+        }
+    }
+
+    suspend fun updateSession(
+        date: LocalDate,
+        sessionId: String,
+        transform: (StretchSession) -> StretchSession,
+    ) {
+        updateState { current ->
+            val log = current.logFor(date) ?: return@updateState current
+            current.copy(
+                logs = current.logs.upsert(
+                    log.copy(
+                        sessions = log.sessions.map { session ->
+                            if (session.id == sessionId) transform(session) else session
+                        },
+                    ),
+                ),
+            )
         }
     }
 

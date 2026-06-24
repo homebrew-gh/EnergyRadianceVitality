@@ -21,11 +21,17 @@ fun WorkoutModality.displayLabel(): String =
         WorkoutModality.HIIT -> "HIIT"
     }
 
-/** Plaintext payload encrypted into kind 30078, `d` tag `erv/equipment` (replaceable). */
+/**
+ * Plaintext payload encrypted into kind 30078, `d` tag `erv/equipment` (replaceable).
+ *
+ * [enabledWeightExercisePackIds] lists built-in specialty pack ids the user has turned on
+ * (e.g. `iron-neck`). Future community pack distribution may extend this list shape.
+ */
 @Serializable
 data class FitnessEquipmentNostrPayload(
     val gymMembership: Boolean = false,
     val equipment: List<OwnedEquipmentItem> = emptyList(),
+    val enabledWeightExercisePackIds: List<String> = emptyList(),
 )
 
 private val equipmentJson = Json {

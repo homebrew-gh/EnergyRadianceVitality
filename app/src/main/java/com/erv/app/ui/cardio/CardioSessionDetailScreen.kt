@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import com.erv.app.R
 import com.erv.app.cardio.CardioBuiltinActivity
 import com.erv.app.cardio.CardioDistanceUnit
+import com.erv.app.ui.components.SectionHeader
 import com.erv.app.cardio.CardioLibraryState
 import com.erv.app.cardio.CardioModality
 import com.erv.app.cardio.CardioSession
@@ -287,7 +288,7 @@ private fun CardioSessionDetailBody(
         session.routeImageUrl?.takeIf { it.isNotBlank() }?.let { url ->
             item {
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                Text("Route image (shared)", style = MaterialTheme.typography.titleMedium)
+                SectionHeader("Route image (shared)")
                 RouteImageFromUrl(
                     url = url,
                     modifier = Modifier

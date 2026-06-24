@@ -78,6 +78,20 @@ class RelayPayloadDigestStore private constructor(private val appContext: Contex
         putDigest(dTag, sha256HexUtf8(plaintext))
     }
 
+    suspend fun clearDigests(dTags: Collection<String>) {
+        if (dTags.isEmpty()) return
+        appContext.relayPayloadDigestDataStore.edit { prefs ->
+            val cur = decodeMap(prefs[Keys.MAP_JSON]).toMutableMap()
+            var changed = false
+            for (tag in dTags) {
+                if (cur.remove(tag) != null) changed = true
+            }
+            if (changed) {
+                prefs[Keys.MAP_JSON] = json.encodeToString(DigestMap.serializer(), DigestMap(cur))
+            }
+        }
+    }
+
     suspend fun clear() {
         appContext.relayPayloadDigestDataStore.edit { prefs ->
             prefs.remove(Keys.MAP_JSON)

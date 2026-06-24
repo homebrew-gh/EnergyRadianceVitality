@@ -25,6 +25,7 @@ class WorkoutRepository(context: Context) {
     private val json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = true
+        coerceInputValues = true
         prettyPrint = false
     }
 
@@ -75,11 +76,36 @@ class WorkoutRepository(context: Context) {
 
     suspend fun startRun(workoutId: String) {
         updateState { state ->
+            val existing = state.activeRun?.takeIf { it.workoutId == workoutId }
+            if (existing != null) return@updateState state
             val workout = state.workoutById(workoutId) ?: return@updateState state
             state.copy(
                 activeRun = WorkoutActiveRun(
                     workoutId = workout.id,
                     workoutSnapshot = workout,
+                ),
+            )
+        }
+    }
+
+    suspend fun beginRun(workoutId: String) {
+        updateState { state ->
+            val run = state.activeRun?.takeIf { it.workoutId == workoutId }
+            if (run != null) {
+                return@updateState state.copy(
+                    activeRun = if (run.startedAtEpochSeconds == null) {
+                        run.copy(startedAtEpochSeconds = nowWorkoutEpochSeconds())
+                    } else {
+                        run
+                    },
+                )
+            }
+            val workout = state.workoutById(workoutId) ?: return@updateState state
+            state.copy(
+                activeRun = WorkoutActiveRun(
+                    workoutId = workout.id,
+                    workoutSnapshot = workout,
+                    startedAtEpochSeconds = nowWorkoutEpochSeconds(),
                 ),
             )
         }
@@ -98,6 +124,91 @@ class WorkoutRepository(context: Context) {
             val completed = (run.completedSegmentIds + segmentId).distinct()
             state.copy(activeRun = run.copy(completedSegmentIds = completed))
         }
+    }
+
+    suspend fun setLastLaunchedItem(segmentId: String, itemId: String) {
+        updateState { state ->
+            val run = state.activeRun ?: return@updateState state
+            state.copy(
+                activeRun = run.copy(
+                    lastLaunchedSegmentId = segmentId,
+                    lastLaunchedItemId = itemId,
+                ),
+            )
+        }
+    }
+
+    suspend fun clearPendingNextSegmentPrompt() {
+        updateState { state ->
+            val run = state.activeRun ?: return@updateState state
+            if (run.pendingNextSegmentTitle == null) return@updateState state
+            state.copy(activeRun = run.copy(pendingNextSegmentTitle = null))
+        }
+    }
+
+    /**
+     * Records a silo log entry for the launched storyboard item and advances the run position.
+     * Returns null when there is no active launched item.
+     */
+    suspend fun completeLaunchedItem(
+        logDate: String,
+        entryId: String,
+        kind: WorkoutLoggedItemKind,
+    ): WorkoutItemCompletionResult? {
+        var result: WorkoutItemCompletionResult? = null
+        updateState { state ->
+            val run = state.activeRun ?: return@updateState state
+            val segmentId = run.lastLaunchedSegmentId ?: return@updateState state
+            val itemId = run.lastLaunchedItemId ?: return@updateState state
+            val workout = run.workoutSnapshot
+            val position = run.position
+            val now = nowWorkoutEpochSeconds()
+            val recap = WorkoutItemRecap(
+                segmentId = segmentId,
+                itemId = itemId,
+                kind = kind,
+                linkedLogDate = logDate,
+                linkedEntryId = entryId,
+                finishedAtEpochSeconds = now,
+            )
+            val itemRecaps = run.itemRecaps
+                .filterNot { it.segmentId == segmentId && it.itemId == itemId } + recap
+            val beforeSegmentIndex = position.segmentIndex
+            val nextPosition = WorkoutRunEngine.advance(workout, position)
+            val segmentJustCompleted = nextPosition.segmentIndex > beforeSegmentIndex
+            val completedSegmentId = if (segmentJustCompleted) {
+                workout.segments.getOrNull(beforeSegmentIndex)?.id
+            } else {
+                null
+            }
+            val completedSegmentIds = if (completedSegmentId != null) {
+                (run.completedSegmentIds + completedSegmentId).distinct()
+            } else {
+                run.completedSegmentIds
+            }
+            val workoutComplete = WorkoutRunEngine.isWorkoutComplete(workout, nextPosition)
+            val nextSegmentTitle = if (segmentJustCompleted && !workoutComplete) {
+                workout.segments.getOrNull(nextPosition.segmentIndex)?.displayTitle()
+            } else {
+                null
+            }
+            result = WorkoutItemCompletionResult(
+                segmentJustCompleted = segmentJustCompleted,
+                completedSegmentId = completedSegmentId,
+                workoutComplete = workoutComplete,
+                nextSegmentTitle = nextSegmentTitle,
+            )
+            val updatedRun = run.copy(
+                position = nextPosition,
+                itemRecaps = itemRecaps,
+                completedSegmentIds = completedSegmentIds,
+                lastLaunchedSegmentId = null,
+                lastLaunchedItemId = null,
+                pendingNextSegmentTitle = nextSegmentTitle,
+            )
+            state.copy(activeRun = updatedRun)
+        }
+        return result
     }
 
     suspend fun clearActiveRun() {

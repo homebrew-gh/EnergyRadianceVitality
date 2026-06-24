@@ -5,6 +5,8 @@ package com.erv.app.ui.supplements
 import android.Manifest
 import com.erv.app.ui.components.FormSectionLabel
 import com.erv.app.ui.components.FormSectionLabelMedium
+import com.erv.app.ui.components.FormSectionLabelSmall
+import com.erv.app.ui.components.SectionHeader
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -1148,7 +1150,7 @@ private fun SupplementEditorDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                Text("Serving dosage", style = MaterialTheme.typography.titleSmall)
+                FormSectionLabelSmall("Serving dosage")
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                     EnumDropdownField(
                         value = draft.form,
@@ -1300,7 +1302,7 @@ private fun RoutineEditorDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                Text("Supplements for ${routineTimeOfDay.label()}", style = MaterialTheme.typography.titleSmall)
+                FormSectionLabelSmall("Supplements for ${routineTimeOfDay.label()}")
                 if (steps.isEmpty()) {
                     Text(
                         "Tap \"Add supplement\" below. Then tap \"Select supplement\" and pick one — serving size will appear.",
@@ -1845,7 +1847,7 @@ fun SupplementDetailScreen(
             item {
                 ElevatedCard(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text("Lookup from NIH DSLD", style = MaterialTheme.typography.titleMedium)
+                        SectionHeader("Lookup from NIH DSLD")
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.fillMaxWidth()
@@ -1941,7 +1943,7 @@ fun SupplementDetailScreen(
 
             if (routinesUsingSupplement.isNotEmpty()) {
                 item {
-                    Text("Used in routines", style = MaterialTheme.typography.titleMedium)
+                    SectionHeader("Used in routines")
                 }
                 items(routinesUsingSupplement, key = { it.id }) { routine ->
                     ElevatedCard(modifier = Modifier.fillMaxWidth()) {

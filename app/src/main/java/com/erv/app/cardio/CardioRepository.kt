@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
+import com.erv.app.cardio.CardioSync
 import java.time.LocalDate
 
 private val Context.cardioDataStore: DataStore<Preferences> by preferencesDataStore(name = "erv_cardio")
@@ -122,6 +123,7 @@ class CardioRepository(
                 )
             )
         }
+        syncDayLogToRelay(date)
     }
 
     suspend fun deleteSession(date: LocalDate, sessionId: String) {
@@ -131,6 +133,7 @@ class CardioRepository(
             if (newSessions.size == log.sessions.size) return@updateState current
             current.copy(logs = current.logs.upsertLog(log.copy(sessions = newSessions)))
         }
+        syncDayLogToRelay(date)
     }
 
     suspend fun updateSession(
@@ -139,6 +142,7 @@ class CardioRepository(
         transform: (CardioSession) -> CardioSession
     ) {
         val retain = userPreferences.cardioGpsTrackRetainOnDevice.first()
+        var changed = false
         updateState { current ->
             val log = current.logFor(date) ?: return@updateState current
             val idx = log.sessions.indexOfFirst { it.id == sessionId }
@@ -146,9 +150,17 @@ class CardioRepository(
             val transformed = transform(log.sessions[idx])
             val updated = if (retain) transformed else transformed.copy(gpsTrack = null)
             if (updated == log.sessions[idx]) return@updateState current
+            changed = true
             val newSessions = log.sessions.toMutableList()
             newSessions[idx] = updated
             current.copy(logs = current.logs.upsertLog(log.copy(sessions = newSessions)))
+        }
+        if (changed) syncDayLogToRelay(date)
+    }
+
+    private suspend fun syncDayLogToRelay(date: LocalDate) {
+        currentState().logFor(date)?.let { log ->
+            CardioSync.queueDayLogForRelay(appContext, log)
         }
     }
 

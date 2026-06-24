@@ -1,6 +1,8 @@
 package com.erv.app.workouts
 
+import com.erv.app.weighttraining.WeightSet
 import com.erv.app.weighttraining.WeightSetLoggingStyle
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
@@ -19,6 +21,42 @@ class WorkoutPrescriptionTest {
             assertNull(set.durationSeconds)
             assertEquals(10, set.targetReps)
             assertNull(set.targetDurationSeconds)
+            assertNull(set.targetWeightKg)
+        }
+    }
+
+    @Test
+    fun resolvedSets_seeds_weight_target_for_live_ghost() {
+        val sets = WorkoutWeightPrescription(
+            setCount = 3,
+            targetReps = 8,
+            targetWeightKg = 60.0,
+        ).resolvedSets(loggingStyle = WeightSetLoggingStyle.REPS)
+
+        assertEquals(3, sets.size)
+        sets.forEach { set ->
+            assertEquals(0, set.reps)
+            assertNull(set.weightKg)
+            assertEquals(8, set.targetReps)
+            assertEquals(60.0, set.targetWeightKg!!, 0.001)
+        }
+    }
+
+    @Test
+    fun resolvedSets_normalizes_prescription_set_weight_to_ghost() {
+        val sets = WorkoutWeightPrescription(
+            sets = listOf(
+                WeightSet(reps = 8, weightKg = 72.5),
+                WeightSet(reps = 8, weightKg = 72.5),
+            ),
+        ).resolvedSets(loggingStyle = WeightSetLoggingStyle.REPS)
+
+        assertEquals(2, sets.size)
+        sets.forEach { set ->
+            assertEquals(0, set.reps)
+            assertNull(set.weightKg)
+            assertEquals(8, set.targetReps)
+            assertEquals(72.5, set.targetWeightKg!!, 0.001)
         }
     }
 

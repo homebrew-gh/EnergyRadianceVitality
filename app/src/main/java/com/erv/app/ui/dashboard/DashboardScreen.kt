@@ -74,6 +74,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.erv.app.ui.components.FieldLabel
+import com.erv.app.ui.components.FormSectionLabelSmall
+import com.erv.app.ui.layout.ErvAdaptiveGrid
 import com.erv.app.R
 import com.erv.app.cycling.LocalConcept2Pm
 import com.erv.app.cycling.LocalCyclingCsc
@@ -1782,7 +1784,7 @@ private fun HeatColdQuickSheet(
                 color = MaterialTheme.colorScheme.primaryContainer
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Text("Log a new session", style = MaterialTheme.typography.titleSmall)
+                    FormSectionLabelSmall("Log a new session")
                     Text(
                         "Choose hot (sauna) or cold plunge, then run the timer (optional temperature)",
                         style = MaterialTheme.typography.bodySmall,
@@ -1800,7 +1802,7 @@ private fun HeatColdQuickSheet(
                 color = MaterialTheme.colorScheme.surfaceVariant
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Text("View log", style = MaterialTheme.typography.titleSmall)
+                    FormSectionLabelSmall("View log")
                     Text(
                         "Hot + Cold history by date",
                         style = MaterialTheme.typography.bodySmall,
@@ -1846,11 +1848,15 @@ private fun moveLaunchPadTile(
 
 private fun quickLogTileOffsetPx(
     index: Int,
+    columnCount: Int,
     tileWidthPx: Float,
     tileSpacingPx: Float,
+    gridOffsetXPx: Float = 0f,
 ): Pair<Float, Float> {
-    val x = if (index % 2 == 0) 0f else tileWidthPx + tileSpacingPx
-    val y = (index / 2) * (tileWidthPx + tileSpacingPx)
+    val col = index % columnCount
+    val row = index / columnCount
+    val x = gridOffsetXPx + col * (tileWidthPx + tileSpacingPx)
+    val y = row * (tileWidthPx + tileSpacingPx)
     return x to y
 }
 
@@ -1858,13 +1864,21 @@ private fun nearestQuickLogTileIndex(
     centerX: Float,
     centerY: Float,
     tileCount: Int,
+    columnCount: Int,
     tileWidthPx: Float,
     tileSpacingPx: Float,
+    gridOffsetXPx: Float = 0f,
 ): Int {
     var nearestIndex = 0
     var nearestDistance = Float.MAX_VALUE
     for (index in 0 until tileCount) {
-        val (x, y) = quickLogTileOffsetPx(index, tileWidthPx, tileSpacingPx)
+        val (x, y) = quickLogTileOffsetPx(
+            index = index,
+            columnCount = columnCount,
+            tileWidthPx = tileWidthPx,
+            tileSpacingPx = tileSpacingPx,
+            gridOffsetXPx = gridOffsetXPx,
+        )
         val dx = centerX - (x + tileWidthPx / 2f)
         val dy = centerY - (y + tileWidthPx / 2f)
         val distance = (dx * dx) + (dy * dy)
@@ -1888,8 +1902,16 @@ private fun QuickLogTilesLayout(
 ) {
     if (tiles.isEmpty()) return
     BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-        val tileWidth = (maxWidth - tileRowSpacing) / 2
-        val rowCount = (tiles.size + 1) / 2
+        val columnCount = ErvAdaptiveGrid.launchPadColumns(maxWidth)
+        val tileWidth = ErvAdaptiveGrid.tileSize(
+            availableWidth = maxWidth,
+            columns = columnCount,
+            spacing = tileRowSpacing,
+            maxTileSize = ErvAdaptiveGrid.launchPadMaxTileSize(maxWidth),
+        )
+        val gridWidth = ErvAdaptiveGrid.gridContentWidth(tileWidth, columnCount, tileRowSpacing)
+        val gridOffsetX = ((maxWidth - gridWidth).coerceAtLeast(0.dp)) / 2
+        val rowCount = (tiles.size + columnCount - 1) / columnCount
         val containerHeight = tileWidth * rowCount + tileRowSpacing * (rowCount - 1).coerceAtLeast(0)
         val wiggleTransition = rememberInfiniteTransition(label = "launchPadWiggle")
         val wiggleRotation by wiggleTransition.animateFloat(
@@ -1913,6 +1935,7 @@ private fun QuickLogTilesLayout(
         }
         val tileWidthPx = with(LocalDensity.current) { tileWidth.toPx() }
         val tileSpacingPx = with(LocalDensity.current) { tileRowSpacing.toPx() }
+        val gridOffsetXPx = with(LocalDensity.current) { gridOffsetX.toPx() }
         val tileIds = remember(tiles) { tiles.map { it.id } }
         LaunchedEffect(tileIds, committedDropPreviewTileIds) {
             val committed = committedDropPreviewTileIds ?: return@LaunchedEffect
@@ -1945,7 +1968,13 @@ private fun QuickLogTilesLayout(
         ) {
             tiles.forEachIndexed { index, tile ->
                 val previewIndex = previewIndicesById[tile.id] ?: index
-                val (baseX, baseY) = quickLogTileOffsetPx(previewIndex, tileWidthPx, tileSpacingPx)
+                val (baseX, baseY) = quickLogTileOffsetPx(
+                    index = previewIndex,
+                    columnCount = columnCount,
+                    tileWidthPx = tileWidthPx,
+                    tileSpacingPx = tileSpacingPx,
+                    gridOffsetXPx = gridOffsetXPx,
+                )
                 val isDragged = editMode && draggedTileId == tile.id
                 val animatedScale by animateFloatAsState(
                     targetValue = if (isDragged) 1.06f else 1f,
@@ -1969,7 +1998,7 @@ private fun QuickLogTilesLayout(
                 )
                 val tileRotation = when {
                     !editMode || isDragged -> 0f
-                    index % 2 == 0 -> wiggleRotation
+                    previewIndex % columnCount % 2 == 0 -> wiggleRotation
                     else -> -wiggleRotation
                 }
                 val drawX = if (isDragged) dragPointerX - dragGrabOffsetX else animatedBaseX
@@ -2028,8 +2057,10 @@ private fun QuickLogTilesLayout(
                                     centerX = centerX,
                                     centerY = centerY,
                                     tileCount = tiles.size,
+                                    columnCount = columnCount,
                                     tileWidthPx = tileWidthPx,
                                     tileSpacingPx = tileSpacingPx,
+                                    gridOffsetXPx = gridOffsetXPx,
                                 )
                                 dragHoverIndex = targetIndex
                                 dragPointerX = nextPointerX
@@ -2975,7 +3006,7 @@ private fun UnifiedRoutinePickerSheet(
                 color = MaterialTheme.colorScheme.primaryContainer
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Text("New Workout", style = MaterialTheme.typography.titleSmall)
+                    FormSectionLabelSmall("New Workout")
                     Text(
                         "Build a mixed weight, cardio, and stretching workout on the fly, then save it later if you want to repeat it",
                         style = MaterialTheme.typography.bodySmall,
@@ -3056,7 +3087,7 @@ private fun WeightRoutinePickerSheet(
                 color = MaterialTheme.colorScheme.primaryContainer
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Text("New workout", style = MaterialTheme.typography.titleSmall)
+                    FormSectionLabelSmall("New workout")
                     Text(
                         "Open the live workout screen to log sets, or pick a saved routine below",
                         style = MaterialTheme.typography.bodySmall,
@@ -3073,7 +3104,7 @@ private fun WeightRoutinePickerSheet(
                 color = MaterialTheme.colorScheme.secondaryContainer
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Text("Log previous workout", style = MaterialTheme.typography.titleSmall)
+                    FormSectionLabelSmall("Log previous workout")
                     Text(
                         "Open the weight log with the calendar — pick a day, then add or edit a manual entry",
                         style = MaterialTheme.typography.bodySmall,
@@ -3174,7 +3205,7 @@ private fun CardioRoutinePickerSheet(
                 color = MaterialTheme.colorScheme.primaryContainer
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Text("New workout", style = MaterialTheme.typography.titleSmall)
+                    FormSectionLabelSmall("New workout")
                     Text(
                         "Start a single cardio session, launch a timer, or save a cardio-only routine",
                         style = MaterialTheme.typography.bodySmall,
@@ -3191,7 +3222,7 @@ private fun CardioRoutinePickerSheet(
                 color = MaterialTheme.colorScheme.secondaryContainer
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Text("Log previous workout", style = MaterialTheme.typography.titleSmall)
+                    FormSectionLabelSmall("Log previous workout")
                     Text(
                         "Open the cardio log with the calendar — pick a day, then add a session",
                         style = MaterialTheme.typography.bodySmall,
@@ -3788,7 +3819,7 @@ private fun RoutineModifyDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                Text("Schedule", style = MaterialTheme.typography.titleSmall)
+                FormSectionLabelSmall("Schedule")
                 timeSlots.forEach { timeOfDay ->
                     val slotSteps = steps.withIndex().filter { it.value.timeOfDay == timeOfDay }
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {

@@ -50,7 +50,10 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.erv.app.ui.media.playHiitWorkCountdownTickCue
+import com.erv.app.ui.media.playHiitWorkSegmentEndCue
 import com.erv.app.ui.components.FieldLabel
+import com.erv.app.ui.components.FormSectionLabel
 import com.erv.app.R
 import com.erv.app.data.BodyWeightUnit
 import com.erv.app.weighttraining.WeightEquipment
@@ -81,6 +84,9 @@ internal fun repsFieldText(reps: Int): String = if (reps <= 0) "" else reps.toSt
 internal fun weightFieldText(set: WeightSet, unit: BodyWeightUnit): String =
     set.weightKg?.let { formatWeightLoadNumber(it, unit) }.orEmpty()
 
+internal fun weightShadowText(set: WeightSet, unit: BodyWeightUnit): String? =
+    set.targetWeightKg?.takeIf { it > 0 }?.let { formatWeightLoadNumber(it, unit) }
+
 internal fun rpeFieldText(set: WeightSet): String =
     set.rpe?.let { formatRpeFieldForSets(it) }.orEmpty()
 
@@ -88,6 +94,7 @@ internal fun durationFieldText(set: WeightSet): String =
     set.durationSeconds?.takeIf { it > 0 }?.toString().orEmpty()
 
 private const val DEFAULT_TIMED_HOLD_SECONDS = 30
+private const val DEFAULT_PLANK_HOLD_SECONDS = 45
 
 @Composable
 private fun ShadowOutlinedNumberField(
@@ -96,6 +103,7 @@ private fun ShadowOutlinedNumberField(
     shadowText: String?,
     label: String,
     modifier: Modifier = Modifier,
+    keyboardOptions: KeyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
     trailingIcon: @Composable (() -> Unit)? = null,
     supportingText: @Composable (() -> Unit)? = null,
 ) {
@@ -105,7 +113,7 @@ private fun ShadowOutlinedNumberField(
             onValueChange = onValueChange,
             label = label.takeIf { it.isNotEmpty() }?.let { { Text(it) } },
             singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            keyboardOptions = keyboardOptions,
             trailingIcon = trailingIcon,
             supportingText = supportingText,
             modifier = Modifier.fillMaxWidth(),
@@ -155,6 +163,9 @@ fun WeightExerciseInlineSetsCard(
     hiitCapable: Boolean = false,
     /** When true, sets are logged as a timed hold (duration + start/stop timer) instead of reps. */
     timePerSetCapable: Boolean = false,
+    /** Countdown hold with 5-second warning beeps and a louder finish tone (planks). */
+    timedHoldCountdownBeeps: Boolean = false,
+    allowAddSet: Boolean = true,
     hiitBlock: WeightHiitBlockLog? = null,
     onClearHiitBlock: (() -> Unit)? = null,
     onStartHiitTimer: ((WeightHiitIntervalPlan) -> Unit)? = null,
@@ -287,7 +298,7 @@ fun WeightExerciseInlineSetsCard(
                 }
             }
             if (showHiitChooser && hiitBlock == null && !setsCollapsed) {
-                Text(
+                FormSectionLabel(
                     "Log style",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -418,6 +429,7 @@ fun WeightExerciseInlineSetsCard(
                             loadSuffix = loadSuffix,
                             weightIsAddedLoad = weightIsAddedLoad,
                             canRemove = sets.size > 1,
+                            timedHoldCountdownBeeps = timedHoldCountdownBeeps,
                             onChange = { onSetsChange(sets.replaceAt(idx, it)) },
                             onRemove = {
                                 if (sets.size > 1) onSetsChange(sets.filterIndexed { i, _ -> i != idx })
@@ -454,7 +466,7 @@ fun WeightExerciseInlineSetsCard(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.padding(bottom = 4.dp)
                                 )
-                                OutlinedTextField(
+                                ShadowOutlinedNumberField(
                                     value = weightFieldText(set, loadUnit),
                                     onValueChange = { t ->
                                         onSetsChange(
@@ -464,6 +476,9 @@ fun WeightExerciseInlineSetsCard(
                                             )
                                         )
                                     },
+                                    shadowText = weightShadowText(set, loadUnit),
+                                    label = "",
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                                     trailingIcon = if (weightIsAddedLoad) {
                                         {
                                             IconButton(onClick = { showAddedLoadInfo = true }) {
@@ -476,9 +491,6 @@ fun WeightExerciseInlineSetsCard(
                                             }
                                         }
                                     } else null,
-                                    singleLine = true,
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                                    modifier = Modifier.fillMaxWidth()
                                 )
                             }
                             Column(modifier = Modifier.weight(1f)) {
@@ -516,25 +528,28 @@ fun WeightExerciseInlineSetsCard(
                         }
                     }
                 }
-                TextButton(
-                    onClick = {
-                        onAfterAddSet?.invoke()
-                        onSetsChange(
-                            sets + WeightSet(
-                                reps = 0,
-                                weightKg = null,
-                                rpe = null,
-                                targetReps = sets.lastOrNull()?.targetReps,
-                                targetDurationSeconds = sets.lastOrNull()?.targetDurationSeconds,
+                if (allowAddSet) {
+                    TextButton(
+                        onClick = {
+                            onAfterAddSet?.invoke()
+                            onSetsChange(
+                                sets + WeightSet(
+                                    reps = 0,
+                                    weightKg = null,
+                                    rpe = null,
+                                    targetReps = sets.lastOrNull()?.targetReps,
+                                    targetWeightKg = sets.lastOrNull()?.targetWeightKg,
+                                    targetDurationSeconds = sets.lastOrNull()?.targetDurationSeconds,
+                                )
                             )
-                        )
-                    },
-                    modifier = Modifier.padding(start = 4.dp)
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Add, contentDescription = null)
-                        Spacer(Modifier.width(6.dp))
-                        Text("Add set", style = MaterialTheme.typography.labelLarge)
+                        },
+                        modifier = Modifier.padding(start = 4.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Add, contentDescription = null)
+                            Spacer(Modifier.width(6.dp))
+                            Text("Add set", style = MaterialTheme.typography.labelLarge)
+                        }
                     }
                 }
                 if (canCollapseSets) {
@@ -564,6 +579,7 @@ private fun WeightTimePerSetRow(
     loadSuffix: String,
     weightIsAddedLoad: Boolean,
     canRemove: Boolean,
+    timedHoldCountdownBeeps: Boolean = false,
     onChange: (WeightSet) -> Unit,
     onRemove: () -> Unit,
     onShowAddedLoadInfo: () -> Unit,
@@ -572,16 +588,22 @@ private fun WeightTimePerSetRow(
     var countdownRemaining by remember { mutableStateOf<Int?>(null) }
     val currentSet by rememberUpdatedState(set)
     val currentOnChange by rememberUpdatedState(onChange)
-    val goalSeconds = remember(set.targetDurationSeconds, durationFieldText(set)) {
+    val goalSeconds = remember(set.targetDurationSeconds, durationFieldText(set), timedHoldCountdownBeeps) {
         durationFieldText(set).toIntOrNull()?.takeIf { it > 0 }
             ?: set.targetDurationSeconds?.takeIf { it > 0 }
-            ?: DEFAULT_TIMED_HOLD_SECONDS
+            ?: if (timedHoldCountdownBeeps) DEFAULT_PLANK_HOLD_SECONDS else DEFAULT_TIMED_HOLD_SECONDS
     }
     LaunchedEffect(running, countdownRemaining) {
         if (!running) return@LaunchedEffect
         val remaining = countdownRemaining
         if (remaining != null) {
+            if (timedHoldCountdownBeeps && remaining in 1..5) {
+                playHiitWorkCountdownTickCue()
+            }
             if (remaining <= 0) {
+                if (timedHoldCountdownBeeps) {
+                    playHiitWorkSegmentEndCue()
+                }
                 running = false
                 countdownRemaining = null
                 currentOnChange(currentSet.copy(durationSeconds = goalSeconds))
@@ -591,6 +613,7 @@ private fun WeightTimePerSetRow(
             countdownRemaining = remaining - 1
             return@LaunchedEffect
         }
+        if (timedHoldCountdownBeeps) return@LaunchedEffect
         delay(1000)
         val next = (currentSet.durationSeconds ?: 0) + 1
         currentOnChange(currentSet.copy(durationSeconds = next))
@@ -634,7 +657,7 @@ private fun WeightTimePerSetRow(
                                     )
                                 }
                             } else {
-                                if ((set.durationSeconds ?: 0) <= 0) {
+                                if (timedHoldCountdownBeeps || (set.durationSeconds ?: 0) <= 0) {
                                     countdownRemaining = goalSeconds
                                 }
                                 running = true
@@ -660,11 +683,14 @@ private fun WeightTimePerSetRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(bottom = 4.dp)
             )
-            OutlinedTextField(
+            ShadowOutlinedNumberField(
                 value = weightFieldText(set, loadUnit),
                 onValueChange = { t ->
                     onChange(set.copy(weightKg = parseWeightInputToKg(t, loadUnit)))
                 },
+                shadowText = weightShadowText(set, loadUnit),
+                label = "",
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                 trailingIcon = if (weightIsAddedLoad) {
                     {
                         IconButton(onClick = onShowAddedLoadInfo) {
@@ -677,9 +703,6 @@ private fun WeightTimePerSetRow(
                         }
                     }
                 } else null,
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                modifier = Modifier.fillMaxWidth()
             )
         }
         Column(modifier = Modifier.weight(0.9f)) {

@@ -185,11 +185,15 @@ object ErvAppDataExport {
     fun fitnessEquipmentForExport(
         gymMembership: Boolean,
         ownedEquipment: List<OwnedEquipmentItem>,
+        enabledWeightExercisePackIds: List<String> = emptyList(),
     ): FitnessEquipmentNostrPayload? {
-        if (!gymMembership && ownedEquipment.isEmpty()) return null
+        if (!gymMembership && ownedEquipment.isEmpty() && enabledWeightExercisePackIds.isEmpty()) {
+            return null
+        }
         return FitnessEquipmentNostrPayload(
             gymMembership = gymMembership,
             equipment = ownedEquipment,
+            enabledWeightExercisePackIds = enabledWeightExercisePackIds.sorted(),
         )
     }
 

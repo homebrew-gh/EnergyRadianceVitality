@@ -124,6 +124,10 @@ import com.erv.app.unifiedroutines.UnifiedRoutineBlockType
 import com.erv.app.unifiedroutines.UnifiedRoutineLibraryState
 import com.erv.app.unifiedroutines.UnifiedRoutineRepository
 import com.erv.app.unifiedroutines.linkFor
+import com.erv.app.workouts.WorkoutLoggedItemKind
+import com.erv.app.workouts.WorkoutRepository
+import com.erv.app.workouts.activeWorkoutMobilityLaunch
+import com.erv.app.workouts.linkFor
 import com.erv.app.nostr.LibraryStateMerge
 import com.erv.app.nostr.RelayPayloadDigestStore
 import com.erv.app.stretching.applyStretchGuidedTtsVoice
@@ -476,11 +480,14 @@ private fun resolveStretchEntries(
 fun StretchingCategoryScreen(
     repository: StretchingRepository,
     unifiedRoutineRepository: UnifiedRoutineRepository,
+    workoutRepository: WorkoutRepository,
     userPreferences: UserPreferences,
     relayPool: RelayPool?,
     signer: EventSigner?,
     onBack: () -> Unit,
-    onOpenLog: () -> Unit
+    onReturnToWorkoutRun: (String) -> Unit,
+    onOpenLog: () -> Unit,
+    initialTab: String = StretchTab.Stretches.name,
 ) {
     val stretchGuidedTtsVoice by userPreferences.stretchGuidedTtsVoice.collectAsState(
         initial = StretchGuidedTtsVoice.SYSTEM_DEFAULT
@@ -489,7 +496,14 @@ fun StretchingCategoryScreen(
     val unifiedState by unifiedRoutineRepository.state.collectAsState(initial = UnifiedRoutineLibraryState())
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
-    var activeTab by rememberSaveable { mutableIntStateOf(0) }
+    val resolvedInitialTab = StretchTab.entries
+        .firstOrNull { it.name.equals(initialTab, ignoreCase = true) }
+        ?.ordinal
+        ?: StretchTab.Stretches.ordinal
+    var activeTab by rememberSaveable { mutableIntStateOf(resolvedInitialTab) }
+    LaunchedEffect(resolvedInitialTab) {
+        activeTab = resolvedInitialTab
+    }
     var guidedRoutine by remember { mutableStateOf<StretchRoutine?>(null) }
     var routineEditor by remember { mutableStateOf<StretchRoutine?>(null) }
     var creatingRoutine by remember { mutableStateOf(false) }
@@ -584,17 +598,23 @@ fun StretchingCategoryScreen(
                     } else {
                         null
                     }
+                    val workoutState = workoutRepository.currentState()
+                    val workoutLaunch = workoutState.activeWorkoutMobilityLaunch()
+                    val workoutLink = workoutLaunch?.let { launch ->
+                        workoutState.activeRun?.linkFor(launch.segmentId, launch.itemId)
+                    }
                     repository.logSession(
                         date = today,
                         routineId = routine.id,
                         routineName = routine.name,
                         stretchIds = routine.stretchIds,
                         totalMinutes = totalMinutes,
-                        unifiedLink = unifiedLink
+                        unifiedLink = unifiedLink,
+                        workoutLink = workoutLink,
                     )
                     val log = repository.currentState().logFor(today)
+                    val savedId = log?.sessions?.lastOrNull()?.id
                     if (activeUnifiedSession != null && activeUnifiedBlockId != null) {
-                        val savedId = log?.sessions?.lastOrNull()?.id
                         if (!savedId.isNullOrBlank()) {
                             unifiedRoutineRepository.attachLoggedBlock(
                                 routineId = activeUnifiedSession.routineId,
@@ -604,10 +624,17 @@ fun StretchingCategoryScreen(
                             )
                         }
                     }
-                    if (activeUnifiedSession != null && activeUnifiedBlockId != null) {
-                        onBack()
-                    } else {
-                        snackbarHostState.showSnackbar("Logged stretching session")
+                    if (workoutLaunch != null && !savedId.isNullOrBlank()) {
+                        workoutRepository.completeLaunchedItem(
+                            logDate = today.toString(),
+                            entryId = savedId,
+                            kind = WorkoutLoggedItemKind.MOBILITY,
+                        )
+                    }
+                    when {
+                        activeUnifiedSession != null && activeUnifiedBlockId != null -> onBack()
+                        workoutLaunch != null -> onReturnToWorkoutRun(workoutLaunch.workoutId)
+                        else -> snackbarHostState.showSnackbar("Logged stretching session")
                     }
                     launch {
                         log?.let { syncDailyLog(it) }
@@ -627,6 +654,13 @@ fun StretchingCategoryScreen(
                 guidedRoutine = null
                 if (activeUnifiedSession != null && activeUnifiedBlockId != null) {
                     onBack()
+                } else {
+                    scope.launch {
+                        val workoutLaunch = workoutRepository.currentState().activeWorkoutMobilityLaunch()
+                        if (workoutLaunch != null) {
+                            onReturnToWorkoutRun(workoutLaunch.workoutId)
+                        }
+                    }
                 }
             }
         )

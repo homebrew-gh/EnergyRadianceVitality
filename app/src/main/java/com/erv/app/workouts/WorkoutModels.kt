@@ -1,5 +1,6 @@
 package com.erv.app.workouts
 
+import com.erv.app.cardio.CardioHrScaffolding
 import com.erv.app.weighttraining.WeightSet
 import com.erv.app.weighttraining.WeightSetLoggingStyle
 import com.erv.app.weighttraining.setLoggingStyle
@@ -41,6 +42,8 @@ data class WorkoutWeightPrescription(
     val setCount: Int? = null,
     /** Single rep target for live workout ghost display. */
     val targetReps: Int? = null,
+    /** Single load target (kg) for live workout ghost display. */
+    val targetWeightKg: Double? = null,
     val repRangeMin: Int? = null,
     val repRangeMax: Int? = null,
     val targetRir: Int? = null,
@@ -184,14 +187,66 @@ fun WorkoutLibraryState.sanitized(): WorkoutLibraryState {
 }
 
 @Serializable
+enum class WorkoutLoggedItemKind {
+    @SerialName("cardio") CARDIO,
+    @SerialName("weight") WEIGHT,
+    @SerialName("mobility") MOBILITY,
+}
+
+@Serializable
+data class WorkoutSessionLink(
+    val sessionId: String,
+    val workoutId: String,
+    val segmentId: String,
+    val itemId: String,
+    val displayRef: String,
+    /** Full-workout HR summary; set when the composed live run finishes. */
+    val sessionHeartRate: CardioHrScaffolding? = null,
+)
+
+@Serializable
+data class WorkoutItemRecap(
+    val segmentId: String,
+    val itemId: String,
+    val kind: WorkoutLoggedItemKind,
+    val linkedLogDate: String? = null,
+    val linkedEntryId: String? = null,
+    val finishedAtEpochSeconds: Long? = null,
+)
+
+@Serializable
 data class WorkoutActiveRun(
     val sessionId: String = UUID.randomUUID().toString(),
     val workoutId: String,
     val workoutSnapshot: Workout,
-    val startedAtEpochSeconds: Long = nowWorkoutEpochSeconds(),
+    val createdAtEpochSeconds: Long = nowWorkoutEpochSeconds(),
+    val startedAtEpochSeconds: Long? = null,
     val position: WorkoutRunPosition = WorkoutRunPosition(),
     val completedSegmentIds: List<String> = emptyList(),
+    val lastLaunchedSegmentId: String? = null,
+    val lastLaunchedItemId: String? = null,
+    val itemRecaps: List<WorkoutItemRecap> = emptyList(),
+    /** Set after a segment finishes; cleared when the athlete acknowledges the next-section prompt. */
+    val pendingNextSegmentTitle: String? = null,
+    val displayRef: String = generateWorkoutRunDisplayRef(),
 )
+
+fun WorkoutActiveRun.isStarted(): Boolean = startedAtEpochSeconds != null
+
+fun generateWorkoutRunDisplayRef(nowEpochSeconds: Long = nowWorkoutEpochSeconds()): String {
+    val timePart = nowEpochSeconds.toString(36).uppercase()
+    val randomPart = UUID.randomUUID().toString().replace("-", "").takeLast(4).uppercase()
+    return "WR-$timePart-$randomPart"
+}
+
+fun WorkoutActiveRun.linkFor(segmentId: String, itemId: String): WorkoutSessionLink =
+    WorkoutSessionLink(
+        sessionId = sessionId,
+        workoutId = workoutId,
+        segmentId = segmentId,
+        itemId = itemId,
+        displayRef = displayRef,
+    )
 
 @Serializable
 data class WorkoutRunPosition(
@@ -277,13 +332,34 @@ fun WorkoutWeightPrescription.effectiveTargetReps(): Int? =
         ?: repRangeMin?.takeIf { it > 0 }?.takeIf { repRangeMax == null || repRangeMax == repRangeMin }
         ?: repRangeMax?.takeIf { it > 0 }?.takeIf { repRangeMin == null || repRangeMax == repRangeMin }
 
+fun WorkoutWeightPrescription.effectiveTargetWeightKg(): Double? =
+    targetWeightKg?.takeIf { it > 0 }
+        ?: sets.firstNotNullOfOrNull { set ->
+            set.targetWeightKg?.takeIf { it > 0 } ?: set.weightKg?.takeIf { it > 0 }
+        }
+
+fun WeightSet.seedForLiveWorkout(): WeightSet {
+    val repHint = targetReps?.takeIf { it > 0 } ?: reps.takeIf { it > 0 }
+    val weightHint = targetWeightKg?.takeIf { it > 0 } ?: weightKg?.takeIf { it > 0 }
+    val durationHint = targetDurationSeconds?.takeIf { it > 0 } ?: durationSeconds?.takeIf { it > 0 }
+    return copy(
+        reps = 0,
+        weightKg = null,
+        durationSeconds = null,
+        targetReps = repHint,
+        targetWeightKg = weightHint,
+        targetDurationSeconds = durationHint,
+    )
+}
+
 fun WorkoutWeightPrescription.effectiveTargetDurationSeconds(): Int? =
     durationSeconds?.takeIf { it > 0 }
 
 fun WorkoutWeightPrescription.resolvedSets(loggingStyle: WeightSetLoggingStyle = WeightSetLoggingStyle.REPS): List<WeightSet> {
-    if (sets.isNotEmpty()) return sets
+    if (sets.isNotEmpty()) return sets.map { it.seedForLiveWorkout() }
     val count = setCount?.coerceAtLeast(1) ?: 1
     val repTarget = effectiveTargetReps()
+    val weightTarget = effectiveTargetWeightKg()
     val durationTarget = effectiveTargetDurationSeconds()
     val timed = when (loggingStyle) {
         WeightSetLoggingStyle.TIME_ONLY -> true
@@ -299,6 +375,7 @@ fun WorkoutWeightPrescription.resolvedSets(loggingStyle: WeightSetLoggingStyle =
             rpe = null,
             durationSeconds = null,
             targetReps = if (!timed && !maxReps) repTarget else null,
+            targetWeightKg = weightTarget,
             targetDurationSeconds = if (timed) durationTarget else null,
         )
     }
@@ -348,6 +425,7 @@ fun WorkoutWeightPrescription.displaySummary(): String {
     return buildString {
         append("$setTotal sets")
         repPart?.let { append(" · $it") }
+        effectiveTargetWeightKg()?.let { append(" · ${it.toInt()} kg") }
         targetRir?.let { append(" · $it RIR") }
         restBetweenSetsSeconds?.takeIf { it > 0 }?.let { append(" · ${it}s between sets") }
     }
@@ -450,7 +528,9 @@ fun WorkoutSegmentKind.supportsFullItemEditor(): Boolean =
         this == WorkoutSegmentKind.COMPOSITE ||
         this == WorkoutSegmentKind.CARDIO ||
         this == WorkoutSegmentKind.INTERVAL ||
-        this == WorkoutSegmentKind.MOBILITY
+        this == WorkoutSegmentKind.MOBILITY ||
+        this == WorkoutSegmentKind.CIRCUIT ||
+        this == WorkoutSegmentKind.SUPERSET
 
 fun WorkoutSegmentKind.defaultTitle(): String = when (this) {
     WorkoutSegmentKind.STRAIGHT_SETS -> "Main work"

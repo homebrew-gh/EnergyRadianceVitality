@@ -2,6 +2,7 @@ package com.erv.app.stretching
 
 import com.erv.app.SectionLogDateFilter
 import com.erv.app.unifiedroutines.UnifiedSessionLink
+import com.erv.app.workouts.WorkoutSessionLink
 import kotlinx.serialization.Serializable
 import java.nio.charset.StandardCharsets
 import java.time.LocalDate
@@ -103,7 +104,8 @@ data class StretchSession(
     val totalMinutes: Int = 0,
     val loggedAtEpochSeconds: Long = nowEpochSeconds(),
     val id: String = "",
-    val unifiedLink: UnifiedSessionLink? = null
+    val unifiedLink: UnifiedSessionLink? = null,
+    val workoutLink: WorkoutSessionLink? = null,
 )
 
 internal fun stableLegacyStretchSessionId(session: StretchSession): String {

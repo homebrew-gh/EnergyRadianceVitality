@@ -28,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.erv.app.ui.components.FieldLabel
+import com.erv.app.ui.components.FormSectionLabel
 import com.erv.app.cardio.CardioActivitySnapshot
 import com.erv.app.cardio.CardioBuiltinActivity
 import com.erv.app.cardio.cardioBuiltinActivitiesForUserSelection
@@ -233,7 +234,7 @@ fun CardioQuickLaunchEditorDialog(
                     label = { FieldLabel("Name") },
                     modifier = Modifier.fillMaxWidth()
                 )
-                Text("Activity", style = MaterialTheme.typography.labelLarge)
+                FormSectionLabel("Activity")
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(
                         selected = !useCustom,
@@ -273,7 +274,7 @@ fun CardioQuickLaunchEditorDialog(
                 }
 
                 if (treadmillApplicable) {
-                    Text("Where", style = MaterialTheme.typography.labelLarge)
+                    FormSectionLabel("Where")
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         FilterChip(
                             selected = modality == CardioModality.OUTDOOR,
@@ -333,7 +334,7 @@ fun CardioQuickLaunchEditorDialog(
                     }
                 }
 
-                Text("Timer", style = MaterialTheme.typography.labelLarge)
+                FormSectionLabel("Timer")
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(
                         selected = timerMode == CardioQuickTimerMode.COUNT_UP,

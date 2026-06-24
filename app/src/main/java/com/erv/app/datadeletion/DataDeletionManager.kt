@@ -5,6 +5,7 @@ import com.erv.app.bodytracker.BodyTrackerRepository
 import com.erv.app.bodytracker.BodyTrackerSync
 import com.erv.app.cardio.CardioRepository
 import com.erv.app.cardio.CardioSync
+import com.erv.app.data.TrainingProfileNostrPayload
 import com.erv.app.data.UserPreferences
 import com.erv.app.dataexport.UserDataSection
 import com.erv.app.heatcold.HeatColdRepository
@@ -13,6 +14,7 @@ import com.erv.app.lighttherapy.LightSync
 import com.erv.app.lighttherapy.LightTherapyRepository
 import com.erv.app.nostr.EventSigner
 import com.erv.app.nostr.FitnessEquipmentSync
+import com.erv.app.nostr.TrainingProfileSync
 import com.erv.app.nostr.KeyManager
 import com.erv.app.nostr.RelayOutboxStatusStore
 import com.erv.app.nostr.RelayPayloadDigestStore
@@ -168,7 +170,14 @@ class DataDeletionManager(
             UserDataSection.BODY_TRACKER ->
                 BodyTrackerSync.clearOutboxEntries(bodyTrackerRepository.currentState())
             UserDataSection.PERSONAL_DATA ->
-                listOf(FitnessEquipmentSync.plaintextFor(gymMembership = false, equipment = emptyList()))
+                listOf(
+                    FitnessEquipmentSync.plaintextFor(
+                        gymMembership = false,
+                        equipment = emptyList(),
+                        enabledWeightExercisePackIds = emptyList(),
+                    ),
+                    TrainingProfileSync.plaintextFor(TrainingProfileNostrPayload()),
+                )
             UserDataSection.UNIFIED_ROUTINES,
             UserDataSection.REMINDERS -> emptyList()
         }

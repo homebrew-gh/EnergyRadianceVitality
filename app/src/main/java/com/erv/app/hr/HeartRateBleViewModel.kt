@@ -249,6 +249,19 @@ class HeartRateBleViewModel(application: Application) : AndroidViewModel(applica
         unifiedWorkoutHrSamples.clear()
     }
 
+    /** Continuous HR across all storyboard sections in Training → Workout live run. */
+    fun startComposedWorkoutRunRecording() {
+        discardUnifiedWorkoutRecording()
+        startUnifiedWorkoutRecording()
+    }
+
+    fun discardComposedWorkoutRunRecording() {
+        discardUnifiedWorkoutRecording()
+    }
+
+    fun takeComposedWorkoutRunHeartRateSummary(): CardioHrScaffolding? =
+        takeUnifiedWorkoutHeartRateSummary()
+
     fun discardUnifiedWorkoutRecording() {
         unifiedWorkoutRecording = false
         unifiedWorkoutSamples = 0

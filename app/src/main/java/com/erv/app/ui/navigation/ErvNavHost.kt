@@ -96,6 +96,8 @@ object Routes {
     fun cardioSessionDetail(logDateIso: String, sessionId: String) =
         "category/cardio/log/session/$logDateIso/$sessionId"
     const val cardioCategory = "category/cardio"
+    const val cardioCategoryRoute = "category/cardio?tab={tab}"
+    fun cardioCategoryTab(tab: String) = "category/cardio?tab=$tab"
     const val cardioCategoryNewWorkout = "category/cardio?openNewWorkout=true"
     const val weightTrainingCategory = "category/weight_training"
     const val weightTrainingCategoryRoute = "category/weight_training?tab={tab}"
@@ -121,6 +123,8 @@ object Routes {
     const val fasting = "category/fasting"
     const val fastingLog = "category/fasting/log"
     const val stretchingLog = "category/stretching/log"
+    const val stretchingCategoryRoute = "category/stretching?tab={tab}"
+    fun stretchingCategoryTab(tab: String) = "category/stretching?tab=$tab"
     const val programsCategory = "category/programs"
     const val programDetailRoute = "category/programs/{programId}"
     fun programDetail(programId: String) = "category/programs/$programId"
@@ -164,6 +168,7 @@ fun ErvNavHost(
     navigateToUnifiedLiveWorkout: MutableStateFlow<String?>,
     navigateToFasting: MutableStateFlow<Boolean>,
     onRelaysChanged: () -> Unit = {},
+    onPullRelayData: suspend () -> Unit = {},
     showDeferNostrLoginEntry: Boolean = false,
     onRequestNostrLogin: () -> Unit = {},
     onLogout: () -> Unit,
@@ -371,6 +376,7 @@ fun ErvNavHost(
             CardioCategoryScreen(
                 repository = cardioRepository,
                 unifiedRoutineRepository = unifiedRoutineRepository,
+                workoutRepository = workoutRepository,
                 userPreferences = userPreferences,
                 cardioLiveWorkoutViewModel = cardioLiveWorkoutViewModel,
                 weightLiveWorkoutViewModel = weightLiveWorkoutViewModel,
@@ -380,6 +386,11 @@ fun ErvNavHost(
                 onReturnToUnifiedRun = { routineId ->
                     if (!navController.popBackStack(Routes.unifiedRoutineRun(routineId), false)) {
                         navController.navigate(Routes.unifiedRoutineRun(routineId)) { launchSingleTop = true }
+                    }
+                },
+                onReturnToWorkoutRun = { workoutId ->
+                    if (!navController.popBackStack(Routes.workoutRun(workoutId), false)) {
+                        navController.navigate(Routes.workoutRun(workoutId)) { launchSingleTop = true }
                     }
                 },
                 onOpenLog = {
@@ -390,10 +401,18 @@ fun ErvNavHost(
             )
         }
 
-        composable(Routes.cardioCategory) {
+        composable(
+            route = Routes.cardioCategoryRoute,
+            arguments = listOf(navArgument("tab") {
+                type = NavType.StringType
+                defaultValue = "Activities"
+            })
+        ) { backStackEntry ->
+            val initialTab = backStackEntry.arguments?.getString("tab") ?: "Activities"
             CardioCategoryScreen(
                 repository = cardioRepository,
                 unifiedRoutineRepository = unifiedRoutineRepository,
+                workoutRepository = workoutRepository,
                 userPreferences = userPreferences,
                 cardioLiveWorkoutViewModel = cardioLiveWorkoutViewModel,
                 weightLiveWorkoutViewModel = weightLiveWorkoutViewModel,
@@ -405,9 +424,15 @@ fun ErvNavHost(
                         navController.navigate(Routes.unifiedRoutineRun(routineId)) { launchSingleTop = true }
                     }
                 },
+                onReturnToWorkoutRun = { workoutId ->
+                    if (!navController.popBackStack(Routes.workoutRun(workoutId), false)) {
+                        navController.navigate(Routes.workoutRun(workoutId)) { launchSingleTop = true }
+                    }
+                },
                 onOpenLog = {
                     navController.navigate(Routes.cardioLog) { launchSingleTop = true }
                 },
+                initialTab = initialTab,
                 initialOpenNewWorkout = false,
                 onConsumedInitialOpenNewWorkout = {}
             )
@@ -481,6 +506,7 @@ fun ErvNavHost(
             WeightTrainingCategoryScreen(
                 repository = weightRepository,
                 unifiedRoutineRepository = unifiedRoutineRepository,
+                workoutRepository = workoutRepository,
                 liveWorkoutViewModel = weightLiveWorkoutViewModel,
                 cardioLiveWorkoutViewModel = cardioLiveWorkoutViewModel,
                 userPreferences = userPreferences,
@@ -491,6 +517,11 @@ fun ErvNavHost(
                 onReturnToUnifiedRun = { routineId ->
                     if (!navController.popBackStack(Routes.unifiedRoutineRun(routineId), false)) {
                         navController.navigate(Routes.unifiedRoutineRun(routineId)) { launchSingleTop = true }
+                    }
+                },
+                onReturnToWorkoutRun = { workoutId ->
+                    if (!navController.popBackStack(Routes.workoutRun(workoutId), false)) {
+                        navController.navigate(Routes.workoutRun(workoutId)) { launchSingleTop = true }
                     }
                 },
                 onOpenLog = {
@@ -505,14 +536,12 @@ fun ErvNavHost(
         composable(Routes.trainingCategory) {
             val programsState by programRepository.state.collectAsState(initial = com.erv.app.programs.ProgramsLibraryState())
             val workoutState by workoutRepository.state.collectAsState(initial = WorkoutLibraryState())
-            val unifiedState by unifiedRoutineRepository.state.collectAsState(initial = UnifiedRoutineLibraryState())
             val weightState by weightRepository.state.collectAsState(initial = WeightLibraryState())
             val cardioState by cardioRepository.state.collectAsState(initial = CardioLibraryState())
             val stretchState by stretchingRepository.state.collectAsState(initial = StretchLibraryState())
             TrainingCategoryScreen(
                 programsState = programsState,
                 workoutLibraryCount = workoutState.workouts.size,
-                legacyUnifiedWorkoutCount = unifiedState.routines.size,
                 weightRoutineCount = weightState.routines.size,
                 stretchRoutineCount = stretchState.routines.size,
                 cardioRoutineCount = cardioState.routines.size,
@@ -524,13 +553,13 @@ fun ErvNavHost(
                     navController.navigate(Routes.workoutLibrary) { launchSingleTop = true }
                 },
                 onOpenWeightTraining = {
-                    navController.navigate(Routes.weightTrainingCategory) { launchSingleTop = true }
+                    navController.navigate(Routes.weightTrainingCategoryTab("Routines")) { launchSingleTop = true }
                 },
                 onOpenStretching = {
-                    navController.navigate(Routes.category("stretching")) { launchSingleTop = true }
+                    navController.navigate(Routes.stretchingCategoryTab("Routines")) { launchSingleTop = true }
                 },
                 onOpenCardio = {
-                    navController.navigate(Routes.cardioCategory) { launchSingleTop = true }
+                    navController.navigate(Routes.cardioCategoryTab("Routines")) { launchSingleTop = true }
                 },
             )
         }
@@ -543,6 +572,7 @@ fun ErvNavHost(
                 keyManager = keyManager,
                 relayPool = relayPool,
                 signer = signer,
+                onPullFromRelay = onPullRelayData,
                 onBack = { navController.popBackStack() },
                 onOpenComposer = { workoutId ->
                     if (workoutId == null) {
@@ -553,9 +583,6 @@ fun ErvNavHost(
                 },
                 onOpenRun = { workoutId ->
                     navController.navigate(Routes.workoutRun(workoutId)) { launchSingleTop = true }
-                },
-                onOpenLegacyUnified = {
-                    navController.navigate(Routes.unifiedRoutinesCategory) { launchSingleTop = true }
                 },
             )
         }
@@ -615,6 +642,9 @@ fun ErvNavHost(
             WorkoutLiveRunScreen(
                 workoutId = workoutId,
                 repository = workoutRepository,
+                cardioRepository = cardioRepository,
+                weightRepository = weightRepository,
+                stretchingRepository = stretchingRepository,
                 activeRun = workoutState.activeRun?.takeIf { it.workoutId == workoutId },
                 workout = workoutState.workoutById(workoutId),
                 weightState = weightState,
@@ -709,14 +739,28 @@ fun ErvNavHost(
             )
         }
 
-        composable(Routes.category("stretching")) {
+        composable(
+            route = Routes.stretchingCategoryRoute,
+            arguments = listOf(navArgument("tab") {
+                type = NavType.StringType
+                defaultValue = "Stretches"
+            })
+        ) { backStackEntry ->
+            val initialTab = backStackEntry.arguments?.getString("tab") ?: "Stretches"
             StretchingCategoryScreen(
                 repository = stretchingRepository,
                 unifiedRoutineRepository = unifiedRoutineRepository,
+                workoutRepository = workoutRepository,
                 userPreferences = userPreferences,
                 relayPool = relayPool,
                 signer = signer,
+                initialTab = initialTab,
                 onBack = { navController.popBackStack() },
+                onReturnToWorkoutRun = { workoutId ->
+                    if (!navController.popBackStack(Routes.workoutRun(workoutId), false)) {
+                        navController.navigate(Routes.workoutRun(workoutId)) { launchSingleTop = true }
+                    }
+                },
                 onOpenLog = {
                     navController.navigate(Routes.stretchingLog) { launchSingleTop = true }
                 }

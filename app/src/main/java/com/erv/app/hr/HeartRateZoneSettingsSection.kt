@@ -29,6 +29,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.erv.app.ui.components.FieldLabel
 import com.erv.app.ui.components.FormSectionLabel
+import com.erv.app.ui.components.SectionHeader
 import com.erv.app.data.UserPreferences
 import com.erv.app.ui.settings.SettingsCollapsibleHelp
 
@@ -55,9 +56,8 @@ fun HeartRateZoneSettingsSection(
     val previewResting = restingDraft.trim().toIntOrNull()?.takeIf { it in 35..100 }
 
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(
+        SectionHeader(
             "Heart Rate Zones",
-            style = MaterialTheme.typography.titleMedium,
             modifier = Modifier.padding(bottom = 4.dp),
         )
         ElevatedCard(

@@ -66,6 +66,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.erv.app.ui.components.FieldLabel
+import com.erv.app.ui.components.FormSectionLabelSmall
+import com.erv.app.ui.components.SectionHeader
 import com.erv.app.cardio.CardioBuiltinActivity
 import com.erv.app.cardio.CardioDistanceUnit
 import com.erv.app.cardio.CardioQuickLaunch
@@ -212,7 +214,7 @@ fun UnifiedRoutineCategoryScreen(
                             )
                         ) {
                             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text("Active session", style = MaterialTheme.typography.titleMedium)
+                                SectionHeader("Active session")
                                 Text(activeRoutine.name, style = MaterialTheme.typography.bodyLarge)
                                 Text(
                                     "${session.completedBlockIds.size} / ${activeRoutine.blocks.size} blocks complete",
@@ -247,7 +249,7 @@ fun UnifiedRoutineCategoryScreen(
                     )
                 ) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Build from existing routines", style = MaterialTheme.typography.titleSmall)
+                        FormSectionLabelSmall("Build from existing routines")
                         Text(
                             "Use saved weight, cardio, or stretch routines as migration shortcuts while moving away from the siloed workflow.",
                             style = MaterialTheme.typography.bodySmall,
@@ -653,7 +655,7 @@ fun UnifiedRoutineRunScreen(
                     )
                 ) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Progress", style = MaterialTheme.typography.titleSmall)
+                        FormSectionLabelSmall("Progress")
                         session?.startedAtEpochSeconds?.let { startedAt ->
                             val totalElapsedText = formatUnifiedElapsedClock(
                                 remember(tick, startedAt) {
@@ -876,7 +878,7 @@ private fun UnifiedRoutineEditorDialog(
                     modifier = Modifier.fillMaxWidth(),
                     minLines = 2
                 )
-                Text("Blocks", style = MaterialTheme.typography.titleSmall)
+                FormSectionLabelSmall("Blocks")
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilledTonalButton(onClick = { blockTypeToAdd = UnifiedRoutineBlockType.WEIGHT }) { Text("Add Weight") }
                     FilledTonalButton(onClick = { blockTypeToAdd = UnifiedRoutineBlockType.CARDIO }) { Text("Add Cardio") }
@@ -1331,7 +1333,7 @@ private fun UnifiedRoutineBlockEditorDialog(
                                 )
                             ) {
                                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Text("Direct setup", style = MaterialTheme.typography.titleSmall)
+                                    FormSectionLabelSmall("Direct setup")
                                     Text(
                                         inlineQuickLaunch.summaryLabel(CardioDistanceUnit.MILES),
                                         style = MaterialTheme.typography.bodySmall,

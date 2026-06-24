@@ -27,6 +27,10 @@ data class CurrentRelayDataCoverage(
     val totalPayloadCount: Int,
     val connectedRelayCount: Int,
     val configuredRelayCount: Int,
+    /** Local `#d` tags with readable content that are not yet readable back from relay. */
+    val missingTags: List<String> = emptyList(),
+    /** Local day-log tags skipped because sessions/workouts are empty (not uploaded). */
+    val skippedEmptyLocalTags: Int = 0,
 )
 
 object CurrentRelayDataSync {
@@ -56,8 +60,18 @@ object CurrentRelayDataSync {
 
         val gymMembership = userPreferences.gymMembership.first()
         val equipment = userPreferences.ownedEquipment.first()
-        if (gymMembership || equipment.isNotEmpty()) {
-            pairs += FitnessEquipmentSync.plaintextFor(gymMembership, equipment)
+        val enabledPackIds = userPreferences.enabledWeightExercisePackIds.first()
+        if (gymMembership || equipment.isNotEmpty() || enabledPackIds.isNotEmpty()) {
+            pairs += FitnessEquipmentSync.plaintextFor(
+                gymMembership,
+                equipment,
+                enabledPackIds.toList(),
+            )
+        }
+
+        val trainingProfile = userPreferences.trainingProfile.first()
+        if (TrainingProfileSync.shouldPublish(trainingProfile)) {
+            pairs += TrainingProfileSync.plaintextFor(trainingProfile)
         }
 
         return pairs.distinctBy { it.first }
@@ -70,12 +84,17 @@ object CurrentRelayDataSync {
         trustSelfSignedLanTls: Boolean = false,
         timeoutMs: Long = 5000,
     ): CurrentRelayDataCoverage {
+        val syncable = localEntries.filter { (dTag, plain) ->
+            localKind30078PayloadHasRelayContent(dTag, plain)
+        }
+        val skippedEmptyLocalTags = localEntries.size - syncable.size
         if (dataRelayUrls.isEmpty()) {
             return CurrentRelayDataCoverage(
                 foundPayloadCount = 0,
-                totalPayloadCount = localEntries.size,
+                totalPayloadCount = syncable.size,
                 connectedRelayCount = 0,
                 configuredRelayCount = 0,
+                skippedEmptyLocalTags = skippedEmptyLocalTags,
             )
         }
 
@@ -87,18 +106,22 @@ object CurrentRelayDataSync {
                 relayPool = tempPool,
                 pubkeyHex = signer.publicKey,
                 timeoutMs = timeoutMs,
+                signer = signer,
             )
-            val localTags = localEntries.map { it.first }.toSet()
+            val localTags = syncable.map { it.first }.toSet()
+            val missingTags = localTags.filter { it !in latestByTag }.sorted()
             val connectedCount = dataRelayUrls.count { url ->
                 tempPool.relayStates.value[url].let { state ->
                     state is ConnectionState.Connected || state is ConnectionState.Authenticated
                 }
             }
             return CurrentRelayDataCoverage(
-                foundPayloadCount = localTags.count { it in latestByTag },
+                foundPayloadCount = localTags.size - missingTags.size,
                 totalPayloadCount = localTags.size,
                 connectedRelayCount = connectedCount,
                 configuredRelayCount = dataRelayUrls.size,
+                missingTags = missingTags,
+                skippedEmptyLocalTags = skippedEmptyLocalTags,
             )
         } finally {
             tempPool.destroy()
@@ -113,7 +136,69 @@ object CurrentRelayDataSync {
         localEntries: List<Pair<String, String>>,
     ): RelayPublishOutbox.KickDrainResult {
         val outbox = RelayPublishOutbox.get(appContext)
+        val trainingDayTags = localEntries.map { it.first }.filter { isTrainingDayLogDTag(it) }
+        RelayPayloadDigestStore.get(appContext).clearDigests(trainingDayTags)
         outbox.enqueueAll(localEntries)
-        return outbox.kickDrain(relayPool, signer, dataRelayUrls)
+        var publishedOk = 0
+        var publishedFail = 0
+        var remaining = localEntries.size
+        var stoppedBecauseQueueEmpty = false
+        var passes = 0
+        while (remaining > 0 && passes < 50) {
+            val drain = outbox.kickDrain(relayPool, signer, dataRelayUrls)
+            publishedOk += drain.publishedOk
+            publishedFail += drain.publishedFail
+            remaining = drain.remaining
+            stoppedBecauseQueueEmpty = drain.stoppedBecauseQueueEmpty
+            passes++
+            if (drain.stoppedBecauseQueueEmpty) break
+            if (drain.publishedOk == 0 && drain.publishedFail == 0 && drain.remaining > 0) break
+        }
+        return RelayPublishOutbox.KickDrainResult(
+            remaining = remaining,
+            publishedOk = publishedOk,
+            publishedFail = publishedFail,
+            stoppedBecauseQueueEmpty = stoppedBecauseQueueEmpty,
+        )
+    }
+
+    /** Clears digests and republishes only training day-log payloads (e.g. cardio or weight log resync). */
+    suspend fun forceResyncDayLogs(
+        appContext: Context,
+        relayPool: RelayPool,
+        signer: EventSigner,
+        dataRelayUrls: List<String>,
+        dayLogEntries: List<Pair<String, String>>,
+    ): RelayPublishOutbox.KickDrainResult {
+        if (dayLogEntries.isEmpty()) {
+            return RelayPublishOutbox.KickDrainResult(
+                remaining = 0,
+                publishedOk = 0,
+                publishedFail = 0,
+                stoppedBecauseQueueEmpty = true,
+            )
+        }
+        return forceResync(appContext, relayPool, signer, dataRelayUrls, dayLogEntries)
+    }
+
+    fun formatDayLogResyncMessage(
+        dayLogCount: Int,
+        drain: RelayPublishOutbox.KickDrainResult,
+    ): String = buildString {
+        if (dayLogCount == 0) {
+            append("No logged days to sync.")
+            return@buildString
+        }
+        append("Queued $dayLogCount day log(s) for relay.")
+        if (drain.publishedOk > 0 || drain.publishedFail > 0) {
+            append(" Sent ${drain.publishedOk} now")
+            if (drain.publishedFail > 0) {
+                append(", ${drain.publishedFail} failed and will retry")
+            }
+            append('.')
+        }
+        if (drain.remaining > 0) {
+            append(" ${drain.remaining} still queued.")
+        }
     }
 }

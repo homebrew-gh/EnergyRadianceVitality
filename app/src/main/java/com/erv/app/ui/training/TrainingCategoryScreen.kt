@@ -45,7 +45,6 @@ import java.time.LocalDate
 fun TrainingCategoryScreen(
     programsState: ProgramsLibraryState,
     workoutLibraryCount: Int,
-    legacyUnifiedWorkoutCount: Int,
     weightRoutineCount: Int,
     stretchRoutineCount: Int,
     cardioRoutineCount: Int,
@@ -96,8 +95,7 @@ fun TrainingCategoryScreen(
         ) {
             item {
                 Text(
-                    text = "Plan sessions, build workouts, and run them from one place. " +
-                        "Programs and Unified Workouts will move here as the planner and composer ship.",
+                    text = "Plan sessions, build workouts, and run them from one place.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -154,10 +152,6 @@ fun TrainingCategoryScreen(
                         0 -> "Compose sessions · circuits & straight sets"
                         1 -> "1 workout in library"
                         else -> "$workoutLibraryCount workouts in library"
-                    } + if (legacyUnifiedWorkoutCount > 0) {
-                        " · $legacyUnifiedWorkoutCount legacy"
-                    } else {
-                        ""
                     },
                     onClick = onOpenUnifiedWorkouts,
                 )

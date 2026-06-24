@@ -33,6 +33,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.erv.app.ui.components.FieldLabel
+import com.erv.app.ui.components.FormSectionLabel
 import com.erv.app.cardio.CardioDistanceUnit
 import com.erv.app.cardio.CardioHistoryImport
 import com.erv.app.cardio.CardioImportOutcome
@@ -559,7 +560,7 @@ fun SettingsDataImportExportScreen(
                     }
                 }
             }
-            Text("Format", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(bottom = 4.dp))
+            FormSectionLabel("Format", modifier = Modifier.padding(bottom = 4.dp))
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.padding(bottom = 10.dp)
@@ -583,7 +584,7 @@ fun SettingsDataImportExportScreen(
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
             }
-            Text("Dates", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(bottom = 4.dp))
+            FormSectionLabel("Dates", modifier = Modifier.padding(bottom = 4.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 8.dp)) {
                 FilterChip(
                     selected = exportDateAllTime,

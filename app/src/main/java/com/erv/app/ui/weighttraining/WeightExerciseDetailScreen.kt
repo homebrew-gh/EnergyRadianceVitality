@@ -50,6 +50,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.unit.dp
 import com.erv.app.ui.components.FieldLabel
+import com.erv.app.ui.components.FormSectionLabelSmall
 import com.erv.app.data.BodyWeightUnit
 import com.erv.app.nostr.EventSigner
 import com.erv.app.nostr.LocalKeyManager
@@ -182,7 +183,7 @@ fun WeightExerciseDetailScreen(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                 ) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("Summary", style = MaterialTheme.typography.titleSmall)
+                        FormSectionLabelSmall("Summary")
                         if (sums.isEmpty()) {
                             Text(
                                 "No rollups yet — they fill in as you log workouts (used for trends and charts).",
@@ -280,7 +281,7 @@ fun WeightExerciseDetailScreen(
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                     ) {
                         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Text("Progress", style = MaterialTheme.typography.titleSmall)
+                            FormSectionLabelSmall("Progress")
                             Text(
                                 "Compact trend view from your logged history. Switch metrics when a visual is more useful than scanning raw entries.",
                                 style = MaterialTheme.typography.bodySmall,
@@ -357,7 +358,7 @@ fun WeightExerciseDetailScreen(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                 ) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("Best weight by rep count", style = MaterialTheme.typography.titleSmall)
+                        FormSectionLabelSmall("Best weight by rep count")
                         if (!hasAny) {
                             Text(
                                 "No sets with weight logged yet.",

@@ -24,6 +24,9 @@ object EncryptedKind30078Publish {
         plaintextPayload: String,
         dataRelayUrls: List<String>,
     ): RelayPool.PublishReport {
+        require(plaintextPayload.isNotBlank()) {
+            "refusing to publish empty kind-30078 payload for $dTag"
+        }
         val encrypted = signer.encryptToSelf(plaintextPayload)
         val unsigned = UnsignedEvent(
             pubkey = signer.publicKey,

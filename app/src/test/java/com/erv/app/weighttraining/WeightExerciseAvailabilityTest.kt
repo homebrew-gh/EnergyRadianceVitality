@@ -137,6 +137,38 @@ class WeightExerciseAvailabilityTest {
     }
 
     @Test
+    fun isHomeReadyFor_customWebCatalogExercise_alwaysVisible() {
+        val custom = WeightExercise(
+            id = "erv-weight-exercise-web-abc123",
+            name = "Custom Leg Press",
+            muscleGroup = "legs",
+            pushOrPull = WeightPushPull.PUSH,
+            equipment = WeightEquipment.MACHINE,
+        )
+
+        assertTrue(custom.isHomeReadyFor(emptyList()))
+    }
+
+    @Test
+    fun filterWeightExercisesForPicker_homeReady_includesCustomWebCatalogExercises() {
+        val custom = WeightExercise(
+            id = "erv-weight-exercise-web-abc123",
+            name = "Custom Leg Press",
+            muscleGroup = "legs",
+            pushOrPull = WeightPushPull.PUSH,
+            equipment = WeightEquipment.MACHINE,
+        )
+
+        val filtered = filterWeightExercisesForPicker(
+            exercises = listOf(custom),
+            filter = WeightExercisePickerFilter.HOME_READY,
+            ownedEquipment = emptyList(),
+        )
+
+        assertEquals(listOf(custom), filtered)
+    }
+
+    @Test
     fun isHomeReadyFor_packExercise_requiresPackEnabled() {
         val exercise = WeightExercise(
             name = "Reverse Hyper",

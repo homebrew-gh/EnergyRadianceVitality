@@ -487,6 +487,7 @@ private fun MainAppShell(
     val activityForLifecycle = context as ComponentActivity
     val dashboardViewModel = viewModel<DashboardViewModel>(viewModelStoreOwner = activityForLifecycle)
     val unifiedState by unifiedRoutineRepository.state.collectAsState(initial = UnifiedRoutineLibraryState())
+    val workoutState by workoutRepository.state.collectAsState(initial = com.erv.app.workouts.WorkoutLibraryState())
 
     // Pulls the latest kind-30078 payloads from the relays and merges them into local state.
     // Runs at startup and whenever the app resumes / a data relay reconnects, so activity logged
@@ -503,7 +504,7 @@ private fun MainAppShell(
             val pubkey = sig.publicKey
             val appCtx = context.applicationContext
             val latestByTag = withContext(Dispatchers.IO) {
-                fetchLatestKind30078ByDTag(pool, pubkey, timeoutMs = 8000)
+                fetchLatestKind30078ByDTag(pool, pubkey, timeoutMs = 8000, signer = sig)
             }
             withContext(Dispatchers.IO) {
                 CatalogSync.syncCatalogs(
@@ -580,7 +581,7 @@ private fun MainAppShell(
                         ProgramSync.fullOutboxEntries(merged),
                     )
                 }
-                WorkoutSync.fromLatestByTag(latestByTag, sig)?.let { remote ->
+                WorkoutSync.fromLatestByTag(latestByTag, sig).let { remote ->
                     val merged = LibraryStateMerge.mergeWorkouts(workoutRepository.currentState(), remote)
                     workoutRepository.replaceAll(merged)
                     RelayPayloadDigestStore.reconcileIdenticalRemoteMerged(
@@ -603,12 +604,38 @@ private fun MainAppShell(
                 }?.let { remote ->
                     val gym = userPreferences.gymMembership.first()
                     val equip = userPreferences.ownedEquipment.first()
-                    val merged = LibraryStateMerge.mergeFitnessEquipment(gym, equip, remote)
+                    val packIds = userPreferences.enabledWeightExercisePackIds.first()
+                    val merged = LibraryStateMerge.mergeFitnessEquipment(gym, equip, packIds, remote)
                     userPreferences.setGymMembership(merged.gymMembership)
                     userPreferences.setOwnedEquipment(merged.equipment)
-                    val remotePair = FitnessEquipmentSync.plaintextFor(remote.gymMembership, remote.equipment)
-                    val mergedPair = FitnessEquipmentSync.plaintextFor(merged.gymMembership, merged.equipment)
+                    userPreferences.setEnabledWeightExercisePackIds(
+                        merged.enabledWeightExercisePackIds.toSet(),
+                    )
+                    val remotePair = FitnessEquipmentSync.plaintextFor(
+                        remote.gymMembership,
+                        remote.equipment,
+                        remote.enabledWeightExercisePackIds,
+                    )
+                    val mergedPair = FitnessEquipmentSync.plaintextFor(
+                        merged.gymMembership,
+                        merged.equipment,
+                        merged.enabledWeightExercisePackIds,
+                    )
                     RelayPayloadDigestStore.reconcileIdenticalRemoteMerged(appCtx, listOf(remotePair), listOf(mergedPair))
+                }
+                latestByTag[TrainingProfileSync.D_TAG]?.let { event ->
+                    TrainingProfileSync.fromLatestEvent(event, sig)
+                }?.let { remote ->
+                    val local = userPreferences.trainingProfile.first()
+                    val merged = LibraryStateMerge.mergeTrainingProfile(local, remote)
+                    userPreferences.setTrainingProfile(merged)
+                    val remotePair = TrainingProfileSync.plaintextFor(remote)
+                    val mergedPair = TrainingProfileSync.plaintextFor(merged)
+                    RelayPayloadDigestStore.reconcileIdenticalRemoteMerged(
+                        appCtx,
+                        listOf(remotePair),
+                        listOf(mergedPair),
+                    )
                 }
             }
             lastRelayDataSyncAtMs.longValue = System.currentTimeMillis()
@@ -679,15 +706,18 @@ private fun MainAppShell(
     }
 
     LaunchedEffect(relayPool, signer, relayUrlsVersion) {
+        TrainingDayLogRelaySync.bindRelay(
+            relayPool = relayPool,
+            signer = signer,
+            dataRelayUrls = if (signer != null) keyManager.relayUrlsForKind30078Publish() else emptyList(),
+        )
+    }
+    LaunchedEffect(relayPool, signer, relayUrlsVersion) {
         val pool = relayPool ?: return@LaunchedEffect
         val sig = signer ?: return@LaunchedEffect
         delay(800)
         withContext(Dispatchers.IO) {
-            RelayPublishOutbox.get(context.applicationContext).kickDrain(
-                pool,
-                sig,
-                keyManager.relayUrlsForKind30078Publish(),
-            )
+            TrainingDayLogRelaySync.drainPending(context.applicationContext)
         }
     }
     LaunchedEffect(relayPool, signer, relayUrlsVersion) {
@@ -703,11 +733,7 @@ private fun MainAppShell(
             .collect { anyDataRelayConnected ->
                 if (!anyDataRelayConnected) return@collect
                 withContext(Dispatchers.IO) {
-                    RelayPublishOutbox.get(context.applicationContext).kickDrain(
-                        pool,
-                        sig,
-                        keyManager.relayUrlsForKind30078Publish(),
-                    )
+                    TrainingDayLogRelaySync.drainPending(context.applicationContext)
                 }
                 // A data relay just (re)connected: pull down anything logged elsewhere while we
                 // were disconnected. Debounced so it does not duplicate the startup pull.
@@ -716,6 +742,12 @@ private fun MainAppShell(
     }
 
     Box(Modifier.fillMaxSize()) {
+        val trainingRelaySnackbarHostState = remember { SnackbarHostState() }
+        LaunchedEffect(Unit) {
+            TrainingDayLogRelaySync.userNotices.collect { message ->
+                trainingRelaySnackbarHostState.showSnackbar(message)
+            }
+        }
         val weightLiveWorkoutViewModel =
             viewModel<WeightLiveWorkoutViewModel>(viewModelStoreOwner = activityForLifecycle)
         val cardioLiveWorkoutViewModel =
@@ -730,8 +762,9 @@ private fun MainAppShell(
         val activeCardioTimer by cardioLiveWorkoutViewModel.activeTimer.collectAsState()
         val cardioTimerRunning = activeCardioTimer?.isTimerRunning() == true
         val activeUnifiedWorkout = unifiedState.activeSession != null
+        val activeComposedWorkoutRun = workoutState.activeRun?.startedAtEpochSeconds != null
         val liveWorkoutActive =
-            activeWeightWorkout != null || cardioTimerRunning || activeUnifiedWorkout
+            activeWeightWorkout != null || cardioTimerRunning || activeUnifiedWorkout || activeComposedWorkoutRun
         LaunchedEffect(liveWorkoutActive) {
             if (liveWorkoutActive) {
                 heartRateBleViewModel.resetWorkoutRecordingOnLiveStart()
@@ -799,6 +832,11 @@ private fun MainAppShell(
                     navigateToUnifiedLiveWorkout = navigateToUnifiedLiveWorkout,
                     navigateToFasting = navigateToFasting,
                     onRelaysChanged = { relayUrlsVersion++ },
+                    onPullRelayData = {
+                        val pool = relayPool ?: return@ErvNavHost
+                        val sig = signer ?: return@ErvNavHost
+                        runRelayDataSync(pool, sig, force = true)
+                    },
                     showDeferNostrLoginEntry = !keyManager.isLoggedIn,
                     onRequestNostrLogin = onRequestNostrLogin,
                     onLogout = onLogout,
@@ -806,6 +844,10 @@ private fun MainAppShell(
                 )
             }
         }
+        SnackbarHost(
+            hostState = trainingRelaySnackbarHostState,
+            modifier = Modifier.align(Alignment.BottomCenter),
+        )
     }
     LaunchedEffect(unifiedState.activeSession?.sessionId) {
         val activeSession = unifiedState.activeSession

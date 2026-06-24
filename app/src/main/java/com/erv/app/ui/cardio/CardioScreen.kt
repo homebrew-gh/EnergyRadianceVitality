@@ -6,6 +6,7 @@ package com.erv.app.ui.cardio
 import android.Manifest
 import com.erv.app.ui.components.FormSectionLabel
 import com.erv.app.ui.components.FormSectionLabelMedium
+import com.erv.app.ui.components.FormSectionLabelSmall
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
@@ -139,7 +140,7 @@ import com.erv.app.cardio.CardioTrackShareImage
 import com.erv.app.cardio.CardioRepository
 import com.erv.app.cardio.CardioSync
 import com.erv.app.nostr.LibraryStateMerge
-import com.erv.app.nostr.RelayPayloadDigestStore
+import com.erv.app.ui.components.SectionLogRelayResyncIconButton
 import com.erv.app.cardio.CardioQuickLaunch
 import com.erv.app.cardio.CardioRoutine
 import com.erv.app.cardio.CardioRoutineStep
@@ -231,6 +232,13 @@ import com.erv.app.unifiedroutines.UnifiedRoutineBlockType
 import com.erv.app.unifiedroutines.UnifiedRoutineLibraryState
 import com.erv.app.unifiedroutines.UnifiedRoutineRepository
 import com.erv.app.unifiedroutines.linkFor
+import com.erv.app.workouts.ActiveWorkoutItemLaunch
+import com.erv.app.workouts.WorkoutActiveRun
+import com.erv.app.workouts.WorkoutLibraryState
+import com.erv.app.workouts.WorkoutLoggedItemKind
+import com.erv.app.workouts.WorkoutRepository
+import com.erv.app.workouts.activeWorkoutCardioLaunch
+import com.erv.app.workouts.linkFor
 import kotlin.math.min
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -243,6 +251,109 @@ import java.util.UUID
 import kotlin.math.max
 
 private enum class CardioTab { Activities, Routines }
+
+private data class CardioParentRunContext(
+    val unifiedRoutineId: String?,
+    val unifiedBlockId: String?,
+    val workoutLaunch: ActiveWorkoutItemLaunch?,
+    val workoutRun: WorkoutActiveRun?,
+)
+
+private fun resolveCardioParentRunContext(
+    unifiedState: UnifiedRoutineLibraryState,
+    workoutState: WorkoutLibraryState,
+): CardioParentRunContext {
+    val activeUnifiedSession = unifiedState.activeSession
+    val activeUnifiedBlockId = activeUnifiedSession?.lastLaunchedBlockId?.takeIf { blockId ->
+        unifiedState
+            .routineById(activeUnifiedSession.routineId)
+            ?.blocks
+            ?.firstOrNull { it.id == blockId }
+            ?.type == UnifiedRoutineBlockType.CARDIO
+    }
+    val workoutLaunch = workoutState.activeWorkoutCardioLaunch()
+    val workoutRun = workoutState.activeRun?.takeIf { workoutLaunch != null }
+    return CardioParentRunContext(
+        unifiedRoutineId = activeUnifiedSession?.routineId,
+        unifiedBlockId = activeUnifiedBlockId,
+        workoutLaunch = workoutLaunch,
+        workoutRun = workoutRun,
+    )
+}
+
+private fun CardioSession.withParentRunLink(
+    ctx: CardioParentRunContext,
+    unifiedState: UnifiedRoutineLibraryState,
+): CardioSession = when {
+    ctx.unifiedRoutineId != null && ctx.unifiedBlockId != null -> {
+        val recap = unifiedState.sessionById(unifiedState.activeSession!!.sessionId)
+        copy(unifiedLink = recap?.linkFor(ctx.unifiedBlockId))
+    }
+    ctx.workoutLaunch != null && ctx.workoutRun != null -> {
+        copy(workoutLink = ctx.workoutRun.linkFor(ctx.workoutLaunch.segmentId, ctx.workoutLaunch.itemId))
+    }
+    else -> this
+}
+
+private suspend fun persistCardioSessionAfterLiveTimer(
+    session: CardioSession,
+    elapsedSeconds: Int?,
+    ctx: CardioParentRunContext,
+    today: LocalDate,
+    cardioRepository: CardioRepository,
+    unifiedRoutineRepository: UnifiedRoutineRepository,
+    workoutRepository: WorkoutRepository,
+    syncDailyLog: suspend (com.erv.app.cardio.CardioDayLog) -> Unit,
+    onReturnToUnifiedRun: (String) -> Unit,
+    onReturnToWorkoutRun: (String) -> Unit,
+    clearCardioSession: () -> Unit,
+    showStandaloneSummary: (CardioTimerCompletionResult) -> Unit,
+) {
+    cardioRepository.addSession(today, session)
+    when {
+        ctx.unifiedRoutineId != null && ctx.unifiedBlockId != null -> {
+            unifiedRoutineRepository.attachLoggedBlock(
+                routineId = ctx.unifiedRoutineId,
+                blockId = ctx.unifiedBlockId,
+                logDate = today.toString(),
+                entryId = session.id,
+            )
+            cardioRepository.currentState().logFor(today)?.let { syncDailyLog(it) }
+            clearCardioSession()
+            onReturnToUnifiedRun(ctx.unifiedRoutineId)
+        }
+        ctx.workoutLaunch != null -> {
+            workoutRepository.completeLaunchedItem(
+                logDate = today.toString(),
+                entryId = session.id,
+                kind = WorkoutLoggedItemKind.CARDIO,
+            )
+            cardioRepository.currentState().logFor(today)?.let { syncDailyLog(it) }
+            clearCardioSession()
+            onReturnToWorkoutRun(ctx.workoutLaunch.workoutId)
+        }
+        else -> {
+            cardioRepository.currentState().logFor(today)?.let { syncDailyLog(it) }
+            clearCardioSession()
+            showStandaloneSummary(CardioTimerCompletionResult(session, elapsedSeconds))
+        }
+    }
+}
+
+private fun CardioParentRunContext.returnToParentRun(
+    onReturnToUnifiedRun: (String) -> Unit,
+    onReturnToWorkoutRun: (String) -> Unit,
+): Boolean = when {
+    unifiedRoutineId != null && unifiedBlockId != null -> {
+        onReturnToUnifiedRun(unifiedRoutineId)
+        true
+    }
+    workoutLaunch != null -> {
+        onReturnToWorkoutRun(workoutLaunch.workoutId)
+        true
+    }
+    else -> false
+}
 
 private val cardioAutoSplitQuarterMileOptions = (1..12).toList()
 
@@ -276,6 +387,7 @@ private fun cardioSplitModeLabel(mode: CardioLiveSplitMode): Int = when (mode) {
 fun CardioCategoryScreen(
     repository: CardioRepository,
     unifiedRoutineRepository: UnifiedRoutineRepository,
+    workoutRepository: WorkoutRepository,
     userPreferences: UserPreferences,
     cardioLiveWorkoutViewModel: CardioLiveWorkoutViewModel,
     weightLiveWorkoutViewModel: WeightLiveWorkoutViewModel,
@@ -283,7 +395,9 @@ fun CardioCategoryScreen(
     signer: EventSigner?,
     onBack: () -> Unit,
     onReturnToUnifiedRun: (String) -> Unit = {},
+    onReturnToWorkoutRun: (String) -> Unit = {},
     onOpenLog: () -> Unit,
+    initialTab: String = CardioTab.Activities.name,
     initialOpenNewWorkout: Boolean = false,
     onConsumedInitialOpenNewWorkout: () -> Unit = {}
 ) {
@@ -300,6 +414,7 @@ fun CardioCategoryScreen(
     val cyclingCscBle = LocalCyclingCsc.current
     val concept2Ble = LocalConcept2Pm.current
     val unifiedState by unifiedRoutineRepository.state.collectAsState(initial = UnifiedRoutineLibraryState())
+    val workoutState by workoutRepository.state.collectAsState(initial = WorkoutLibraryState())
     val cyclingWorkoutDistanceMeters by cyclingCscBle.workoutDistanceMeters.collectAsState()
     val cyclingSpeedKmh by cyclingCscBle.currentSpeedKmh.collectAsState()
     val cyclingCadenceRpm by cyclingCscBle.currentCadenceRpm.collectAsState()
@@ -321,7 +436,14 @@ fun CardioCategoryScreen(
     val today = remember { LocalDate.now() }
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
-    var activeTab by rememberSaveable(key = "cardio_tab_activities_routines") { mutableIntStateOf(0) }
+    val resolvedInitialTab = CardioTab.entries
+        .firstOrNull { it.name.equals(initialTab, ignoreCase = true) }
+        ?.ordinal
+        ?: CardioTab.Activities.ordinal
+    var activeTab by rememberSaveable(key = "cardio_tab_activities_routines") { mutableIntStateOf(resolvedInitialTab) }
+    LaunchedEffect(resolvedInitialTab) {
+        activeTab = resolvedInitialTab
+    }
     var workoutBuilder by remember { mutableStateOf<WorkoutBuilderMode?>(null) }
     var routineEditor by remember { mutableStateOf<CardioRoutine?>(null) }
     var creatingRoutine by remember { mutableStateOf(false) }
@@ -636,14 +758,7 @@ fun CardioCategoryScreen(
                         draft.eligibleForPhoneGps() && cardioGpsPreferred && locationFineGranted && !paceOnlyTimer
                     val showGpsPermissionHint =
                         draft.eligibleForPhoneGps() && cardioGpsPreferred && !locationFineGranted && !paceOnlyTimer
-                    val activeUnifiedSession = unifiedState.activeSession
-                    val activeUnifiedBlockId = activeUnifiedSession?.lastLaunchedBlockId?.takeIf { blockId ->
-                        unifiedState
-                            .routineById(activeUnifiedSession.routineId)
-                            ?.blocks
-                            ?.firstOrNull { it.id == blockId }
-                            ?.type == UnifiedRoutineBlockType.CARDIO
-                    }
+                    val parentRunCtx = resolveCardioParentRunContext(unifiedState, workoutState)
                     CardioElapsedTimerFullScreen(
                         draft = draft,
                         userPreferences = userPreferences,
@@ -670,15 +785,12 @@ fun CardioCategoryScreen(
                             requestCardioLocationPermission.launch(Manifest.permission.ACCESS_FINE_LOCATION)
                         },
                         onLeaveTimerUi = {
-                            val returnedToUnified =
-                                if (activeUnifiedSession != null && activeUnifiedBlockId != null) {
-                                    onReturnToUnifiedRun(activeUnifiedSession.routineId)
-                                    true
-                                } else {
-                                    false
-                                }
+                            val returnedToParent = parentRunCtx.returnToParentRun(
+                                onReturnToUnifiedRun = onReturnToUnifiedRun,
+                                onReturnToWorkoutRun = onReturnToWorkoutRun,
+                            )
                             cardioLiveWorkoutViewModel.setCardioLiveUiExpanded(false)
-                            if (!returnedToUnified && activeUnifiedSession != null && activeUnifiedBlockId != null) {
+                            if (!returnedToParent && parentRunCtx.unifiedRoutineId != null) {
                                 onBack()
                             }
                         },
@@ -715,47 +827,50 @@ fun CardioCategoryScreen(
                                 splits = splits,
                                 ergMetrics = ergMetrics
                             )
-                            val hrSummary = heartRateBle.takeWorkoutHeartRateSummary()
+                            val completionCtx = resolveCardioParentRunContext(unifiedState, workoutState)
+                            val hrSummary = if (completionCtx.workoutLaunch == null) {
+                                heartRateBle.takeWorkoutHeartRateSummary()
+                            } else {
+                                null
+                            }
                             val withHr = hrSummary?.let { raw.copy(heartRate = it) } ?: raw
                             val session = CardioMetEstimator.applyEstimatedKcal(
                                 withHr,
                                 state,
                                 weightKg
                             )
-                            val currentUnifiedSession = unifiedState.activeSession
-                            val currentUnifiedBlockId = currentUnifiedSession?.lastLaunchedBlockId?.takeIf { blockId ->
-                                unifiedState
-                                    .routineById(currentUnifiedSession.routineId)
-                                    ?.blocks
-                                    ?.firstOrNull { it.id == blockId }
-                                    ?.type == UnifiedRoutineBlockType.CARDIO
+                            val storedSession = session.withParentRunLink(completionCtx, unifiedState)
+                            scope.launch {
+                                persistCardioSessionAfterLiveTimer(
+                                    session = storedSession,
+                                    elapsedSeconds = elapsedSeconds,
+                                    ctx = completionCtx,
+                                    today = today,
+                                    cardioRepository = repository,
+                                    unifiedRoutineRepository = unifiedRoutineRepository,
+                                    workoutRepository = workoutRepository,
+                                    syncDailyLog = { log -> syncDailyLog(log) },
+                                    onReturnToUnifiedRun = onReturnToUnifiedRun,
+                                    onReturnToWorkoutRun = onReturnToWorkoutRun,
+                                    clearCardioSession = { cardioLiveWorkoutViewModel.clearSession() },
+                                    showStandaloneSummary = { result ->
+                                        completedWorkoutSummary = result
+                                        completedWorkoutSummaryLogged = true
+                                    },
+                                )
                             }
-                            val storedSession = if (currentUnifiedSession != null && currentUnifiedBlockId != null) {
-                                val recap = unifiedState.sessionById(currentUnifiedSession.sessionId)
-                                session.copy(unifiedLink = recap?.linkFor(currentUnifiedBlockId))
-                            } else {
-                                session
-                            }
-                            cardioLiveWorkoutViewModel.clearSession()
-                            completedWorkoutSummary = CardioTimerCompletionResult(storedSession, elapsedSeconds)
-                            completedWorkoutSummaryLogged = false
-                            completedWorkoutUnifiedRoutineId = currentUnifiedSession?.routineId
-                            completedWorkoutUnifiedBlockId = currentUnifiedBlockId
                         },
                         onCancel = {
-                            val returnedToUnified =
-                                if (activeUnifiedSession != null && activeUnifiedBlockId != null) {
-                                    onReturnToUnifiedRun(activeUnifiedSession.routineId)
-                                    true
-                                } else {
-                                    false
-                                }
+                            val returnedToParent = parentRunCtx.returnToParentRun(
+                                onReturnToUnifiedRun = onReturnToUnifiedRun,
+                                onReturnToWorkoutRun = onReturnToWorkoutRun,
+                            )
                             drainCardioGpsIfNeeded(recordGps, timerAppContext)
                             heartRateBle.discardWorkoutRecording()
                             cyclingCscBle.discardWorkoutRecording()
                             concept2Ble.discardWorkoutRecording()
                             cardioLiveWorkoutViewModel.clearSession()
-                            if (!returnedToUnified && activeUnifiedSession != null && activeUnifiedBlockId != null) {
+                            if (!returnedToParent && parentRunCtx.unifiedRoutineId != null) {
                                 onBack()
                             }
                         }
@@ -764,14 +879,7 @@ fun CardioCategoryScreen(
             }
             is CardioActiveTimerSession.Multi -> {
                 if (cardioLiveUiExpanded) {
-                    val activeUnifiedSession = unifiedState.activeSession
-                    val activeUnifiedBlockId = activeUnifiedSession?.lastLaunchedBlockId?.takeIf { blockId ->
-                        unifiedState
-                            .routineById(activeUnifiedSession.routineId)
-                            ?.blocks
-                            ?.firstOrNull { it.id == blockId }
-                            ?.type == UnifiedRoutineBlockType.CARDIO
-                    }
+                    val parentRunCtx = resolveCardioParentRunContext(unifiedState, workoutState)
                     val multiKey = Triple(
                         timer.state.workoutStartEpoch,
                         timer.state.currentLegIndex,
@@ -785,15 +893,12 @@ fun CardioCategoryScreen(
                         mid = therapyRedMid,
                         glow = therapyRedGlow,
                         onLeaveWorkoutUi = {
-                            val returnedToUnified =
-                                if (activeUnifiedSession != null && activeUnifiedBlockId != null) {
-                                    onReturnToUnifiedRun(activeUnifiedSession.routineId)
-                                    true
-                                } else {
-                                    false
-                                }
+                            val returnedToParent = parentRunCtx.returnToParentRun(
+                                onReturnToUnifiedRun = onReturnToUnifiedRun,
+                                onReturnToWorkoutRun = onReturnToWorkoutRun,
+                            )
                             cardioLiveWorkoutViewModel.setCardioLiveUiExpanded(false)
-                            if (!returnedToUnified && activeUnifiedSession != null && activeUnifiedBlockId != null) {
+                            if (!returnedToParent && parentRunCtx.unifiedRoutineId != null) {
                                 onBack()
                             }
                         },
@@ -810,46 +915,48 @@ fun CardioCategoryScreen(
                                     weightKg
                                 )
                                 if (session != null) {
-                                    val hrSummary = heartRateBle.takeWorkoutHeartRateSummary()
+                                    val completionCtx = resolveCardioParentRunContext(unifiedState, workoutState)
+                                    val isCycling = timer.state.legs.any { it.activity.isCyclingActivity() }
+                                    val ergSummary = if (isCycling) concept2Ble.takeWorkoutSummary() else null
+                                    val hrSummary = if (completionCtx.workoutLaunch == null) {
+                                        heartRateBle.takeWorkoutHeartRateSummary()
+                                    } else {
+                                        null
+                                    }
                                     val withHr = hrSummary?.let { session.copy(heartRate = it) } ?: session
+                                    val withErg = ergSummary?.let { summary ->
+                                        withHr.copy(
+                                            distanceMeters = summary.distanceMeters ?: withHr.distanceMeters,
+                                            erg = CardioErgMetrics(
+                                                avgPowerWatts = summary.avgPowerWatts,
+                                                maxPowerWatts = summary.maxPowerWatts,
+                                                avgCadenceRpm = summary.avgCadenceRpm,
+                                                maxCadenceRpm = summary.maxCadenceRpm,
+                                            ),
+                                        )
+                                    } ?: withHr
                                     val finalSession = CardioMetEstimator.applyEstimatedKcal(
-                                        withHr,
+                                        withErg,
                                         repository.currentState(),
                                         weightKg
                                     )
-                                    val activeUnifiedSession = unifiedState.activeSession
-                                    val activeUnifiedBlockId = activeUnifiedSession?.lastLaunchedBlockId?.takeIf { blockId ->
-                                        unifiedState
-                                            .routineById(activeUnifiedSession.routineId)
-                                            ?.blocks
-                                            ?.firstOrNull { it.id == blockId }
-                                            ?.type == UnifiedRoutineBlockType.CARDIO
-                                    }
-                                    val storedSession = if (activeUnifiedSession != null && activeUnifiedBlockId != null) {
-                                        val recap = unifiedState.sessionById(activeUnifiedSession.sessionId)
-                                        finalSession.copy(unifiedLink = recap?.linkFor(activeUnifiedBlockId))
-                                    } else {
-                                        finalSession
-                                    }
-                                    repository.addSession(today, storedSession)
-                                    if (activeUnifiedSession != null && activeUnifiedBlockId != null) {
-                                        unifiedRoutineRepository.attachLoggedBlock(
-                                            routineId = activeUnifiedSession.routineId,
-                                            blockId = activeUnifiedBlockId,
-                                            logDate = today.toString(),
-                                            entryId = storedSession.id
-                                        )
-                                    }
-                                    if (activeUnifiedSession != null && activeUnifiedBlockId != null) {
-                                        onReturnToUnifiedRun(activeUnifiedSession.routineId)
-                                        cardioLiveWorkoutViewModel.clearSession()
-                                    } else {
-                                        cardioLiveWorkoutViewModel.clearSession()
-                                        completedWorkoutSummary = CardioTimerCompletionResult(storedSession, null)
-                                    }
-                                    launch {
-                                        repository.currentState().logFor(today)?.let { syncDailyLog(it) }
-                                    }
+                                    val storedSession = finalSession.withParentRunLink(completionCtx, unifiedState)
+                                    persistCardioSessionAfterLiveTimer(
+                                        session = storedSession,
+                                        elapsedSeconds = null,
+                                        ctx = completionCtx,
+                                        today = today,
+                                        cardioRepository = repository,
+                                        unifiedRoutineRepository = unifiedRoutineRepository,
+                                        workoutRepository = workoutRepository,
+                                        syncDailyLog = { log -> syncDailyLog(log) },
+                                        onReturnToUnifiedRun = onReturnToUnifiedRun,
+                                        onReturnToWorkoutRun = onReturnToWorkoutRun,
+                                        clearCardioSession = { cardioLiveWorkoutViewModel.clearSession() },
+                                        showStandaloneSummary = { result ->
+                                            completedWorkoutSummary = result
+                                        },
+                                    )
                                 } else if (next != null) {
                                     cardioLiveWorkoutViewModel.replaceSession(CardioActiveTimerSession.Multi(next))
                                     snackbarHostState.showSnackbar("Leg saved — next leg started")
@@ -857,16 +964,15 @@ fun CardioCategoryScreen(
                             }
                         },
                         onCancel = {
-                            val returnedToUnified =
-                                if (activeUnifiedSession != null && activeUnifiedBlockId != null) {
-                                    onReturnToUnifiedRun(activeUnifiedSession.routineId)
-                                    true
-                                } else {
-                                    false
-                                }
+                            val returnedToParent = parentRunCtx.returnToParentRun(
+                                onReturnToUnifiedRun = onReturnToUnifiedRun,
+                                onReturnToWorkoutRun = onReturnToWorkoutRun,
+                            )
                             heartRateBle.discardWorkoutRecording()
+                            cyclingCscBle.discardWorkoutRecording()
+                            concept2Ble.discardWorkoutRecording()
                             cardioLiveWorkoutViewModel.clearSession()
-                            if (!returnedToUnified && activeUnifiedSession != null && activeUnifiedBlockId != null) {
+                            if (!returnedToParent && parentRunCtx.unifiedRoutineId != null) {
                                 onBack()
                             }
                         }
@@ -1178,7 +1284,7 @@ private fun WorkoutBuilderBottomSheet(
                 },
                 style = MaterialTheme.typography.titleLarge
             )
-            Text("Activity", style = MaterialTheme.typography.labelLarge)
+            FormSectionLabel("Activity")
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(
                     selected = !useCustom,
@@ -1218,7 +1324,7 @@ private fun WorkoutBuilderBottomSheet(
             }
 
             if (treadmillApplicable) {
-                Text("Where", style = MaterialTheme.typography.labelLarge)
+                FormSectionLabel("Where")
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(
                         selected = modality == CardioModality.OUTDOOR,
@@ -2006,6 +2112,13 @@ private fun CardioTimerStartOptionsDialog(
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
+                if (activity.supportsBikeErgSensorConnect()) {
+                    CardioBikeErgConnectInlineSection(
+                        activitySupportsErg = true,
+                        sessionKey = dialogKey,
+                        compact = true,
+                    )
+                }
             }
         },
         confirmButton = {
@@ -2114,6 +2227,7 @@ private fun CardioHiitLoggingChoiceDialog(
 
 @Composable
 private fun CardioHiitIntervalParamsDialog(
+    activity: CardioActivitySnapshot,
     activityLabel: String,
     onDismiss: () -> Unit,
     onStart: (rounds: Int, workMinutes: Int, restMinutes: Int) -> Unit,
@@ -2168,6 +2282,14 @@ private fun CardioHiitIntervalParamsDialog(
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.fillMaxWidth()
                 )
+                if (activity.supportsBikeErgSensorConnect()) {
+                    Spacer(Modifier.height(4.dp))
+                    CardioBikeErgConnectInlineSection(
+                        activitySupportsErg = true,
+                        sessionKey = activityLabel,
+                        compact = true,
+                    )
+                }
             }
         },
         confirmButton = {
@@ -2245,6 +2367,7 @@ private fun ActivitiesTab(
 
     pendingHiitParams?.let { p ->
         CardioHiitIntervalParamsDialog(
+            activity = p.snap,
             activityLabel = p.snap.displayLabel,
             onDismiss = { pendingHiitParams = null },
             onStart = { rounds, workMin, restMin ->
@@ -2465,6 +2588,7 @@ fun CardioLogScreen(
     val darkTheme = isSystemInDarkTheme()
     val therapyRedMid = if (darkTheme) ErvDarkTherapyRedMid else ErvLightTherapyRedMid
     val keyManager = LocalKeyManager.current
+    val dayLogRelayEntries = remember(state) { CardioSync.dayLogOutboxEntries(state) }
 
     suspend fun syncDailyLogForDate(date: LocalDate) {
         if (relayPool != null && signer != null) {
@@ -2522,6 +2646,15 @@ fun CardioLogScreen(
                     }
                 },
                 actions = {
+                    SectionLogRelayResyncIconButton(
+                        appContext = logAppContext,
+                        relayPool = relayPool,
+                        signer = signer,
+                        dataRelayUrls = keyManager.relayUrlsForKind30078Publish(),
+                        dayLogEntries = dayLogRelayEntries,
+                        snackbarHostState = snackbarHostState,
+                        scope = scope,
+                    )
                     IconButton(onClick = { showCardioLogStatsSheet = true }) {
                         Icon(Icons.Filled.BarChart, contentDescription = "Stats and graphs")
                     }
@@ -2986,6 +3119,10 @@ fun CardioElapsedTimerFullScreen(
     val timeCountdownCap = (draft.timerStyle as? CardioTimerStyle.CountDown)?.totalSeconds
     val distanceCountdownTarget = (draft.timerStyle as? CardioTimerStyle.CountDownDistance)?.targetMeters
     val tickKey = draft.startEpoch
+    val bikeErgHandle = rememberCardioBikeErgSensorConnect(
+        enabled = isCyclingWorkout,
+        sessionKey = tickKey,
+    )
     val awaitingStart = draft.isPendingStart()
     var showMediaSheet by remember(tickKey) { mutableStateOf(false) }
     var showCyclingSensorDialog by remember(tickKey) { mutableStateOf(false) }
@@ -3264,31 +3401,8 @@ fun CardioElapsedTimerFullScreen(
                             )
                         }
                         if (isCyclingWorkout) {
-                            IconButton(onClick = { showErgSensorDialog = true }) {
-                                Icon(
-                                    Icons.Filled.Bolt,
-                                    contentDescription = "Concept2 erg",
-                                    tint = when (ergBleConnectionState) {
-                                        Concept2BleConnectionState.Connected -> Color(0xFF80CBC4)
-                                        Concept2BleConnectionState.Connecting,
-                                        Concept2BleConnectionState.Scanning -> Color.White
-                                        Concept2BleConnectionState.Idle,
-                                        Concept2BleConnectionState.Error -> Color.White.copy(alpha = 0.88f)
-                                    }
-                                )
-                            }
-                            IconButton(onClick = { showCyclingSensorDialog = true }) {
-                                Icon(
-                                    Icons.Filled.Bluetooth,
-                                    contentDescription = "Cycling sensor",
-                                    tint = when (cyclingBleConnectionState) {
-                                        CyclingCscBleConnectionState.Connected -> Color(0xFF80CBC4)
-                                        CyclingCscBleConnectionState.Connecting,
-                                        CyclingCscBleConnectionState.Scanning -> Color.White
-                                        CyclingCscBleConnectionState.Idle,
-                                        CyclingCscBleConnectionState.Error -> Color.White.copy(alpha = 0.88f)
-                                    }
-                                )
+                            with(bikeErgHandle) {
+                                CardioBikeErgSensorToolbarActions(handle = this, lightOnDark = true)
                             }
                         }
                         IconButton(onClick = { showMediaSheet = !showMediaSheet }) {
@@ -3359,6 +3473,13 @@ fun CardioElapsedTimerFullScreen(
                         style = MaterialTheme.typography.bodyLarge,
                         color = Color.White.copy(alpha = 0.8f)
                     )
+                    if (isCyclingWorkout) {
+                        Spacer(Modifier.height(16.dp))
+                        CardioBikeErgSensorPreStartPanel(
+                            handle = bikeErgHandle,
+                            lightOnDark = true,
+                        )
+                    }
                     Spacer(Modifier.height(28.dp))
                     CardioStartWorkoutButton(
                         onClick = onBeginWorkout,
@@ -4601,6 +4722,13 @@ fun CardioMultiLegTimerFullScreen(
         val targetMinutes = state.currentLeg.targetDurationMinutes?.takeIf { it > 0 }
         val guided = targetMinutes != null
         val awaitingStart = state.isPendingStart()
+        val bikeErgEnabled = remember(state.legs) {
+            state.legs.any { it.activity.supportsBikeErgSensorConnect() }
+        }
+        val bikeErgHandle = rememberCardioBikeErgSensorConnect(
+            enabled = bikeErgEnabled,
+            sessionKey = stateKey,
+        )
         var showMediaSheet by remember { mutableStateOf(false) }
         var running by remember(stateKey) { mutableStateOf(!awaitingStart) }
         var tick by remember(stateKey) { mutableIntStateOf(0) }
@@ -4717,6 +4845,11 @@ fun CardioMultiLegTimerFullScreen(
                                     tint = if (heartRateBannerExpanded) Color(0xFFFF8A80) else Color.White.copy(alpha = 0.88f)
                                 )
                             }
+                            if (bikeErgEnabled) {
+                                with(bikeErgHandle) {
+                                    CardioBikeErgSensorToolbarActions(handle = this, lightOnDark = true)
+                                }
+                            }
                             IconButton(onClick = { showMediaSheet = !showMediaSheet }) {
                                 Icon(
                                     Icons.Filled.MusicNote,
@@ -4781,6 +4914,14 @@ fun CardioMultiLegTimerFullScreen(
                     verticalArrangement = Arrangement.Center
                 ) {
                     if (awaitingStart) {
+                        if (bikeErgEnabled) {
+                            Spacer(Modifier.height(12.dp))
+                            CardioBikeErgSensorPreStartPanel(
+                                handle = bikeErgHandle,
+                                lightOnDark = true,
+                            )
+                            Spacer(Modifier.height(20.dp))
+                        }
                         CardioStartWorkoutButton(
                             onClick = onBeginWorkout,
                             accentBackground = dark,
@@ -5067,7 +5208,7 @@ private fun RoutineEditorDialog(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text("Activity ${index + 1}", style = MaterialTheme.typography.titleSmall)
+                                FormSectionLabelSmall("Activity ${index + 1}")
                                 Row {
                                     IconButton(
                                         onClick = {

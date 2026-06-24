@@ -63,6 +63,9 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.erv.app.ui.components.FieldLabel
+import com.erv.app.ui.components.FormSectionLabel
+import com.erv.app.ui.components.SectionHeader
+import com.erv.app.ui.components.titleCaseWords
 import com.erv.app.R
 import com.erv.app.cardio.CardioDistanceUnit
 import com.erv.app.data.BodyWeightUnit
@@ -138,6 +141,7 @@ private object SettingsRoutes {
     const val ACCOUNT = "settings_account"
     const val RELAYS = "settings_relays"
     const val EQUIPMENT = "settings_equipment"
+    const val TRAINING_PROFILE = "settings_training_profile"
     const val STRETCHING = "settings_stretching"
     const val SAVED_DEVICES = "settings_saved_devices"
     const val DATA_IMPORT_EXPORT = "settings_data_import_export?category={category}"
@@ -250,6 +254,7 @@ fun SettingsScreen(
     val workoutBubbleEnabled by userPreferences.workoutBubbleEnabled.collectAsState(initial = true)
     val gymMembership by userPreferences.gymMembership.collectAsState(initial = false)
     val ownedEquipment by userPreferences.ownedEquipment.collectAsState(initial = emptyList())
+    val trainingProfile by userPreferences.trainingProfile.collectAsState(initial = com.erv.app.data.TrainingProfileNostrPayload())
     val enabledWeightExercisePackIds by userPreferences.enabledWeightExercisePackIds.collectAsState(initial = emptySet())
     val stretchGuidedTtsVoice by userPreferences.stretchGuidedTtsVoice.collectAsState(
         initial = StretchGuidedTtsVoice.SYSTEM_DEFAULT
@@ -521,6 +526,7 @@ fun SettingsScreen(
                                     keyManager,
                                     enabled,
                                     ownedEquipment,
+                                    enabledWeightExercisePackIds,
                                 )
                             }
                         },
@@ -534,15 +540,33 @@ fun SettingsScreen(
                                     keyManager,
                                     gymMembership,
                                     list,
+                                    enabledWeightExercisePackIds,
                                 )
                             }
                         },
                         onExercisePackIdsChange = { ids ->
                             scope.launch {
                                 userPreferences.setEnabledWeightExercisePackIds(ids)
+                                syncFitnessEquipmentToNostr(
+                                    context.applicationContext,
+                                    relayPool,
+                                    signer,
+                                    keyManager,
+                                    gymMembership,
+                                    ownedEquipment,
+                                    ids,
+                                )
                             }
                         }
                     )
+                }
+            }
+            composable(SettingsRoutes.TRAINING_PROFILE) {
+                SettingsSubScreenScaffold(
+                    title = "Training Profile",
+                    onBack = { nestedNav.popBackStack() }
+                ) {
+                    TrainingProfileSettingsSection(profile = trainingProfile)
                 }
             }
             composable(SettingsRoutes.RELAYS) {
@@ -814,12 +838,23 @@ fun SettingsScreen(
                                         }
                                         relayCoverageLoading = true
                                         relayCoverage = withContext(Dispatchers.IO) {
-                                            CurrentRelayDataSync.probeCoverage(
+                                            kotlinx.coroutines.delay(2500)
+                                            var coverage = CurrentRelayDataSync.probeCoverage(
                                                 signer = signer,
                                                 dataRelayUrls = dataRelayUrls,
                                                 localEntries = localEntries,
                                                 trustSelfSignedLanTls = trustSelfSignedLanTls,
                                             )
+                                            if (coverage.missingTags.isNotEmpty()) {
+                                                kotlinx.coroutines.delay(2500)
+                                                coverage = CurrentRelayDataSync.probeCoverage(
+                                                    signer = signer,
+                                                    dataRelayUrls = dataRelayUrls,
+                                                    localEntries = localEntries,
+                                                    trustSelfSignedLanTls = trustSelfSignedLanTls,
+                                                )
+                                            }
+                                            coverage
                                         }
                                     } catch (e: Exception) {
                                         snackbarMessage = "Resync failed: ${e.message}"
@@ -942,7 +977,11 @@ private fun relayUploadDiagnosticsText(
 private fun relayCurrentCoverageText(coverage: CurrentRelayDataCoverage?): String {
     coverage ?: return "Coverage will appear after the app can check your current data relays."
     if (coverage.totalPayloadCount == 0) {
-        return "No current encrypted payloads are ready to sync yet."
+        return if (coverage.skippedEmptyLocalTags > 0) {
+            "No readable workout day logs to sync (${coverage.skippedEmptyLocalTags} empty local day log(s) skipped)."
+        } else {
+            "No current encrypted payloads are ready to sync yet."
+        }
     }
     if (coverage.configuredRelayCount == 0) {
         return "${coverage.totalPayloadCount}/${coverage.totalPayloadCount} current encrypted payloads are ready locally. Add a data relay to sync them."
@@ -950,7 +989,14 @@ private fun relayCurrentCoverageText(coverage: CurrentRelayDataCoverage?): Strin
     if (coverage.connectedRelayCount == 0) {
         return "No data relays are connected right now, so current payload coverage could not be checked."
     }
-    return "${coverage.foundPayloadCount}/${coverage.totalPayloadCount} current payloads found on connected data relays (${coverage.connectedRelayCount}/${coverage.configuredRelayCount} relays connected)."
+    val base =
+        "${coverage.foundPayloadCount}/${coverage.totalPayloadCount} current payloads found on connected data relays (${coverage.connectedRelayCount}/${coverage.configuredRelayCount} relays connected)."
+    if (coverage.missingTags.isEmpty()) {
+        return base
+    }
+    val sample = coverage.missingTags.take(3).joinToString(", ")
+    val extra = if (coverage.missingTags.size > 3) " +${coverage.missingTags.size - 3} more" else ""
+    return "$base Missing on relay: $sample$extra."
 }
 
 @Composable
@@ -1103,6 +1149,12 @@ private fun SettingsHomeScreen(
                 icon = Icons.Default.Inventory2,
                 onClick = { onOpenSection(SettingsRoutes.EQUIPMENT) }
             )
+            SettingsHubRow(
+                title = "Training Profile",
+                subtitle = "Goals, style, and limits — edit on web companion",
+                icon = Icons.Default.FitnessCenter,
+                onClick = { onOpenSection(SettingsRoutes.TRAINING_PROFILE) }
+            )
             SettingsHubSectionLabel("Account & Data")
             SettingsHubRow(
                 title = "Account",
@@ -1242,7 +1294,7 @@ private fun SettingsAboutContactFooter() {
 @Composable
 private fun SettingsHubSectionLabel(text: String) {
     Text(
-        text,
+        text.titleCaseWords(),
         style = MaterialTheme.typography.labelLarge,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(top = 12.dp, bottom = 2.dp)
@@ -1349,7 +1401,8 @@ private suspend fun syncFitnessEquipmentToNostr(
     signer: EventSigner?,
     keyManager: KeyManager,
     gymMembership: Boolean,
-    ownedEquipment: List<OwnedEquipmentItem>
+    ownedEquipment: List<OwnedEquipmentItem>,
+    enabledWeightExercisePackIds: Set<String>,
 ) {
     val pool = relayPool ?: return
     val sig = signer ?: return
@@ -1359,6 +1412,7 @@ private suspend fun syncFitnessEquipmentToNostr(
         sig,
         gymMembership,
         ownedEquipment,
+        enabledWeightExercisePackIds.toList(),
         keyManager.relayUrlsForKind30078Publish(),
     )
 }
@@ -1486,9 +1540,8 @@ private fun SavedBluetoothDevicesSection(
         }
     }
 
-    Text(
+    SectionHeader(
         "Saved Bluetooth devices",
-        style = MaterialTheme.typography.titleMedium,
         modifier = Modifier.padding(bottom = 8.dp)
     )
     ElevatedCard(
@@ -1570,9 +1623,8 @@ private fun SavedBluetoothDevicesSection(
 
     Spacer(Modifier.height(12.dp))
 
-    Text(
+    SectionHeader(
         "Cycling wheel circumference",
-        style = MaterialTheme.typography.titleMedium,
         modifier = Modifier.padding(bottom = 8.dp)
     )
     ElevatedCard(
@@ -1611,9 +1663,8 @@ private fun SavedBluetoothDevicesSection(
 
     Spacer(Modifier.height(12.dp))
 
-    Text(
+    SectionHeader(
         "Heart rate devices",
-        style = MaterialTheme.typography.titleMedium,
         modifier = Modifier.padding(bottom = 8.dp)
     )
     if (savedHeartRateDevices.isEmpty()) {
@@ -1658,9 +1709,8 @@ private fun SavedBluetoothDevicesSection(
 
     Spacer(Modifier.height(12.dp))
 
-    Text(
+    SectionHeader(
         "Cycling speed/cadence sensors",
-        style = MaterialTheme.typography.titleMedium,
         modifier = Modifier.padding(bottom = 8.dp)
     )
     if (savedCyclingDevices.isEmpty()) {
@@ -1705,9 +1755,8 @@ private fun SavedBluetoothDevicesSection(
 
     Spacer(Modifier.height(12.dp))
 
-    Text(
+    SectionHeader(
         "Concept2 erg monitors",
-        style = MaterialTheme.typography.titleMedium,
         modifier = Modifier.padding(bottom = 8.dp)
     )
     if (savedErgDevices.isEmpty()) {
@@ -2004,9 +2053,8 @@ private fun MaxHeartRateZonesSectionLegacy(
     onSave: (Int?) -> Unit
 ) {
     var draft by remember(maxBpm) { mutableStateOf(maxBpm?.toString().orEmpty()) }
-    Text(
+    SectionHeader(
         "Heart rate zones (BLE workouts)",
-        style = MaterialTheme.typography.titleMedium,
         modifier = Modifier.padding(bottom = 8.dp)
     )
     ElevatedCard(
@@ -2055,9 +2103,8 @@ private fun BodyWeightSection(
 ) {
     var draft by remember(value) { mutableStateOf(value) }
     var draftUnit by remember(unit) { mutableStateOf(unit) }
-    Text(
+    SectionHeader(
         "Body Weight (Calorie Calc)",
-        style = MaterialTheme.typography.titleMedium,
         modifier = Modifier.padding(bottom = 8.dp)
     )
     ElevatedCard(
@@ -2105,9 +2152,8 @@ private fun LiveWeightWorkoutSettingsSection(
     onBubbleChange: (Boolean) -> Unit
 ) {
     val context = LocalContext.current
-    Text(
-        stringResource(R.string.settings_live_weight_workout_title),
-        style = MaterialTheme.typography.titleMedium,
+    SectionHeader(
+        text = stringResource(R.string.settings_live_weight_workout_title),
         modifier = Modifier.padding(bottom = 8.dp)
     )
     ElevatedCard(
@@ -2191,9 +2237,8 @@ private fun WeightTrainingLoadSection(
     unit: BodyWeightUnit,
     onUnitChange: (BodyWeightUnit) -> Unit
 ) {
-    Text(
+    SectionHeader(
         "Weight Training Loads",
-        style = MaterialTheme.typography.titleMedium,
         modifier = Modifier.padding(bottom = 8.dp)
     )
     ElevatedCard(
@@ -2202,7 +2247,7 @@ private fun WeightTrainingLoadSection(
     ) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
-                "Units when logging sets during a live workout. Workouts are still saved in kg for sync.",
+                "Units when logging sets and entering target loads in workout builders. Stored weights still sync in kg.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -2227,9 +2272,8 @@ private fun CardioDistanceSection(
     unit: CardioDistanceUnit,
     onUnitChange: (CardioDistanceUnit) -> Unit
 ) {
-    Text(
+    SectionHeader(
         "Cardio Distance & Elevation",
-        style = MaterialTheme.typography.titleMedium,
         modifier = Modifier.padding(bottom = 8.dp)
     )
     ElevatedCard(
@@ -2263,9 +2307,8 @@ private fun CardioGpsSettingsSection(
     enabled: Boolean,
     onChange: (Boolean) -> Unit
 ) {
-    Text(
-        stringResource(R.string.settings_cardio_gps_title),
-        style = MaterialTheme.typography.titleMedium,
+    SectionHeader(
+        text = stringResource(R.string.settings_cardio_gps_title),
         modifier = Modifier.padding(bottom = 8.dp)
     )
     ElevatedCard(
@@ -2311,9 +2354,8 @@ private fun CardioGpsRetentionSettingsSection(
     val cardioDatastoreFile = remember(context) {
         File(context.applicationContext.filesDir, "datastore/erv_cardio.preferences_pb")
     }
-    Text(
-        stringResource(R.string.settings_cardio_gps_retention_title),
-        style = MaterialTheme.typography.titleMedium,
+    SectionHeader(
+        text = stringResource(R.string.settings_cardio_gps_retention_title),
         modifier = Modifier.padding(bottom = 8.dp)
     )
     ElevatedCard(
@@ -2332,9 +2374,8 @@ private fun CardioGpsRetentionSettingsSection(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Text(
-                    stringResource(R.string.settings_cardio_gps_retention_storage_title),
-                    style = MaterialTheme.typography.labelLarge,
+                FormSectionLabel(
+                    text = stringResource(R.string.settings_cardio_gps_retention_storage_title),
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text(
@@ -2395,9 +2436,8 @@ private fun CardioNostrRouteShareSection(
     val context = LocalContext.current
     var fetchingBlossomServers by remember { mutableStateOf(false) }
     var blossomPickList by remember { mutableStateOf<List<String>?>(null) }
-    Text(
-        stringResource(R.string.settings_cardio_nostr_route_title),
-        style = MaterialTheme.typography.titleMedium,
+    SectionHeader(
+        text = stringResource(R.string.settings_cardio_nostr_route_title),
         modifier = Modifier.padding(bottom = 8.dp)
     )
     ElevatedCard(
@@ -2429,9 +2469,8 @@ private fun CardioNostrRouteShareSection(
                     onCheckedChange = onAttachChange
                 )
             }
-            Text(
-                stringResource(R.string.settings_cardio_nostr_upload_type),
-                style = MaterialTheme.typography.labelLarge,
+            FormSectionLabel(
+                text = stringResource(R.string.settings_cardio_nostr_upload_type),
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
@@ -2582,9 +2621,8 @@ private fun StretchGuidedTtsVoiceSection(
     voice: StretchGuidedTtsVoice,
     onVoiceChange: (StretchGuidedTtsVoice) -> Unit
 ) {
-    Text(
-        stringResource(R.string.settings_stretch_guided_voice_title),
-        style = MaterialTheme.typography.labelLarge,
+    FormSectionLabel(
+        text = stringResource(R.string.settings_stretch_guided_voice_title),
         modifier = Modifier.padding(bottom = 4.dp)
     )
     Text(
@@ -2649,9 +2687,8 @@ private fun ThemeSection(
     themeMode: ThemeMode,
     onThemeChange: (ThemeMode) -> Unit
 ) {
-    Text(
+    FormSectionLabel(
         "Theme",
-        style = MaterialTheme.typography.labelLarge,
         modifier = Modifier.padding(bottom = 4.dp)
     )
     ElevatedCard(
@@ -2752,9 +2789,8 @@ private fun IdentitySection(
         }
     }
 
-    Text(
+    SectionHeader(
         "Identity",
-        style = MaterialTheme.typography.titleMedium,
         modifier = Modifier.padding(bottom = 8.dp)
     )
     ElevatedCard(
@@ -2824,9 +2860,8 @@ private fun IdentitySection(
     }
 
     Spacer(Modifier.height(16.dp))
-    Text(
+    SectionHeader(
         text = stringResource(R.string.settings_identity_profile_title),
-        style = MaterialTheme.typography.titleMedium,
         modifier = Modifier.padding(bottom = 8.dp)
     )
     ElevatedCard(

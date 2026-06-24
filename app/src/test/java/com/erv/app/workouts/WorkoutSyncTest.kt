@@ -53,14 +53,44 @@ class WorkoutSyncTest {
     }
 
     @Test
-    fun sanitized_drops_active_run_for_missing_workout() {
-        val state = WorkoutLibraryState(
-            workouts = emptyList(),
-            activeRun = WorkoutActiveRun(
-                workoutId = "missing",
-                workoutSnapshot = Workout(id = "missing", name = "Gone"),
-            ),
-        )
-        assertNull(state.sanitized().activeRun)
+    fun decodeLibraryPayload_webStart9Shape() {
+        val json = """
+            {
+              "workouts": [{
+                "id": "550e8400-e29b-41d4-a716-446655440000",
+                "name": "Morning flow",
+                "segments": [{
+                  "kind": "mobility",
+                  "title": "Cooldown",
+                  "items": [{
+                    "type": "mobility",
+                    "id": "item-1",
+                    "mobility": { "catalogId": "builtin_hamstring_stretch", "holdSeconds": 30 }
+                  }]
+                }, {
+                  "kind": "straight_sets",
+                  "items": [{
+                    "type": "weight",
+                    "id": "item-2",
+                    "exerciseId": "erv-weight-exercise-bench-v1",
+                    "prescription": {
+                      "mode": "time_based",
+                      "setCount": 1,
+                      "durationSeconds": 45,
+                      "sets": [{ "durationSeconds": 45, "targetDurationSeconds": 45 }]
+                    }
+                  }]
+                }],
+                "sourceLabel": "Start9",
+                "lastModifiedEpochSeconds": 1718888888,
+                "createdAtEpochSeconds": 1718888888
+              }],
+              "libraryUpdatedAtEpochSeconds": 1718888888
+            }
+        """.trimIndent()
+        val decoded = WorkoutSync.decodeLibraryPayloadForTest(json)
+        assertEquals(1, decoded?.workouts?.size)
+        assertEquals("Morning flow", decoded?.workouts?.first()?.name)
+        assertEquals(2, decoded?.workouts?.first()?.segments?.size)
     }
 }

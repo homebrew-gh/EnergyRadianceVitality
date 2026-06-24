@@ -94,6 +94,7 @@ class UserPreferences(private val context: Context) {
         val WORKOUT_MEDIA_UPLOAD_BACKEND = stringPreferencesKey("workout_media_upload_backend")
         val GYM_MEMBERSHIP = booleanPreferencesKey("gym_membership")
         val OWNED_EQUIPMENT_JSON_V1 = stringPreferencesKey("owned_equipment_json_v1")
+        val TRAINING_PROFILE_JSON_V1 = stringPreferencesKey("training_profile_json_v1")
         val ENABLED_WEIGHT_EXERCISE_PACK_IDS_V1 = stringPreferencesKey("enabled_weight_exercise_pack_ids_v1")
         val LIVE_WEIGHT_WORKOUT_DRAFT_JSON_V1 = stringPreferencesKey("live_weight_workout_draft_json_v1")
         val LIVE_WEIGHT_WORKOUT_NOTIFICATION_SUPPRESSED_V1 =
@@ -552,6 +553,21 @@ class UserPreferences(private val context: Context) {
         }
     }
 
+    val trainingProfile: Flow<TrainingProfileNostrPayload> = context.dataStore.data.map { prefs ->
+        decodeTrainingProfile(prefs[Keys.TRAINING_PROFILE_JSON_V1])
+    }
+
+    suspend fun setTrainingProfile(profile: TrainingProfileNostrPayload) {
+        context.dataStore.edit { prefs ->
+            val encoded = encodeTrainingProfile(profile)
+            if (profile.isBlank()) {
+                prefs.remove(Keys.TRAINING_PROFILE_JSON_V1)
+            } else {
+                prefs[Keys.TRAINING_PROFILE_JSON_V1] = encoded
+            }
+        }
+    }
+
     /** Specialty exercise packs that should be visible in library pickers. */
     val enabledWeightExercisePackIds: Flow<Set<String>> = context.dataStore.data.map { prefs ->
         decodeDelimitedIdSet(prefs[Keys.ENABLED_WEIGHT_EXERCISE_PACK_IDS_V1])
@@ -997,6 +1013,7 @@ class UserPreferences(private val context: Context) {
             prefs.remove(Keys.GOALS_JSON_V1)
             prefs.remove(Keys.GYM_MEMBERSHIP)
             prefs.remove(Keys.OWNED_EQUIPMENT_JSON_V1)
+            prefs.remove(Keys.TRAINING_PROFILE_JSON_V1)
             prefs.remove(Keys.BLE_HEART_RATE_DEVICE_ADDRESS)
             prefs.remove(Keys.BLE_CSC_DEVICE_ADDRESS)
             prefs.remove(Keys.BLE_SAVED_DEVICES_JSON_V1)

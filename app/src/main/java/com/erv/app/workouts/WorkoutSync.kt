@@ -22,6 +22,7 @@ object WorkoutSync {
     private val json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = true
+        coerceInputValues = true
         prettyPrint = false
     }
 
@@ -65,11 +66,11 @@ object WorkoutSync {
     suspend fun fromLatestByTag(
         latestByTag: Map<String, NostrEvent>,
         signer: EventSigner,
-    ): WorkoutLibraryState? {
+    ): WorkoutLibraryState {
         val master = latestByTag[WORKOUTS_LIBRARY_D_TAG]
             ?.decryptPayload(signer)
             ?.let(::decodeLibraryPayload)
-            ?: return null
+            ?: return WorkoutLibraryState()
         return WorkoutLibraryState(
             workouts = master.workouts,
             activeRun = null,

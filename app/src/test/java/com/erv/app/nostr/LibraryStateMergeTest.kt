@@ -15,6 +15,35 @@ import org.junit.Test
 class LibraryStateMergeTest {
 
     @Test
+    fun mergeCardio_doesNotAdoptRemoteEmptyDayWhenLocalMissing() {
+        val remote = CardioLibraryState(
+            logs = listOf(CardioDayLog(date = "2025-01-02", sessions = emptyList()))
+        )
+        val merged = LibraryStateMerge.mergeCardio(CardioLibraryState(), remote)
+        assertTrue(merged.logs.none { it.date == "2025-01-02" })
+    }
+
+    @Test
+    fun mergeCardio_localSessionsSurviveRemoteEmptyDay() {
+        val act = CardioActivitySnapshot(
+            builtin = CardioBuiltinActivity.STATIONARY_BIKE,
+            customTypeId = null,
+            customName = null,
+            displayLabel = "Stationary Bike"
+        )
+        val session = CardioSession(
+            id = "s1",
+            activity = act,
+            durationMinutes = 35,
+            loggedAtEpochSeconds = 100L
+        )
+        val local = CardioLibraryState(logs = listOf(CardioDayLog(date = "2025-01-03", sessions = listOf(session))))
+        val remote = CardioLibraryState(logs = listOf(CardioDayLog(date = "2025-01-03", sessions = emptyList())))
+        val merged = LibraryStateMerge.mergeCardio(local, remote)
+        assertEquals(35, merged.logs.single().sessions.single().durationMinutes)
+    }
+
+    @Test
     fun mergeCardio_sameSessionId_prefersNewerLoggedAt() {
         val act = CardioActivitySnapshot(
             builtin = CardioBuiltinActivity.RUN,

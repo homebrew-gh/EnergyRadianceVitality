@@ -24,6 +24,7 @@ enum class WeightEquipment {
     @SerialName("dumbbell") DUMBBELL,
     @SerialName("kettlebell") KETTLEBELL,
     @SerialName("machine") MACHINE,
+    /** Bodyweight / calisthenics; optional added load when logging sets. Sync JSON stays `other`. */
     @SerialName("other") OTHER
 }
 
@@ -89,6 +90,13 @@ fun WeightExercise.useTimedSetLogging(sets: List<WeightSet> = emptyList()): Bool
         WeightSetLoggingStyle.REPS -> false
     }
 
+/** Plank holds always use a countdown timer with final-five-second beeps (like the live rest timer). */
+fun WeightExercise.usesTimedHoldCountdownBeeps(): Boolean = when (id) {
+    "erv-weight-exercise-bw-plank-v1",
+    "erv-weight-exercise-bw-side-plank-v1" -> true
+    else -> false
+}
+
 @Serializable
 data class WeightRoutine(
     val id: String = UUID.randomUUID().toString(),
@@ -104,7 +112,7 @@ data class WeightRoutine(
 
 @Serializable
 data class WeightSet(
-    val reps: Int,
+    val reps: Int = 0,
     val weightKg: Double? = null,
     val rpe: Double? = null,
     /** Reps in reserve hint for prescription / live ghost display. */
@@ -117,6 +125,8 @@ data class WeightSet(
     val durationSeconds: Int? = null,
     /** Builder / prescription hint shown as a ghost value until the athlete logs reps. */
     val targetReps: Int? = null,
+    /** Builder / prescription hint shown as a ghost load until the athlete logs weight. */
+    val targetWeightKg: Double? = null,
     /** Builder / prescription hint for timed holds; live timer defaults to this or 30s. */
     val targetDurationSeconds: Int? = null,
 )
@@ -193,7 +203,8 @@ data class WeightWorkoutSession(
      * Omitted when syncing day logs to relays (local detail).
      */
     val heartRateExerciseSegments: List<WeightExerciseHrSegment> = emptyList(),
-    val unifiedLink: UnifiedSessionLink? = null
+    val unifiedLink: UnifiedSessionLink? = null,
+    val workoutLink: com.erv.app.workouts.WorkoutSessionLink? = null,
 )
 
 @Serializable
@@ -280,7 +291,7 @@ fun WeightEquipment.displayLabel(): String = when (this) {
     WeightEquipment.DUMBBELL -> "Dumbbell"
     WeightEquipment.KETTLEBELL -> "Kettlebell"
     WeightEquipment.MACHINE -> "Machine"
-    WeightEquipment.OTHER -> "Other"
+    WeightEquipment.OTHER -> "Body Weight"
 }
 
 fun WeightPushPull.displayLabel(): String = when (this) {
@@ -293,6 +304,24 @@ fun formatMuscleGroupHeader(key: String): String =
 
 fun weightNowEpochSeconds(): Long = System.currentTimeMillis() / 1000
 
+@Serializable
+data class WeightWorkoutCircuitRun(
+    val workoutId: String,
+    val segmentId: String,
+    val segmentTitle: String? = null,
+    val segmentIndex: Int,
+    val rounds: Int,
+    val restBetweenItemsSeconds: Int = 0,
+    val restAfterRoundSeconds: Int = 0,
+    val slots: List<com.erv.app.workouts.WeightCircuitSlot>,
+    /** 1-based round within the circuit. */
+    val currentRound: Int = 1,
+    val currentSlotIndex: Int = 0,
+    val lastAcknowledgedSlotKey: String? = null,
+    val pendingRestSeconds: Int? = null,
+    val isComplete: Boolean = false,
+)
+
 /** Live workout draft (local only; not synced to Nostr). Persisted while a session is active. */
 @Serializable
 data class WeightWorkoutDraft(
@@ -303,7 +332,8 @@ data class WeightWorkoutDraft(
     val routineId: String? = null,
     val routineName: String? = null,
     /** When the user focused an exercise (expand / log sets / HIIT); used to correlate HR samples. */
-    val exerciseFocusMarks: List<WeightExerciseFocusMark> = emptyList()
+    val exerciseFocusMarks: List<WeightExerciseFocusMark> = emptyList(),
+    val circuitRun: WeightWorkoutCircuitRun? = null,
 )
 
 private fun WeightWorkoutDraft.entryForOrderedExercise(id: String): WeightWorkoutEntry? {

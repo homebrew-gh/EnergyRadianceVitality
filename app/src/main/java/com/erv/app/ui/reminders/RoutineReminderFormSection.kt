@@ -6,6 +6,7 @@ package com.erv.app.ui.reminders
 import android.Manifest
 import com.erv.app.ui.components.FormSectionLabel
 import com.erv.app.ui.components.FormSectionLabelMedium
+import com.erv.app.ui.components.FormSectionLabelSmall
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -61,7 +62,7 @@ fun RoutineReminderFormSection(
 
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         HorizontalDivider()
-        Text("Reminder", style = MaterialTheme.typography.titleSmall)
+        FormSectionLabelSmall("Reminder")
         Row(verticalAlignment = Alignment.CenterVertically) {
             Checkbox(
                 checked = reminderDraft.enabled,

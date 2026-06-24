@@ -4,9 +4,12 @@ import android.content.Context
 import com.erv.app.nostr.EventSigner
 import com.erv.app.nostr.dTagOrNull
 import com.erv.app.nostr.fetchLatestKind30078ByDTag
+import com.erv.app.nostr.isTrainingDayLogDTag
 import com.erv.app.nostr.NostrEvent
+import com.erv.app.nostr.RelayPayloadDigestStore
 import com.erv.app.nostr.RelayPool
 import com.erv.app.nostr.RelayPublishOutbox
+import com.erv.app.nostr.TrainingDayLogRelaySync
 import java.time.LocalDate
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
@@ -68,17 +71,29 @@ object WeightSync {
 
     suspend fun publishDayLog(
         appContext: Context,
-        relayPool: RelayPool,
-        signer: EventSigner,
+        relayPool: RelayPool?,
+        signer: EventSigner?,
         log: WeightDayLog,
         dataRelayUrls: List<String>,
     ): Boolean {
+        queueDayLogForRelay(appContext, log)
+        return relayPool != null && signer != null && dataRelayUrls.isNotEmpty()
+    }
+
+    /** Always queues a weight day log for relay upload (does not require an active [RelayPool]). */
+    suspend fun queueDayLogForRelay(appContext: Context, log: WeightDayLog) {
+        if (log.workouts.isEmpty()) return
         val content = json.encodeToString(WeightDayLog.serializer(), relaySafeDayLog(log))
-        return publishEvent(appContext, relayPool, signer, dailyTag(log.date), content, dataRelayUrls)
+        TrainingDayLogRelaySync.queueTrainingDayLog(appContext, dailyTag(log.date), content)
     }
 
     fun fullOutboxEntries(state: WeightLibraryState): List<Pair<String, String>> =
         weightImportOutboxEntries(state, state.logs.map { it.date })
+
+    /** Day logs only (for Progress / silo log resync). Skips empty days and exercise/routine masters. */
+    fun dayLogOutboxEntries(state: WeightLibraryState): List<Pair<String, String>> =
+        weightImportOutboxEntries(state, state.logs.map { it.date })
+            .filter { it.first != WEIGHT_EXERCISES_D_TAG && it.first != WEIGHT_ROUTINES_D_TAG }
 
     fun clearOutboxEntries(state: WeightLibraryState): List<Pair<String, String>> {
         val pairs = mutableListOf<Pair<String, String>>()
@@ -104,6 +119,7 @@ object WeightSync {
         pairs += masterOutboxEntries(state)
         for (dateIso in affectedDates.distinct().sorted()) {
             val log = state.logFor(LocalDate.parse(dateIso)) ?: continue
+            if (log.workouts.isEmpty()) continue
             pairs += dailyTag(dateIso) to json.encodeToString(
                 WeightDayLog.serializer(),
                 relaySafeDayLog(log)
@@ -118,7 +134,7 @@ object WeightSync {
         pubkeyHex: String,
         timeoutMs: Long = 6000
     ): WeightLibraryState? {
-        val latestByTag = fetchLatestKind30078ByDTag(relayPool, pubkeyHex, timeoutMs)
+        val latestByTag = fetchLatestKind30078ByDTag(relayPool, pubkeyHex, timeoutMs, signer = signer)
         if (latestByTag.isEmpty()) return null
         return fromLatestByTag(latestByTag, signer)
     }
@@ -164,6 +180,9 @@ object WeightSync {
         plaintext: String,
         dataRelayUrls: List<String>,
     ): Boolean {
+        if (isTrainingDayLogDTag(dTag)) {
+            RelayPayloadDigestStore.get(appContext).clearDigests(listOf(dTag))
+        }
         val r = RelayPublishOutbox.get(appContext).enqueueReplaceByDTagAndKickDrain(
             appContext,
             relayPool,

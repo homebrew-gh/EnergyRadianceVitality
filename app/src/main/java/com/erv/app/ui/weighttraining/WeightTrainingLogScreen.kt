@@ -40,7 +40,7 @@ import com.erv.app.data.UserPreferences
 import com.erv.app.nostr.EventSigner
 import com.erv.app.nostr.LibraryStateMerge
 import com.erv.app.nostr.LocalKeyManager
-import com.erv.app.nostr.RelayPayloadDigestStore
+import com.erv.app.ui.components.SectionLogRelayResyncIconButton
 import com.erv.app.nostr.RelayPool
 import com.erv.app.R
 import com.erv.app.SectionLogDateFilter
@@ -109,6 +109,7 @@ fun WeightTrainingLogScreen(
     val headerMid = if (darkTheme) ErvDarkTherapyRedMid else ErvLightTherapyRedMid
     val keyManager = LocalKeyManager.current
     val appContext = LocalContext.current.applicationContext
+    val dayLogRelayEntries = remember(state) { WeightSync.dayLogOutboxEntries(state) }
 
     suspend fun pushDayLog(date: LocalDate) {
         if (relayPool == null || signer == null) return
@@ -215,6 +216,18 @@ fun WeightTrainingLogScreen(
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
+                },
+                actions = {
+                    SectionLogRelayResyncIconButton(
+                        appContext = appContext,
+                        relayPool = relayPool,
+                        signer = signer,
+                        dataRelayUrls = keyManager.relayUrlsForKind30078Publish(),
+                        dayLogEntries = dayLogRelayEntries,
+                        snackbarHostState = snackbarHostState,
+                        scope = scope,
+                        contentColor = Color.White,
+                    )
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = ErvHeaderRed,

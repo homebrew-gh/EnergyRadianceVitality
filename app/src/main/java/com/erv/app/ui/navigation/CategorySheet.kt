@@ -2,14 +2,18 @@ package com.erv.app.ui.navigation
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.Alignment
+import com.erv.app.ui.layout.ErvAdaptiveGrid
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.DirectionsRun
 import androidx.compose.material.icons.filled.*
@@ -80,42 +84,48 @@ fun CategorySheet(
                 .thenBy { it.label }
         )
     }
-    Column(
+    val tileSpacing = 10.dp
+    BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp)
             .padding(top = 8.dp, bottom = 16.dp)
     ) {
-        val columns = 4
+        val columns = ErvAdaptiveGrid.categoryColumns(maxWidth)
+        val tileSize = ErvAdaptiveGrid.tileSize(
+            availableWidth = maxWidth,
+            columns = columns,
+            spacing = tileSpacing,
+            maxTileSize = ErvAdaptiveGrid.categoryMaxTileSize(maxWidth),
+        )
+        val gridWidth = ErvAdaptiveGrid.gridContentWidth(tileSize, columns, tileSpacing)
         val rowCount = (displayCategories.size + columns - 1) / columns
-        // 4 columns; rows grow with category count
-        for (row in 0 until rowCount) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                for (col in 0 until columns) {
-                    val index = row * columns + col
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .aspectRatio(1f)
-                    ) {
-                        if (index < displayCategories.size) {
-                            val cat = displayCategories[index]
-                            CategoryTile(
-                                icon = cat.icon,
-                                label = cat.label,
-                                onClick = { onCategoryClick(cat) },
-                                modifier = Modifier.fillMaxSize(),
-                                secondaryIcon = cat.iconSecondary,
-                                implemented = cat.isImplemented()
-                            )
+        Column(
+            modifier = Modifier
+                .width(gridWidth)
+                .align(Alignment.TopCenter),
+        ) {
+            for (row in 0 until rowCount) {
+                Row(horizontalArrangement = Arrangement.spacedBy(tileSpacing)) {
+                    for (col in 0 until columns) {
+                        val index = row * columns + col
+                        Box(modifier = Modifier.size(tileSize)) {
+                            if (index < displayCategories.size) {
+                                val cat = displayCategories[index]
+                                CategoryTile(
+                                    icon = cat.icon,
+                                    label = cat.label,
+                                    onClick = { onCategoryClick(cat) },
+                                    modifier = Modifier.fillMaxSize(),
+                                    secondaryIcon = cat.iconSecondary,
+                                    implemented = cat.isImplemented()
+                                )
+                            }
                         }
                     }
                 }
+                if (row < rowCount - 1) Spacer(Modifier.height(tileSpacing))
             }
-            if (row < rowCount - 1) Spacer(Modifier.height(10.dp))
         }
     }
 }

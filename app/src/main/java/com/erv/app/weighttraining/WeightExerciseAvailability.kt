@@ -38,10 +38,14 @@ fun filterWeightExercisesForPicker(
         }
     }
 
+private fun String.isCustomWebCatalogExercise(): Boolean =
+    startsWith("erv-weight-exercise-web-")
+
 fun WeightExercise.isHomeReadyFor(
     ownedEquipment: List<OwnedEquipmentItem>,
     enabledPackIds: Set<String> = emptySet(),
 ): Boolean {
+    if (id.isCustomWebCatalogExercise()) return true
     if (exercisePackId != null) return exercisePackId in enabledPackIds
     if (id in builtinNoEquipmentExerciseIds) return true
     val kinds = ownedEquipment.map { it.catalogKind }.toSet()

@@ -71,6 +71,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.erv.app.ui.components.FieldLabel
+import com.erv.app.ui.components.FormSectionLabelSmall
 import com.erv.app.bodytracker.BodyMeasurementKey
 import com.erv.app.bodytracker.BodyMeasurementLengthUnit
 import com.erv.app.bodytracker.BodyTrackerDayLog
@@ -238,7 +239,7 @@ private fun BodyTrackerPhotoSection(
     onRequestDelete: (BodyTrackerPhoto) -> Unit,
     onOpenFullscreen: (String) -> Unit
 ) {
-    Text("Progress photos", style = MaterialTheme.typography.titleSmall)
+    FormSectionLabelSmall("Progress photos")
     Spacer(Modifier.height(4.dp))
     Text(
         "On-device only — useful for a future time-lapse or side-by-side review.",
@@ -771,7 +772,7 @@ private fun BodyTrackerEditorScaffold(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(Modifier.height(12.dp))
-                Text("Units", style = MaterialTheme.typography.titleSmall)
+                FormSectionLabelSmall("Units")
                 Spacer(Modifier.height(6.dp))
                 BodyTrackerLengthUnitChips(
                     state = state,
@@ -798,7 +799,7 @@ private fun BodyTrackerEditorScaffold(
                 Spacer(Modifier.height(16.dp))
                 BodyTrackerPrivacyCard()
                 Spacer(Modifier.height(16.dp))
-                Text("Weight", style = MaterialTheme.typography.titleSmall)
+                FormSectionLabelSmall("Weight")
                 Spacer(Modifier.height(4.dp))
                 Text(
                     "Uses the same lb/kg preference as Settings → Units & Body.",
@@ -815,7 +816,7 @@ private fun BodyTrackerEditorScaffold(
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
                 )
                 Spacer(Modifier.height(16.dp))
-                Text("Measurements", style = MaterialTheme.typography.titleSmall)
+                FormSectionLabelSmall("Measurements")
                 Spacer(Modifier.height(4.dp))
                 Text(
                     "Optional. Leave blank to skip. Stored internally as cm.",

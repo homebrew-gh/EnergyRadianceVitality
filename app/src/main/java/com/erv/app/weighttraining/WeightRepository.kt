@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.map
 import com.erv.app.nostr.LibraryStateMerge
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
+import com.erv.app.weighttraining.WeightSync
 import java.time.LocalDate
 
 private val Context.weightTrainingDataStore: DataStore<Preferences> by preferencesDataStore(name = "erv_weight_training")
@@ -80,16 +81,21 @@ class WeightRepository(context: Context) {
                 )
             )
         }
+        syncDayLogToRelay(date)
     }
 
     suspend fun updateWorkout(date: LocalDate, session: WeightWorkoutSession) {
+        var changed = false
         updateState { current ->
             val log = current.logFor(date) ?: return@updateState current
             val idx = log.workouts.indexOfFirst { it.id == session.id }
             if (idx < 0) return@updateState current
+            if (log.workouts[idx] == session) return@updateState current
+            changed = true
             val updated = log.workouts.toMutableList().also { it[idx] = session }
             current.copy(logs = current.logs.upsertLog(log.copy(workouts = updated)))
         }
+        if (changed) syncDayLogToRelay(date)
     }
 
     suspend fun deleteWorkout(date: LocalDate, workoutId: String) {
@@ -98,6 +104,13 @@ class WeightRepository(context: Context) {
             val newWorkouts = log.workouts.filterNot { it.id == workoutId }
             if (newWorkouts.size == log.workouts.size) return@updateState current
             current.copy(logs = current.logs.upsertLog(log.copy(workouts = newWorkouts)))
+        }
+        syncDayLogToRelay(date)
+    }
+
+    private suspend fun syncDayLogToRelay(date: LocalDate) {
+        currentState().logFor(date)?.let { log ->
+            WeightSync.queueDayLogForRelay(appContext, log)
         }
     }
 

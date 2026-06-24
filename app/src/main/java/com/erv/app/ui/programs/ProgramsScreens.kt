@@ -81,6 +81,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import com.erv.app.ui.components.FieldLabel
+import com.erv.app.ui.components.FormSectionLabelMedium
+import com.erv.app.ui.components.SectionHeader
 import com.erv.app.cardio.CardioBuiltinActivity
 import com.erv.app.cardio.CardioLibraryState
 import com.erv.app.cardio.cardioBuiltinActivitiesForUserSelection
@@ -1251,7 +1253,7 @@ fun ProgramDetailScreen(
 
             item {
                 HorizontalDivider()
-                Text("Weekly plan", style = MaterialTheme.typography.titleMedium)
+                SectionHeader("Weekly plan")
                 Text(
                     "Each day uses ISO Monday–Sunday. Tap a day chip to scroll. Use Edit Block for day, type, notes, and timing, and use the block-specific content button for exercises, routines, stretches, or cardio setup.",
                     style = MaterialTheme.typography.bodySmall,
@@ -1765,7 +1767,7 @@ private fun BlockEditorDialog(
                     .verticalScroll(rememberScrollState())
             ) {
                 if (isStructureEditor) {
-                    Text("Day", style = MaterialTheme.typography.labelMedium)
+                    FormSectionLabelMedium("Day")
                     FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -1779,7 +1781,7 @@ private fun BlockEditorDialog(
                         }
                     }
                     Spacer(Modifier.height(12.dp))
-                    Text("Type", style = MaterialTheme.typography.labelMedium)
+                    FormSectionLabelMedium("Type")
                     Column {
                         ProgramBlockKind.entries.forEach { k ->
                             Row(

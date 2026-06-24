@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import com.erv.app.cardio.CardioRepository
 import com.erv.app.data.UserPreferences
 import com.erv.app.unifiedroutines.UnifiedRoutineRepository
+import com.erv.app.ui.components.FormSectionLabelSmall
 import com.erv.app.weighttraining.WeightRepository
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -95,7 +96,7 @@ fun HeartRateProgressScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 val totalZone = stats.totalZoneSeconds.sum().coerceAtLeast(1)
-                Text("All-time time in zones", style = MaterialTheme.typography.titleSmall)
+                FormSectionLabelSmall("All-time time in zones")
                 for (z in 1..5) {
                     val sec = stats.totalZoneSeconds[z - 1]
                     if (sec <= 0) continue
@@ -126,7 +127,7 @@ fun HeartRateProgressScreen(
                 }
                 val zoneChartBuckets = stats.monthlyZoneSeconds.takeLast(12)
                 if (zoneChartBuckets.isNotEmpty()) {
-                    Text("Zone time by month", style = MaterialTheme.typography.titleSmall)
+                    FormSectionLabelSmall("Zone time by month")
                     Text(
                         "Stacked bars show how long you spent in each zone (last ${zoneChartBuckets.size} months with HR data).",
                         style = MaterialTheme.typography.bodySmall,
@@ -139,7 +140,7 @@ fun HeartRateProgressScreen(
                 }
                 val avgBuckets = stats.monthlyAvgBpm.takeLast(12)
                 if (avgBuckets.isNotEmpty()) {
-                    Text("Average heart rate by month", style = MaterialTheme.typography.titleSmall)
+                    FormSectionLabelSmall("Average heart rate by month")
                     HeartRateMonthlyAvgLineChart(
                         buckets = avgBuckets,
                         lineColor = MaterialTheme.colorScheme.primary,

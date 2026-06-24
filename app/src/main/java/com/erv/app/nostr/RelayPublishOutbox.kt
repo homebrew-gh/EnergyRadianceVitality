@@ -151,6 +151,9 @@ class RelayPublishOutbox private constructor(private val appContext: Context) {
      * Replace pending rows sharing [dTag], append one fresh row (stable relative order for other tags).
      */
     suspend fun enqueueReplaceByDTag(dTag: String, plaintextPayload: String) {
+        require(plaintextPayload.isNotBlank()) {
+            "refusing to enqueue empty kind-30078 payload for $dTag"
+        }
         queueMutex.withLock {
             val cur = loadQueueUnlocked()
             val filtered = cur.filter { it.dTag != dTag }

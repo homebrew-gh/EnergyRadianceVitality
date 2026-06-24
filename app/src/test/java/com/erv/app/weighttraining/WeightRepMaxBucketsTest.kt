@@ -13,6 +13,7 @@ class WeightRepMaxBucketsTest {
             date = "2025-01-01",
             workouts = listOf(
                 WeightWorkoutSession(
+                    source = WeightWorkoutSource.MANUAL,
                     entries = listOf(
                         WeightWorkoutEntry(
                             exerciseId = exId,
@@ -48,6 +49,7 @@ class WeightRepMaxBucketsTest {
             date = "2025-01-02",
             workouts = listOf(
                 WeightWorkoutSession(
+                    source = WeightWorkoutSource.MANUAL,
                     entries = listOf(
                         WeightWorkoutEntry(
                             exerciseId = exId,

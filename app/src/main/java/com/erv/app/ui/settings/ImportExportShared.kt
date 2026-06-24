@@ -6,6 +6,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.clickable
+import com.erv.app.ui.components.FormSectionLabelSmall
 import com.erv.app.ui.components.titleCaseWords
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -172,7 +173,7 @@ fun ImportReferenceCollapsibleSection(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(Modifier.weight(1f)) {
-                Text(sectionTitle, style = MaterialTheme.typography.titleSmall)
+                FormSectionLabelSmall(sectionTitle)
                 if (!expanded) {
                     Text(
                         summaryWhenCollapsed,

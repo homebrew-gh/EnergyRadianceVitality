@@ -336,7 +336,7 @@ private fun IntermittentFastingCard(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Text("Protocol", style = MaterialTheme.typography.labelLarge)
+            FormSectionLabel("Protocol")
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 protocols.take(3).forEach { option ->
                     FilterChip(

@@ -21,8 +21,16 @@ object FitnessEquipmentSync {
         encodeDefaults = true
     }
 
-    fun plaintextFor(gymMembership: Boolean, equipment: List<OwnedEquipmentItem>): Pair<String, String> {
-        val payload = FitnessEquipmentNostrPayload(gymMembership = gymMembership, equipment = equipment)
+    fun plaintextFor(
+        gymMembership: Boolean,
+        equipment: List<OwnedEquipmentItem>,
+        enabledWeightExercisePackIds: List<String> = emptyList(),
+    ): Pair<String, String> {
+        val payload = FitnessEquipmentNostrPayload(
+            gymMembership = gymMembership,
+            equipment = equipment,
+            enabledWeightExercisePackIds = enabledWeightExercisePackIds.sorted(),
+        )
         return D_TAG to json.encodeToString(FitnessEquipmentNostrPayload.serializer(), payload)
     }
 
@@ -32,9 +40,10 @@ object FitnessEquipmentSync {
         signer: EventSigner,
         gymMembership: Boolean,
         equipment: List<OwnedEquipmentItem>,
+        enabledWeightExercisePackIds: List<String>,
         dataRelayUrls: List<String>,
     ): Boolean {
-        val (_, plaintext) = plaintextFor(gymMembership, equipment)
+        val (_, plaintext) = plaintextFor(gymMembership, equipment, enabledWeightExercisePackIds)
         val r = RelayPublishOutbox.get(appContext).enqueueReplaceByDTagAndKickDrain(
             appContext,
             relayPool,

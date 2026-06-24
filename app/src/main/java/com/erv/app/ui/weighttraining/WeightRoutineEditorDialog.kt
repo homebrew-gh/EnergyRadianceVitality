@@ -34,6 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.erv.app.ui.components.FieldLabel
+import com.erv.app.ui.components.FormSectionLabelSmall
 import com.erv.app.weighttraining.WeightExercise
 import com.erv.app.weighttraining.WeightRoutine
 import com.erv.app.weighttraining.displayLabel
@@ -96,7 +97,7 @@ fun WeightRoutineEditorDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
                 Spacer(Modifier.height(16.dp))
-                Text("Exercises (order)", style = MaterialTheme.typography.titleSmall)
+                FormSectionLabelSmall("Exercises (order)")
                 Spacer(Modifier.height(8.dp))
                 Button(
                     onClick = { showPickExercise = true },

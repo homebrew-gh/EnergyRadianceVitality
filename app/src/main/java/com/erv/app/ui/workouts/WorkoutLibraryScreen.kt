@@ -1,6 +1,5 @@
 package com.erv.app.ui.workouts
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -16,6 +15,7 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
@@ -28,6 +28,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -57,15 +58,25 @@ fun WorkoutLibraryScreen(
     keyManager: KeyManager,
     relayPool: RelayPool?,
     signer: EventSigner?,
+    onPullFromRelay: suspend () -> Unit = {},
     onBack: () -> Unit,
     onOpenComposer: (String?) -> Unit,
     onOpenRun: (String) -> Unit,
-    onOpenLegacyUnified: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var deleting by remember { mutableStateOf<Workout?>(null) }
+    var syncing by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        syncing = true
+        try {
+            onPullFromRelay()
+        } finally {
+            syncing = false
+        }
+    }
 
     suspend fun publishLibrary() {
         WorkoutSync.publishLibraryIfSignedIn(
@@ -113,10 +124,28 @@ fun WorkoutLibraryScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
+                actions = {
+                    IconButton(
+                        onClick = {
+                            scope.launch {
+                                syncing = true
+                                try {
+                                    onPullFromRelay()
+                                } finally {
+                                    syncing = false
+                                }
+                            }
+                        },
+                        enabled = !syncing && signer != null && relayPool != null,
+                    ) {
+                        Icon(Icons.Default.Sync, contentDescription = "Sync from relay")
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = ErvHeaderRed,
                     titleContentColor = Color.White,
                     navigationIconContentColor = Color.White,
+                    actionIconContentColor = Color.White,
                 ),
             )
         },
@@ -130,8 +159,7 @@ fun WorkoutLibraryScreen(
         ) {
             item {
                 Text(
-                    text = "Storyboard workouts with segments (straight sets, circuits, and more). " +
-                        "Legacy mixed routines remain available below.",
+                    text = "Storyboard workouts with segments (straight sets, circuits, and more).",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -139,7 +167,8 @@ fun WorkoutLibraryScreen(
             if (state.workouts.isEmpty()) {
                 item {
                     Text(
-                        text = "No workouts yet. Tap + to compose your first session.",
+                        text = "No workouts synced yet. Workouts published from the Start9 builder " +
+                            "appear here after a relay sync — tap Sync above or reopen the app.",
                         style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.padding(vertical = 24.dp),
                     )
@@ -159,24 +188,6 @@ fun WorkoutLibraryScreen(
                         onDelete = { deleting = workout },
                     )
                 }
-            }
-            item {
-                Text(
-                    text = "Legacy",
-                    style = MaterialTheme.typography.titleSmall,
-                    modifier = Modifier.padding(top = 12.dp),
-                )
-            }
-            item {
-                Text(
-                    text = "Unified Workouts (pre-merge mixed routines)",
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable(onClick = onOpenLegacyUnified)
-                        .padding(vertical = 12.dp),
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.primary,
-                )
             }
         }
     }

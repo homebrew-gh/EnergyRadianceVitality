@@ -50,6 +50,21 @@ fun FormSectionLabelMedium(
     )
 }
 
+/** Form section caption using titleSmall typography. */
+@Composable
+fun FormSectionLabelSmall(
+    text: String,
+    modifier: Modifier = Modifier,
+    color: Color = Color.Unspecified,
+) {
+    Text(
+        text = text.titleCaseWords(),
+        style = MaterialTheme.typography.titleSmall,
+        color = color,
+        modifier = modifier,
+    )
+}
+
 /** Settings / form section heading. */
 @Composable
 fun SectionHeader(

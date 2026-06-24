@@ -114,6 +114,7 @@ import com.erv.app.ui.theme.ErvLightTherapyRedDark
 import com.erv.app.ui.theme.ErvLightTherapyRedGlow
 import com.erv.app.ui.theme.ErvLightTherapyRedMid
 import com.erv.app.ui.components.CompactIntWheel
+import com.erv.app.ui.components.FormSectionLabelSmall
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.abs
@@ -323,7 +324,7 @@ fun HeatColdCategoryScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Text("Session Type", style = MaterialTheme.typography.titleSmall)
+            FormSectionLabelSmall("Session Type")
             BinarySegmentedSlider(
                 selectedLeft = mode == HeatColdMode.SAUNA,
                 onSelectLeft = { mode = HeatColdMode.SAUNA },
@@ -335,7 +336,7 @@ fun HeatColdCategoryScreen(
 
             HorizontalDivider()
 
-            Text("Duration", style = MaterialTheme.typography.titleSmall)
+            FormSectionLabelSmall("Duration")
             if (mode == HeatColdMode.SAUNA) {
                 CompactIntWheel(
                     values = SAUNA_MINUTE_OPTIONS,
@@ -354,7 +355,7 @@ fun HeatColdCategoryScreen(
                 )
             }
 
-            Text("Temperature", style = MaterialTheme.typography.titleSmall)
+            FormSectionLabelSmall("Temperature")
             BinarySegmentedSlider(
                 selectedLeft = tempUnit == TemperatureUnit.FAHRENHEIT,
                 onSelectLeft = { selectFahrenheit() },

@@ -11,6 +11,8 @@ import com.erv.app.cardio.CardioRoutine
 import com.erv.app.cardio.CardioSession
 import com.erv.app.data.FitnessEquipmentNostrPayload
 import com.erv.app.data.OwnedEquipmentItem
+import com.erv.app.data.TrainingProfileNostrPayload
+import com.erv.app.data.isBlank
 import com.erv.app.heatcold.HeatColdDayLog
 import com.erv.app.heatcold.HeatColdLibraryState
 import com.erv.app.heatcold.withStableSessionIds
@@ -59,11 +61,11 @@ object LibraryStateMerge {
             val l = local.logs.firstOrNull { it.date == d }
             val r = remote.logs.firstOrNull { it.date == d }
             when {
-                l == null -> r
+                l == null -> r?.takeIf { it.sessions.isNotEmpty() }
                 r == null -> l
                 else -> mergeCardioDay(l, r)
             }
-        }
+        }.filter { it.sessions.isNotEmpty() }
         return CardioLibraryState(
             routines = routines,
             customActivityTypes = customActivityTypes,
@@ -98,11 +100,11 @@ object LibraryStateMerge {
             val l = local.logs.firstOrNull { it.date == d }
             val r = remote.logs.firstOrNull { it.date == d }
             when {
-                l == null -> r
+                l == null -> r?.takeIf { it.workouts.isNotEmpty() }
                 r == null -> l
                 else -> mergeWeightDay(l, r)
             }
-        }
+        }.filter { it.workouts.isNotEmpty() }
         return WeightLibraryState(
             exercises = exercises,
             routines = routines,
@@ -440,14 +442,30 @@ object LibraryStateMerge {
         }
     }
 
+    fun mergeTrainingProfile(
+        local: TrainingProfileNostrPayload,
+        remote: TrainingProfileNostrPayload,
+    ): TrainingProfileNostrPayload {
+        if (local.isBlank()) return remote
+        if (remote.isBlank()) return local
+        return if (local.lastModifiedEpochSeconds >= remote.lastModifiedEpochSeconds) local else remote
+    }
+
     fun mergeFitnessEquipment(
         localGym: Boolean,
         localEquipment: List<OwnedEquipmentItem>,
+        localEnabledPackIds: Set<String>,
         remote: FitnessEquipmentNostrPayload,
     ): FitnessEquipmentNostrPayload {
         val gym = localGym || remote.gymMembership
         val equipment = mergeByIdPreferLocal(remote.equipment, localEquipment, OwnedEquipmentItem::id)
-        return FitnessEquipmentNostrPayload(gymMembership = gym, equipment = equipment)
+        val enabledWeightExercisePackIds =
+            (localEnabledPackIds + remote.enabledWeightExercisePackIds).sorted()
+        return FitnessEquipmentNostrPayload(
+            gymMembership = gym,
+            equipment = equipment,
+            enabledWeightExercisePackIds = enabledWeightExercisePackIds,
+        )
     }
 
     private fun <T> mergeByIdPreferLocal(remote: List<T>, local: List<T>, id: (T) -> String): List<T> {

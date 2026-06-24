@@ -70,8 +70,10 @@ import com.erv.app.weighttraining.WeightLibraryState
 import com.erv.app.weighttraining.WeightSet
 import com.erv.app.weighttraining.displayLabel
 import com.erv.app.weighttraining.useTimedSetLogging
+import com.erv.app.weighttraining.usesTimedHoldCountdownBeeps
 import com.erv.app.weighttraining.isLogged
 import com.erv.app.weighttraining.WeightWorkoutDraft
+import com.erv.app.workouts.currentSlot
 import com.erv.app.weighttraining.weightNowEpochSeconds
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -86,8 +88,13 @@ fun WeightLiveWorkoutScreen(
     loadUnit: BodyWeightUnit,
     userPreferences: UserPreferences,
     unifiedWorkoutStartedAtEpochSeconds: Long? = null,
+    composedWorkoutStartedAtEpochSeconds: Long? = null,
     /** When the user expands an exercise, logs sets, or starts HIIT — for HR correlation. */
     onRecordExerciseActivity: (String) -> Unit = {},
+    /** After a set is logged during a composed-workout circuit — parent may advance the circuit. */
+    onAfterCircuitSetLogged: () -> Unit = {},
+    /** Circuit finished all rounds — parent should save and return to the workout storyboard. */
+    onCircuitSegmentComplete: () -> Unit = {},
     /** Back arrow: leave this screen; workout keeps running (notification). Parent may clear an empty draft. */
     onLeaveWorkoutUi: () -> Unit,
     /** User explicitly abandons the live session (top bar Discard). */
@@ -147,6 +154,26 @@ fun WeightLiveWorkoutScreen(
     val latestCountdownSoundEnabled by rememberUpdatedState(restTimerCountdownSoundEnabled)
     val latestEndSoundEnabled by rememberUpdatedState(restTimerEndSoundEnabled)
     var previousRestRemainingSec by remember(draft.startedAtEpochSeconds) { mutableStateOf<Int?>(null) }
+
+    val circuitRun = draft.circuitRun
+    LaunchedEffect(circuitRun?.currentRound, circuitRun?.currentSlotIndex, circuitRun?.isComplete) {
+        val circuit = circuitRun ?: return@LaunchedEffect
+        if (circuit.isComplete) {
+            onCircuitSegmentComplete()
+            return@LaunchedEffect
+        }
+        circuit.currentSlot()?.exerciseId?.let { exerciseId ->
+            editingExerciseId = exerciseId
+            onRecordExerciseActivity(exerciseId)
+        }
+    }
+    LaunchedEffect(circuitRun?.pendingRestSeconds) {
+        val seconds = circuitRun?.pendingRestSeconds ?: return@LaunchedEffect
+        if (seconds > 0) {
+            restManualPending = false
+            restEndAtEpochSeconds = weightNowEpochSeconds() + seconds
+        }
+    }
 
     LaunchedEffect(draft.startedAtEpochSeconds) {
         tick = 0
@@ -216,7 +243,11 @@ fun WeightLiveWorkoutScreen(
     val darkTheme = isSystemInDarkTheme()
     val headerMid = ErvHeaderRed
     val headerDark = if (darkTheme) ErvDarkTherapyRedDark else ErvLightTherapyRedDark
-    var timerDisplayMode by rememberSaveable(draft.startedAtEpochSeconds, unifiedWorkoutStartedAtEpochSeconds) {
+    var timerDisplayMode by rememberSaveable(
+        draft.startedAtEpochSeconds,
+        unifiedWorkoutStartedAtEpochSeconds,
+        composedWorkoutStartedAtEpochSeconds,
+    ) {
         mutableStateOf(WorkoutTimerDisplayMode.SESSION)
     }
 
@@ -294,6 +325,7 @@ fun WeightLiveWorkoutScreen(
                 onSaveHiitBlock(exerciseId, block)
                 hiitTimerTarget = null
                 setsCollapsedIds = setsCollapsedIds - exerciseId
+                if (circuitRun != null) onAfterCircuitSetLogged()
             },
             onDismiss = { hiitTimerTarget = null }
         )
@@ -452,13 +484,21 @@ fun WeightLiveWorkoutScreen(
                     (weightNowEpochSeconds() - it).coerceAtLeast(0)
                 }
             }
+            val composedElapsedSec = remember(tick, composedWorkoutStartedAtEpochSeconds) {
+                composedWorkoutStartedAtEpochSeconds?.let {
+                    (weightNowEpochSeconds() - it).coerceAtLeast(0)
+                }
+            }
+            val totalElapsedSource = unifiedElapsedSec ?: composedElapsedSec
             val showingUnifiedTotal =
-                unifiedElapsedSec != null && timerDisplayMode == WorkoutTimerDisplayMode.TOTAL
+                totalElapsedSource != null && timerDisplayMode == WorkoutTimerDisplayMode.TOTAL
             WeightLiveRestTimerHeaderRow(
                 restMode = restTimerMode,
                 workoutElapsedLabel = if (showingUnifiedTotal) "Total workout" else "Weight session",
-                workoutElapsedText = formatElapsed(if (showingUnifiedTotal) unifiedElapsedSec ?: elapsedSec else elapsedSec),
-                workoutElapsedHint = if (unifiedElapsedSec != null) {
+                workoutElapsedText = formatElapsed(
+                    if (showingUnifiedTotal) totalElapsedSource ?: elapsedSec else elapsedSec,
+                ),
+                workoutElapsedHint = if (totalElapsedSource != null) {
                     if (showingUnifiedTotal) "Swipe to view weight session"
                     else "Swipe to view total workout"
                 } else {
@@ -473,7 +513,7 @@ fun WeightLiveWorkoutScreen(
                 onSkipRest = { clearRestTimerUi() },
                 onRestZoneLongPress = { showRestTimerSettings = true },
                 onWorkoutTimerSwipe = {
-                    if (unifiedElapsedSec != null) {
+                    if (totalElapsedSource != null) {
                         timerDisplayMode =
                             if (timerDisplayMode == WorkoutTimerDisplayMode.SESSION) {
                                 WorkoutTimerDisplayMode.TOTAL
@@ -484,13 +524,28 @@ fun WeightLiveWorkoutScreen(
                 },
                 modifier = Modifier.padding(vertical = 16.dp)
             )
+            circuitRun?.let { circuit ->
+                Text(
+                    text = buildString {
+                        append(circuit.segmentTitle?.takeIf { it.isNotBlank() } ?: "Circuit")
+                        append(" · Round ${circuit.currentRound}/${circuit.rounds}")
+                        append(" · ${circuit.currentSlotIndex + 1}/${circuit.slots.size}")
+                    },
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(bottom = 8.dp),
+                )
+            }
             val editingId = editingExerciseId
             if (editingId != null) {
                 // Sub-page: focused set entry for one exercise. Back arrow in the top bar
                 // (or the card's Save button) returns to the list. Field changes auto-save
                 // through onSaveSets, so no explicit commit step is needed.
                 val ex = library.exerciseById(editingId)
-                val sets = weightSetsInDraft(draft, editingId)
+                val allSets = weightSetsInDraft(draft, editingId)
+                val circuitRoundSetIndex = circuitRun?.currentRound?.minus(1)
+                    ?.takeIf { it in allSets.indices }
+                val sets = circuitRoundSetIndex?.let { listOf(allSets[it]) } ?: allSets
                 LazyColumn(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                     modifier = Modifier
@@ -506,13 +561,21 @@ fun WeightLiveWorkoutScreen(
                             loadUnit = loadUnit,
                             onSetsChange = {
                                 onRecordExerciseActivity(editingId)
-                                onSaveSets(editingId, it)
+                                if (circuitRoundSetIndex != null) {
+                                    val updated = allSets.toMutableList()
+                                    updated[circuitRoundSetIndex] = it.firstOrNull() ?: updated[circuitRoundSetIndex]
+                                    onSaveSets(editingId, updated)
+                                } else {
+                                    onSaveSets(editingId, it)
+                                }
+                                if (circuitRun != null) onAfterCircuitSetLogged()
                             },
                             canMoveUp = false,
                             canMoveDown = false,
                             onMoveUp = {},
                             onMoveDown = {},
                             onRemoveExercise = {
+                                if (circuitRun != null) return@WeightExerciseInlineSetsCard
                                 val idx = draft.exerciseOrder.indexOf(editingId)
                                 setsCollapsedIds = setsCollapsedIds - editingId
                                 editingExerciseId = null
@@ -530,17 +593,25 @@ fun WeightLiveWorkoutScreen(
                             timePerSetCapable = ex?.useTimedSetLogging(
                                 draft.setsByExerciseId[editingId].orEmpty(),
                             ) == true,
+                            timedHoldCountdownBeeps = ex?.usesTimedHoldCountdownBeeps() == true,
+                            allowAddSet = circuitRun == null,
                             onClearHiitBlock = { onClearHiitBlock(editingId) },
                             onStartHiitTimer = { plan ->
                                 onRecordExerciseActivity(editingId)
                                 clearRestTimerUi()
                                 hiitTimerTarget = editingId to plan
                             },
-                            onAfterAddSet = { onAddSetPressedForRest() }
+                            onAfterAddSet = {
+                                if (circuitRun != null) {
+                                    onAfterCircuitSetLogged()
+                                } else {
+                                    onAddSetPressedForRest()
+                                }
+                            }
                         )
                     }
                 }
-            } else {
+            } else if (circuitRun == null) {
                 if (draft.routineName != null) {
                     Text(
                         "From routine: ${draft.routineName}",
@@ -607,6 +678,7 @@ fun WeightLiveWorkoutScreen(
                                 timePerSetCapable = ex?.useTimedSetLogging(
                                     draft.setsByExerciseId[exerciseId].orEmpty(),
                                 ) == true,
+                                timedHoldCountdownBeeps = ex?.usesTimedHoldCountdownBeeps() == true,
                                 onClearHiitBlock = { onClearHiitBlock(exerciseId) },
                                 onStartHiitTimer = { plan ->
                                     onRecordExerciseActivity(exerciseId)

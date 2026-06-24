@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -37,6 +38,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
@@ -47,9 +50,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
+import com.erv.app.data.BodyWeightUnit
+import com.erv.app.data.UserPreferences
 import com.erv.app.ui.components.FieldLabel
+import com.erv.app.ui.components.FormSectionLabelSmall
+import com.erv.app.weighttraining.formatWeightLoadNumber
+import com.erv.app.weighttraining.parseWeightInputToKg
+import com.erv.app.weighttraining.weightLoadUnitSuffix
 import com.erv.app.nostr.EventSigner
 import com.erv.app.nostr.KeyManager
 import com.erv.app.nostr.RelayPool
@@ -86,6 +96,39 @@ import com.erv.app.workouts.weightItems
 import com.erv.app.workouts.WorkoutSync
 import kotlinx.coroutines.launch
 
+/**
+ * Numeric text field that keeps its own edit buffer so the value can be cleared and
+ * retyped without snapping back to the previous number mid-edit. Reports `null` while
+ * the field is blank; callers decide whether to keep the prior value.
+ */
+@Composable
+private fun NumberField(
+    label: String,
+    value: Int?,
+    onValue: (Int?) -> Unit,
+    modifier: Modifier = Modifier,
+    min: Int = 0,
+) {
+    var text by remember { mutableStateOf(value?.toString().orEmpty()) }
+    LaunchedEffect(value) {
+        if (text.isNotBlank() && value != text.toIntOrNull()) {
+            text = value?.toString().orEmpty()
+        }
+    }
+    OutlinedTextField(
+        value = text,
+        onValueChange = { raw ->
+            val digits = raw.filter { it.isDigit() }
+            text = digits
+            onValue(digits.toIntOrNull()?.coerceAtLeast(min))
+        },
+        label = { FieldLabel(label) },
+        modifier = modifier,
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+    )
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WorkoutComposerScreen(
@@ -102,6 +145,8 @@ fun WorkoutComposerScreen(
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
+    val userPreferences = remember { UserPreferences(context) }
+    val loadUnit by userPreferences.weightTrainingLoadUnit.collectAsState(initial = BodyWeightUnit.LB)
     val scope = rememberCoroutineScope()
     var name by remember(existing?.id) { mutableStateOf(existing?.name ?: "") }
     val segments = remember(existing?.id) {
@@ -173,6 +218,9 @@ fun WorkoutComposerScreen(
         )
     }
 
+    val hasEmptySegment = segments.any { it.items.isEmpty() }
+    val canSave = name.isNotBlank() && segments.isNotEmpty() && !hasEmptySegment
+
     fun persist() {
         scope.launch {
             val workout = (existing ?: Workout(name = name.ifBlank { "Workout" })).copy(
@@ -204,7 +252,7 @@ fun WorkoutComposerScreen(
                 actions = {
                     TextButton(
                         onClick = { persist() },
-                        enabled = name.isNotBlank() && segments.isNotEmpty(),
+                        enabled = canSave,
                     ) {
                         Text("Save", color = Color.White)
                     }
@@ -231,10 +279,14 @@ fun WorkoutComposerScreen(
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
             )
-            Text(
-                text = "Segments (storyboard order)",
-                style = MaterialTheme.typography.titleSmall,
-            )
+            FormSectionLabelSmall("Segments (storyboard order)")
+            if (hasEmptySegment) {
+                Text(
+                    text = "Each segment needs at least one item before you can save.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
             LazyColumn(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -245,6 +297,7 @@ fun WorkoutComposerScreen(
                         weightState = weightState,
                         cardioState = cardioState,
                         stretchCatalog = stretchCatalog,
+                        loadUnit = loadUnit,
                         onUpdate = { segments[index] = it },
                         onMoveUp = {
                             if (index > 0) {
@@ -343,6 +396,7 @@ private fun SegmentEditorCard(
     weightState: WeightLibraryState,
     cardioState: CardioLibraryState,
     stretchCatalog: List<StretchCatalogEntry>,
+    loadUnit: BodyWeightUnit,
     onUpdate: (WorkoutSegment) -> Unit,
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
@@ -391,7 +445,11 @@ private fun SegmentEditorCard(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = defaultWorkoutSegmentKindLabel(segment.kind),
+                    text = buildString {
+                        append(defaultWorkoutSegmentKindLabel(segment.kind))
+                        segment.title?.takeIf { it.isNotBlank() }?.let { append(" · $it") }
+                        if (collapsed) append(" · ${segment.items.size} item(s)")
+                    },
                     style = MaterialTheme.typography.titleSmall,
                     modifier = Modifier.weight(1f),
                 )
@@ -411,6 +469,7 @@ private fun SegmentEditorCard(
                     Icon(Icons.Default.Delete, contentDescription = "Delete segment")
                 }
             }
+            if (!collapsed) {
             OutlinedTextField(
                 value = segment.title.orEmpty(),
                 onValueChange = { onUpdate(segment.copy(title = it.ifBlank { null })) },
@@ -418,57 +477,53 @@ private fun SegmentEditorCard(
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
             )
-            if (!collapsed) {
             if (segment.kind == WorkoutSegmentKind.CIRCUIT || segment.kind == WorkoutSegmentKind.SUPERSET) {
-                OutlinedTextField(
-                    value = segment.rounds.toString(),
-                    onValueChange = { raw ->
-                        val rounds = raw.toIntOrNull()?.coerceAtLeast(1) ?: segment.rounds
-                        onUpdate(segment.copy(rounds = rounds))
+                NumberField(
+                    label = "Rounds",
+                    value = segment.rounds,
+                    min = 1,
+                    onValue = { rounds ->
+                        onUpdate(segment.copy(rounds = rounds ?: segment.rounds))
                     },
-                    label = { FieldLabel("Rounds") },
                     modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
                 )
-                OutlinedTextField(
-                    value = segment.restPolicy.restBetweenItemsSeconds.toString(),
-                    onValueChange = { raw ->
-                        val seconds = raw.toIntOrNull()?.coerceAtLeast(0)
-                            ?: segment.restPolicy.restBetweenItemsSeconds
+                NumberField(
+                    label = "Rest between exercises (seconds)",
+                    value = segment.restPolicy.restBetweenItemsSeconds,
+                    min = 0,
+                    onValue = { seconds ->
                         onUpdate(
                             segment.copy(
-                                restPolicy = segment.restPolicy.copy(restBetweenItemsSeconds = seconds),
+                                restPolicy = segment.restPolicy.copy(
+                                    restBetweenItemsSeconds = seconds ?: 0,
+                                ),
                             ),
                         )
                     },
-                    label = { FieldLabel("Rest between exercises (seconds)") },
                     modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
                 )
-                OutlinedTextField(
-                    value = segment.restPolicy.restAfterRoundSeconds.toString(),
-                    onValueChange = { raw ->
-                        val seconds = raw.toIntOrNull()?.coerceAtLeast(0) ?: segment.restPolicy.restAfterRoundSeconds
+                NumberField(
+                    label = "Rest after round (seconds)",
+                    value = segment.restPolicy.restAfterRoundSeconds,
+                    min = 0,
+                    onValue = { seconds ->
                         onUpdate(
                             segment.copy(
-                                restPolicy = segment.restPolicy.copy(restAfterRoundSeconds = seconds),
+                                restPolicy = segment.restPolicy.copy(
+                                    restAfterRoundSeconds = seconds ?: 0,
+                                ),
                             ),
                         )
                     },
-                    label = { FieldLabel("Rest after round (seconds)") },
                     modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
                 )
             }
-            OutlinedTextField(
-                value = segment.restAfterSeconds?.toString().orEmpty(),
-                onValueChange = { raw ->
-                    val seconds = raw.toIntOrNull()?.coerceAtLeast(0)
-                    onUpdate(segment.copy(restAfterSeconds = seconds))
-                },
-                label = { FieldLabel("Rest after segment (seconds)") },
+            NumberField(
+                label = "Rest after segment (seconds)",
+                value = segment.restAfterSeconds,
+                min = 0,
+                onValue = { seconds -> onUpdate(segment.copy(restAfterSeconds = seconds)) },
                 modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
             )
             if (segment.kind.supportsFullItemEditor()) {
                 segment.items.forEachIndexed { itemIndex, item ->
@@ -479,6 +534,7 @@ private fun SegmentEditorCard(
                         weightState = weightState,
                         cardioState = cardioState,
                         stretchCatalog = stretchCatalog,
+                        loadUnit = loadUnit,
                         onUpdate = { updated ->
                             onUpdate(segment.updateItemAt(itemIndex, updated))
                         },
@@ -493,7 +549,9 @@ private fun SegmentEditorCard(
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     if (segment.kind == WorkoutSegmentKind.STRAIGHT_SETS ||
-                        segment.kind == WorkoutSegmentKind.COMPOSITE
+                        segment.kind == WorkoutSegmentKind.COMPOSITE ||
+                        segment.kind == WorkoutSegmentKind.CIRCUIT ||
+                        segment.kind == WorkoutSegmentKind.SUPERSET
                     ) {
                         TextButton(onClick = onAddExercises, modifier = Modifier.weight(1f)) {
                             Icon(Icons.Default.Add, contentDescription = null)
@@ -573,6 +631,7 @@ private fun StraightSetsItemEditor(
     weightState: WeightLibraryState,
     cardioState: CardioLibraryState,
     stretchCatalog: List<StretchCatalogEntry>,
+    loadUnit: BodyWeightUnit,
     onUpdate: (WorkoutItem) -> Unit,
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
@@ -623,6 +682,7 @@ private fun StraightSetsItemEditor(
                     WeightPrescriptionFields(
                         prescription = item.prescription,
                         loggingStyle = loggingStyle,
+                        loadUnit = loadUnit,
                         onUpdate = { onUpdate(item.copy(prescription = it)) },
                     )
                     if (item.alternativeExerciseIds.isNotEmpty()) {
@@ -652,15 +712,14 @@ private fun StraightSetsItemEditor(
                         Text("Add alternative exercise")
                     }
                 }
-                is WorkoutItem.Rest -> OutlinedTextField(
-                    value = item.durationSeconds.toString(),
-                    onValueChange = { raw ->
-                        val seconds = raw.toIntOrNull()?.coerceAtLeast(1) ?: item.durationSeconds
-                        onUpdate(item.copy(durationSeconds = seconds))
+                is WorkoutItem.Rest -> NumberField(
+                    label = "Duration (seconds)",
+                    value = item.durationSeconds,
+                    min = 1,
+                    onValue = { seconds ->
+                        onUpdate(item.copy(durationSeconds = seconds ?: item.durationSeconds))
                     },
-                    label = { FieldLabel("Duration (seconds)") },
                     modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
                 )
                 is WorkoutItem.Note -> OutlinedTextField(
                     value = item.text,
@@ -694,8 +753,10 @@ private fun StraightSetsItemEditor(
 private fun WeightPrescriptionFields(
     prescription: WorkoutWeightPrescription,
     loggingStyle: WeightSetLoggingStyle = WeightSetLoggingStyle.REPS,
+    loadUnit: BodyWeightUnit,
     onUpdate: (WorkoutWeightPrescription) -> Unit,
 ) {
+    val loadSuffix = weightLoadUnitSuffix(loadUnit)
     var showPerSetEditor by remember { mutableStateOf(prescription.sets.isNotEmpty()) }
     val timedPrescription = loggingStyle == WeightSetLoggingStyle.TIME_ONLY ||
         (loggingStyle == WeightSetLoggingStyle.REPS_OR_TIME &&
@@ -792,17 +853,18 @@ private fun WeightPrescriptionFields(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        OutlinedTextField(
-            value = prescription.setCount?.toString().orEmpty(),
-            onValueChange = { raw ->
-                val count = raw.toIntOrNull()?.coerceAtLeast(1) ?: return@OutlinedTextField
-                val sets = prescription.ensureSetRows().take(count).toMutableList()
-                while (sets.size < count) sets.add(WeightSet(reps = 0))
-                onUpdate(prescription.copy(setCount = count, sets = sets.take(count)))
+        NumberField(
+            label = "Sets",
+            value = prescription.setCount,
+            min = 1,
+            onValue = { count ->
+                if (count != null) {
+                    val sets = prescription.ensureSetRows().take(count).toMutableList()
+                    while (sets.size < count) sets.add(WeightSet(reps = 0))
+                    onUpdate(prescription.copy(setCount = count, sets = sets.take(count)))
+                }
             },
-            label = { FieldLabel("Sets") },
             modifier = Modifier.weight(1f),
-            singleLine = true,
         )
         if (timedPrescription) {
             OutlinedTextField(
@@ -836,6 +898,18 @@ private fun WeightPrescriptionFields(
                     onUpdate(prescription.copy(targetReps = reps))
                 },
                 label = { FieldLabel("Target reps") },
+                modifier = Modifier.weight(1f),
+                singleLine = true,
+            )
+        }
+        if (!timedPrescription && !isMaxReps && !showPerSetEditor) {
+            OutlinedTextField(
+                value = prescription.targetWeightKg?.let { formatWeightLoadNumber(it, loadUnit) }.orEmpty(),
+                onValueChange = { raw ->
+                    val kg = parseWeightInputToKg(raw, loadUnit)
+                    onUpdate(prescription.copy(targetWeightKg = kg))
+                },
+                label = { FieldLabel("Target weight ($loadSuffix)") },
                 modifier = Modifier.weight(1f),
                 singleLine = true,
             )
@@ -905,20 +979,21 @@ private fun WeightPrescriptionFields(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            OutlinedTextField(
-                value = first.repsPerSide?.toString().orEmpty(),
-                onValueChange = { raw ->
-                    val reps = raw.toIntOrNull()?.coerceAtLeast(1) ?: return@OutlinedTextField
-                    val sets = prescription.ensureSetRows().toMutableList()
-                    sets[0] = (sets.firstOrNull() ?: WeightSet(reps = 0)).copy(
-                        repsPerSide = reps,
-                        side = sets.firstOrNull()?.side ?: "each",
-                    )
-                    onUpdate(prescription.copy(sets = sets))
+            NumberField(
+                label = "Reps per side",
+                value = first.repsPerSide,
+                min = 1,
+                onValue = { reps ->
+                    if (reps != null) {
+                        val sets = prescription.ensureSetRows().toMutableList()
+                        sets[0] = (sets.firstOrNull() ?: WeightSet(reps = 0)).copy(
+                            repsPerSide = reps,
+                            side = sets.firstOrNull()?.side ?: "each",
+                        )
+                        onUpdate(prescription.copy(sets = sets))
+                    }
                 },
-                label = { FieldLabel("Reps per side") },
                 modifier = Modifier.weight(1f),
-                singleLine = true,
             )
             OutlinedTextField(
                 value = first.side.orEmpty(),
@@ -942,17 +1017,18 @@ private fun WeightPrescriptionFields(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text("Set ${index + 1}", modifier = Modifier.padding(top = 16.dp))
-                OutlinedTextField(
-                    value = (if (set.reps > 0) set.reps else set.targetReps)?.toString().orEmpty(),
-                    onValueChange = { raw ->
-                        val reps = raw.toIntOrNull()?.coerceAtLeast(0) ?: return@OutlinedTextField
-                        val sets = prescription.ensureSetRows().toMutableList()
-                        sets[index] = set.copy(reps = reps, targetReps = reps)
-                        onUpdate(prescription.copy(sets = sets, setCount = sets.size))
+                NumberField(
+                    label = "Reps",
+                    value = if (set.reps > 0) set.reps else set.targetReps,
+                    min = 0,
+                    onValue = { reps ->
+                        if (reps != null) {
+                            val sets = prescription.ensureSetRows().toMutableList()
+                            sets[index] = set.copy(reps = reps, targetReps = reps)
+                            onUpdate(prescription.copy(sets = sets, setCount = sets.size))
+                        }
                     },
-                    label = { FieldLabel("Reps") },
                     modifier = Modifier.weight(1f),
-                    singleLine = true,
                 )
                 OutlinedTextField(
                     value = set.rir?.toString().orEmpty(),
@@ -963,6 +1039,18 @@ private fun WeightPrescriptionFields(
                         onUpdate(prescription.copy(sets = sets, setCount = sets.size))
                     },
                     label = { FieldLabel("RIR") },
+                    modifier = Modifier.weight(1f),
+                    singleLine = true,
+                )
+                OutlinedTextField(
+                    value = (set.targetWeightKg ?: set.weightKg)?.let { formatWeightLoadNumber(it, loadUnit) }.orEmpty(),
+                    onValueChange = { raw ->
+                        val kg = parseWeightInputToKg(raw, loadUnit)
+                        val sets = prescription.ensureSetRows().toMutableList()
+                        sets[index] = set.copy(targetWeightKg = kg, weightKg = kg)
+                        onUpdate(prescription.copy(sets = sets, setCount = sets.size))
+                    },
+                    label = { FieldLabel("Weight ($loadSuffix)") },
                     modifier = Modifier.weight(1f),
                     singleLine = true,
                 )
