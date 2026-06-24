@@ -21,6 +21,7 @@ export function CardioRoutinesTab() {
   const {
     cardioRoutines,
     catalogs,
+    exercises,
     loading,
     saving,
     error,
@@ -149,7 +150,7 @@ export function CardioRoutinesTab() {
         sidebarKinds={["cardio"]}
         selectionKind="cardio"
         pickLabel="Add leg"
-        weightCatalog={catalogs.weight}
+        weightCatalog={exercises}
         stretchCatalog={catalogs.stretch}
         cardioCatalog={catalog}
         onPick={(item) => {

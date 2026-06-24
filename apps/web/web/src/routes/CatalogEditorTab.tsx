@@ -1,6 +1,9 @@
+import { CatalogGroupSelect } from "../components/CatalogGroupSelect";
 import { FieldLabel } from "../components/FieldLabel";
 import { useMemo, useState, type FormEvent, type ReactNode } from "react";
 import {
+  collectMuscleGroupOptions,
+  collectStretchCategoryOptions,
   formatCategoryLabel,
   groupCardioActivities,
   groupStretchEntries,
@@ -9,6 +12,7 @@ import {
   isBuiltInWeightCatalogId,
   newCustomStretchId,
   newCustomWeightExerciseId,
+  normalizeCatalogGroupKey,
   WEIGHT_EQUIPMENT_OPTIONS,
   type CardioCatalogActivity,
   type StretchCatalogEntry,
@@ -51,19 +55,19 @@ export function CatalogEditorTab() {
   const [stretchModal, setStretchModal] = useState<StretchDraft | null>(null);
   const [cardioModal, setCardioModal] = useState<CardioCatalogActivity | null>(null);
 
-  const onPublish = async () => {
-    editor.clearSuccess();
-    if (tab === "weight") await editor.publishWeightCatalog();
-    else if (tab === "stretch") await editor.publishStretchCatalog();
-    else await editor.publishCardioCatalog();
-  };
-
   const dirty =
     tab === "weight"
       ? editor.weightDirty
       : tab === "stretch"
         ? editor.stretchDirty
         : editor.cardioDirty;
+
+  const syncing =
+    tab === "weight"
+      ? editor.weightSyncing
+      : tab === "stretch"
+        ? editor.stretchSyncing
+        : editor.cardioSyncing;
 
   const version =
     tab === "weight"
@@ -79,34 +83,44 @@ export function CatalogEditorTab() {
         ? editor.stretchEntries.length
         : editor.cardioActivities.length;
 
+  const retryPublish = () => {
+    editor.clearError();
+    if (tab === "weight") return editor.retryWeightPublish();
+    if (tab === "stretch") return editor.retryStretchPublish();
+    return editor.retryCardioPublish();
+  };
+
+  const syncStatus = syncing
+    ? " · syncing to relay…"
+    : dirty
+      ? " · queued for relay sync"
+      : "";
+
   return (
     <div className="space-y-6">
       <header className="space-y-2">
         <h2 className="text-2xl font-bold text-heading">Catalog editor</h2>
         <p className="text-sm text-muted">
-          Browse and edit the synced exercise compendium by category. Changes publish to{" "}
-          <code className="text-xs">erv/catalog/*</code> on your relay and sync to ERV on
-          your phone.
+          Browse and edit the synced exercise compendium by category. Add or edit items and
+          changes queue to your relay automatically — watch the status bar above for relay
+          delivery.
         </p>
       </header>
 
       {editor.error ? (
-        <p className="text-sm text-error card p-3" role="alert">
-          {editor.error}
-        </p>
-      ) : null}
-      {editor.success ? (
-        <p
-          className="text-sm card p-3 border-l-4 border-[var(--erv-success)]"
-          role="status"
-        >
-          {editor.success}
-          {editor.lastEventId ? (
-            <span className="block text-xs text-muted mt-1 font-mono">
-              event {editor.lastEventId.slice(0, 16)}…
-            </span>
+        <div className="text-sm text-error card p-3 space-y-2" role="alert">
+          <p>{editor.error}</p>
+          {dirty ? (
+            <button
+              type="button"
+              className="btn-ghost text-sm border-[var(--erv-error)]/40 text-[var(--erv-error)]"
+              onClick={() => void retryPublish()}
+              disabled={syncing}
+            >
+              {syncing ? "Retrying…" : "Retry relay sync"}
+            </button>
           ) : null}
-        </p>
+        </div>
       ) : null}
 
       <div className="flex flex-wrap gap-2">
@@ -123,7 +137,12 @@ export function CatalogEditorTab() {
           type="button"
           className="btn-ghost text-sm ml-auto"
           onClick={() => void editor.reload()}
-          disabled={editor.loading}
+          disabled={editor.loading || editor.weightDirty || editor.stretchDirty || editor.cardioDirty || editor.weightSyncing || editor.stretchSyncing || editor.cardioSyncing}
+          title={
+            editor.weightDirty || editor.stretchDirty || editor.cardioDirty
+              ? "Wait for relay sync to finish before refreshing from the relay"
+              : undefined
+          }
         >
           Refresh
         </button>
@@ -146,7 +165,7 @@ export function CatalogEditorTab() {
           <div className="text-sm text-muted">
             {count} items
             {version != null ? ` · relay v${version}` : " · not on relay yet"}
-            {dirty ? " · unsaved edits" : ""}
+            {syncStatus}
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -185,14 +204,6 @@ export function CatalogEditorTab() {
               Add stretch
             </button>
           ) : null}
-          <button
-            type="button"
-            className="btn-primary text-sm"
-            disabled={editor.loading || editor.saving || !dirty}
-            onClick={() => void onPublish()}
-          >
-            {editor.saving ? "Publishing…" : `Publish ${tab} catalog`}
-          </button>
         </div>
       </div>
 
@@ -286,8 +297,6 @@ export function CatalogEditorTab() {
               <CatalogRow
                 key={activity.id}
                 title={activity.displayName}
-                subtitle={activity.id}
-                meta="enum"
                 onEdit={() => setCardioModal({ ...activity })}
               />
             ))}
@@ -298,6 +307,10 @@ export function CatalogEditorTab() {
       {weightModal ? (
         <WeightExerciseModal
           draft={weightModal}
+          muscleGroupOptions={collectMuscleGroupOptions(
+            editor.weightExercises,
+            weightModal.muscleGroup,
+          )}
           onClose={() => setWeightModal(null)}
           onSave={(next) => {
             const exists = editor.weightExercises.some((item) => item.id === next.id);
@@ -314,6 +327,10 @@ export function CatalogEditorTab() {
       {stretchModal ? (
         <StretchEntryModal
           draft={stretchModal}
+          categoryOptions={collectStretchCategoryOptions(
+            editor.stretchEntries,
+            stretchModal.category,
+          )}
           onClose={() => setStretchModal(null)}
           onSave={(next) => {
             const exists = editor.stretchEntries.some((item) => item.id === next.id);
@@ -422,8 +439,8 @@ function CatalogRow({
   onDelete,
 }: {
   title: string;
-  subtitle: string;
-  meta: string;
+  subtitle?: string;
+  meta?: string;
   onEdit: () => void;
   onDelete?: () => void;
 }) {
@@ -431,11 +448,13 @@ function CatalogRow({
     <div className="px-4 py-3 flex items-start gap-3">
       <div className="flex-1 min-w-0">
         <p className="font-medium text-heading truncate">{title}</p>
-        <p className="text-sm text-muted truncate">{subtitle}</p>
+        {subtitle ? <p className="text-sm text-muted truncate">{subtitle}</p> : null}
       </div>
-      <span className="text-[10px] uppercase tracking-wide text-muted border border-outline/40 rounded-pill px-2 py-0.5">
-        {meta}
-      </span>
+      {meta ? (
+        <span className="text-[10px] uppercase tracking-wide text-muted border border-outline/40 rounded-pill px-2 py-0.5">
+          {meta}
+        </span>
+      ) : null}
       <div className="flex gap-1 shrink-0">
         <button type="button" className="btn-ghost text-xs py-1 px-2" onClick={onEdit}>
           Edit
@@ -495,7 +514,7 @@ function ModalShell({
               Cancel
             </button>
             <button type="submit" className="btn-primary text-sm">
-              Save to draft
+              Save
             </button>
           </div>
         </form>
@@ -506,10 +525,12 @@ function ModalShell({
 
 function WeightExerciseModal({
   draft,
+  muscleGroupOptions,
   onClose,
   onSave,
 }: {
   draft: WeightDraft;
+  muscleGroupOptions: string[];
   onClose: () => void;
   onSave: (next: WeightDraft) => void;
 }) {
@@ -523,7 +544,9 @@ function WeightExerciseModal({
       onSubmit={(e) => {
         e.preventDefault();
         if (!form.name.trim()) return;
-        onSave({ ...form, name: form.name.trim(), muscleGroup: form.muscleGroup.trim().toLowerCase() });
+        const muscleGroup = normalizeCatalogGroupKey(form.muscleGroup);
+        if (!muscleGroup) return;
+        onSave({ ...form, name: form.name.trim(), muscleGroup });
       }}
     >
       <Field label="Name">
@@ -534,15 +557,13 @@ function WeightExerciseModal({
           required
         />
       </Field>
-      <Field label="Muscle group">
-        <input
-          className="input"
-          value={form.muscleGroup}
-          onChange={(e) => setForm({ ...form, muscleGroup: e.target.value })}
-          placeholder="chest, back, legs…"
-          required
-        />
-      </Field>
+      <CatalogGroupSelect
+        label="Muscle group"
+        value={form.muscleGroup}
+        options={muscleGroupOptions}
+        onChange={(muscleGroup) => setForm({ ...form, muscleGroup })}
+        customHint="This muscle group will appear in the dropdown for future exercises."
+      />
       <div className="grid grid-cols-2 gap-3">
         <Field label="Push / pull">
           <select
@@ -611,10 +632,12 @@ function WeightExerciseModal({
 
 function StretchEntryModal({
   draft,
+  categoryOptions,
   onClose,
   onSave,
 }: {
   draft: StretchDraft;
+  categoryOptions: string[];
   onClose: () => void;
   onSave: (next: StretchDraft) => void;
 }) {
@@ -627,10 +650,11 @@ function StretchEntryModal({
       onSubmit={(e) => {
         e.preventDefault();
         if (!form.name.trim()) return;
+        const category = normalizeCatalogGroupKey(form.category) || "other";
         onSave({
           ...form,
           name: form.name.trim(),
-          category: form.category.trim().toLowerCase() || "other",
+          category,
           targetBodyParts: form.targetBodyParts.filter(Boolean),
         });
       }}
@@ -643,15 +667,13 @@ function StretchEntryModal({
           required
         />
       </Field>
-      <Field label="Category">
-        <input
-          className="input"
-          value={form.category}
-          onChange={(e) => setForm({ ...form, category: e.target.value })}
-          placeholder="neck, legs, glutes…"
-          required
-        />
-      </Field>
+      <CatalogGroupSelect
+        label="Category"
+        value={form.category}
+        options={categoryOptions}
+        onChange={(category) => setForm({ ...form, category })}
+        customHint="This category will appear in the dropdown for future stretches."
+      />
       <Field label="Target body parts (comma-separated)">
         <input
           className="input"

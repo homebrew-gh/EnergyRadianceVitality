@@ -9,25 +9,34 @@
 /* ERV light palette — matches app/src/main/java/com/erv/app/ui/theme/Color.kt */
 html {
   color-scheme: light;
-  --erv-bg: #fffbf7;
-  --erv-surface: #fff8f0;
-  --erv-surface-variant: #f5e6d8;
-  --erv-chrome: #fff8f0;
+  --erv-bg: #fff8ed;
+  --erv-surface: #fffdfa;
+  --erv-surface-variant: #fff0dc;
+  --erv-chrome: rgba(255, 253, 250, 0.82);
   --erv-input-bg: #ffffff;
-  --erv-primary: #c45c26;
+  --erv-primary: #d95f18;
   --erv-on-primary: #ffffff;
-  --erv-primary-container: #ffe0cc;
+  --erv-primary-container: #ffe0c4;
   --erv-on-primary-container: #3d1600;
-  --erv-secondary: #d4a04a;
-  --erv-header: #c62828;
-  --erv-heading: #2c1810;
+  --erv-secondary: #f6b53f;
+  --erv-secondary-container: #fff2c4;
+  --erv-on-secondary-container: #3b2600;
+  --erv-header: #9f2f18;
+  --erv-heading: #24140b;
   --erv-on-surface: #2c1810;
-  --erv-on-surface-variant: #5c4434;
-  --erv-outline: #8c7060;
+  --erv-on-surface-variant: #6a4c38;
+  --erv-outline: #c8a58d;
+  --erv-outline-variant: #ead1bd;
   --erv-error: #ba1a1a;
-  --erv-success: #4caf50;
-  --erv-body-gradient: linear-gradient(180deg, #fffbf7 0%, #fff8f0 45%, #f5e6d8 100%);
-  --erv-shadow-card: 0 1px 2px rgba(44, 24, 16, 0.06), 0 4px 16px rgba(44, 24, 16, 0.08);
+  --erv-success: #2f8c4f;
+  --erv-body-gradient:
+    radial-gradient(circle at 8% 4%, rgba(255, 196, 87, 0.34), transparent 28rem),
+    radial-gradient(circle at 92% 0%, rgba(255, 115, 55, 0.22), transparent 26rem),
+    linear-gradient(180deg, #fff8ed 0%, #fffdf9 42%, #fbe9d5 100%);
+  --erv-card-gradient: linear-gradient(145deg, rgba(255, 255, 255, 0.94), rgba(255, 246, 233, 0.9));
+  --erv-solar-gradient: linear-gradient(135deg, #b93418 0%, #df641a 48%, #f7b83f 100%);
+  --erv-cool-gradient: linear-gradient(135deg, #155e75 0%, #14b8a6 52%, #f7d66d 100%);
+  --erv-shadow-card: 0 14px 35px rgba(91, 43, 16, 0.11), 0 2px 8px rgba(91, 43, 16, 0.06);
   color: var(--erv-on-surface);
 }
 
@@ -43,15 +52,24 @@ html.dark {
   --erv-primary-container: #8a2e2a;
   --erv-on-primary-container: #ffe5e2;
   --erv-secondary: #ffc48a;
+  --erv-secondary-container: #5c3b18;
+  --erv-on-secondary-container: #ffe8c7;
   --erv-header: #c62828;
   --erv-heading: #f7e6e4;
   --erv-on-surface: #f7e6e4;
   --erv-on-surface-variant: #d9b9b7;
   --erv-outline: #b07a7a;
+  --erv-outline-variant: #70484b;
   --erv-error: #ffb4ab;
   --erv-success: #78dc77;
-  --erv-body-gradient: linear-gradient(180deg, #160b0e 0%, #251116 55%, #432126 100%);
-  --erv-shadow-card: 0 2px 8px rgba(0, 0, 0, 0.45);
+  --erv-body-gradient:
+    radial-gradient(circle at 12% 0%, rgba(255, 127, 80, 0.2), transparent 28rem),
+    radial-gradient(circle at 85% 6%, rgba(255, 196, 138, 0.14), transparent 24rem),
+    linear-gradient(180deg, #160b0e 0%, #251116 55%, #432126 100%);
+  --erv-card-gradient: linear-gradient(145deg, rgba(37, 17, 22, 0.96), rgba(67, 33, 38, 0.82));
+  --erv-solar-gradient: linear-gradient(135deg, #7f241e 0%, #d66b3b 48%, #ffc48a 100%);
+  --erv-cool-gradient: linear-gradient(135deg, #0f3c47 0%, #15918b 52%, #c99c48 100%);
+  --erv-shadow-card: 0 18px 40px rgba(0, 0, 0, 0.38);
   color: var(--erv-on-surface);
 }
 
@@ -94,38 +112,46 @@ html.dark {
 
 @layer components {
   .app-header {
-    background-color: var(--erv-header);
+    background:
+      radial-gradient(circle at 12% 0%, rgba(255, 214, 122, 0.4), transparent 18rem),
+      linear-gradient(135deg, #7b1f14 0%, var(--erv-header) 42%, #d95f18 100%);
     color: #ffffff;
   }
 
   .card {
-    background-color: var(--erv-surface);
-    border: 1px solid var(--erv-outline);
-    border-radius: 12px;
+    background: var(--erv-card-gradient);
+    border: 1px solid var(--erv-outline-variant);
+    border-radius: 20px;
     box-shadow: var(--erv-shadow-card);
     color: var(--erv-on-surface);
   }
 
   .btn-primary {
-    @apply inline-flex items-center justify-center gap-2 rounded-pill px-4 py-2 font-semibold transition-opacity disabled:opacity-50 disabled:cursor-not-allowed;
-    background-color: var(--erv-primary);
+    @apply inline-flex items-center justify-center gap-2 rounded-pill px-4 py-2 font-semibold shadow-sm transition disabled:opacity-50 disabled:cursor-not-allowed;
+    background: var(--erv-solar-gradient);
     color: var(--erv-on-primary);
+  }
+  .btn-primary:hover:not(:disabled) {
+    filter: brightness(1.03);
+    transform: translateY(-1px);
   }
 
   .btn-ghost {
-    @apply inline-flex items-center justify-center gap-2 rounded-pill border px-4 py-2 transition-colors disabled:opacity-50;
-    border-color: var(--erv-outline);
+    @apply inline-flex items-center justify-center gap-2 rounded-pill border px-4 py-2 transition disabled:opacity-50;
+    border-color: var(--erv-outline-variant);
     color: var(--erv-on-surface);
-    background: transparent;
+    background: color-mix(in srgb, var(--erv-surface) 72%, transparent);
   }
   .btn-ghost:hover:not(:disabled) {
     background-color: var(--erv-surface-variant);
+    border-color: var(--erv-outline);
+    transform: translateY(-1px);
   }
 
   .input {
-    @apply w-full rounded-card border px-3 py-2 focus:outline-none focus:ring-2;
+    @apply w-full rounded-card border px-3 py-2 shadow-sm focus:outline-none focus:ring-2;
     background-color: var(--erv-input-bg);
-    border-color: var(--erv-outline);
+    border-color: var(--erv-outline-variant);
     color: var(--erv-on-surface);
   }
   .input:focus {
@@ -140,8 +166,50 @@ html.dark {
   }
 
   .erv-section-label {
-    @apply text-xs font-semibold tracking-wide;
+    @apply text-xs font-semibold;
     color: var(--erv-on-surface-variant);
+  }
+
+  .hero-card {
+    @apply overflow-hidden p-5 sm:p-6;
+    position: relative;
+    background: var(--erv-card-gradient);
+    border: 1px solid var(--erv-outline-variant);
+    border-radius: 24px;
+    box-shadow: var(--erv-shadow-card);
+    color: var(--erv-on-surface);
+  }
+  .hero-card::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+      radial-gradient(circle at 8% 8%, rgba(255, 206, 101, 0.3), transparent 16rem),
+      radial-gradient(circle at 94% 18%, rgba(217, 95, 24, 0.16), transparent 18rem);
+  }
+  .hero-card > * {
+    position: relative;
+  }
+
+  .metric-card {
+    @apply rounded-card border p-4 shadow-sm;
+    background: color-mix(in srgb, var(--erv-surface) 86%, white);
+    border-color: var(--erv-outline-variant);
+  }
+
+  .sun-chip {
+    @apply inline-flex items-center rounded-pill border px-3 py-1 text-xs font-semibold;
+    background: color-mix(in srgb, var(--erv-secondary-container) 72%, white);
+    border-color: color-mix(in srgb, var(--erv-secondary) 42%, var(--erv-outline-variant));
+    color: var(--erv-on-secondary-container);
+  }
+
+  .glass-panel {
+    background: var(--erv-chrome);
+    backdrop-filter: blur(18px);
+    border: 1px solid rgba(255, 255, 255, 0.36);
+    box-shadow: 0 10px 24px rgba(91, 43, 16, 0.08);
   }
 
   @keyframes erv-pulse-border {

@@ -4,10 +4,11 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
-import { ApiError, api } from "./api";
+import { ApiError, api, type AppDataRecord } from "./api";
 import {
   CARDIO_CATALOG_D_TAG,
   EMPTY_CATALOGS,
@@ -30,11 +31,11 @@ import {
 
 export type CatalogEditorTabId = "weight" | "stretch" | "cardio";
 
+const AUTO_PUBLISH_MS = 600;
+
 type CatalogEditorContextValue = {
   loading: boolean;
-  saving: boolean;
   error: string | null;
-  success: string | null;
   lastEventId: string | null;
   catalogs: ErvCatalogs;
   weightExercises: WeightCatalogExercise[];
@@ -46,19 +47,22 @@ type CatalogEditorContextValue = {
   weightDirty: boolean;
   stretchDirty: boolean;
   cardioDirty: boolean;
+  weightSyncing: boolean;
+  stretchSyncing: boolean;
+  cardioSyncing: boolean;
   reload: () => Promise<void>;
   setWeightExercises: (next: WeightCatalogExercise[]) => void;
   setStretchEntries: (next: StretchCatalogEntry[]) => void;
   setCardioActivities: (next: CardioCatalogActivity[]) => void;
-  publishWeightCatalog: () => Promise<void>;
-  publishStretchCatalog: () => Promise<void>;
-  publishCardioCatalog: () => Promise<void>;
-  clearSuccess: () => void;
+  retryWeightPublish: () => Promise<void>;
+  retryStretchPublish: () => Promise<void>;
+  retryCardioPublish: () => Promise<void>;
+  clearError: () => void;
 };
 
 const CatalogEditorContext = createContext<CatalogEditorContextValue | null>(null);
 
-function initialWeightDraft(records: Awaited<ReturnType<typeof api.listAppData>>) {
+function initialWeightDraft(records: AppDataRecord[]) {
   const record = records.find((r) => r.d_tag === WEIGHT_CATALOG_D_TAG);
   const payload = record?.plaintext ? parseWeightCatalog(record.plaintext) : null;
   return {
@@ -69,7 +73,7 @@ function initialWeightDraft(records: Awaited<ReturnType<typeof api.listAppData>>
   };
 }
 
-function initialStretchDraft(records: Awaited<ReturnType<typeof api.listAppData>>) {
+function initialStretchDraft(records: AppDataRecord[]) {
   const record = records.find((r) => r.d_tag === STRETCH_CATALOG_D_TAG);
   const payload = record?.plaintext ? parseStretchCatalog(record.plaintext) : null;
   return {
@@ -79,7 +83,7 @@ function initialStretchDraft(records: Awaited<ReturnType<typeof api.listAppData>
   };
 }
 
-function initialCardioDraft(records: Awaited<ReturnType<typeof api.listAppData>>) {
+function initialCardioDraft(records: AppDataRecord[]) {
   const record = records.find((r) => r.d_tag === CARDIO_CATALOG_D_TAG);
   const payload = record?.plaintext ? parseCardioCatalog(record.plaintext) : null;
   return {
@@ -91,9 +95,7 @@ function initialCardioDraft(records: Awaited<ReturnType<typeof api.listAppData>>
 
 export function CatalogEditorProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
   const [lastEventId, setLastEventId] = useState<string | null>(null);
   const [catalogs, setCatalogs] = useState<ErvCatalogs>(EMPTY_CATALOGS);
 
@@ -106,12 +108,32 @@ export function CatalogEditorProvider({ children }: { children: ReactNode }) {
   const [weightDirty, setWeightDirty] = useState(false);
   const [stretchDirty, setStretchDirty] = useState(false);
   const [cardioDirty, setCardioDirty] = useState(false);
+  const [weightSyncing, setWeightSyncing] = useState(false);
+  const [stretchSyncing, setStretchSyncing] = useState(false);
+  const [cardioSyncing, setCardioSyncing] = useState(false);
+
+  const weightExercisesRef = useRef(weightExercises);
+  const stretchEntriesRef = useRef(stretchEntries);
+  const cardioActivitiesRef = useRef(cardioActivities);
+  const weightVersionRef = useRef(weightVersion);
+  const stretchVersionRef = useRef(stretchVersion);
+  const cardioVersionRef = useRef(cardioVersion);
+  const weightPublishTimer = useRef<number | null>(null);
+  const stretchPublishTimer = useRef<number | null>(null);
+  const cardioPublishTimer = useRef<number | null>(null);
+
+  weightExercisesRef.current = weightExercises;
+  stretchEntriesRef.current = stretchEntries;
+  cardioActivitiesRef.current = cardioActivities;
+  weightVersionRef.current = weightVersion;
+  stretchVersionRef.current = stretchVersion;
+  cardioVersionRef.current = cardioVersion;
 
   const reload = useCallback(async () => {
     setError(null);
     setLoading(true);
     try {
-      const records = await api.listAppData();
+      const { records } = await api.listAppData();
       const weight = initialWeightDraft(records);
       const stretch = initialStretchDraft(records);
       const cardio = initialCardioDraft(records);
@@ -120,14 +142,10 @@ export function CatalogEditorProvider({ children }: { children: ReactNode }) {
         weight: weight.exercises,
         stretch: stretch.entries,
         cardio: cardio.activities,
-        catalogVersion: [
-          weight.version,
-          stretch.version,
-          cardio.version,
-        ].filter((v): v is number => typeof v === "number").reduce(
-          (max, v) => Math.max(max, v),
-          0,
-        ) || null,
+        catalogVersion:
+          [weight.version, stretch.version, cardio.version]
+            .filter((v): v is number => typeof v === "number")
+            .reduce((max, v) => Math.max(max, v), 0) || null,
       });
 
       setWeightExercisesState(weight.exercises);
@@ -152,107 +170,189 @@ export function CatalogEditorProvider({ children }: { children: ReactNode }) {
     void reload();
   }, [reload]);
 
-  const setWeightExercises = useCallback((next: WeightCatalogExercise[]) => {
-    setWeightExercisesState(next);
-    setWeightDirty(true);
-  }, []);
-
-  const setStretchEntries = useCallback((next: StretchCatalogEntry[]) => {
-    setStretchEntriesState(next);
-    setStretchDirty(true);
-  }, []);
-
-  const setCardioActivities = useCallback((next: CardioCatalogActivity[]) => {
-    setCardioActivitiesState(next);
-    setCardioDirty(true);
-  }, []);
+  useEffect(
+    () => () => {
+      if (weightPublishTimer.current != null) {
+        window.clearTimeout(weightPublishTimer.current);
+      }
+      if (stretchPublishTimer.current != null) {
+        window.clearTimeout(stretchPublishTimer.current);
+      }
+      if (cardioPublishTimer.current != null) {
+        window.clearTimeout(cardioPublishTimer.current);
+      }
+    },
+    [],
+  );
 
   const publishWeightCatalog = useCallback(async () => {
-    setSaving(true);
+    if (weightPublishTimer.current != null) {
+      window.clearTimeout(weightPublishTimer.current);
+      weightPublishTimer.current = null;
+    }
+    setWeightSyncing(true);
     setError(null);
-    setSuccess(null);
+    const exercises = weightExercisesRef.current;
+    const version = weightVersionRef.current;
     try {
-      const version = nextCatalogVersion(weightVersion);
+      const nextVersion = nextCatalogVersion(version);
       const result = await api.publishAppData({
         d_tag: WEIGHT_CATALOG_D_TAG,
-        plaintext: serializeWeightCatalog(weightExercises, version),
+        plaintext: serializeWeightCatalog(exercises, nextVersion),
       });
-      setWeightVersion(version);
+      setWeightVersion(nextVersion);
       setWeightDirty(false);
       setLastEventId(result.event_id);
-      setSuccess("Weight catalog published to relay.");
+      setCatalogs((prev) => ({
+        ...prev,
+        weight: exercises,
+        catalogVersion: Math.max(prev.catalogVersion ?? 0, nextVersion),
+      }));
       notifyCatalogPublished();
-      await reload();
     } catch (e) {
-      const msg =
-        e instanceof ApiError ? e.message : "Could not publish weight catalog.";
-      setError(msg);
+      setWeightDirty(true);
+      setError(
+        e instanceof ApiError ? e.message : "Could not publish weight catalog.",
+      );
       throw e;
     } finally {
-      setSaving(false);
+      setWeightSyncing(false);
     }
-  }, [reload, weightExercises, weightVersion]);
+  }, []);
 
   const publishStretchCatalog = useCallback(async () => {
-    setSaving(true);
+    if (stretchPublishTimer.current != null) {
+      window.clearTimeout(stretchPublishTimer.current);
+      stretchPublishTimer.current = null;
+    }
+    setStretchSyncing(true);
     setError(null);
-    setSuccess(null);
+    const entries = stretchEntriesRef.current;
+    const version = stretchVersionRef.current;
     try {
-      const version = nextCatalogVersion(stretchVersion);
+      const nextVersion = nextCatalogVersion(version);
       const result = await api.publishAppData({
         d_tag: STRETCH_CATALOG_D_TAG,
-        plaintext: serializeStretchCatalog(stretchEntries, version),
+        plaintext: serializeStretchCatalog(entries, nextVersion),
       });
-      setStretchVersion(version);
+      setStretchVersion(nextVersion);
       setStretchDirty(false);
       setLastEventId(result.event_id);
-      setSuccess("Stretch catalog published to relay.");
+      setCatalogs((prev) => ({
+        ...prev,
+        stretch: entries,
+        catalogVersion: Math.max(prev.catalogVersion ?? 0, nextVersion),
+      }));
       notifyCatalogPublished();
-      await reload();
     } catch (e) {
-      const msg =
-        e instanceof ApiError ? e.message : "Could not publish stretch catalog.";
-      setError(msg);
+      setStretchDirty(true);
+      setError(
+        e instanceof ApiError ? e.message : "Could not publish stretch catalog.",
+      );
       throw e;
     } finally {
-      setSaving(false);
+      setStretchSyncing(false);
     }
-  }, [reload, stretchEntries, stretchVersion]);
+  }, []);
 
   const publishCardioCatalog = useCallback(async () => {
-    setSaving(true);
+    if (cardioPublishTimer.current != null) {
+      window.clearTimeout(cardioPublishTimer.current);
+      cardioPublishTimer.current = null;
+    }
+    setCardioSyncing(true);
     setError(null);
-    setSuccess(null);
+    const activities = cardioActivitiesRef.current;
+    const version = cardioVersionRef.current;
     try {
-      const version = nextCatalogVersion(cardioVersion);
+      const nextVersion = nextCatalogVersion(version);
       const result = await api.publishAppData({
         d_tag: CARDIO_CATALOG_D_TAG,
-        plaintext: serializeCardioCatalog(cardioActivities, version),
+        plaintext: serializeCardioCatalog(activities, nextVersion),
       });
-      setCardioVersion(version);
+      setCardioVersion(nextVersion);
       setCardioDirty(false);
       setLastEventId(result.event_id);
-      setSuccess("Cardio catalog published to relay.");
+      setCatalogs((prev) => ({
+        ...prev,
+        cardio: activities,
+        catalogVersion: Math.max(prev.catalogVersion ?? 0, nextVersion),
+      }));
       notifyCatalogPublished();
-      await reload();
     } catch (e) {
-      const msg =
-        e instanceof ApiError ? e.message : "Could not publish cardio catalog.";
-      setError(msg);
+      setCardioDirty(true);
+      setError(
+        e instanceof ApiError ? e.message : "Could not publish cardio catalog.",
+      );
       throw e;
     } finally {
-      setSaving(false);
+      setCardioSyncing(false);
     }
-  }, [cardioActivities, cardioVersion, reload]);
+  }, []);
 
-  const clearSuccess = useCallback(() => setSuccess(null), []);
+  const scheduleWeightPublish = useCallback(() => {
+    if (weightPublishTimer.current != null) {
+      window.clearTimeout(weightPublishTimer.current);
+    }
+    weightPublishTimer.current = window.setTimeout(() => {
+      weightPublishTimer.current = null;
+      void publishWeightCatalog();
+    }, AUTO_PUBLISH_MS);
+  }, [publishWeightCatalog]);
+
+  const scheduleStretchPublish = useCallback(() => {
+    if (stretchPublishTimer.current != null) {
+      window.clearTimeout(stretchPublishTimer.current);
+    }
+    stretchPublishTimer.current = window.setTimeout(() => {
+      stretchPublishTimer.current = null;
+      void publishStretchCatalog();
+    }, AUTO_PUBLISH_MS);
+  }, [publishStretchCatalog]);
+
+  const scheduleCardioPublish = useCallback(() => {
+    if (cardioPublishTimer.current != null) {
+      window.clearTimeout(cardioPublishTimer.current);
+    }
+    cardioPublishTimer.current = window.setTimeout(() => {
+      cardioPublishTimer.current = null;
+      void publishCardioCatalog();
+    }, AUTO_PUBLISH_MS);
+  }, [publishCardioCatalog]);
+
+  const setWeightExercises = useCallback(
+    (next: WeightCatalogExercise[]) => {
+      setWeightExercisesState(next);
+      setWeightDirty(true);
+      scheduleWeightPublish();
+    },
+    [scheduleWeightPublish],
+  );
+
+  const setStretchEntries = useCallback(
+    (next: StretchCatalogEntry[]) => {
+      setStretchEntriesState(next);
+      setStretchDirty(true);
+      scheduleStretchPublish();
+    },
+    [scheduleStretchPublish],
+  );
+
+  const setCardioActivities = useCallback(
+    (next: CardioCatalogActivity[]) => {
+      setCardioActivitiesState(next);
+      setCardioDirty(true);
+      scheduleCardioPublish();
+    },
+    [scheduleCardioPublish],
+  );
+
+  const clearError = useCallback(() => setError(null), []);
 
   const value = useMemo<CatalogEditorContextValue>(
     () => ({
       loading,
-      saving,
       error,
-      success,
       lastEventId,
       catalogs,
       weightExercises,
@@ -264,20 +364,21 @@ export function CatalogEditorProvider({ children }: { children: ReactNode }) {
       weightDirty,
       stretchDirty,
       cardioDirty,
+      weightSyncing,
+      stretchSyncing,
+      cardioSyncing,
       reload,
       setWeightExercises,
       setStretchEntries,
       setCardioActivities,
-      publishWeightCatalog,
-      publishStretchCatalog,
-      publishCardioCatalog,
-      clearSuccess,
+      retryWeightPublish: publishWeightCatalog,
+      retryStretchPublish: publishStretchCatalog,
+      retryCardioPublish: publishCardioCatalog,
+      clearError,
     }),
     [
       loading,
-      saving,
       error,
-      success,
       lastEventId,
       catalogs,
       weightExercises,
@@ -289,6 +390,9 @@ export function CatalogEditorProvider({ children }: { children: ReactNode }) {
       weightDirty,
       stretchDirty,
       cardioDirty,
+      weightSyncing,
+      stretchSyncing,
+      cardioSyncing,
       reload,
       setWeightExercises,
       setStretchEntries,
@@ -296,7 +400,7 @@ export function CatalogEditorProvider({ children }: { children: ReactNode }) {
       publishWeightCatalog,
       publishStretchCatalog,
       publishCardioCatalog,
-      clearSuccess,
+      clearError,
     ],
   );
 

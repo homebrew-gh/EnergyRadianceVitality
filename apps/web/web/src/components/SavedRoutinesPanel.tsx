@@ -10,6 +10,7 @@ type SavedRoutinesPanelProps<T> = {
   onEdit: (routine: T) => void;
   onDelete: (routine: T) => void;
   onDuplicate?: (routine: T) => void;
+  onDuplicateWithProgress?: (routine: T) => void;
 };
 
 export function SavedRoutinesPanel<T>({
@@ -24,11 +25,17 @@ export function SavedRoutinesPanel<T>({
   onEdit,
   onDelete,
   onDuplicate,
+  onDuplicateWithProgress,
 }: SavedRoutinesPanelProps<T>) {
   return (
-    <section className="space-y-3">
-      <div className="flex items-center justify-between">
-        <h3 className="font-semibold text-heading">{title}</h3>
+    <section className="card p-4 space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h3 className="font-semibold text-heading">{title}</h3>
+          <p className="text-xs text-muted">
+            Reuse, progress, or edit a session already published to the relay.
+          </p>
+        </div>
         <button
           type="button"
           className="btn-ghost text-sm"
@@ -41,7 +48,9 @@ export function SavedRoutinesPanel<T>({
       {loading ? (
         <p className="text-muted text-sm">Loading…</p>
       ) : routines.length === 0 ? (
-        <p className="text-muted text-sm">No routines yet.</p>
+        <p className="rounded-card border border-dashed border-[var(--erv-outline-variant)] p-4 text-sm text-muted">
+          No routines yet. Compose a session below and publish it to start your library.
+        </p>
       ) : (
         <ul className="space-y-2">
           {routines.map((routine) => {
@@ -50,14 +59,18 @@ export function SavedRoutinesPanel<T>({
             return (
               <li
                 key={id}
-                className={`card p-3 ${isEditing ? "ring-2 ring-[var(--erv-primary)]" : ""}`}
+                className={`rounded-card border bg-[var(--erv-input-bg)] p-3 transition hover:shadow-sm ${
+                  isEditing
+                    ? "border-[var(--erv-primary)] ring-2 ring-[var(--erv-primary)]/25"
+                    : "border-[var(--erv-outline-variant)]"
+                }`}
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0 flex-1">
-                    <p className="font-semibold truncate">
+                    <p className="font-semibold text-heading truncate">
                       {getName(routine)}
                       {isEditing ? (
-                        <span className="text-xs font-normal text-muted ml-2">editing</span>
+                        <span className="sun-chip ml-2 py-0.5">Editing</span>
                       ) : null}
                     </p>
                     <p className="text-sm text-muted mt-1">{getDetail(routine)}</p>
@@ -77,6 +90,16 @@ export function SavedRoutinesPanel<T>({
                         onClick={() => onDuplicate(routine)}
                       >
                         Duplicate
+                      </button>
+                    ) : null}
+                    {onDuplicateWithProgress ? (
+                      <button
+                        type="button"
+                        className="btn-ghost text-xs py-1 px-2"
+                        title="Duplicate and bump loads from last week or baseline"
+                        onClick={() => onDuplicateWithProgress(routine)}
+                      >
+                        + Progress
                       </button>
                     ) : null}
                     <button

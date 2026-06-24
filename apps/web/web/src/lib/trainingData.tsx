@@ -65,6 +65,7 @@ type TrainingContextValue = {
   saving: boolean;
   error: string | null;
   lastEventId: string | null;
+  lastLoadedAt: number | null;
   reload: () => Promise<void>;
   saveWeightRoutines: (routines: WeightRoutine[]) => Promise<void>;
   saveStretchRoutines: (routines: StretchRoutine[]) => Promise<void>;
@@ -98,12 +99,13 @@ export function TrainingProvider({ children }: { children: ReactNode }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastEventId, setLastEventId] = useState<string | null>(null);
+  const [lastLoadedAt, setLastLoadedAt] = useState<number | null>(null);
 
   const reload = useCallback(async () => {
     setError(null);
     setLoading(true);
     try {
-      const records = await api.listAppData();
+      const { records } = await api.listAppData();
       const routinesRecord = records.find(
         (r) => r.d_tag === WEIGHT_ROUTINES_D_TAG,
       );
@@ -146,6 +148,7 @@ export function TrainingProvider({ children }: { children: ReactNode }) {
       setExercises(
         mergeExerciseCatalog(nextCatalogs.weight, relayUserExercises),
       );
+      setLastLoadedAt(Date.now());
     } catch (e) {
       setError(
         e instanceof ApiError ? e.message : "Could not load training data.",
@@ -309,6 +312,7 @@ export function TrainingProvider({ children }: { children: ReactNode }) {
       saving,
       error,
       lastEventId,
+      lastLoadedAt,
       reload,
       saveWeightRoutines,
       saveStretchRoutines,
@@ -328,6 +332,7 @@ export function TrainingProvider({ children }: { children: ReactNode }) {
       saving,
       error,
       lastEventId,
+      lastLoadedAt,
       reload,
       saveWeightRoutines,
       saveStretchRoutines,

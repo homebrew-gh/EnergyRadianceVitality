@@ -1,6 +1,18 @@
 import { useState } from "react";
 import type { CardioCatalogActivity } from "../lib/catalog";
 import type { CardioRoutine } from "../lib/cardioTraining";
+import { formatWeightKg } from "../lib/trainingHistory";
+import type { BodyWeightUnit } from "../lib/fitnessEquipment";
+import {
+  formatWeightLoadNumber,
+  parseWeightInputToKg,
+  weightLoadUnitSuffix,
+} from "../lib/weightLoadUnit";
+import type { TrainingSnapshot } from "../lib/trainingSnapshot";
+import {
+  applyTargetWeightToPrescription,
+  suggestedTargetWeightKg,
+} from "../lib/workoutPrescriptionHints";
 import { stretchLabel } from "../lib/stretchTraining";
 import { exerciseLabel, type WeightExercise } from "../lib/weightTraining";
 import { ReorderableList } from "./ReorderableList";
@@ -10,8 +22,8 @@ import {
   exerciseSetLoggingStyle,
   mobilityItemSummary,
   cardioItemSummary,
-  parseNonNegativeInt,
-  parsePositiveInt,
+  readOptionalNonNegativeInt,
+  readOptionalPositiveInt,
   prescriptionSummary,
   prescriptionUsesPerSide,
   segmentAllowsInlineNotes,
@@ -29,7 +41,7 @@ import {
   type WorkoutCardioLogField,
   type WeightSetLoggingStyle,
 } from "../lib/workoutTraining";
-import { FieldLabel } from "../components/FieldLabel";
+import { FieldLabel, SectionHeader } from "../components/FieldLabel";
 
 const CARDIO_LOG_FIELD_OPTIONS: { value: WorkoutCardioLogField; label: string }[] = [
   { value: "INCLINE", label: "Incline" },
@@ -46,6 +58,8 @@ type WorkoutSegmentEditorProps = {
   stretchCatalog: { id: string; name: string }[];
   cardioCatalog: CardioCatalogActivity[];
   cardioRoutines: CardioRoutine[];
+  trainingSnapshot?: TrainingSnapshot | null;
+  weightLoadUnit?: BodyWeightUnit;
   onSelect: () => void;
   onUpdate: (segment: WorkoutSegment) => void;
   onRemove: () => void;
@@ -60,22 +74,27 @@ function WeightPrescriptionFields({
   loggingStyle,
   onChange,
   compact = false,
+  suggestedTargetKg,
+  weightLoadUnit = "LB",
 }: {
   prescription: WorkoutWeightPrescription;
   loggingStyle: WeightSetLoggingStyle;
   onChange: (next: WorkoutWeightPrescription) => void;
   compact?: boolean;
+  suggestedTargetKg?: number | null;
+  weightLoadUnit?: BodyWeightUnit;
 }) {
-  const [showPerSetEditor, setShowPerSetEditor] = useState(
-    (prescription.sets?.length ?? 0) > 0 &&
-      prescription.sets!.some(
-        (s, i) =>
-          i > 0 ||
-          (s.reps ?? 0) > 0 ||
-          (s.repsPerSide ?? 0) > 0 ||
-          (s.rir ?? 0) > 0,
-      ),
-  );
+  const [showPerSetEditor, setShowPerSetEditor] = useState(() => {
+    const sets = prescription.sets ?? [];
+    if (sets.length < 2) return false;
+    const reps = (s: WorkoutPrescriptionSet) => s.reps ?? s.targetReps ?? null;
+    const load = (s: WorkoutPrescriptionSet) => s.targetWeightKg ?? s.weightKg ?? null;
+    const rir = (s: WorkoutPrescriptionSet) => s.rir ?? null;
+    const first = sets[0]!;
+    return sets.some(
+      (s) => reps(s) !== reps(first) || load(s) !== load(first) || rir(s) !== rir(first),
+    );
+  });
   const gridClass = compact
     ? "grid grid-cols-2 sm:grid-cols-3 gap-2"
     : "grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2";
@@ -100,20 +119,57 @@ function WeightPrescriptionFields({
         min={opts?.min ?? 0}
         value={value ?? ""}
         onChange={(e) => {
-          const raw = e.target.value.trim();
-          if (!raw) {
-            onValue(null);
-            return;
-          }
           onValue(
             opts?.positive
-              ? parsePositiveInt(raw, value ?? 1)
-              : parseNonNegativeInt(raw, value ?? 0),
+              ? readOptionalPositiveInt(e.target.value, value)
+              : readOptionalNonNegativeInt(e.target.value, value),
           );
         }}
       />
     </label>
   );
+
+  const loadSuffix = weightLoadUnitSuffix(weightLoadUnit);
+
+  const weightField = (
+    label: string,
+    kgValue: number | null | undefined,
+    onKgValue: (next: number | null) => void,
+    ghostHint?: string | null,
+  ) => {
+    const displayValue =
+      kgValue != null ? formatWeightLoadNumber(kgValue, weightLoadUnit) : "";
+    return (
+      <label className="text-xs space-y-1">
+        <FieldLabel>{label}</FieldLabel>
+        <input
+          className="input w-full"
+          type="number"
+          min={0}
+          step="any"
+          placeholder={ghostHint ?? undefined}
+          value={displayValue}
+          onChange={(e) => {
+            const raw = e.target.value.trim();
+            if (!raw) {
+              onKgValue(null);
+              return;
+            }
+            const kg = parseWeightInputToKg(raw, weightLoadUnit);
+            onKgValue(kg ?? kgValue ?? null);
+          }}
+        />
+        {ghostHint && (kgValue == null || kgValue === 0) ? (
+          <span className="text-[10px] text-muted block">{ghostHint}</span>
+        ) : null}
+      </label>
+    );
+  };
+
+  const weightGhostHint =
+    suggestedTargetKg != null && (prescription.targetWeightKg == null || prescription.targetWeightKg === 0)
+      ? `Baseline: ${formatWeightKg(suggestedTargetKg, weightLoadUnit)}`
+      : null;
 
   const updateSetAt = (index: number, patch: Partial<WorkoutPrescriptionSet>) => {
     const sets = ensurePrescriptionSets(prescription);
@@ -216,11 +272,34 @@ function WeightPrescriptionFields({
               { positive: true },
             )
           : null}
+        {!timedPrescription && !isMaxReps && !showPerSetEditor
+          ? weightField(
+              `Target weight (${loadSuffix})`,
+              prescription.targetWeightKg ?? null,
+              (targetWeightKg) => onChange({ ...prescription, targetWeightKg }),
+              weightGhostHint,
+            )
+          : null}
         {!timedPrescription && !isMaxReps
           ? field("Target RIR", prescription.targetRir ?? null, (targetRir) =>
               onChange({ ...prescription, targetRir }),
             )
           : null}
+        {weightGhostHint ? (
+          <div className="col-span-full">
+            <button
+              type="button"
+              className="btn-ghost text-xs py-0.5 px-2"
+              onClick={() =>
+                onChange(
+                  applyTargetWeightToPrescription(prescription, suggestedTargetKg!) ?? prescription,
+                )
+              }
+            >
+              Use baseline load ({formatWeightKg(suggestedTargetKg!, weightLoadUnit)})
+            </button>
+          </div>
+        ) : null}
         {field(
           "Rest between sets (s)",
           prescription.restBetweenSetsSeconds ?? null,
@@ -282,7 +361,7 @@ function WeightPrescriptionFields({
             onChange({ ...prescription, sets, setCount: sets.length });
           }, { positive: true })}
           <label className="text-xs space-y-1">
-            <span>Side</span>
+            <FieldLabel>Side</FieldLabel>
             <select
               className="input w-full"
               value={prescription.sets?.[0]?.side ?? "each"}
@@ -305,13 +384,20 @@ function WeightPrescriptionFields({
       ) : null}
       {showPerSetEditor && !perSide && !isMaxReps && !timedPrescription ? (
         <div className="space-y-2 rounded-card border border-outline/30 p-2">
-          <p className="text-xs font-medium text-muted">Per-set targets</p>
+          <SectionHeader className="text-xs font-medium text-muted">
+            Per-set targets
+          </SectionHeader>
           {ensurePrescriptionSets(prescription).map((set, index) => (
-            <div key={index} className="grid grid-cols-4 gap-2 items-end">
+            <div key={index} className="grid grid-cols-5 gap-2 items-end">
               <span className="text-xs text-muted pb-2">Set {index + 1}</span>
               {field("Reps", set.reps ?? set.targetReps ?? null, (reps) =>
                 updateSetAt(index, { reps, targetReps: reps }),
                 { positive: true },
+              )}
+              {weightField(
+                `Weight (${loadSuffix})`,
+                set.targetWeightKg ?? set.weightKg ?? null,
+                (weightKg) => updateSetAt(index, { weightKg, targetWeightKg: weightKg }),
               )}
               {field("RIR", set.rir ?? null, (rir) => updateSetAt(index, { rir }))}
             </div>
@@ -345,6 +431,8 @@ export function WorkoutSegmentEditor({
   stretchCatalog,
   cardioCatalog,
   cardioRoutines,
+  trainingSnapshot,
+  weightLoadUnit = "LB",
   onSelect,
   onUpdate,
   onRemove,
@@ -378,7 +466,9 @@ export function WorkoutSegmentEditor({
     switch (item.type) {
       case "weight": {
         const altCount = item.alternativeExerciseIds?.length ?? 0;
-        const base = exerciseLabel(item.exerciseId, catalogExercises);
+        const base =
+          item.title?.trim() ||
+          exerciseLabel(item.exerciseId, catalogExercises);
         return altCount > 0 ? `${base} (+${altCount} alt)` : base;
       }
       case "cardio": {
@@ -411,14 +501,16 @@ export function WorkoutSegmentEditor({
 
   return (
     <div
-      className={`card p-3 space-y-3 border ${
-        isActive ? "erv-pulse-border" : "border-transparent"
+      className={`rounded-[18px] border p-3 space-y-3 transition ${
+        isActive
+          ? "border-[var(--erv-primary)] bg-[var(--erv-primary-container)]/25 shadow-card"
+          : "border-[var(--erv-outline-variant)] bg-[var(--erv-input-bg)]"
       }`}
     >
       <div className="flex flex-wrap items-center gap-2">
         <button
           type="button"
-          className="text-sm font-semibold text-heading"
+          className="text-left text-sm font-semibold text-heading"
           onClick={onSelect}
         >
           {segmentIndex + 1}. {segmentKindLabel(segment.kind)}
@@ -466,9 +558,16 @@ export function WorkoutSegmentEditor({
         <input
           className="input w-full text-sm"
           value={segment.title ?? ""}
-          onChange={(e) =>
-            onUpdate({ ...segment, title: e.target.value.trim() || null })
-          }
+          onChange={(e) => {
+            const raw = e.target.value;
+            onUpdate({ ...segment, title: raw === "" ? null : raw });
+          }}
+          onBlur={(e) => {
+            const trimmed = e.target.value.trim();
+            if (trimmed !== (segment.title ?? "")) {
+              onUpdate({ ...segment, title: trimmed || null });
+            }
+          }}
           placeholder={segmentKindLabel(segment.kind)}
         />
       </label>
@@ -476,68 +575,71 @@ export function WorkoutSegmentEditor({
       {isRoundRobin ? (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
           <label className="text-xs space-y-1">
-            <span>Rounds</span>
+            <FieldLabel>Rounds</FieldLabel>
             <input
               className="input w-full"
               type="number"
               min={1}
-              value={segment.rounds ?? 3}
+              value={segment.rounds ?? ""}
               onChange={(e) =>
                 onUpdate({
                   ...segment,
-                  rounds: parsePositiveInt(e.target.value, segment.rounds ?? 3),
+                  rounds:
+                    readOptionalPositiveInt(e.target.value, segment.rounds) ?? undefined,
                 })
               }
             />
           </label>
           <label className="text-xs space-y-1">
-            <span>Rest between exercises (s)</span>
+            <FieldLabel>Rest between exercises (s)</FieldLabel>
             <input
               className="input w-full"
               type="number"
               min={0}
-              value={restPolicy.restBetweenItemsSeconds ?? 0}
+              value={restPolicy.restBetweenItemsSeconds ?? ""}
               onChange={(e) =>
                 updateRestPolicy({
-                  restBetweenItemsSeconds: parseNonNegativeInt(
-                    e.target.value,
-                    restPolicy.restBetweenItemsSeconds ?? 0,
-                  ),
+                  restBetweenItemsSeconds:
+                    readOptionalNonNegativeInt(
+                      e.target.value,
+                      restPolicy.restBetweenItemsSeconds,
+                    ) ?? undefined,
                 })
               }
             />
           </label>
           <label className="text-xs space-y-1">
-            <span>Rest after round (s)</span>
+            <FieldLabel>Rest after round (s)</FieldLabel>
             <input
               className="input w-full"
               type="number"
               min={0}
-              value={restPolicy.restAfterRoundSeconds ?? 0}
+              value={restPolicy.restAfterRoundSeconds ?? ""}
               onChange={(e) =>
                 updateRestPolicy({
-                  restAfterRoundSeconds: parseNonNegativeInt(
-                    e.target.value,
-                    restPolicy.restAfterRoundSeconds ?? 0,
-                  ),
+                  restAfterRoundSeconds:
+                    readOptionalNonNegativeInt(
+                      e.target.value,
+                      restPolicy.restAfterRoundSeconds,
+                    ) ?? undefined,
                 })
               }
             />
           </label>
           <label className="text-xs space-y-1">
-            <span>Rest after segment (s)</span>
+            <FieldLabel>Rest after segment (s)</FieldLabel>
             <input
               className="input w-full"
               type="number"
               min={0}
               value={segment.restAfterSeconds ?? ""}
               onChange={(e) => {
-                const raw = e.target.value.trim();
                 onUpdate({
                   ...segment,
-                  restAfterSeconds: raw
-                    ? parseNonNegativeInt(raw, segment.restAfterSeconds ?? 0)
-                    : null,
+                  restAfterSeconds: readOptionalNonNegativeInt(
+                    e.target.value,
+                    segment.restAfterSeconds,
+                  ),
                 });
               }}
             />
@@ -545,19 +647,19 @@ export function WorkoutSegmentEditor({
         </div>
       ) : (
         <label className="text-xs space-y-1 block max-w-xs">
-          <span>Rest after segment (s)</span>
+          <FieldLabel>Rest after segment (s)</FieldLabel>
           <input
             className="input w-full"
             type="number"
             min={0}
             value={segment.restAfterSeconds ?? ""}
             onChange={(e) => {
-              const raw = e.target.value.trim();
               onUpdate({
                 ...segment,
-                restAfterSeconds: raw
-                  ? parseNonNegativeInt(raw, segment.restAfterSeconds ?? 0)
-                  : null,
+                restAfterSeconds: readOptionalNonNegativeInt(
+                  e.target.value,
+                  segment.restAfterSeconds,
+                ),
               });
             }}
           />
@@ -606,9 +708,9 @@ export function WorkoutSegmentEditor({
                       className="text-left w-full"
                       onClick={() => setExpandedItemId(expanded ? null : itemKey)}
                     >
-                      <span className="text-[10px] tracking-wide text-muted block">
+                      <FieldLabel className="text-[10px] text-muted block">
                         {itemTypeLabel(item)}
-                      </span>
+                      </FieldLabel>
                       <span className="font-medium block truncate">{itemTitle(item)}</span>
                       {item.type === "weight" ? (
                         <span className="text-xs text-muted block">
@@ -618,12 +720,17 @@ export function WorkoutSegmentEditor({
                       ) : null}
                     </button>
                     {expanded ? (
-                      <div className="mt-2 p-2 rounded border border-[var(--erv-border)] bg-[var(--erv-surface)] space-y-2">
+                      <div className="mt-2 space-y-2 rounded-card border border-[var(--erv-outline-variant)] bg-[var(--erv-surface)] p-3">
                         {item.type === "weight" ? (
                           <>
                           <WeightPrescriptionFields
                             prescription={item.prescription ?? {}}
                             compact
+                            weightLoadUnit={weightLoadUnit}
+                            suggestedTargetKg={suggestedTargetWeightKg(
+                              item.exerciseId,
+                              trainingSnapshot,
+                            )}
                             loggingStyle={exerciseSetLoggingStyle(
                               catalogExercises.find((ex) => ex.id === item.exerciseId) ?? {
                                 id: item.exerciseId,
@@ -638,7 +745,7 @@ export function WorkoutSegmentEditor({
                             }
                           />
                           <label className="text-xs space-y-1 block">
-                            <span>Alternative exercises (optional, pick at run)</span>
+                            <FieldLabel>Alternative exercises (optional, pick at run)</FieldLabel>
                             <select
                               className="input w-full"
                               value=""
@@ -697,7 +804,7 @@ export function WorkoutSegmentEditor({
                         {item.type === "cardio" ? (
                           <div className="space-y-2">
                             <label className="text-xs space-y-1 block">
-                              <span>Saved cardio routine (optional)</span>
+                              <FieldLabel>Saved cardio routine (optional)</FieldLabel>
                               <select
                                 className="input w-full"
                                 value={item.cardio.cardioRoutineId ?? ""}
@@ -753,17 +860,14 @@ export function WorkoutSegmentEditor({
                             ) : (
                               <>
                             <label className="text-xs space-y-1 block">
-                              <span>Cardio mode</span>
+                              <FieldLabel>Cardio mode</FieldLabel>
                               <select
                                 className="input w-full"
                                 value={item.cardio.mode ?? "steady"}
                                 onChange={(e) => {
                                   const mode = e.target
                                     .value as NonNullable<typeof item.cardio.mode>;
-                                  const base = {
-                                    activity: item.cardio.activity,
-                                    hrTargetBpm: item.cardio.hrTargetBpm ?? null,
-                                  };
+                                  const base = { ...item.cardio };
                                   const cardio =
                                     mode === "sprint_intervals"
                                       ? {
@@ -804,7 +908,7 @@ export function WorkoutSegmentEditor({
                               <div className="space-y-2">
                                 <div className="grid grid-cols-2 gap-2">
                                   <label className="text-xs space-y-1">
-                                    <span>Target minutes</span>
+                                    <FieldLabel>Target minutes</FieldLabel>
                                     <input
                                       className="input w-full"
                                       type="number"
@@ -816,10 +920,11 @@ export function WorkoutSegmentEditor({
                                             ...item,
                                             cardio: {
                                               ...item.cardio,
-                                              targetMinutes: parsePositiveInt(
-                                                e.target.value,
-                                                item.cardio.targetMinutes ?? 10,
-                                              ),
+                                              targetMinutes:
+                                                readOptionalPositiveInt(
+                                                  e.target.value,
+                                                  item.cardio.targetMinutes,
+                                                ) ?? undefined,
                                             },
                                           }),
                                         )
@@ -827,7 +932,7 @@ export function WorkoutSegmentEditor({
                                     />
                                   </label>
                                   <label className="text-xs space-y-1">
-                                    <span>Zone label</span>
+                                    <FieldLabel>Zone label</FieldLabel>
                                     <input
                                       className="input w-full"
                                       value={item.cardio.hrZoneLabel ?? ""}
@@ -838,35 +943,49 @@ export function WorkoutSegmentEditor({
                                             ...item,
                                             cardio: {
                                               ...item.cardio,
-                                              hrZoneLabel: e.target.value.trim() || null,
+                                              hrZoneLabel:
+                                                e.target.value === ""
+                                                  ? null
+                                                  : e.target.value,
                                             },
                                           }),
                                         )
                                       }
+                                      onBlur={(e) => {
+                                        const trimmed = e.target.value.trim();
+                                        if (trimmed !== (item.cardio.hrZoneLabel ?? "")) {
+                                          onUpdate(
+                                            updateWorkoutItem(segment, itemKey, {
+                                              ...item,
+                                              cardio: {
+                                                ...item.cardio,
+                                                hrZoneLabel: trimmed || null,
+                                              },
+                                            }),
+                                          );
+                                        }
+                                      }}
                                     />
                                   </label>
                                 </div>
                                 <div className="grid grid-cols-3 gap-2">
                                   <label className="text-xs space-y-1">
-                                    <span>Target HR (bpm)</span>
+                                    <FieldLabel>Target HR (bpm)</FieldLabel>
                                     <input
                                       className="input w-full"
                                       type="number"
                                       min={0}
                                       value={item.cardio.hrTargetBpm ?? ""}
                                       onChange={(e) => {
-                                        const raw = e.target.value.trim();
                                         onUpdate(
                                           updateWorkoutItem(segment, itemKey, {
                                             ...item,
                                             cardio: {
                                               ...item.cardio,
-                                              hrTargetBpm: raw
-                                                ? parseNonNegativeInt(
-                                                    raw,
-                                                    item.cardio.hrTargetBpm ?? 0,
-                                                  )
-                                                : null,
+                                              hrTargetBpm: readOptionalNonNegativeInt(
+                                                e.target.value,
+                                                item.cardio.hrTargetBpm,
+                                              ),
                                             },
                                           }),
                                         );
@@ -874,25 +993,22 @@ export function WorkoutSegmentEditor({
                                     />
                                   </label>
                                   <label className="text-xs space-y-1">
-                                    <span>HR min (bpm)</span>
+                                    <FieldLabel>HR min (bpm)</FieldLabel>
                                     <input
                                       className="input w-full"
                                       type="number"
                                       min={0}
                                       value={item.cardio.hrTargetMinBpm ?? ""}
                                       onChange={(e) => {
-                                        const raw = e.target.value.trim();
                                         onUpdate(
                                           updateWorkoutItem(segment, itemKey, {
                                             ...item,
                                             cardio: {
                                               ...item.cardio,
-                                              hrTargetMinBpm: raw
-                                                ? parseNonNegativeInt(
-                                                    raw,
-                                                    item.cardio.hrTargetMinBpm ?? 0,
-                                                  )
-                                                : null,
+                                              hrTargetMinBpm: readOptionalNonNegativeInt(
+                                                e.target.value,
+                                                item.cardio.hrTargetMinBpm,
+                                              ),
                                             },
                                           }),
                                         );
@@ -900,25 +1016,22 @@ export function WorkoutSegmentEditor({
                                     />
                                   </label>
                                   <label className="text-xs space-y-1">
-                                    <span>HR max (bpm)</span>
+                                    <FieldLabel>HR max (bpm)</FieldLabel>
                                     <input
                                       className="input w-full"
                                       type="number"
                                       min={0}
                                       value={item.cardio.hrTargetMaxBpm ?? ""}
                                       onChange={(e) => {
-                                        const raw = e.target.value.trim();
                                         onUpdate(
                                           updateWorkoutItem(segment, itemKey, {
                                             ...item,
                                             cardio: {
                                               ...item.cardio,
-                                              hrTargetMaxBpm: raw
-                                                ? parseNonNegativeInt(
-                                                    raw,
-                                                    item.cardio.hrTargetMaxBpm ?? 0,
-                                                  )
-                                                : null,
+                                              hrTargetMaxBpm: readOptionalNonNegativeInt(
+                                                e.target.value,
+                                                item.cardio.hrTargetMaxBpm,
+                                              ),
                                             },
                                           }),
                                         );
@@ -967,7 +1080,7 @@ export function WorkoutSegmentEditor({
                             {(item.cardio.mode ?? "steady") === "sprint_intervals" ? (
                               <div className="grid grid-cols-3 gap-2">
                                 <label className="text-xs space-y-1">
-                                  <span>Rounds</span>
+                                  <FieldLabel>Rounds</FieldLabel>
                                   <input
                                     className="input w-full"
                                     type="number"
@@ -979,10 +1092,11 @@ export function WorkoutSegmentEditor({
                                           ...item,
                                           cardio: {
                                             ...item.cardio,
-                                            rounds: parsePositiveInt(
-                                              e.target.value,
-                                              item.cardio.rounds ?? 10,
-                                            ),
+                                            rounds:
+                                              readOptionalPositiveInt(
+                                                e.target.value,
+                                                item.cardio.rounds,
+                                              ) ?? undefined,
                                           },
                                         }),
                                       )
@@ -990,7 +1104,7 @@ export function WorkoutSegmentEditor({
                                   />
                                 </label>
                                 <label className="text-xs space-y-1">
-                                  <span>Work (s)</span>
+                                  <FieldLabel>Work (s)</FieldLabel>
                                   <input
                                     className="input w-full"
                                     type="number"
@@ -1002,10 +1116,11 @@ export function WorkoutSegmentEditor({
                                           ...item,
                                           cardio: {
                                             ...item.cardio,
-                                            workSeconds: parsePositiveInt(
-                                              e.target.value,
-                                              item.cardio.workSeconds ?? 60,
-                                            ),
+                                            workSeconds:
+                                              readOptionalPositiveInt(
+                                                e.target.value,
+                                                item.cardio.workSeconds,
+                                              ) ?? undefined,
                                           },
                                         }),
                                       )
@@ -1013,7 +1128,7 @@ export function WorkoutSegmentEditor({
                                   />
                                 </label>
                                 <label className="text-xs space-y-1">
-                                  <span>Rest (s)</span>
+                                  <FieldLabel>Rest (s)</FieldLabel>
                                   <input
                                     className="input w-full"
                                     type="number"
@@ -1025,10 +1140,11 @@ export function WorkoutSegmentEditor({
                                           ...item,
                                           cardio: {
                                             ...item.cardio,
-                                            restSeconds: parseNonNegativeInt(
-                                              e.target.value,
-                                              item.cardio.restSeconds ?? 0,
-                                            ),
+                                            restSeconds:
+                                              readOptionalNonNegativeInt(
+                                                e.target.value,
+                                                item.cardio.restSeconds,
+                                              ) ?? undefined,
                                           },
                                         }),
                                       )
@@ -1040,7 +1156,7 @@ export function WorkoutSegmentEditor({
                             {(item.cardio.mode ?? "steady") === "interval_template" ? (
                               <div className="grid grid-cols-3 gap-2">
                                 <label className="text-xs space-y-1">
-                                  <span>Outer rounds</span>
+                                  <FieldLabel>Outer rounds</FieldLabel>
                                   <input
                                     className="input w-full"
                                     type="number"
@@ -1052,10 +1168,11 @@ export function WorkoutSegmentEditor({
                                           ...item,
                                           cardio: {
                                             ...item.cardio,
-                                            outerRounds: parsePositiveInt(
-                                              e.target.value,
-                                              item.cardio.outerRounds ?? 3,
-                                            ),
+                                            outerRounds:
+                                              readOptionalPositiveInt(
+                                                e.target.value,
+                                                item.cardio.outerRounds,
+                                              ) ?? undefined,
                                           },
                                         }),
                                       )
@@ -1063,12 +1180,16 @@ export function WorkoutSegmentEditor({
                                   />
                                 </label>
                                 <label className="text-xs space-y-1">
-                                  <span>Work (s)</span>
+                                  <FieldLabel>Work (s)</FieldLabel>
                                   <input
                                     className="input w-full"
                                     type="number"
                                     min={1}
-                                    value={item.cardio.legs?.[0]?.workSeconds ?? ""}
+                                    value={
+                                      (item.cardio.legs?.[0]?.workSeconds ?? 0) > 0
+                                        ? item.cardio.legs?.[0]?.workSeconds
+                                        : ""
+                                    }
                                     onChange={(e) => {
                                       const leg = item.cardio.legs?.[0] ?? {
                                         workSeconds: 240,
@@ -1082,10 +1203,11 @@ export function WorkoutSegmentEditor({
                                             legs: [
                                               {
                                                 ...leg,
-                                                workSeconds: parsePositiveInt(
-                                                  e.target.value,
-                                                  leg.workSeconds,
-                                                ),
+                                                workSeconds:
+                                                  readOptionalPositiveInt(
+                                                    e.target.value,
+                                                    leg.workSeconds,
+                                                  ) ?? 0,
                                               },
                                             ],
                                           },
@@ -1095,7 +1217,7 @@ export function WorkoutSegmentEditor({
                                   />
                                 </label>
                                 <label className="text-xs space-y-1">
-                                  <span>Rest (s)</span>
+                                  <FieldLabel>Rest (s)</FieldLabel>
                                   <input
                                     className="input w-full"
                                     type="number"
@@ -1114,10 +1236,11 @@ export function WorkoutSegmentEditor({
                                             legs: [
                                               {
                                                 ...leg,
-                                                restSeconds: parseNonNegativeInt(
-                                                  e.target.value,
-                                                  leg.restSeconds ?? 0,
-                                                ),
+                                                restSeconds:
+                                                  readOptionalNonNegativeInt(
+                                                    e.target.value,
+                                                    leg.restSeconds,
+                                                  ) ?? undefined,
                                               },
                                             ],
                                           },
@@ -1135,7 +1258,7 @@ export function WorkoutSegmentEditor({
                         {item.type === "mobility" ? (
                           <div className="grid grid-cols-2 gap-2">
                             <label className="text-xs space-y-1">
-                              <span>Hold (s)</span>
+                              <FieldLabel>Hold (s)</FieldLabel>
                               <input
                                 className="input w-full"
                                 type="number"
@@ -1147,10 +1270,11 @@ export function WorkoutSegmentEditor({
                                       ...item,
                                       mobility: {
                                         ...item.mobility,
-                                        holdSeconds: parsePositiveInt(
-                                          e.target.value,
-                                          item.mobility.holdSeconds ?? 30,
-                                        ),
+                                        holdSeconds:
+                                          readOptionalPositiveInt(
+                                            e.target.value,
+                                            item.mobility.holdSeconds,
+                                          ) ?? undefined,
                                       },
                                     }),
                                   )
@@ -1158,25 +1282,22 @@ export function WorkoutSegmentEditor({
                               />
                             </label>
                             <label className="text-xs space-y-1">
-                              <span>Hold per side (s)</span>
+                              <FieldLabel>Hold per side (s)</FieldLabel>
                               <input
                                 className="input w-full"
                                 type="number"
                                 min={0}
                                 value={item.mobility.holdSecondsPerSide ?? ""}
                                 onChange={(e) => {
-                                  const raw = e.target.value.trim();
                                   onUpdate(
                                     updateWorkoutItem(segment, itemKey, {
                                       ...item,
                                       mobility: {
                                         ...item.mobility,
-                                        holdSecondsPerSide: raw
-                                          ? parsePositiveInt(
-                                              raw,
-                                              item.mobility.holdSecondsPerSide ?? 30,
-                                            )
-                                          : null,
+                                        holdSecondsPerSide: readOptionalPositiveInt(
+                                          e.target.value,
+                                          item.mobility.holdSecondsPerSide,
+                                        ),
                                       },
                                     }),
                                   );
@@ -1199,20 +1320,21 @@ export function WorkoutSegmentEditor({
                         ) : null}
                         {item.type === "rest" ? (
                           <label className="text-xs space-y-1 block max-w-xs">
-                            <span>Duration (s)</span>
+                            <FieldLabel>Duration (s)</FieldLabel>
                             <input
                               className="input w-full"
                               type="number"
                               min={1}
-                              value={item.durationSeconds}
+                              value={item.durationSeconds > 0 ? item.durationSeconds : ""}
                               onChange={(e) =>
                                 onUpdate(
                                   updateWorkoutItem(segment, itemKey, {
                                     ...item,
-                                    durationSeconds: parsePositiveInt(
-                                      e.target.value,
-                                      item.durationSeconds,
-                                    ),
+                                    durationSeconds:
+                                      readOptionalPositiveInt(
+                                        e.target.value,
+                                        item.durationSeconds,
+                                      ) ?? 0,
                                   }),
                                 )
                               }

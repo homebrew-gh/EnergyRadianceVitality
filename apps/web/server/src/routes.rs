@@ -376,22 +376,26 @@ async fn relay_connection(
 async fn list_app_data(
     State(s): State<AppState>,
     jar: SignedCookieJar,
-) -> AppResult<Json<Vec<crate::nostr_support::AppDataRecord>>> {
+) -> AppResult<Json<crate::nostr_support::AppDataListResponse>> {
     let (keys, _) = require_keys(&s, &jar).await?;
     let relay_urls = configured_relay_urls(&s).await?;
     let cfg = s.cfg.clone();
-    let records = fetch_decrypted_app_data(&keys, &relay_urls, |url| {
+    let fetched = fetch_decrypted_app_data(&keys, &relay_urls, |url| {
         cfg.relay_connect_options(url)
     })
     .await
     .map_err(|e| AppError::BadRequest(format!("relay fetch failed: {e}")))?;
 
-    let records: Vec<_> = records
+    let records: Vec<_> = fetched
+        .records
         .into_iter()
         .filter(|r| r.d_tag.as_deref().map(is_erv_d_tag).unwrap_or(false))
         .collect();
 
-    Ok(Json(records))
+    Ok(Json(crate::nostr_support::AppDataListResponse {
+        records,
+        meta: fetched.meta,
+    }))
 }
 
 #[derive(Deserialize)]

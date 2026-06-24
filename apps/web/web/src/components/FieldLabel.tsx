@@ -13,7 +13,7 @@ export function FieldLabel({ children, className }: FieldLabelProps) {
 /** Section group heading (Flow, Lifting, Templates, …). */
 export function SectionHeader({
   children,
-  className = "text-xs font-semibold tracking-wide text-muted",
+  className = "text-xs font-semibold text-muted",
 }: {
   children: string;
   className?: string;

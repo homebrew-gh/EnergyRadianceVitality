@@ -6,7 +6,9 @@ import { RoutineBuilderLayout } from "../components/RoutineBuilderLayout";
 import { RoutineFormAlerts } from "../components/RoutineFormAlerts";
 import { SavedRoutinesPanel } from "../components/SavedRoutinesPanel";
 import { upsertRoutine } from "../lib/cardioTraining";
+import { useEquipment } from "../lib/equipmentData";
 import { useTraining } from "../lib/trainingData";
+import type { WeightExercisePickerFilter } from "../lib/weightExerciseAvailability";
 import { exerciseLabel, type WeightRoutine } from "../lib/weightTraining";
 
 export function WeightRoutinesTab() {
@@ -21,6 +23,7 @@ export function WeightRoutinesTab() {
     reload,
     saveWeightRoutines,
   } = useTraining();
+  const { gymMembership, equipment, enabledWeightExercisePackIds } = useEquipment();
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState("");
@@ -28,10 +31,11 @@ export function WeightRoutinesTab() {
   const [selected, setSelected] = useState<string[]>([]);
   const [formError, setFormError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [weightPickerFilter, setWeightPickerFilter] =
+    useState<WeightExercisePickerFilter>("ALL");
 
   const selectedSet = useMemo(() => new Set(selected), [selected]);
-  const catalogExercises =
-    catalogs.weight.length > 0 ? catalogs.weight : exercises;
+  const catalogExercises = exercises;
 
   const resetForm = () => {
     setEditingId(null);
@@ -133,6 +137,12 @@ export function WeightRoutinesTab() {
         selectionKind="weight"
         selectedIds={selectedSet}
         pickLabel="Add"
+        enableWeightEquipmentFilter
+        gymMembership={gymMembership}
+        ownedEquipment={equipment}
+        enabledWeightExercisePackIds={enabledWeightExercisePackIds}
+        weightPickerFilter={weightPickerFilter}
+        onWeightPickerFilterChange={setWeightPickerFilter}
         weightCatalog={catalogExercises}
         stretchCatalog={catalogs.stretch}
         cardioCatalog={catalogs.cardio}

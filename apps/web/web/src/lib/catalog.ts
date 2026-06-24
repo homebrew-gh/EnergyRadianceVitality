@@ -118,6 +118,36 @@ export const FALLBACK_WEIGHT_EXERCISES: WeightCatalogExercise[] = [
   },
 ];
 
+/** Minimal fallback until the relay has a synced cardio catalog from Android. */
+export const FALLBACK_CARDIO_ACTIVITIES: CardioCatalogActivity[] = [
+  // Steady distance
+  { id: "WALK", displayName: "Walking", section: "steady", offersHiitIntervalTemplate: false, supportsTreadmillModality: true },
+  { id: "RUN", displayName: "Running", section: "steady", offersHiitIntervalTemplate: false, supportsTreadmillModality: true },
+  { id: "HIKE", displayName: "Hiking", section: "steady", offersHiitIntervalTemplate: false, supportsTreadmillModality: false },
+  { id: "RUCK", displayName: "Rucking", section: "steady", offersHiitIntervalTemplate: false, supportsTreadmillModality: true },
+  { id: "BIKE", displayName: "Cycling", section: "steady", offersHiitIntervalTemplate: false, supportsTreadmillModality: false },
+  { id: "SWIM", displayName: "Swimming", section: "steady", offersHiitIntervalTemplate: false, supportsTreadmillModality: false },
+  { id: "ELLIPTICAL", displayName: "Elliptical", section: "steady", offersHiitIntervalTemplate: false, supportsTreadmillModality: false },
+  { id: "OTHER", displayName: "Other", section: "steady", offersHiitIntervalTemplate: false, supportsTreadmillModality: false },
+  // Hybrid / erg
+  { id: "ROWING", displayName: "Rowing", section: "hybrid", offersHiitIntervalTemplate: true, supportsTreadmillModality: false },
+  { id: "STATIONARY_BIKE", displayName: "Stationary Bike", section: "hybrid", offersHiitIntervalTemplate: true, supportsTreadmillModality: false },
+  { id: "AIR_BIKE", displayName: "Air Bike", section: "hybrid", offersHiitIntervalTemplate: true, supportsTreadmillModality: false },
+  { id: "SKI_ERG", displayName: "SkiErg / Skier", section: "hybrid", offersHiitIntervalTemplate: true, supportsTreadmillModality: false },
+  // Sprints & intervals
+  { id: "SPRINT", displayName: "Sprinting", section: "hiit", offersHiitIntervalTemplate: true, supportsTreadmillModality: true },
+  { id: "JUMP_ROPE", displayName: "Jump Rope", section: "hiit", offersHiitIntervalTemplate: true, supportsTreadmillModality: false },
+  { id: "BATTLE_ROPE", displayName: "Battle Rope", section: "hiit", offersHiitIntervalTemplate: true, supportsTreadmillModality: false },
+  { id: "BURPEES", displayName: "Burpees", section: "hiit", offersHiitIntervalTemplate: true, supportsTreadmillModality: false },
+  { id: "JUMPING_JACKS", displayName: "Jumping Jacks", section: "hiit", offersHiitIntervalTemplate: true, supportsTreadmillModality: false },
+];
+
+export function resolveCardioCatalog(
+  activities: CardioCatalogActivity[],
+): CardioCatalogActivity[] {
+  return activities.length > 0 ? activities : FALLBACK_CARDIO_ACTIVITIES;
+}
+
 export function parseWeightCatalog(raw: string): WeightCatalogPayload | null {
   try {
     const parsed = JSON.parse(raw) as WeightCatalogPayload;
@@ -178,7 +208,7 @@ export function catalogsFromAppData(
   return {
     weight: (weightPayload?.exercises ?? []).map(withResolvedBuiltinExerciseFlags),
     stretch: stretchPayload?.stretches ?? [],
-    cardio: cardioPayload?.activities ?? [],
+    cardio: resolveCardioCatalog(cardioPayload?.activities ?? []),
     catalogVersion: versions.length > 0 ? Math.max(...versions) : null,
   };
 }
@@ -259,7 +289,8 @@ const CATEGORY_LABELS: Record<string, string> = {
   neck: "Neck",
   arms: "Arms",
   glutes: "Glutes",
-  other: "Other",
+  machine: "Machine",
+  other: "Body Weight",
   steady: "Steady distance",
   hybrid: "Hybrid / erg",
   hiit: "Sprints & intervals",
@@ -273,6 +304,52 @@ export function formatCategoryLabel(key: string): string {
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+/** Known order first, then catalog keys, then optional current value (for custom groups). */
+export function collectGroupedCatalogKeys(
+  order: readonly string[],
+  keysFromItems: string[],
+  current?: string | null,
+): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  const add = (raw: string) => {
+    const key = raw.trim().toLowerCase();
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    result.push(key);
+  };
+  for (const key of order) add(key);
+  for (const key of keysFromItems) add(key);
+  if (current) add(current);
+  return result;
+}
+
+export function collectMuscleGroupOptions(
+  exercises: WeightCatalogExercise[],
+  current?: string | null,
+): string[] {
+  return collectGroupedCatalogKeys(
+    WEIGHT_MUSCLE_GROUP_ORDER,
+    exercises.map((exercise) => exercise.muscleGroup),
+    current,
+  );
+}
+
+export function collectStretchCategoryOptions(
+  entries: StretchCatalogEntry[],
+  current?: string | null,
+): string[] {
+  return collectGroupedCatalogKeys(
+    STRETCH_CATEGORY_ORDER,
+    entries.map((entry) => entry.category),
+    current,
+  );
+}
+
+export function normalizeCatalogGroupKey(raw: string): string {
+  return raw.trim().toLowerCase().replace(/\s+/g, "_");
 }
 
 export type GroupedCatalog<T> = {
@@ -404,8 +481,12 @@ export function serializeCardioCatalog(
   } satisfies CardioCatalogPayload);
 }
 
+export function isCustomWeightCatalogExercise(id: string): boolean {
+  return id.startsWith("erv-weight-exercise-web-");
+}
+
 export function isBuiltInWeightCatalogId(id: string): boolean {
-  return id.startsWith("erv-weight-exercise-");
+  return id.startsWith("erv-weight-exercise-") && !isCustomWeightCatalogExercise(id);
 }
 
 export function isBuiltInStretchCatalogId(id: string): boolean {

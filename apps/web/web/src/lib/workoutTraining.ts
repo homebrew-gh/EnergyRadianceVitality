@@ -53,6 +53,7 @@ export type WorkoutPrescriptionSet = {
   repsPerSide?: number | null;
   side?: WorkoutPrescriptionSetSide | null;
   weightKg?: number | null;
+  targetWeightKg?: number | null;
   rir?: number | null;
   rpe?: number | null;
   durationSeconds?: number | null;
@@ -64,6 +65,7 @@ export type WorkoutWeightPrescription = {
   mode?: "straight" | "interval" | "time_based" | "max_reps";
   setCount?: number | null;
   targetReps?: number | null;
+  targetWeightKg?: number | null;
   repRangeMin?: number | null;
   repRangeMax?: number | null;
   targetRir?: number | null;
@@ -215,6 +217,7 @@ export function newWeightItem(
     type: "weight",
     id: crypto.randomUUID(),
     exerciseId,
+    title: exercise?.name?.trim() || null,
     prescription: defaultWeightPrescription(segmentKind, exercise),
   };
 }
@@ -424,6 +427,26 @@ export function segmentKindLabel(kind: WorkoutSegmentKind): string {
   }
 }
 
+/** Short hover hint for workout segment add buttons in the composer. */
+export function segmentKindHint(kind: WorkoutSegmentKind): string {
+  switch (kind) {
+    case "composite":
+      return "Mix cardio, stretches, lifts, and notes in order — ideal for warm-up or cooldown.";
+    case "cardio":
+      return "Steady-state cardio from your catalog (bike, row, walk, and similar).";
+    case "interval":
+      return "Timed work and rest rounds — HIIT, sprints, or custom interval templates.";
+    case "mobility":
+      return "Stretching and mobility only, from the stretch catalog.";
+    case "straight_sets":
+      return "One or more lifts with sets, reps, and rest between sets.";
+    case "circuit":
+      return "Rotate through exercises for multiple rounds; rest between rounds.";
+    case "superset":
+      return "Pair exercises back-to-back; rest after each pair or round.";
+  }
+}
+
 export function defaultSegmentTitle(kind: WorkoutSegmentKind): string {
   switch (kind) {
     case "straight_sets":
@@ -508,6 +531,11 @@ export function prescriptionSummary(p: WorkoutWeightPrescription | undefined): s
     repPart = `${p.durationSeconds}s hold`;
   }
   const parts = [repPart ? `${setTotal} sets · ${repPart}` : `${setTotal} sets`];
+  const weightHint =
+    p?.targetWeightKg ??
+    p?.sets?.find((s) => (s.targetWeightKg ?? s.weightKg ?? 0) > 0)?.targetWeightKg ??
+    p?.sets?.find((s) => (s.weightKg ?? 0) > 0)?.weightKg;
+  if (weightHint != null && weightHint > 0) parts.push(`${weightHint} kg`);
   if (p?.targetRir != null) parts.push(`${p.targetRir} RIR`);
   if (p?.restBetweenSetsSeconds != null && p.restBetweenSetsSeconds > 0) {
     parts.push(`${p.restBetweenSetsSeconds}s between sets`);
@@ -564,14 +592,38 @@ export function duplicateWorkout(workout: Workout, nameSuffix = " (copy)"): Work
 }
 
 export function parseNonNegativeInt(raw: string, fallback: number): number {
-  const parsed = Number.parseInt(raw, 10);
+  const parsed = Number.parseInt(raw.trim(), 10);
   if (Number.isNaN(parsed)) return fallback;
   return Math.max(0, parsed);
 }
 
 export function parsePositiveInt(raw: string, fallback: number): number {
-  const parsed = Number.parseInt(raw, 10);
+  const parsed = Number.parseInt(raw.trim(), 10);
   if (Number.isNaN(parsed)) return fallback;
+  return Math.max(1, parsed);
+}
+
+/** Controlled numeric input: empty clears; invalid text keeps the current value. */
+export function readOptionalNonNegativeInt(
+  raw: string,
+  current: number | null | undefined,
+): number | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const parsed = Number.parseInt(trimmed, 10);
+  if (Number.isNaN(parsed)) return current ?? null;
+  return Math.max(0, parsed);
+}
+
+/** Controlled numeric input: empty clears; invalid text keeps the current value. */
+export function readOptionalPositiveInt(
+  raw: string,
+  current: number | null | undefined,
+): number | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const parsed = Number.parseInt(trimmed, 10);
+  if (Number.isNaN(parsed)) return current ?? null;
   return Math.max(1, parsed);
 }
 

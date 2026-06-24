@@ -3,12 +3,16 @@ import { AuthProvider, useAuth } from "./lib/auth";
 import { hasRelayConfigured } from "./lib/relayUrl";
 import { AppShell } from "./routes/AppShell";
 import { CatalogEditorTab } from "./routes/CatalogEditorTab";
+import { EquipmentTab } from "./routes/EquipmentTab";
+import { ProfileTab } from "./routes/ProfileTab";
+import { ProgressTab } from "./routes/ProgressTab";
 import { CardioRoutinesTab } from "./routes/CardioRoutinesTab";
 import { RoutinesLayout } from "./routes/RoutinesLayout";
 import { StretchRoutinesTab } from "./routes/StretchRoutinesTab";
 import { WeightRoutinesTab } from "./routes/WeightRoutinesTab";
 import { WorkoutsTab } from "./routes/WorkoutsTab";
 import { SettingsTab } from "./routes/SettingsTab";
+import { ErvLogo } from "./components/ErvLogo";
 import { SetupRoute } from "./routes/SetupRoute";
 import { UnlockRoute } from "./routes/UnlockRoute";
 
@@ -25,9 +29,9 @@ function Gate() {
 
   if (loading) {
     return (
-      <div className="h-full flex items-center justify-center text-muted">
-        <span className="font-bold text-heading text-lg">ERV</span>
-        <span className="ml-2">Loading…</span>
+      <div className="h-full flex flex-col items-center justify-center gap-3 text-muted">
+        <ErvLogo variant="onLight" size="lg" showWordmark />
+        <span className="text-sm">Loading…</span>
       </div>
     );
   }
@@ -45,6 +49,9 @@ function Gate() {
           <Route path="cardio" element={<CardioRoutinesTab />} />
         </Route>
         <Route path="catalog" element={<CatalogEditorTab />} />
+        <Route path="equipment" element={<EquipmentTab />} />
+        <Route path="profile" element={<ProfileTab />} />
+        <Route path="progress" element={<ProgressTab />} />
         <Route path="workouts" element={<WorkoutsTab />} />
         <Route path="settings" element={<SettingsTab />} />
       </Route>

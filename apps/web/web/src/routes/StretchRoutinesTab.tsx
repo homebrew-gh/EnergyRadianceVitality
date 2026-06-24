@@ -13,6 +13,7 @@ export function StretchRoutinesTab() {
   const {
     stretchRoutines,
     catalogs,
+    exercises,
     loading,
     saving,
     error,
@@ -126,7 +127,7 @@ export function StretchRoutinesTab() {
         sidebarKinds={["stretch"]}
         selectionKind="stretch"
         selectedIds={selectedSet}
-        weightCatalog={catalogs.weight}
+        weightCatalog={exercises}
         stretchCatalog={catalog}
         cardioCatalog={catalogs.cardio}
         onPick={(item) => {

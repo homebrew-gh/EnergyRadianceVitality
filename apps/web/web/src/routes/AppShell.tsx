@@ -2,7 +2,11 @@ import { useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "../lib/auth";
 import { CatalogEditorProvider } from "../lib/catalogEditorData";
+import { EquipmentProvider } from "../lib/equipmentData";
+import { TrainingHistoryProvider } from "../lib/trainingHistoryData";
+import { TrainingProfileProvider } from "../lib/trainingProfileData";
 import { TrainingProvider } from "../lib/trainingData";
+import { ErvLogo } from "../components/ErvLogo";
 import { RelayStatus } from "../components/RelayStatus";
 
 function navLinkClass({ isActive }: { isActive: boolean }) {
@@ -28,13 +32,17 @@ export function AppShell() {
   return (
     <TrainingProvider>
       <CatalogEditorProvider>
-        <div className="min-h-full flex flex-col">
-          <header className="app-header px-4 py-3 flex items-center justify-between shadow-md">
-            <div>
-              <p className="text-lg font-bold tracking-tight">ERV</p>
-              <p className="text-xs opacity-90">Relay-synced training library editor</p>
-            </div>
-            <div className="flex items-center gap-2">
+        <EquipmentProvider>
+          <TrainingProfileProvider>
+            <TrainingHistoryProvider>
+          <div className="min-h-full flex flex-col">
+          <header className="app-header px-4 py-4 shadow-md">
+            <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4">
+              <ErvLogo variant="onDark" showTagline size="md" />
+              <div className="hidden md:block text-sm text-white/82">
+                Build on web. Train on Android. Sync through your relay.
+              </div>
+              <div className="flex items-center gap-2">
               {status?.npub ? (
                 <span className="text-xs opacity-80 hidden sm:inline font-mono">
                   {status.npub.slice(0, 12)}…
@@ -58,19 +66,29 @@ export function AppShell() {
               >
                 {locking ? "Locking…" : "Lock"}
               </button>
+              </div>
             </div>
           </header>
           <RelayStatus />
-          <main className="flex-1 p-4 max-w-5xl mx-auto w-full">
-            <nav className="flex flex-wrap gap-2 mb-4">
+          <main className="flex-1 w-full max-w-6xl mx-auto px-4 py-5">
+            <nav className="glass-panel sticky top-3 z-10 mb-5 flex flex-wrap gap-2 rounded-[24px] p-2">
               <NavLink to="/app/workouts" className={navLinkClass}>
-                Workout builder
+                Workout Builder
               </NavLink>
               <NavLink to="/app/routines" className={navLinkClass}>
                 Routines
               </NavLink>
               <NavLink to="/app/catalog" className={navLinkClass}>
                 Catalog
+              </NavLink>
+              <NavLink to="/app/equipment" className={navLinkClass}>
+                Equipment
+              </NavLink>
+              <NavLink to="/app/profile" className={navLinkClass}>
+                Profile
+              </NavLink>
+              <NavLink to="/app/progress" className={navLinkClass}>
+                Progress
               </NavLink>
               <NavLink to="/app/settings" className={navLinkClass}>
                 Settings
@@ -79,6 +97,9 @@ export function AppShell() {
             <Outlet />
           </main>
         </div>
+            </TrainingHistoryProvider>
+          </TrainingProfileProvider>
+        </EquipmentProvider>
       </CatalogEditorProvider>
     </TrainingProvider>
   );

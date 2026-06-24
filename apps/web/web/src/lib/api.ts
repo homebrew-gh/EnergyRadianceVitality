@@ -10,6 +10,20 @@ export type AuthStatus = {
   relay_prefill_url?: string | null;
 };
 
+export type AppDataFetchMeta = {
+  relay_events_fetched: number;
+  relay_fetch_limit: number;
+  relay_fetch_possibly_truncated: boolean;
+  relay_urls_queried: string[];
+  training_weight_day_logs_on_relay: number;
+  training_cardio_day_logs_on_relay: number;
+};
+
+export type AppDataListResponse = {
+  records: AppDataRecord[];
+  meta: AppDataFetchMeta;
+};
+
 export type AppDataRecord = {
   event_id: string;
   d_tag?: string | null;
@@ -106,7 +120,7 @@ export const api = {
     request<{ ok: boolean }>("/api/auth/lock", { method: "POST" }),
   authWipe: (body: WipeBody) =>
     request<{ ok: boolean }>("/api/auth/wipe", { method: "POST", json: body }),
-  listAppData: () => request<AppDataRecord[]>("/api/nostr/app-data"),
+  listAppData: () => request<AppDataListResponse>("/api/nostr/app-data"),
   publishAppData: (body: { d_tag: string; plaintext: string }) =>
     request<{ event_id: string }>("/api/nostr/app-data", {
       method: "POST",
