@@ -68,7 +68,10 @@ fun mergeVisibleLaunchPadTileOrder(
     storedOrder: List<LaunchPadTileId>,
     visibleOrder: List<LaunchPadTileId>,
 ): List<LaunchPadTileId> {
-    val normalizedStored = normalizeLaunchPadTileOrder(storedOrder)
+    // Reorder within the existing stored slots only; do not inject newly-added default
+    // tiles here (tile discovery happens in encode/decode). Appending here would push
+    // unseen tiles into a user's saved layout the moment they reorder.
+    val normalizedStored = storedOrder.filter { it in defaultLaunchPadTileOrder }.distinct()
     val normalizedVisible = visibleOrder.filter { it in defaultLaunchPadTileOrder }.distinct()
     val visibleSlots = normalizedStored.mapIndexedNotNull { index, tileId ->
         if (tileId in normalizedVisible.toSet()) index else null

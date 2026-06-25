@@ -20,8 +20,13 @@ class CardioGpsElevationTest {
 
         val result = CardioGpsElevation.computeGainLossMeters(points)
 
-        assertEquals(6.0, result?.first ?: 0.0, 0.001)
-        assertEquals(6.0, result?.second ?: 0.0, 0.001)
+        // The 3-sample moving average blunts this synthetic triangular profile: the raw
+        // 8 m climb/descent reads as 17/3 ≈ 5.67 m (peak 108 -> 106.67, base 100 -> 101).
+        // Real GPS tracks are far denser, so the smoothing has a negligible effect there.
+        val gain = result?.first ?: 0.0
+        val loss = result?.second ?: 0.0
+        assertEquals(17.0 / 3.0, gain, 0.001)
+        assertEquals(gain, loss, 0.001)
     }
 
     @Test

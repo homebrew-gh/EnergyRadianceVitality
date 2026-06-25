@@ -89,7 +89,21 @@ class WeightModelsSerializationTest {
             ),
             logs = listOf(
                 WeightDayLog(date = "2026-03-20", workouts = emptyList()),
-                WeightDayLog(date = "2026-03-21", workouts = emptyList())
+                WeightDayLog(
+                    date = "2026-03-21",
+                    workouts = listOf(
+                        WeightWorkoutSession(
+                            id = "w1",
+                            source = WeightWorkoutSource.MANUAL,
+                            entries = listOf(
+                                WeightWorkoutEntry(
+                                    exerciseId = "bench",
+                                    sets = listOf(WeightSet(reps = 5, weightKg = 100.0))
+                                )
+                            )
+                        )
+                    )
+                )
             )
         )
 

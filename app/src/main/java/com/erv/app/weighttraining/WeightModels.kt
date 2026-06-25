@@ -202,6 +202,7 @@ data class WeightWorkoutSession(
      * HR stats per exercise window, from focus timestamps during a live lift (approximate).
      * Omitted when syncing day logs to relays (local detail).
      */
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
     val heartRateExerciseSegments: List<WeightExerciseHrSegment> = emptyList(),
     val unifiedLink: UnifiedSessionLink? = null,
     val workoutLink: com.erv.app.workouts.WorkoutSessionLink? = null,

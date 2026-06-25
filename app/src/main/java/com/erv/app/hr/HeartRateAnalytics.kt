@@ -203,10 +203,20 @@ fun zoneDurationsSeconds(
 ): IntArray {
     val out = IntArray(5)
     if (samples.isEmpty()) return out
+    val gaps = ArrayList<Int>(samples.size)
+    for (i in 0 until samples.lastIndex) {
+        val gap = (samples[i + 1].epochSeconds - samples[i].epochSeconds).toInt().coerceIn(0, 6 * 3600)
+        if (gap > 0) gaps.add(gap)
+    }
+    // The final sample has no successor; credit it with the typical cadence so the
+    // last reading isn't reduced to a single second.
+    val lastGap = if (gaps.isEmpty()) 1 else gaps.sorted()[gaps.size / 2]
     for (i in samples.indices) {
-        val t0 = samples[i].epochSeconds
-        val t1 = if (i < samples.lastIndex) samples[i + 1].epochSeconds else t0 + 1L
-        val dt = (t1 - t0).toInt().coerceIn(0, 6 * 3600)
+        val dt = if (i < samples.lastIndex) {
+            (samples[i + 1].epochSeconds - samples[i].epochSeconds).toInt().coerceIn(0, 6 * 3600)
+        } else {
+            lastGap
+        }
         if (dt <= 0) continue
         val z = heartRateZoneIndex(samples[i].bpm, maxHr, restingBpm, method).coerceIn(1, 5) - 1
         out[z] += dt
