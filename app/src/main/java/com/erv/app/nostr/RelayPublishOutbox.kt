@@ -194,6 +194,30 @@ class RelayPublishOutbox private constructor(private val appContext: Context) {
         }
     }
 
+    /**
+     * Drops [removeDTags] plus any incoming tags, then appends [entries] in order.
+     * Useful when one logical payload falls back from a day tag to split session tags.
+     */
+    suspend fun replaceMany(removeDTags: Collection<String>, entries: List<Pair<String, String>>) {
+        queueMutex.withLock {
+            val remove = removeDTags.toSet() + entries.map { it.first }
+            var cur = loadQueueUnlocked().filterNot { it.dTag in remove }
+            val base = System.currentTimeMillis()
+            for ((i, pair) in entries.withIndex()) {
+                val (dTag, payload) = pair
+                cur += OutboxItem(
+                    id = UUID.randomUUID().toString(),
+                    dTag = dTag,
+                    plaintextPayload = payload,
+                    createdAtEpochMs = base + i,
+                    attempts = 0,
+                    nextAttemptAtEpochMs = 0L,
+                )
+            }
+            saveQueueUnlocked(cur)
+        }
+    }
+
     suspend fun clear() {
         queueMutex.withLock {
             saveQueueUnlocked(emptyList())

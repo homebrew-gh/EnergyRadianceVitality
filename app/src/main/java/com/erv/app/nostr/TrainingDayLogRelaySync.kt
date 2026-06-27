@@ -55,6 +55,21 @@ object TrainingDayLogRelaySync {
         drainWithFollowUp(appContext)
     }
 
+    suspend fun queueTrainingDayLogEntries(
+        appContext: Context,
+        replaceDTags: Collection<String>,
+        entries: List<Pair<String, String>>,
+    ) {
+        val filtered = entries.filter { (dTag, plaintext) ->
+            isTrainingDayLogDTag(dTag) && plaintext.isNotBlank()
+        }
+        if (filtered.isEmpty()) return
+        val digestTags = replaceDTags + filtered.map { it.first }
+        RelayPayloadDigestStore.get(appContext).clearDigests(digestTags)
+        RelayPublishOutbox.get(appContext).replaceMany(replaceDTags, filtered)
+        drainWithFollowUp(appContext)
+    }
+
     /** Called on app start / relay reconnect — drains any queued training uploads. */
     suspend fun drainPending(appContext: Context) {
         drainWithFollowUp(appContext, userNoticeOnPending = false)
@@ -87,7 +102,7 @@ object TrainingDayLogRelaySync {
             if (remaining == 0 && failed == 0) return
         }
         if (userNoticeOnPending && (remaining > 0 || failed > 0)) {
-            maybeNotifyPending(appContext, signer == null)
+            maybeNotifyPending(appContext, notSignedIn = false)
         }
     }
 

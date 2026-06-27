@@ -294,16 +294,18 @@ export function parseCardioDayLog(raw: string, dateFallback: string): CardioDayL
 
 export function weightDayLogDateFromTag(dTag: string): string | null {
   if (!dTag.startsWith(WEIGHT_DAY_LOG_PREFIX)) return null;
-  const date = dTag.slice(WEIGHT_DAY_LOG_PREFIX.length);
-  if (date === "exercises" || date === "routines") return null;
+  const suffix = dTag.slice(WEIGHT_DAY_LOG_PREFIX.length);
+  if (suffix === "exercises" || suffix === "routines") return null;
+  const date = suffix.split("/session/")[0];
   return ISO_DATE.test(date) ? date : null;
 }
 
 export function cardioDayLogDateFromTag(dTag: string): string | null {
   if (dTag === CARDIO_ROUTINES_D_TAG) return null;
   if (!dTag.startsWith(CARDIO_DAY_LOG_PREFIX)) return null;
-  const date = dTag.slice(CARDIO_DAY_LOG_PREFIX.length);
-  if (date === "routines") return null;
+  const suffix = dTag.slice(CARDIO_DAY_LOG_PREFIX.length);
+  if (suffix === "routines") return null;
+  const date = suffix.split("/session/")[0];
   return ISO_DATE.test(date) ? date : null;
 }
 
@@ -565,9 +567,37 @@ export function trainingDayDiagnosticLabel(status: TrainingDaySideStatus): strin
   }
 }
 
+function mergeWeightLogs(logs: WeightDayLog[]): WeightDayLog[] {
+  const byDate = new Map<string, WeightWorkoutSession[]>();
+  for (const log of logs) {
+    byDate.set(log.date, [...(byDate.get(log.date) ?? []), ...log.workouts]);
+  }
+  return [...byDate.entries()]
+    .map(([date, workouts]) => ({ date, workouts: uniqueById(workouts) }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function mergeCardioLogs(logs: CardioDayLog[]): CardioDayLog[] {
+  const byDate = new Map<string, CardioSession[]>();
+  for (const log of logs) {
+    byDate.set(log.date, [...(byDate.get(log.date) ?? []), ...log.sessions]);
+  }
+  return [...byDate.entries()]
+    .map(([date, sessions]) => ({ date, sessions: uniqueById(sessions) }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function uniqueById<T extends { id: string }>(items: T[]): T[] {
+  const byId = new Map<string, T>();
+  for (const item of items) {
+    byId.set(item.id, item);
+  }
+  return [...byId.values()];
+}
+
 export function parseLogsFromAppData(records: AppDataRecord[]): ParsedTrainingLogs {
-  const weightByDate = new Map<string, WeightDayLog>();
-  const cardioByDate = new Map<string, CardioDayLog>();
+  const weightLogs: WeightDayLog[] = [];
+  const cardioLogs: CardioDayLog[] = [];
   const decryptErrors: string[] = [];
   const emptyDayLogs: string[] = [];
 
@@ -590,7 +620,7 @@ export function parseLogsFromAppData(records: AppDataRecord[]): ParsedTrainingLo
     const weightDate = weightDayLogDateFromTag(dTag);
     if (weightDate) {
       const log = parseWeightDayLog(record.plaintext, weightDate);
-      if (log) weightByDate.set(log.date, log);
+      if (log) weightLogs.push(log);
       else emptyDayLogs.push(dTag);
       continue;
     }
@@ -598,16 +628,14 @@ export function parseLogsFromAppData(records: AppDataRecord[]): ParsedTrainingLo
     const cardioDate = cardioDayLogDateFromTag(dTag);
     if (cardioDate) {
       const log = parseCardioDayLog(record.plaintext, cardioDate);
-      if (log) cardioByDate.set(log.date, log);
+      if (log) cardioLogs.push(log);
       else emptyDayLogs.push(dTag);
     }
   }
 
-  const sortByDate = (a: { date: string }, b: { date: string }) => a.date.localeCompare(b.date);
-
   return {
-    weightLogs: [...weightByDate.values()].sort(sortByDate),
-    cardioLogs: [...cardioByDate.values()].sort(sortByDate),
+    weightLogs: mergeWeightLogs(weightLogs),
+    cardioLogs: mergeCardioLogs(cardioLogs),
     decryptErrors,
     emptyDayLogs,
   };

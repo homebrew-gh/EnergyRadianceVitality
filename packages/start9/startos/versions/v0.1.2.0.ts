@@ -1,10 +1,10 @@
 import { IMPOSSIBLE, VersionInfo } from '@start9labs/start-sdk'
 
 export const v_0_1_2_0 = VersionInfo.of({
-  version: '0.1.2:17',
+  version: '0.1.2:18',
   releaseNotes: {
     en_US:
-      'Prefer Haven for local relay setup and add the Blossom media backup foundation.',
+      'Add relay editing and Haven migration diagnostics.',
   },
   migrations: {
     up: async () => {},

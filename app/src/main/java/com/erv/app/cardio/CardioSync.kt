@@ -16,6 +16,7 @@ import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 
 private const val CARDIO_MASTER_D_TAG = "erv/cardio/routines"
+private const val MAX_TRAINING_DAY_PLAINTEXT_BYTES = 40_000
 
 @Serializable
 private data class CardioMasterPayload(
@@ -62,8 +63,17 @@ object CardioSync {
     /** Always queues a cardio day log for relay upload (does not require an active [RelayPool]). */
     suspend fun queueDayLogForRelay(appContext: Context, log: CardioDayLog) {
         if (log.sessions.isEmpty()) return
-        val content = json.encodeToString(CardioDayLog.serializer(), log.relaySafeForPublish())
-        TrainingDayLogRelaySync.queueTrainingDayLog(appContext, dailyTag(log.date), content)
+        val dayTag = dailyTag(log.date)
+        val entries = outboxEntriesForDayLog(log)
+        if (entries.size == 1 && entries.first().first == dayTag) {
+            TrainingDayLogRelaySync.queueTrainingDayLog(appContext, dayTag, entries.first().second)
+        } else {
+            TrainingDayLogRelaySync.queueTrainingDayLogEntries(
+                appContext = appContext,
+                replaceDTags = listOf(dayTag),
+                entries = entries,
+            )
+        }
     }
 
     fun fullOutboxEntries(state: CardioLibraryState): List<Pair<String, String>> =
@@ -108,12 +118,22 @@ object CardioSync {
         for (dateIso in affectedDates.distinct().sorted()) {
             val log = state.logFor(LocalDate.parse(dateIso)) ?: continue
             if (log.sessions.isEmpty()) continue
-            pairs += dailyTag(dateIso) to json.encodeToString(
-                CardioDayLog.serializer(),
-                log.relaySafeForPublish()
-            )
+            pairs += outboxEntriesForDayLog(log)
         }
         return pairs
+    }
+
+    private fun outboxEntriesForDayLog(log: CardioDayLog): List<Pair<String, String>> {
+        val safe = log.relaySafeForPublish()
+        val dayTag = dailyTag(log.date)
+        val dayContent = json.encodeToString(CardioDayLog.serializer(), safe)
+        if (dayContent.toByteArray(Charsets.UTF_8).size <= MAX_TRAINING_DAY_PLAINTEXT_BYTES) {
+            return listOf(dayTag to dayContent)
+        }
+        return safe.sessions.map { session ->
+            val splitLog = CardioDayLog(date = safe.date, sessions = listOf(session))
+            "$dayTag/session/${session.id}" to json.encodeToString(CardioDayLog.serializer(), splitLog)
+        }
     }
 
     suspend fun fetchFromNetwork(
@@ -135,11 +155,11 @@ object CardioSync {
             ?.decryptPayload(signer)
             ?.let { decodeMaster(it) }
 
-        val logs = latestByTag
+        val decodedLogs = latestByTag
             .filterKeys { it.startsWith("erv/cardio/") && it != CARDIO_MASTER_D_TAG }
             .mapNotNull { (dTag, event) ->
                 val raw = event.decryptPayload(signer) ?: return@mapNotNull null
-                val date = dTag.removePrefix("erv/cardio/")
+                val date = dateFromCardioDTag(dTag)
                 decodeLog(raw, date)
             }
 
@@ -147,9 +167,22 @@ object CardioSync {
             routines = master?.routines ?: emptyList(),
             customActivityTypes = master?.customActivityTypes ?: emptyList(),
             quickLaunches = master?.quickLaunches ?: emptyList(),
-            logs = logs.sortedBy { it.date }
+            logs = mergeDecodedLogs(decodedLogs)
         )
     }
+
+    private fun dateFromCardioDTag(dTag: String): String =
+        dTag.removePrefix("erv/cardio/").substringBefore("/session/")
+
+    private fun mergeDecodedLogs(logs: List<CardioDayLog>): List<CardioDayLog> =
+        logs.groupBy { it.date }
+            .map { (date, sameDay) ->
+                val sessions = sameDay
+                    .flatMap { it.sessions }
+                    .distinctBy { it.id }
+                CardioDayLog(date = date, sessions = sessions)
+            }
+            .sortedBy { it.date }
 
     private suspend fun publishEvent(
         appContext: Context,

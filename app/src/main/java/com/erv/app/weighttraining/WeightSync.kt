@@ -17,6 +17,7 @@ import kotlinx.serialization.json.Json
 
 internal const val WEIGHT_EXERCISES_D_TAG = "erv/weight/exercises"
 internal const val WEIGHT_ROUTINES_D_TAG = "erv/weight/routines"
+private const val MAX_TRAINING_DAY_PLAINTEXT_BYTES = 40_000
 
 @Serializable
 private data class WeightExercisesPayload(
@@ -83,8 +84,17 @@ object WeightSync {
     /** Always queues a weight day log for relay upload (does not require an active [RelayPool]). */
     suspend fun queueDayLogForRelay(appContext: Context, log: WeightDayLog) {
         if (log.workouts.isEmpty()) return
-        val content = json.encodeToString(WeightDayLog.serializer(), relaySafeDayLog(log))
-        TrainingDayLogRelaySync.queueTrainingDayLog(appContext, dailyTag(log.date), content)
+        val dayTag = dailyTag(log.date)
+        val entries = outboxEntriesForDayLog(log)
+        if (entries.size == 1 && entries.first().first == dayTag) {
+            TrainingDayLogRelaySync.queueTrainingDayLog(appContext, dayTag, entries.first().second)
+        } else {
+            TrainingDayLogRelaySync.queueTrainingDayLogEntries(
+                appContext = appContext,
+                replaceDTags = listOf(dayTag),
+                entries = entries,
+            )
+        }
     }
 
     fun fullOutboxEntries(state: WeightLibraryState): List<Pair<String, String>> =
@@ -120,12 +130,22 @@ object WeightSync {
         for (dateIso in affectedDates.distinct().sorted()) {
             val log = state.logFor(LocalDate.parse(dateIso)) ?: continue
             if (log.workouts.isEmpty()) continue
-            pairs += dailyTag(dateIso) to json.encodeToString(
-                WeightDayLog.serializer(),
-                relaySafeDayLog(log)
-            )
+            pairs += outboxEntriesForDayLog(log)
         }
         return pairs
+    }
+
+    private fun outboxEntriesForDayLog(log: WeightDayLog): List<Pair<String, String>> {
+        val safe = relaySafeDayLog(log)
+        val dayTag = dailyTag(log.date)
+        val dayContent = json.encodeToString(WeightDayLog.serializer(), safe)
+        if (dayContent.toByteArray(Charsets.UTF_8).size <= MAX_TRAINING_DAY_PLAINTEXT_BYTES) {
+            return listOf(dayTag to dayContent)
+        }
+        return safe.workouts.map { workout ->
+            val splitLog = WeightDayLog(date = safe.date, workouts = listOf(workout))
+            "$dayTag/session/${workout.id}" to json.encodeToString(WeightDayLog.serializer(), splitLog)
+        }
     }
 
     suspend fun fetchFromNetwork(
@@ -153,7 +173,7 @@ object WeightSync {
             ?.let { decodeRoutines(it) }
             ?: emptyList()
 
-        val logs = latestByTag
+        val decodedLogs = latestByTag
             .filterKeys { tag ->
                 tag.startsWith("erv/weight/") &&
                     tag != WEIGHT_EXERCISES_D_TAG &&
@@ -161,16 +181,29 @@ object WeightSync {
             }
             .mapNotNull { (dTag, event) ->
                 val raw = event.decryptPayload(signer) ?: return@mapNotNull null
-                val date = dTag.removePrefix("erv/weight/")
+                val date = dateFromWeightDTag(dTag)
                 decodeDayLog(raw, date)
             }
 
         return WeightLibraryState(
             exercises = exercises,
             routines = routines,
-            logs = logs.sortedBy { it.date }
+            logs = mergeDecodedLogs(decodedLogs)
         )
     }
+
+    private fun dateFromWeightDTag(dTag: String): String =
+        dTag.removePrefix("erv/weight/").substringBefore("/session/")
+
+    private fun mergeDecodedLogs(logs: List<WeightDayLog>): List<WeightDayLog> =
+        logs.groupBy { it.date }
+            .map { (date, sameDay) ->
+                val workouts = sameDay
+                    .flatMap { it.workouts }
+                    .distinctBy { it.id }
+                WeightDayLog(date = date, workouts = workouts)
+            }
+            .sortedBy { it.date }
 
     private suspend fun publishEvent(
         appContext: Context,

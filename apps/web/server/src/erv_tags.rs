@@ -45,8 +45,12 @@ pub fn weight_day_log_date(d_tag: &str) -> Option<&str> {
     if !d_tag.starts_with(PREFIX) {
         return None;
     }
-    let date = &d_tag[PREFIX.len()..];
-    if date == "exercises" || date == "routines" || !is_iso_date(date) {
+    let suffix = &d_tag[PREFIX.len()..];
+    if suffix == "exercises" || suffix == "routines" {
+        return None;
+    }
+    let date = suffix.split("/session/").next().unwrap_or(suffix);
+    if !is_iso_date(date) {
         return None;
     }
     Some(date)
@@ -59,8 +63,12 @@ pub fn cardio_day_log_date(d_tag: &str) -> Option<&str> {
     if !d_tag.starts_with(PREFIX) || d_tag == CARDIO_ROUTINES_D_TAG {
         return None;
     }
-    let date = &d_tag[PREFIX.len()..];
-    if date == "routines" || !is_iso_date(date) {
+    let suffix = &d_tag[PREFIX.len()..];
+    if suffix == "routines" {
+        return None;
+    }
+    let date = suffix.split("/session/").next().unwrap_or(suffix);
+    if !is_iso_date(date) {
         return None;
     }
     Some(date)
@@ -94,6 +102,18 @@ mod tests {
         assert!(is_erv_d_tag("erv/weight/routines"));
         assert!(is_erv_d_tag("erv/weight/2026-06-13"));
         assert!(!is_erv_d_tag("fiatlife/budget"));
+    }
+
+    #[test]
+    fn recognizes_split_training_day_tags() {
+        assert_eq!(
+            weight_day_log_date("erv/weight/2026-06-13/session/abc"),
+            Some("2026-06-13")
+        );
+        assert_eq!(
+            cardio_day_log_date("erv/cardio/2026-06-13/session/abc"),
+            Some("2026-06-13")
+        );
     }
 
     #[test]

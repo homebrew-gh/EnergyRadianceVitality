@@ -102,11 +102,14 @@ internal fun isTrainingDayLogDTag(dTag: String): Boolean {
     if (dTag == "erv/weight/exercises" || dTag == "erv/weight/routines") return false
     if (dTag == "erv/cardio/routines") return false
     val isoDate = Regex("""^\d{4}-\d{2}-\d{2}$""")
+    val splitSession = Regex("""^\d{4}-\d{2}-\d{2}/session/.+""")
     if (dTag.startsWith("erv/weight/")) {
-        return isoDate.matches(dTag.removePrefix("erv/weight/"))
+        val suffix = dTag.removePrefix("erv/weight/")
+        return isoDate.matches(suffix) || splitSession.matches(suffix)
     }
     if (dTag.startsWith("erv/cardio/")) {
-        return isoDate.matches(dTag.removePrefix("erv/cardio/"))
+        val suffix = dTag.removePrefix("erv/cardio/")
+        return isoDate.matches(suffix) || splitSession.matches(suffix)
     }
     return false
 }
