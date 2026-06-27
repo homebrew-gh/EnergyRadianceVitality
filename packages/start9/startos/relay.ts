@@ -8,16 +8,16 @@ export type StartOsRelayCandidate = {
 
 export const relayCandidates: StartOsRelayCandidate[] = [
   {
-    packageId: 'nostr-rs-relay',
-    interfaceId: 'relay',
-    internalPort: 8080,
-    label: 'Nostr RS Relay',
-  },
-  {
     packageId: 'haven',
     interfaceId: 'relay',
     internalPort: 3355,
     label: 'Haven',
+  },
+  {
+    packageId: 'nostr-rs-relay',
+    interfaceId: 'relay',
+    internalPort: 8080,
+    label: 'Nostr RS Relay',
   },
 ]
 

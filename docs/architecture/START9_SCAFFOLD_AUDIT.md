@@ -117,8 +117,8 @@ These are **environment/onboarding** items — the code is ready.
   the matching nsec so ciphertext decrypts (same npub). Confirm the user can
   enter the same nsec in the web companion.
 - [ ] **Same relay on both ends.** Phone + StartOS must publish/read the same
-  relay. On StartOS, install Nostr RS Relay (optional dep) or point both at an
-  external `wss://`. Web supports multiple relay URLs.
+  relay. On StartOS, install Haven for the recommended local relay path, or
+  point both at an external `wss://`. Web supports multiple relay URLs.
 - [ ] **Android sync trigger.** Confirm Settings has a manual "sync now"
   (`WeightSync.fetchFromNetwork`) so the user can pull after publishing.
 - [ ] **Host package build.** Run `./packages/start9/build.sh` in an external

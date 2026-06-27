@@ -1,10 +1,10 @@
 import { IMPOSSIBLE, VersionInfo } from '@start9labs/start-sdk'
 
 export const v_0_1_2_0 = VersionInfo.of({
-  version: '0.1.2:2',
+  version: '0.1.2:17',
   releaseNotes: {
     en_US:
-      'Title case field labels and section headers on web and Android; StartOS builds auto-bump version for in-place sideload updates.',
+      'Prefer Haven for local relay setup and add the Blossom media backup foundation.',
   },
   migrations: {
     up: async () => {},

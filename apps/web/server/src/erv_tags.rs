@@ -12,6 +12,7 @@ pub const STRETCH_CATALOG_D_TAG: &str = "erv/catalog/stretch";
 pub const CARDIO_CATALOG_D_TAG: &str = "erv/catalog/cardio";
 pub const FITNESS_EQUIPMENT_D_TAG: &str = "erv/equipment";
 pub const TRAINING_PROFILE_D_TAG: &str = "erv/training-profile";
+pub const MEDIA_LIBRARY_D_TAG: &str = "erv/media/library";
 
 /// Whether a d-tag belongs to ERV encrypted app data.
 pub fn is_erv_d_tag(d_tag: &str) -> bool {
@@ -80,6 +81,7 @@ pub fn is_erv_publishable_d_tag(d_tag: &str) -> bool {
         || d_tag == STRETCHING_ROUTINES_D_TAG
         || d_tag == FITNESS_EQUIPMENT_D_TAG
         || d_tag == TRAINING_PROFILE_D_TAG
+        || d_tag == MEDIA_LIBRARY_D_TAG
         || is_erv_catalog_d_tag(d_tag)
 }
 
@@ -101,6 +103,7 @@ mod tests {
         assert!(is_erv_publishable_d_tag(STRETCHING_ROUTINES_D_TAG));
         assert!(is_erv_publishable_d_tag(FITNESS_EQUIPMENT_D_TAG));
         assert!(is_erv_publishable_d_tag(TRAINING_PROFILE_D_TAG));
+        assert!(is_erv_publishable_d_tag(MEDIA_LIBRARY_D_TAG));
         assert!(!is_erv_publishable_d_tag("erv/weight/2026-06-13"));
     }
 

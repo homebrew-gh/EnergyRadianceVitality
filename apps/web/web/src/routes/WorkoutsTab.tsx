@@ -570,6 +570,7 @@ export function WorkoutsTab() {
             stretchCatalog={catalogs.stretch}
             cardioCatalog={catalogs.cardio}
             cardioRoutines={cardioRoutines}
+            weightLoadUnit={weightLoadUnit}
           />
 
           <div className="grid gap-3 md:grid-cols-3">

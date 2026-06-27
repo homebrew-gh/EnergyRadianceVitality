@@ -6,10 +6,15 @@ import type {
   WeightCatalogExercise,
 } from "../lib/catalog";
 import type { CardioRoutine } from "../lib/cardioTraining";
+import type { BodyWeightUnit } from "../lib/fitnessEquipment";
 import {
   buildWorkoutPreview,
   formatDuration,
 } from "../lib/workoutPreview";
+import {
+  formatWeightLoadNumber,
+  weightLoadUnitSuffix,
+} from "../lib/weightLoadUnit";
 import type { WorkoutSegment } from "../lib/workoutTraining";
 
 type WorkoutPreviewCardProps = {
@@ -19,6 +24,7 @@ type WorkoutPreviewCardProps = {
   stretchCatalog: StretchCatalogEntry[];
   cardioCatalog: CardioCatalogActivity[];
   cardioRoutines: CardioRoutine[];
+  weightLoadUnit?: BodyWeightUnit;
 };
 
 export function WorkoutPreviewCard({
@@ -28,6 +34,7 @@ export function WorkoutPreviewCard({
   stretchCatalog,
   cardioCatalog,
   cardioRoutines,
+  weightLoadUnit = "LB",
 }: WorkoutPreviewCardProps) {
   const preview = useMemo(
     () =>
@@ -36,8 +43,10 @@ export function WorkoutPreviewCard({
         stretchCatalog,
         cardioCatalog,
         cardioRoutines,
+        formatWeight: (kg) =>
+          `${formatWeightLoadNumber(kg, weightLoadUnit)} ${weightLoadUnitSuffix(weightLoadUnit)}`,
       }),
-    [cardioCatalog, cardioRoutines, exercises, segments, stretchCatalog],
+    [cardioCatalog, cardioRoutines, exercises, segments, stretchCatalog, weightLoadUnit],
   );
 
   const hasDraft = preview.segmentCount > 0;

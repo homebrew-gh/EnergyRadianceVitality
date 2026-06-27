@@ -1,9 +1,9 @@
 import { setupManifest } from '@start9labs/start-sdk'
-import { long, short } from './i18n'
+import { installAlert, long, short, updateAlert } from './i18n'
 
 export const manifest = setupManifest({
   id: 'erv-web',
-  title: 'ERV',
+  title: 'ERV Web Companion',
   license: 'MIT',
   packageRepo: 'https://github.com/samcornwell/EnergyRadianceVitality',
   upstreamRepo: 'https://github.com/samcornwell/EnergyRadianceVitality',
@@ -22,32 +22,22 @@ export const manifest = setupManifest({
     },
   },
   alerts: {
-    install: null,
-    update: null,
+    install: installAlert,
+    update: updateAlert,
     uninstall: null,
     restore: null,
     start: null,
     stop: null,
   },
   dependencies: {
-    'nostr-rs-relay': {
-      description:
-        'Recommended local Nostr relay — use the same relay as your Android ERV app.',
-      optional: true,
-      s9pk: null,
-      metadata: {
-        title: 'Nostr RS Relay',
-        icon: '../icon.svg',
-      },
-    },
     haven: {
       description:
-        'Alternative local Nostr relay — ERV auto-detects Haven when Nostr RS Relay is not installed.',
+        'Recommended personal Nostr relay for ERV sync. Haven also provides Blossom media storage for future image backup features.',
       optional: true,
       s9pk: null,
       metadata: {
         title: 'Haven',
-        icon: '../icon.svg',
+        icon: '../assets/haven.svg',
       },
     },
   },

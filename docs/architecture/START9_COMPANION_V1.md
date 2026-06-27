@@ -25,7 +25,7 @@ See also: [START9_SCAFFOLD_AUDIT.md](START9_SCAFFOLD_AUDIT.md) (FiatLife scaffol
 - [ ] Sideload or `make install` on StartOS server
 - [ ] Local dev: setup → create routine → `erv/weight/routines` on relay
 - [ ] Android: open app → relay sync → routine appears under Weight Training → Routines
-- [ ] StartOS: same flow on LAN relay (optional Nostr RS Relay package)
+- [ ] StartOS: same flow on LAN relay (Haven recommended; external `wss://` relay also supported)
 
 ### Install on StartOS
 
@@ -168,13 +168,43 @@ These shipped while building the composer and are documented in [WORKOUT_PLAN_ED
 - [ ] Dashboard: surface planned workout for today (read-only)
 - [ ] AI plan/workout generation (Maple / optional)
 
+### Pre-AI athlete context (web-first)
+
+Full spec: [ATHLETE_CONTEXT_WEB_PREP.md](ATHLETE_CONTEXT_WEB_PREP.md). Web = planning desk; Android = live logging.
+
+#### W1 — Training profile (`erv/training-profile`)
+
+- [x] JSON schema (Android + web)
+- [x] Nostr sync + server publish allowlist
+- [x] Web **Profile** tab (edit + publish)
+- [x] Android read-only Settings summary
+- [ ] Include profile in reference export bundle
+
+#### W2 — History on web
+
+- [x] Fetch weight/cardio day logs from relay
+- [x] **Progress** tab — session timeline + per-exercise history
+- [x] Basic volume/frequency charts
+
+#### W3 — Training snapshot
+
+- [x] Compute baseline from logs (working weights, muscle recency, cardio load)
+- [x] **Progress** tab — “Your training baseline” panel + staleness hint
+- [ ] Optional relay publish `erv/training-snapshot` (deferred)
+
+#### W4–W6
+
+- [x] Prescription polish (equipment filter, load suggestions) — W4
+- [ ] Planner (Phase 3) — W5
+- [x] “Copy training context” export (AI dry run) — W6
+
 ### Other
 
-- [ ] Read-only analytics (day logs, route images via Blossom)
+- [ ] Read-only analytics (day logs, route images via Blossom) — superseded by W2/W3 above
 
 ## Test plan (routine publish)
 
-1. Install **Nostr RS Relay** on StartOS (or use external `wss://`).
+1. Install **Haven** on StartOS (recommended for local relay sync and future Blossom media backup), or use an external `wss://` relay.
 2. Open ERV Start9 web UI → Setup with **same nsec** as Android.
 3. Create routine "Test Push" with Bench Press + OHP.
 4. Confirm success toast shows event id; outbox pending clears.

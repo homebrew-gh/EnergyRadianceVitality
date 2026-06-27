@@ -4,6 +4,7 @@ import { hasRelayConfigured } from "./lib/relayUrl";
 import { AppShell } from "./routes/AppShell";
 import { CatalogEditorTab } from "./routes/CatalogEditorTab";
 import { EquipmentTab } from "./routes/EquipmentTab";
+import { MediaGalleryTab } from "./routes/MediaGalleryTab";
 import { ProfileTab } from "./routes/ProfileTab";
 import { ProgressTab } from "./routes/ProgressTab";
 import { CardioRoutinesTab } from "./routes/CardioRoutinesTab";
@@ -50,6 +51,7 @@ function Gate() {
         </Route>
         <Route path="catalog" element={<CatalogEditorTab />} />
         <Route path="equipment" element={<EquipmentTab />} />
+        <Route path="media" element={<MediaGalleryTab />} />
         <Route path="profile" element={<ProfileTab />} />
         <Route path="progress" element={<ProgressTab />} />
         <Route path="workouts" element={<WorkoutsTab />} />

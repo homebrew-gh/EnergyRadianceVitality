@@ -1,8 +1,16 @@
-# ERV StartOS package (v0.1 scaffold)
+<p align="center">
+  <img src="icon.svg" alt="ERV logo" width="21%">
+</p>
+
+# ERV Web Companion on StartOS
+
+> **Upstream docs:** [Energy Radiance Vitality repository](https://github.com/samcornwell/EnergyRadianceVitality)
+>
+> This package wraps the ERV web companion (`apps/web/`). Behavior not described here matches the upstream project.
 
 Bundles [`apps/web/`](../../apps/web/) into a `.s9pk` for **StartOS 0.4.x**.
 
-The web UI connects to your **existing Nostr relay** (same nsec + relay as the Android app). It does not bundle a relay.
+The web UI connects to your **existing Nostr relay** (same nsec + relay as the Android app). It does not bundle a relay. On StartOS, **Haven** is the recommended companion relay because it also exposes Blossom media storage for future ERV image backup features.
 
 ## Prereqs
 

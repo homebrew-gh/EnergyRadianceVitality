@@ -47,10 +47,23 @@ Last updated: June 2026.
 **Acceptance test:** Assign two different workouts to two days on web → sync →
 Android week view matches → tap day → run live session.
 
+## Pre-AI web prep (parallel track)
+
+Build athlete context on the **Start9 companion** before Phase 4 AI. Android stays live
+logging; web owns profile, history, and analytics.
+
+See **[Athlete context & web prep](architecture/ATHLETE_CONTEXT_WEB_PREP.md)** (W1–W6).
+
+| Package | Status |
+|---------|--------|
+| W1 Training profile (`erv/training-profile`) | Shipped |
+| W2 History on web | Shipped |
+| W3 Training snapshot | Shipped (local compute) |
+
 ## Later — Phase 4
 
 - Dashboard card: planned workout for today (read-only)
-- AI plan/workout generation (Maple / optional on StartOS)
+- AI plan/workout generation (Maple / optional on StartOS) — requires W1–W3 baseline
 
 ## Key Nostr d-tags
 
@@ -64,6 +77,9 @@ Android week view matches → tap day → run live session.
 | `erv/catalog/cardio` | Cardio activity catalog |
 | `erv/workouts/library` | Workout storyboard library (Phase 2) |
 | `erv/programs/master` | Weekly plan (Phase 3) |
+| `erv/training-profile` | Athlete profile + style presets (pre-AI web) |
+| `erv/equipment` | Home gym + exercise packs |
+| `erv/media/library` | Encrypted manifest for Blossom-backed media blobs |
 
 ## Where to look in code
 
@@ -79,6 +95,7 @@ Android week view matches → tap day → run live session.
 
 | Doc | Purpose |
 |-----|---------|
+| `ATHLETE_CONTEXT_WEB_PREP.md` | Pre-AI web prep (W1–W6) — track checkboxes here |
 | `START9_COMPANION_V1.md` | Start9 + Phase 1–4 checklist |
 | `WORKOUT_PLAN_EDITOR_SPEC.md` | Composer grammar (large) |
 | `PROGRAMS_AND_WORKOUTS_MERGE_AND_AI.md` | Phase 3 planner merge |

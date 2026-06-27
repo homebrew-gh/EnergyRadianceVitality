@@ -70,6 +70,14 @@ export type CardioSession = {
   startEpochSeconds?: number | null;
   endEpochSeconds?: number | null;
   loggedAtEpochSeconds?: number | null;
+  heartRate?: CardioHeartRateSummary | null;
+  routeImageUrl?: string | null;
+};
+
+export type CardioHeartRateSummary = {
+  avgBpm?: number | null;
+  maxBpm?: number | null;
+  minBpm?: number | null;
 };
 
 export type CardioDayLog = {
@@ -80,6 +88,10 @@ export type CardioDayLog = {
 export type HistoryTimelineItem =
   | { kind: "weight"; date: string; session: WeightWorkoutSession }
   | { kind: "cardio"; date: string; session: CardioSession };
+
+export type RecentWorkoutItem = HistoryTimelineItem & {
+  contextKey: string;
+};
 
 export type WeeklyCountBucket = {
   weekStart: string;
@@ -233,6 +245,10 @@ function parseCardioSession(raw: unknown): CardioSession | null {
   const durationMinutes = cardioDurationMinutes(s);
   const hasSegments = Array.isArray(s.segments) && s.segments.length > 0;
   if (durationMinutes <= 0 && !hasSegments) return null;
+  const heartRate =
+    s.heartRate && typeof s.heartRate === "object"
+      ? parseCardioHeartRate(s.heartRate)
+      : null;
   return {
     id: typeof s.id === "string" ? s.id : crypto.randomUUID(),
     activity,
@@ -246,7 +262,19 @@ function parseCardioSession(raw: unknown): CardioSession | null {
     endEpochSeconds: typeof s.endEpochSeconds === "number" ? s.endEpochSeconds : null,
     loggedAtEpochSeconds:
       typeof s.loggedAtEpochSeconds === "number" ? s.loggedAtEpochSeconds : null,
+    heartRate,
+    routeImageUrl: typeof s.routeImageUrl === "string" ? s.routeImageUrl : null,
   };
+}
+
+function parseCardioHeartRate(raw: object): CardioHeartRateSummary | null {
+  const hr = raw as Record<string, unknown>;
+  const parsed = {
+    avgBpm: typeof hr.avgBpm === "number" ? hr.avgBpm : null,
+    maxBpm: typeof hr.maxBpm === "number" ? hr.maxBpm : null,
+    minBpm: typeof hr.minBpm === "number" ? hr.minBpm : null,
+  };
+  return parsed.avgBpm || parsed.maxBpm || parsed.minBpm ? parsed : null;
 }
 
 export function parseCardioDayLog(raw: string, dateFallback: string): CardioDayLog | null {
@@ -630,6 +658,19 @@ export function buildTimeline(
       b.kind === "weight" ? sessionEpoch(b.session) : cardioSessionEpoch(b.session);
     return eb - ea;
   });
+}
+
+export function buildRecentWorkouts(
+  weightLogs: WeightDayLog[],
+  cardioLogs: CardioDayLog[],
+  limit = 5,
+): RecentWorkoutItem[] {
+  return buildTimeline(weightLogs, cardioLogs)
+    .slice(0, limit)
+    .map((item) => ({
+      ...item,
+      contextKey: `${item.kind}:${item.date}:${item.session.id}`,
+    }));
 }
 
 export function parseIsoDate(iso: string): Date {

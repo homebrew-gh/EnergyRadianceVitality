@@ -53,6 +53,7 @@ type PreviewCatalogs = {
   stretchCatalog: StretchCatalogEntry[];
   cardioCatalog: CardioCatalogActivity[];
   cardioRoutines: CardioRoutine[];
+  formatWeight?: (kg: number) => string;
 };
 
 const DEFAULT_WEIGHT_SET_SECONDS = 45;
@@ -175,7 +176,7 @@ function itemTitle(item: WorkoutItem, catalogs: PreviewCatalogs): string {
 function itemDetail(item: WorkoutItem, catalogs: PreviewCatalogs): string {
   switch (item.type) {
     case "weight":
-      return prescriptionSummary(item.prescription);
+      return prescriptionSummary(item.prescription, catalogs.formatWeight);
     case "cardio": {
       const activityLabel =
         catalogs.cardioCatalog.find((activity) => activity.id === item.cardio.activity)?.displayName ??

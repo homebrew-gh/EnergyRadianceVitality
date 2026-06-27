@@ -41,6 +41,7 @@ This folder is organized by purpose so release-critical docs are easy to find an
 - [Start9 companion v1 checklist](architecture/START9_COMPANION_V1.md)
 - [Workout plan editor spec](architecture/WORKOUT_PLAN_EDITOR_SPEC.md) (large — open as plain text if needed)
 - [Programs + workouts merge](architecture/PROGRAMS_AND_WORKOUTS_MERGE_AND_AI.md)
+- [Athlete context & web prep (pre-AI)](architecture/ATHLETE_CONTEXT_WEB_PREP.md)
 - [Start9 scaffold audit](architecture/START9_SCAFFOLD_AUDIT.md) (Cursor freeze notes)
 - [Workout schema examples](architecture/examples/README.md)
 

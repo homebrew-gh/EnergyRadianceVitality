@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 540" role="img" aria-label="ERV setup screen">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#fffbf7"/>
+      <stop offset="45%" stop-color="#fff8f0"/>
+      <stop offset="100%" stop-color="#f5e6d8"/>
+    </linearGradient>
+    <linearGradient id="sun" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#fff9c4"/>
+      <stop offset="55%" stop-color="#ffd600"/>
+      <stop offset="100%" stop-color="#ff8f00"/>
+    </linearGradient>
+  </defs>
+  <rect width="960" height="540" fill="url(#bg)"/>
+  <rect x="280" y="48" width="400" height="444" rx="12" fill="#fff8f0" stroke="#8c7060"/>
+  <g transform="translate(408 78)">
+    <circle cx="72" cy="36" r="22" fill="url(#sun)"/>
+    <text x="104" y="44" font-family="Nunito, sans-serif" font-size="28" font-weight="700" fill="#2c1810">ERV</text>
+  </g>
+  <text x="480" y="168" text-anchor="middle" font-family="Nunito, sans-serif" font-size="24" font-weight="700" fill="#2c1810">Set up ERV</text>
+  <text x="480" y="196" text-anchor="middle" font-family="Nunito, sans-serif" font-size="13" fill="#5c4434">Same nsec and relay as your Android app</text>
+  <rect x="320" y="220" width="320" height="36" rx="8" fill="#ffffff" stroke="#8c7060"/>
+  <text x="332" y="243" font-family="Nunito, sans-serif" font-size="12" fill="#5c4434">Secret key (nsec1&)</text>
+  <rect x="320" y="270" width="320" height="36" rx="8" fill="#ffffff" stroke="#8c7060"/>
+  <text x="332" y="293" font-family="Nunito, sans-serif" font-size="12" fill="#5c4434">Passphrase</text>
+  <rect x="320" y="320" width="320" height="36" rx="8" fill="#ffffff" stroke="#8c7060"/>
+  <text x="332" y="343" font-family="Nunito, sans-serif" font-size="12" fill="#5c4434">Relay URL (wss://&)</text>
+  <rect x="320" y="382" width="320" height="40" rx="20" fill="#c45c26"/>
+  <text x="480" y="407" text-anchor="middle" font-family="Nunito, sans-serif" font-size="15" font-weight="700" fill="#ffffff">Save and continue</text>
+</svg>

@@ -44,10 +44,27 @@ export type OutboxStatus = {
   failed_items: OutboxFailedItem[];
 };
 
+export type BlossomStatus = {
+  available: boolean;
+  origin?: string | null;
+  derived_from_relay_url?: string | null;
+  message: string;
+};
+
 export type SetupBody = {
   nsec: string;
   passphrase: string;
   relay_url?: string;
+};
+
+export type RelaySettingsBody = {
+  relay_url?: string;
+  relay_urls?: string[];
+};
+
+export type RelaySettings = {
+  relay_url: string;
+  relay_urls: string[];
 };
 
 export type UnlockBody = {
@@ -120,6 +137,12 @@ export const api = {
     request<{ ok: boolean }>("/api/auth/lock", { method: "POST" }),
   authWipe: (body: WipeBody) =>
     request<{ ok: boolean }>("/api/auth/wipe", { method: "POST", json: body }),
+  getRelaySettings: () => request<RelaySettings>("/api/settings/relay"),
+  updateRelaySettings: (body: RelaySettingsBody) =>
+    request<RelaySettings>("/api/settings/relay", {
+      method: "PUT",
+      json: body,
+    }),
   listAppData: () => request<AppDataListResponse>("/api/nostr/app-data"),
   publishAppData: (body: { d_tag: string; plaintext: string }) =>
     request<{ event_id: string }>("/api/nostr/app-data", {
@@ -131,6 +154,7 @@ export const api = {
       "/api/nostr/connection",
     ),
   outboxStatus: () => request<OutboxStatus>("/api/nostr/outbox"),
+  blossomStatus: () => request<BlossomStatus>("/api/media/blossom-status"),
   outboxRetry: () =>
     request<OutboxStatus>("/api/nostr/outbox/retry", { method: "POST" }),
   outboxClear: () =>

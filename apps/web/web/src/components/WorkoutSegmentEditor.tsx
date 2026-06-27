@@ -489,7 +489,10 @@ export function WorkoutSegmentEditor({
   const itemDetail = (item: WorkoutItem): string => {
     switch (item.type) {
       case "weight":
-        return prescriptionSummary(item.prescription);
+        return prescriptionSummary(
+          item.prescription,
+          (kg) => `${formatWeightLoadNumber(kg, weightLoadUnit)} ${weightLoadUnitSuffix(weightLoadUnit)}`,
+        );
       case "cardio":
       case "mobility":
       case "rest":

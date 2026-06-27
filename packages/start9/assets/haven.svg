@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Haven">
+  <defs>
+    <linearGradient id="haven-bg" x1="20" y1="12" x2="108" y2="116" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#26c6da"/>
+      <stop offset="50%" stop-color="#00838f"/>
+      <stop offset="100%" stop-color="#004d40"/>
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="28" fill="url(#haven-bg)"/>
+  <path
+    d="M64 24 L96 44 V72 C96 88 64 104 64 104 C64 104 32 88 32 72 V44 Z"
+    fill="#e0f7fa"
+    opacity="0.95"
+  />
+  <path
+    d="M64 38 L84 50 V70 C84 80 64 92 64 92 C64 92 44 80 44 70 V50 Z"
+    fill="#00838f"
+    opacity="0.35"
+  />
+  <circle cx="64" cy="58" r="8" fill="#004d40"/>
+  <path d="M64 66 V78" stroke="#004d40" stroke-width="4" stroke-linecap="round"/>
+</svg>

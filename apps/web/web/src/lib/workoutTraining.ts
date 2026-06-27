@@ -499,7 +499,10 @@ export function prescriptionUsesPerSide(p: WorkoutWeightPrescription | undefined
   return (p?.sets ?? []).some((s) => (s.repsPerSide ?? 0) > 0);
 }
 
-export function prescriptionSummary(p: WorkoutWeightPrescription | undefined): string {
+export function prescriptionSummary(
+  p: WorkoutWeightPrescription | undefined,
+  formatWeight: (kg: number) => string = (kg) => `${kg} kg`,
+): string {
   const sets = p?.sets ?? [];
   const setTotal = prescriptionSetCount(p);
   let repPart = "";
@@ -535,7 +538,7 @@ export function prescriptionSummary(p: WorkoutWeightPrescription | undefined): s
     p?.targetWeightKg ??
     p?.sets?.find((s) => (s.targetWeightKg ?? s.weightKg ?? 0) > 0)?.targetWeightKg ??
     p?.sets?.find((s) => (s.weightKg ?? 0) > 0)?.weightKg;
-  if (weightHint != null && weightHint > 0) parts.push(`${weightHint} kg`);
+  if (weightHint != null && weightHint > 0) parts.push(formatWeight(weightHint));
   if (p?.targetRir != null) parts.push(`${p.targetRir} RIR`);
   if (p?.restBetweenSetsSeconds != null && p.restBetweenSetsSeconds > 0) {
     parts.push(`${p.restBetweenSetsSeconds}s between sets`);

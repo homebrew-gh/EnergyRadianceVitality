@@ -18,6 +18,7 @@ import {
 import {
   formatSetLine,
   formatWeightKg,
+  buildRecentWorkouts,
   historyForExercise,
   maxWeightByRepBucketKg,
   summarizeCardioSession,
@@ -25,6 +26,8 @@ import {
   volumeByMuscleGroup,
   weeklySessionCounts,
   weightSourceLabel,
+  formatDistanceMeters,
+  type RecentWorkoutItem,
 } from "../lib/trainingHistory";
 
 const PERIOD_OPTIONS: { value: HistoryPeriodWeeks; label: string }[] = [
@@ -158,6 +161,198 @@ function VerticalWeekChart({
   );
 }
 
+function RecentWorkoutsPanel({
+  items,
+  exercises,
+}: {
+  items: RecentWorkoutItem[];
+  exercises: ReturnType<typeof useTraining>["exercises"];
+}) {
+  const [openKey, setOpenKey] = useState<string | null>(items[0]?.contextKey ?? null);
+
+  if (items.length === 0) return null;
+
+  return (
+    <section className="card p-5 space-y-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <SectionHeader>Recent Workouts</SectionHeader>
+          <p className="mt-1 text-sm text-muted">
+            Latest five sessions across all synced history. This is the first
+            structured slice future AI planning can reuse.
+          </p>
+        </div>
+        <span className="rounded-full bg-[var(--erv-input-bg)] px-3 py-1 text-xs text-muted">
+          {items.length} shown
+        </span>
+      </div>
+
+      <div className="space-y-3">
+        {items.map((item) => {
+          const open = openKey === item.contextKey;
+          return (
+            <article
+              key={item.contextKey}
+              className="rounded-card border border-[var(--erv-outline-variant)] bg-[var(--erv-input-bg)]/70"
+            >
+              <button
+                type="button"
+                className="w-full p-4 text-left"
+                onClick={() => setOpenKey(open ? null : item.contextKey)}
+              >
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-mono text-muted">{item.date}</p>
+                    <p className="mt-1 font-semibold text-heading">
+                      {item.kind === "weight"
+                        ? summarizeWeightSession(item.session)
+                        : summarizeCardioSession(item.session)}
+                    </p>
+                  </div>
+                  <span
+                    className={`rounded-full px-2.5 py-1 text-xs ${
+                      item.kind === "weight"
+                        ? "bg-[var(--erv-primary-container)] text-[var(--erv-on-primary-container)]"
+                        : "bg-[var(--erv-secondary-container)] text-[var(--erv-on-secondary-container)]"
+                    }`}
+                  >
+                    {item.kind === "weight" ? "Strength" : "Cardio"}
+                  </span>
+                </div>
+              </button>
+              {open ? (
+                <div className="border-t border-[var(--erv-outline-variant)] px-4 pb-4 pt-3">
+                  {item.kind === "weight" ? (
+                    <RecentStrengthDetails item={item} exercises={exercises} />
+                  ) : (
+                    <RecentCardioDetails item={item} />
+                  )}
+                </div>
+              ) : null}
+            </article>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function RecentStrengthDetails({
+  item,
+  exercises,
+}: {
+  item: Extract<RecentWorkoutItem, { kind: "weight" }>;
+  exercises: ReturnType<typeof useTraining>["exercises"];
+}) {
+  const session = item.session;
+  const elapsed = formatElapsedSeconds(
+    session.durationSeconds ??
+      (session.startedAtEpochSeconds && session.finishedAtEpochSeconds
+        ? session.finishedAtEpochSeconds - session.startedAtEpochSeconds
+        : null),
+  );
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap gap-2 text-xs text-muted">
+        <span>{weightSourceLabel(session.source)}</span>
+        {elapsed ? <span>· {elapsed}</span> : null}
+        {session.estimatedKcal ? <span>· ~{Math.round(session.estimatedKcal)} kcal</span> : null}
+      </div>
+      <div className="space-y-2">
+        {session.entries.map((entry) => (
+          <div key={entry.exerciseId} className="rounded-xl bg-[var(--erv-surface)] p-3">
+            <p className="text-sm font-medium text-heading">
+              {exerciseLabel(entry.exerciseId, exercises)}
+            </p>
+            <p className="mt-1 text-xs text-muted">
+              {entry.hiitBlock
+                ? `HIIT ${entry.hiitBlock.intervals} x ${entry.hiitBlock.workSeconds}s`
+                : entry.sets.map((set) => formatSetLine(set)).filter(Boolean).join(" · ") || "No sets"}
+            </p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function RecentCardioDetails({
+  item,
+}: {
+  item: Extract<RecentWorkoutItem, { kind: "cardio" }>;
+}) {
+  const session = item.session;
+  const elapsed = formatElapsedSeconds(
+    session.startEpochSeconds && session.endEpochSeconds
+      ? session.endEpochSeconds - session.startEpochSeconds
+      : session.durationMinutes * 60,
+  );
+  const hr = session.heartRate;
+
+  return (
+    <div className="space-y-3 text-sm">
+      <div className="grid gap-2 sm:grid-cols-3">
+        <MiniMetric label="Duration" value={elapsed ?? `${session.durationMinutes} min`} />
+        <MiniMetric
+          label="Distance"
+          value={
+            session.distanceMeters && session.distanceMeters > 0
+              ? formatDistanceMeters(session.distanceMeters)
+              : "Not logged"
+          }
+        />
+        <MiniMetric
+          label="Calories"
+          value={session.estimatedKcal ? `~${Math.round(session.estimatedKcal)} kcal` : "Not estimated"}
+        />
+      </div>
+      {hr ? (
+        <div className="grid gap-2 sm:grid-cols-3">
+          <MiniMetric label="Avg HR" value={hr.avgBpm ? `${hr.avgBpm} bpm` : "—"} />
+          <MiniMetric label="Max HR" value={hr.maxBpm ? `${hr.maxBpm} bpm` : "—"} />
+          <MiniMetric label="Min HR" value={hr.minBpm ? `${hr.minBpm} bpm` : "—"} />
+        </div>
+      ) : (
+        <p className="text-xs text-muted">Heart rate summary was not recorded for this session.</p>
+      )}
+      {session.routeImageUrl ? (
+        <a
+          href={session.routeImageUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex text-xs font-medium text-[var(--erv-primary)] hover:underline"
+        >
+          Open Route Image
+        </a>
+      ) : (
+        <p className="text-xs text-muted">
+          GPS route images backed up through Blossom appear in the Media tab.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function MiniMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl bg-[var(--erv-surface)] p-3">
+      <p className="text-xs text-muted">{label}</p>
+      <p className="mt-1 font-semibold text-heading">{value}</p>
+    </div>
+  );
+}
+
+function formatElapsedSeconds(seconds: number | null | undefined): string | null {
+  if (seconds == null || seconds <= 0) return null;
+  const minutes = Math.floor(seconds / 60);
+  const rem = Math.floor(seconds % 60);
+  if (minutes < 60) return `${minutes}:${String(rem).padStart(2, "0")}`;
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  return `${hours}h ${mins}m`;
+}
+
 export function ProgressTab() {
   const { status } = useAuth();
   const {
@@ -249,6 +444,11 @@ export function ProgressTab() {
   const weeklyBuckets = useMemo(
     () => weeklySessionCounts(filteredWeightLogs, filteredCardioLogs),
     [filteredWeightLogs, filteredCardioLogs],
+  );
+
+  const recentWorkouts = useMemo(
+    () => buildRecentWorkouts(weightLogs, cardioLogs, 5),
+    [weightLogs, cardioLogs],
   );
 
   const muscleVolumes = useMemo(
@@ -496,6 +696,8 @@ export function ProgressTab() {
       ) : null}
 
       <TrainingContextExportCard bundleInput={contextBundleInput} />
+
+      <RecentWorkoutsPanel items={recentWorkouts} exercises={exercises} />
 
       {noDataAtAll ? (
         <section className="card p-6 space-y-2">

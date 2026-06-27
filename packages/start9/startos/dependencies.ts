@@ -1,4 +1,7 @@
 import { sdk } from './sdk'
 
-/** Optional relay — no hard gate; main.ts reads its interface when installed. */
+/**
+ * ERV works with any user-provided Nostr relay URL. Local relay packages are
+ * optional convenience integrations that main.ts probes when present.
+ */
 export const setDependencies = sdk.setupDependencies(async () => ({}))

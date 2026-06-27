@@ -223,7 +223,7 @@ Store per-provider settings in `UserPreferences` (encrypted where needed):
 |-----------|----------------|
 | `OpenAiCompatibleClient` | OkHttp POST `/v1/chat/completions`, SSE parse; modeled on `SupplementApiClient` |
 | `AiRequestQueue` | Single-flight + cancel + “busy” state |
-| `AiContextBuilder` | Token-budgeted bundle: equipment, goals, **weight/cardio/stretch catalogs**, saved workout ids, **light devices/routines**, heat/cold not cataloged (mode only) — reuses import reference bundle shapes |
+| `AiContextBuilder` | Token-budgeted bundle: **training profile + snapshot** (see [ATHLETE_CONTEXT_WEB_PREP.md](ATHLETE_CONTEXT_WEB_PREP.md)), equipment, **weight/cardio/stretch catalogs**, saved workout ids, **light devices/routines**, heat/cold not cataloged (mode only) — reuses import reference bundle shapes |
 | `AiDraftValidator` | Parse JSON → `ProgramImportEnvelope` / workout DTO; remap hallucinated exercise ids; surface errors for preview |
 | `AiSettingsScreen` | Connection test (`GET /v1/models`, `GET /health` for Maple) |
 
