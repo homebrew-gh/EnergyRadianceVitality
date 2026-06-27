@@ -72,6 +72,8 @@ See **[Athlete context & web prep](architecture/ATHLETE_CONTEXT_WEB_PREP.md)** (
 | `erv/weight/routines` | Weight routine templates |
 | `erv/stretching/routines` | Stretch routines |
 | `erv/cardio/routines` | Cardio routines + custom types |
+| `erv/weight/YYYY-MM-DD` | Strength day log; split as `erv/weight/YYYY-MM-DD/session/<workoutId>` if too large |
+| `erv/cardio/YYYY-MM-DD` | Cardio day log; split as `erv/cardio/YYYY-MM-DD/session/<sessionId>` if too large |
 | `erv/catalog/weight` | Exercise catalog |
 | `erv/catalog/stretch` | Stretch catalog |
 | `erv/catalog/cardio` | Cardio activity catalog |

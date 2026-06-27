@@ -137,8 +137,9 @@ object CurrentRelayDataSync {
     ): RelayPublishOutbox.KickDrainResult {
         val outbox = RelayPublishOutbox.get(appContext)
         val trainingDayTags = localEntries.map { it.first }.filter { isTrainingDayLogDTag(it) }
-        RelayPayloadDigestStore.get(appContext).clearDigests(trainingDayTags)
-        outbox.enqueueAll(localEntries)
+        val replacementTags = localEntries.map { it.first } + trainingDayTags.map { baseTrainingDayDTag(it) }
+        RelayPayloadDigestStore.get(appContext).clearDigests(replacementTags)
+        outbox.replaceMany(replacementTags, localEntries)
         var publishedOk = 0
         var publishedFail = 0
         var remaining = localEntries.size
@@ -161,6 +162,9 @@ object CurrentRelayDataSync {
             stoppedBecauseQueueEmpty = stoppedBecauseQueueEmpty,
         )
     }
+
+    private fun baseTrainingDayDTag(dTag: String): String =
+        dTag.substringBefore("/session/")
 
     /** Clears digests and republishes only training day-log payloads (e.g. cardio or weight log resync). */
     suspend fun forceResyncDayLogs(
