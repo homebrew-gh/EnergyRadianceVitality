@@ -5,8 +5,8 @@ import androidx.compose.ui.unit.dp
 
 /**
  * Width-based grid tuning for dashboard tiles. Phone layouts (< 600 dp) keep the
- * original column counts; wider screens add columns and cap tile size so landscape
- * tablets do not render oversized squares.
+ * original column counts; wider screens add columns while Launch Pad tiles continue
+ * to fill the available width instead of clustering into a narrow centered block.
  */
 object ErvAdaptiveGrid {
     private val compactMaxWidth = 600.dp
@@ -18,11 +18,8 @@ object ErvAdaptiveGrid {
         else -> 2
     }
 
-    fun launchPadMaxTileSize(availableWidth: Dp): Dp? = when {
-        availableWidth >= mediumMaxWidth -> 168.dp
-        availableWidth >= compactMaxWidth -> 180.dp
-        else -> null
-    }
+    @Suppress("UNUSED_PARAMETER")
+    fun launchPadMaxTileSize(availableWidth: Dp): Dp? = null
 
     fun categoryColumns(availableWidth: Dp): Int = when {
         availableWidth >= mediumMaxWidth -> 8

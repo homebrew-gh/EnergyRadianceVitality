@@ -32,6 +32,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AddAPhoto
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.PhotoLibrary
@@ -74,6 +75,7 @@ import com.erv.app.ui.components.FieldLabel
 import com.erv.app.ui.components.FormSectionLabelSmall
 import com.erv.app.bodytracker.BodyMeasurementKey
 import com.erv.app.bodytracker.BodyMeasurementLengthUnit
+import com.erv.app.bodytracker.BodyTrackerMediaBackup
 import com.erv.app.bodytracker.BodyTrackerDayLog
 import com.erv.app.bodytracker.BodyTrackerLibraryState
 import com.erv.app.bodytracker.BodyTrackerPhoto
@@ -170,7 +172,7 @@ private fun BodyTrackerPrivacyCard() {
         )
     ) {
         Text(
-            "Weight, measurements, and notes sync as encrypted Nostr events (kind 30078) via the same outbox as other ERV logs. Progress photos stay on this device only — they are never uploaded to relays or Blossom.",
+            "Weight, measurements, and notes sync as encrypted Nostr events (kind 30078) via the same outbox as other ERV logs. Progress photos stay on this device unless you tap photo backup; backed-up blobs are encrypted before Blossom upload.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(12.dp)
@@ -276,6 +278,46 @@ private fun BodyTrackerPhotoSection(
                     file = repository.photoFile(photo.id),
                     onOpen = { onOpenFullscreen(photo.id) },
                     onDelete = { onRequestDelete(photo) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun BodyTrackerPhotoBackupCard(
+    photoCount: Int,
+    backingUp: Boolean,
+    onBackUp: () -> Unit,
+) {
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            FormSectionLabelSmall("Photo backup")
+            Text(
+                "Back up encrypted progress-photo blobs to Blossom. ERV uses your private Blossom server if set, otherwise it tries the Blossom endpoint on your Data relay.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            OutlinedButton(
+                onClick = onBackUp,
+                enabled = !backingUp && photoCount > 0,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Default.CloudUpload, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    when {
+                        backingUp -> "Backing up…"
+                        photoCount == 0 -> "No photos to back up"
+                        else -> "Back up $photoCount photo(s)"
+                    }
                 )
             }
         }
@@ -605,6 +647,8 @@ private fun BodyTrackerEditorScaffold(
     val formScrollState = rememberScrollState()
     val state by repository.state.collectAsState(initial = BodyTrackerLibraryState())
     val weightUnit by userPreferences.bodyWeightUnit.collectAsState(initial = BodyWeightUnit.LB)
+    val blossomPrivateOrigin by userPreferences.blossomPrivateServerOrigin.collectAsState(initial = "")
+    val trustSelfSignedLanTls by userPreferences.trustSelfSignedLanTls.collectAsState(initial = false)
 
     val selectedDate = LocalDate.now()
     var weightText by remember { mutableStateOf("") }
@@ -614,10 +658,12 @@ private fun BodyTrackerEditorScaffold(
     var noteText by remember { mutableStateOf("") }
     var pendingPhotoDelete by remember { mutableStateOf<BodyTrackerPhoto?>(null) }
     var fullscreenPhotoId by remember { mutableStateOf<String?>(null) }
+    var backingUpPhotos by remember { mutableStateOf(false) }
 
     val savedLog = remember(state.logs, selectedDate) {
         state.logs.firstOrNull { it.date == selectedDate.toString() }
     }
+    val photoCount = remember(state.logs) { state.logs.sumOf { it.photos.size } }
 
     LaunchedEffect(selectedDate, state.logs, weightUnit, state.lengthUnit) {
         val log = state.logs.firstOrNull { it.date == selectedDate.toString() }
@@ -667,7 +713,7 @@ private fun BodyTrackerEditorScaffold(
             title = { Text("Remove photo?") },
             text = {
                 Text(
-                    "This deletes the file from this device. It was never uploaded.",
+                    "This deletes the file from this device. Any prior Blossom backup remains listed in your encrypted media manifest until the next photo backup.",
                     style = MaterialTheme.typography.bodyMedium
                 )
             },
@@ -795,6 +841,47 @@ private fun BodyTrackerEditorScaffold(
                     },
                     onRequestDelete = { pendingPhotoDelete = it },
                     onOpenFullscreen = { fullscreenPhotoId = it }
+                )
+                Spacer(Modifier.height(16.dp))
+                BodyTrackerPhotoBackupCard(
+                    photoCount = photoCount,
+                    backingUp = backingUpPhotos,
+                    onBackUp = {
+                        if (backingUpPhotos) return@BodyTrackerPhotoBackupCard
+                        scope.launch {
+                            val pool = relayPool
+                            val sig = signer
+                            if (pool == null || sig == null) {
+                                snackbarHostState.showSnackbar("Sign in with Nostr to back up photos.")
+                                return@launch
+                            }
+                            backingUpPhotos = true
+                            try {
+                                val result = BodyTrackerMediaBackup.backupProgressPhotos(
+                                    appContext = appContext,
+                                    repository = repository,
+                                    relayPool = pool,
+                                    signer = sig,
+                                    dataRelayUrls = keyManager.relayUrlsForKind30078Publish(),
+                                    explicitPrivateBlossomOrigin = blossomPrivateOrigin,
+                                    trustSelfSignedLanTls = trustSelfSignedLanTls,
+                                )
+                                val message = when {
+                                    result.origin == null ->
+                                        "Set a private Blossom server or use Haven as your Data relay."
+                                    result.totalPhotos == 0 ->
+                                        "No progress photos to back up."
+                                    else ->
+                                        "Photo backup: ${result.uploaded} uploaded, ${result.reused} already backed up, ${result.failed} failed. Manifest ${if (result.manifestQueued) "queued" else "not queued"}."
+                                }
+                                snackbarHostState.showSnackbar(message)
+                            } catch (e: Exception) {
+                                snackbarHostState.showSnackbar("Photo backup failed: ${e.message ?: "unknown error"}")
+                            } finally {
+                                backingUpPhotos = false
+                            }
+                        }
+                    }
                 )
                 Spacer(Modifier.height(16.dp))
                 BodyTrackerPrivacyCard()

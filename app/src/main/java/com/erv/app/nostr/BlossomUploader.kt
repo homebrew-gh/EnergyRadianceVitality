@@ -24,7 +24,7 @@ object BlossomUploader {
 
     private val json = Json { ignoreUnknownKeys = true }
 
-    private val client = OkHttpClient.Builder()
+    private val defaultClient = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(120, TimeUnit.SECONDS)
         .writeTimeout(120, TimeUnit.SECONDS)
@@ -34,7 +34,8 @@ object BlossomUploader {
         normalizedOrigin: String,
         bytes: ByteArray,
         contentType: String,
-        signer: EventSigner
+        signer: EventSigner,
+        trustSelfSignedLanTls: Boolean = false,
     ): Result<String> = withContext(Dispatchers.IO) {
         val base = normalizedOrigin.trimEnd('/') + "/"
         if (!base.startsWith("https://", ignoreCase = true)) {
@@ -69,6 +70,11 @@ object BlossomUploader {
             .put(body)
             .header("Authorization", "Nostr $authB64")
             .build()
+        val client = if (trustSelfSignedLanTls) {
+            RelayOkHttpClient.createForUrl(putUrl, trustInsecureTls = true)
+        } else {
+            defaultClient
+        }
         try {
             client.newCall(request).execute().use { resp ->
                 val text = resp.body?.string().orEmpty()

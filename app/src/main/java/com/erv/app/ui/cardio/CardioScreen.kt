@@ -48,6 +48,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
@@ -134,6 +135,7 @@ import com.erv.app.cardio.CardioLibraryState
 import com.erv.app.cardio.CardioMetEstimator
 import com.erv.app.cardio.CardioModality
 import com.erv.app.cardio.CardioActiveTimerSession
+import com.erv.app.cardio.CardioRouteMediaBackup
 import com.erv.app.cardio.isPendingStart
 import com.erv.app.cardio.CardioMultiLegTimerState
 import com.erv.app.cardio.CardioTrackShareImage
@@ -4169,10 +4171,13 @@ fun CardioWorkoutSummaryFullScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     var sharing by remember { mutableStateOf(false) }
     var shared by remember { mutableStateOf(false) }
+    var backingUpRoute by remember { mutableStateOf(false) }
     var shareExtraHashtags by remember { mutableStateOf("") }
     val summaryContext = LocalContext.current
     val nip96Origin by userPreferences.nip96MediaServerOrigin.collectAsState(initial = "")
     val blossomPublicOrigin by userPreferences.blossomPublicServerOrigin.collectAsState(initial = "")
+    val blossomPrivateOrigin by userPreferences.blossomPrivateServerOrigin.collectAsState(initial = "")
+    val trustSelfSignedLanTls by userPreferences.trustSelfSignedLanTls.collectAsState(initial = false)
     val workoutMediaBackend by userPreferences.workoutMediaUploadBackend.collectAsState(
         initial = WorkoutMediaUploadBackend.NIP96
     )
@@ -4384,6 +4389,60 @@ fun CardioWorkoutSummaryFullScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = Color.White.copy(alpha = 0.68f)
                 )
+                if (logged && relayPool != null && signer != null) {
+                    val backupRelayPool = relayPool
+                    val backupSigner = signer
+                    OutlinedButton(
+                        onClick = {
+                            if (backingUpRoute) return@OutlinedButton
+                            backingUpRoute = true
+                            scope.launch {
+                                try {
+                                    val result = CardioRouteMediaBackup.backupRouteImage(
+                                        appContext = summaryContext.applicationContext,
+                                        session = session,
+                                        dateIso = logDate.toString(),
+                                        relayPool = backupRelayPool,
+                                        signer = backupSigner,
+                                        dataRelayUrls = keyManager.relayUrlsForKind30078Publish(),
+                                        explicitPrivateBlossomOrigin = blossomPrivateOrigin,
+                                        trustSelfSignedLanTls = trustSelfSignedLanTls,
+                                        colorTop = dark.toArgb(),
+                                        colorMid = mid.toArgb(),
+                                        colorBottom = glow.toArgb(),
+                                    )
+                                    val message = when {
+                                        result.origin == null ->
+                                            "Set a private Blossom server or use Haven as your Data relay."
+                                        result.failed ->
+                                            "Route image backup failed."
+                                        result.reused ->
+                                            "Route image already backed up. Manifest ${if (result.manifestQueued) "queued" else "not queued"}."
+                                        result.uploaded ->
+                                            "Route image backed up. Manifest ${if (result.manifestQueued) "queued" else "not queued"}."
+                                        else ->
+                                            "Route image backup finished."
+                                    }
+                                    snackbarHostState.showSnackbar(message)
+                                } catch (e: Exception) {
+                                    snackbarHostState.showSnackbar("Route backup failed: ${e.message ?: "unknown error"}")
+                                } finally {
+                                    backingUpRoute = false
+                                }
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !backingUpRoute,
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                        border = ButtonDefaults.outlinedButtonBorder.copy(
+                            brush = SolidColor(Color.White)
+                        )
+                    ) {
+                        Icon(Icons.Default.CloudUpload, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text(if (backingUpRoute) "Backing up route…" else "Back Up Route Image")
+                    }
+                }
                 if (session.activity.supportsPhoneGpsTracking()) {
                     val elev = remember(session, pts) { session.resolvedElevationMeters() }
                     val altSamples = remember(pts) { pts.count { it.altitudeMeters != null } }

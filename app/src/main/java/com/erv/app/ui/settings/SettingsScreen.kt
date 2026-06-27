@@ -88,6 +88,7 @@ import com.erv.app.hr.HeartRateBleConnectionState
 import com.erv.app.hr.LocalHeartRateBle
 import com.erv.app.hr.requiredBlePermissionsForHeartRate
 import com.erv.app.nostr.ConnectionState
+import com.erv.app.nostr.BlossomEndpoints
 import com.erv.app.nostr.CurrentRelayDataCoverage
 import com.erv.app.nostr.CurrentRelayDataSync
 import com.erv.app.nostr.EventSigner
@@ -901,12 +902,21 @@ fun SettingsScreen(
                             }
                         },
                         relayPool = relayPool,
+                        dataRelayUrls = dataRelayUrls,
                         blossomFetchPubkeyHex = keyManager.publicKeyHex,
                         fetchScope = scope,
                         onUserMessage = { snackbarMessage = it },
                         onApplyFetchedBlossomPublic = { normalized ->
                             blossomPublicDraft = normalized
                             scope.launch { userPreferences.setBlossomPublicServerOrigin(normalized) }
+                        },
+                        onApplyDataRelayBlossom = { normalized ->
+                            blossomPublicDraft = normalized
+                            blossomPrivateDraft = normalized
+                            scope.launch {
+                                userPreferences.setBlossomPublicServerOrigin(normalized)
+                                userPreferences.setBlossomPrivateServerOrigin(normalized)
+                            }
                         }
                     )
                 }
@@ -2428,10 +2438,12 @@ private fun CardioNostrRouteShareSection(
     onBlossomPrivateDraftChange: (String) -> Unit,
     onSaveBlossomServers: () -> Unit,
     relayPool: RelayPool?,
+    dataRelayUrls: List<String>,
     blossomFetchPubkeyHex: String?,
     fetchScope: CoroutineScope,
     onUserMessage: (String) -> Unit,
-    onApplyFetchedBlossomPublic: (String) -> Unit
+    onApplyFetchedBlossomPublic: (String) -> Unit,
+    onApplyDataRelayBlossom: (String) -> Unit
 ) {
     val context = LocalContext.current
     var fetchingBlossomServers by remember { mutableStateOf(false) }
@@ -2491,6 +2503,21 @@ private fun CardioNostrRouteShareSection(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                OutlinedButton(
+                    onClick = {
+                        val derived = dataRelayUrls.firstNotNullOfOrNull(BlossomEndpoints::originFromRelayUrl)
+                        if (derived == null) {
+                            onUserMessage(context.getString(R.string.settings_cardio_nostr_use_data_relay_blossom_none))
+                        } else {
+                            onApplyDataRelayBlossom(derived)
+                            onUserMessage(context.getString(R.string.settings_cardio_nostr_use_data_relay_blossom_applied))
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = dataRelayUrls.isNotEmpty()
+                ) {
+                    Text(stringResource(R.string.settings_cardio_nostr_use_data_relay_blossom))
+                }
                 OutlinedButton(
                     onClick = {
                         fetchScope.launch {

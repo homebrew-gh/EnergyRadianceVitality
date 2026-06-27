@@ -2,6 +2,8 @@ package com.erv.app.ui.workouts
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -118,7 +120,7 @@ fun WorkoutLibraryScreen(
         },
         topBar = {
             TopAppBar(
-                title = { Text("Workout library") },
+                title = { Text("Workout Library") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -193,6 +195,7 @@ fun WorkoutLibraryScreen(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun WorkoutLibraryRow(
     workout: Workout,
@@ -216,24 +219,25 @@ private fun WorkoutLibraryRow(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            androidx.compose.foundation.layout.Row(
+            FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 TextButton(onClick = onRun) {
                     Icon(Icons.Default.PlayArrow, contentDescription = null)
-                    Text("Run")
+                    Text("Run", maxLines = 1, softWrap = false)
                 }
                 TextButton(onClick = onEdit) {
                     Icon(Icons.Default.Edit, contentDescription = null)
-                    Text("Edit")
+                    Text("Edit", maxLines = 1, softWrap = false)
                 }
                 TextButton(onClick = onDuplicate) {
                     Icon(Icons.Default.ContentCopy, contentDescription = null)
-                    Text("Duplicate")
+                    Text("Duplicate", maxLines = 1, softWrap = false)
                 }
                 TextButton(onClick = onDelete) {
                     Icon(Icons.Default.Delete, contentDescription = null)
-                    Text("Delete")
+                    Text("Delete", maxLines = 1, softWrap = false)
                 }
             }
         }

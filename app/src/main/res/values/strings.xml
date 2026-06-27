@@ -173,6 +173,9 @@
     <string name="settings_cardio_nostr_blossom_private_label">Private Blossom server</string>
     <string name="settings_cardio_nostr_blossom_private_helper">For personal images only. ERV does not upload these to Nostr or put their URLs in posts. Use a self-hosted or restricted server you trust.</string>
     <string name="settings_cardio_nostr_save_blossom_servers">Save Blossom servers</string>
+    <string name="settings_cardio_nostr_use_data_relay_blossom">Use Data Relay Blossom</string>
+    <string name="settings_cardio_nostr_use_data_relay_blossom_none">No data relay can be mapped to a Blossom HTTPS origin.</string>
+    <string name="settings_cardio_nostr_use_data_relay_blossom_applied">Saved Blossom server derived from your data relay.</string>
     <string name="settings_cardio_nostr_fetch_blossom">Load from my Nostr profile</string>
     <string name="settings_cardio_nostr_fetch_blossom_helper">Fetches your latest kind 10063 (Blossom server list) from the relays configured above on this screen—the same list other clients publish.</string>
     <string name="settings_cardio_nostr_fetch_blossom_loading">Looking up kind 10063…</string>
