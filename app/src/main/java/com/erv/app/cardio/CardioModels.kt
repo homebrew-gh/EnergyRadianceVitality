@@ -1,6 +1,8 @@
 package com.erv.app.cardio
 
 import com.erv.app.SectionLogDateFilter
+import com.erv.app.hr.HeartRateZoneInputs
+import com.erv.app.hr.toRelaySafeHeartRate
 import com.erv.app.unifiedroutines.UnifiedSessionLink
 import kotlinx.serialization.Serializable
 import java.time.LocalDate
@@ -217,12 +219,26 @@ data class CardioHrSample(
     val bpm: Int
 )
 
+/** Compact zone-load summary published to relays after raw HR samples are stripped. */
+@Serializable
+data class CardioHrLoadSummary(
+    val sampleCount: Int = 0,
+    val durationSeconds: Int? = null,
+    /** Seconds in Z1..Z5 using [zoneMethod]. */
+    val zoneSeconds: List<Int> = emptyList(),
+    val zoneMethod: String? = null,
+    val maxBpm: Int? = null,
+    val restingBpm: Int? = null
+)
+
 /** Session-level heart rate summary (from BLE during live cardio, import, or manual entry later). */
 @Serializable
 data class CardioHrScaffolding(
     val avgBpm: Int? = null,
     val maxBpm: Int? = null,
     val minBpm: Int? = null,
+    /** Compact derived load for Progress / future web AI guardrails. */
+    val load: CardioHrLoadSummary? = null,
     /** Time series during live BLE capture; included in encrypted data-relay backup. */
     val samples: List<CardioHrSample> = emptyList()
 )
@@ -277,6 +293,29 @@ fun CardioActivitySnapshot.isStationaryBikeActivity(): Boolean =
         else -> false
     }
 
+/**
+ * Activities that pair with a Concept2 PM monitor (BikeErg, RowErg, SkiErg) and can stream
+ * live power / stroke rate / distance over the proprietary rowing service.
+ */
+fun CardioActivitySnapshot.isErgMonitorActivity(): Boolean =
+    isCyclingActivity() ||
+        when (builtin) {
+            CardioBuiltinActivity.ROWING,
+            CardioBuiltinActivity.SKI_ERG -> true
+            else -> false
+        }
+
+/**
+ * Stroke-based ergs (RowErg, SkiErg) report stroke rate (strokes/min) and a /500m pace rather than
+ * the cycling rpm + speed presentation used for the BikeErg.
+ */
+fun CardioActivitySnapshot.isStrokeErgActivity(): Boolean =
+    when (builtin) {
+        CardioBuiltinActivity.ROWING,
+        CardioBuiltinActivity.SKI_ERG -> true
+        else -> false
+    }
+
 @Serializable
 data class CardioGpsPoint(
     val lat: Double,
@@ -304,17 +343,18 @@ fun CardioDayLog.withoutGpsTracks(): CardioDayLog =
         }
     )
 
-/** Slim day log for kind-30078 publish: no GPS paths or per-second HR samples (Progress/web only needs summaries). */
-fun CardioSession.relaySafeForPublish(): CardioSession =
+/** Slim day log for kind-30078 publish: no GPS paths or per-second HR samples. */
+fun CardioSession.relaySafeForPublish(zoneInputs: HeartRateZoneInputs = HeartRateZoneInputs()): CardioSession =
     copy(
         gpsTrack = null,
-        heartRate = heartRate?.let { hr ->
-            if (hr.samples.isEmpty()) hr else hr.copy(samples = emptyList())
-        },
+        heartRate = heartRate?.toRelaySafeHeartRate(zoneInputs),
+        workoutLink = workoutLink?.copy(
+            sessionHeartRate = workoutLink.sessionHeartRate?.toRelaySafeHeartRate(zoneInputs),
+        ),
     )
 
-fun CardioDayLog.relaySafeForPublish(): CardioDayLog =
-    copy(sessions = sessions.map { it.relaySafeForPublish() })
+fun CardioDayLog.relaySafeForPublish(zoneInputs: HeartRateZoneInputs = HeartRateZoneInputs()): CardioDayLog =
+    copy(sessions = sessions.map { it.relaySafeForPublish(zoneInputs) })
 
 @Serializable
 data class CardioSessionSegment(

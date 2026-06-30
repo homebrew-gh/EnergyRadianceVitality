@@ -10,6 +10,7 @@ import com.erv.app.weighttraining.WeightLiveWorkoutForegroundService
 import com.erv.app.weighttraining.WeightHiitBlockLog
 import com.erv.app.weighttraining.WeightRoutine
 import com.erv.app.weighttraining.WeightSet
+import com.erv.app.workouts.WorkoutItem
 import com.erv.app.workouts.WorkoutSegment
 import com.erv.app.workouts.WorkoutWeightPrescription
 import com.erv.app.workouts.advanceAfterSlot
@@ -25,12 +26,14 @@ import com.erv.app.weighttraining.WeightWorkoutCircuitRun
 import com.erv.app.weighttraining.WeightExerciseFocusMark
 import com.erv.app.weighttraining.WeightWorkoutDraft
 import com.erv.app.weighttraining.weightNowEpochSeconds
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -80,7 +83,8 @@ class WeightLiveWorkoutViewModel(application: Application) : AndroidViewModel(ap
     private fun persistDraft() {
         val d = _activeDraft.value ?: return
         viewModelScope.launch {
-            userPreferences.setLiveWeightWorkoutDraftJson(draftJson.encodeToString(d))
+            val json = withContext(Dispatchers.Default) { draftJson.encodeToString(d) }
+            userPreferences.setLiveWeightWorkoutDraftJson(json)
         }
     }
 
@@ -158,6 +162,48 @@ class WeightLiveWorkoutViewModel(application: Application) : AndroidViewModel(ap
             hiitBlocksByExerciseId = emptyMap(),
             routineName = sessionLabel,
             exerciseFocusMarks = listOf(WeightExerciseFocusMark(exerciseId, started)),
+        )
+        _activeDraft.value = draft
+        _liveWorkoutUiExpanded.value = true
+        viewModelScope.launch {
+            userPreferences.setLiveWeightWorkoutNotificationSuppressed(suppressNotification)
+            if (!suppressNotification) {
+                WeightLiveWorkoutForegroundService.start(getApplication(), draft.startedAtEpochSeconds)
+            }
+            persistDraft()
+        }
+        return true
+    }
+
+    /**
+     * Start a single straight-sets session covering several storyboard weight items at once
+     * (a plain section's consecutive lifts), so one Finish logs and advances the whole block.
+     */
+    fun tryStartFromWorkoutWeightItems(
+        items: List<WorkoutItem.Weight>,
+        library: WeightLibraryState,
+        sessionLabel: String?,
+        suppressNotification: Boolean = false,
+    ): Boolean {
+        if (_activeDraft.value != null) return false
+        val started = weightNowEpochSeconds()
+        val order = mutableListOf<String>()
+        val setsByExerciseId = mutableMapOf<String, List<WeightSet>>()
+        items.forEach { item ->
+            val exercise = library.exerciseById(item.exerciseId) ?: return@forEach
+            if (setsByExerciseId.containsKey(item.exerciseId)) return@forEach
+            order.add(item.exerciseId)
+            setsByExerciseId[item.exerciseId] =
+                item.prescription.resolvedSets(loggingStyle = exercise.setLoggingStyle())
+        }
+        if (order.isEmpty()) return false
+        val draft = WeightWorkoutDraft(
+            startedAtEpochSeconds = started,
+            exerciseOrder = order,
+            setsByExerciseId = setsByExerciseId,
+            hiitBlocksByExerciseId = emptyMap(),
+            routineName = sessionLabel,
+            exerciseFocusMarks = listOf(WeightExerciseFocusMark(order.first(), started)),
         )
         _activeDraft.value = draft
         _liveWorkoutUiExpanded.value = true

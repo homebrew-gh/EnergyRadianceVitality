@@ -7,12 +7,18 @@
 *.keystore
 *.p12
 
+# IDE / build caches
+/.kotlin/
+/.android/
+/.gradle-agent/
+
 # Web companion + Start9 packaging
-apps/web/.pack/rootfs/
-apps/web/.pack/rootfs.tar
-apps/web/.pack/debian-apt-keyrings/
+# .pack/ is start9 build staging (binary, dist, Dockerfile) — all generated
+apps/web/.pack/
 apps/web/server/target/
 apps/web/web/node_modules/
+apps/web/web/dist/
+*.tsbuildinfo
 packages/start9/node_modules/
 packages/start9/javascript/
 *.s9pk

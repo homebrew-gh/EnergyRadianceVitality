@@ -75,6 +75,9 @@ export function AppShell() {
               <NavLink to="/app/workouts" className={navLinkClass}>
                 Workout Builder
               </NavLink>
+              <NavLink to="/app/planner" className={navLinkClass}>
+                Planner
+              </NavLink>
               <NavLink to="/app/routines" className={navLinkClass}>
                 Routines
               </NavLink>

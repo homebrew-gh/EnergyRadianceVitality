@@ -50,6 +50,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -80,7 +81,9 @@ import com.erv.app.workouts.WorkoutLoggedItemKind
 import com.erv.app.workouts.WorkoutRepository
 import com.erv.app.workouts.activeWorkoutWeightLaunch
 import com.erv.app.workouts.finalCircuitRunPosition
+import com.erv.app.workouts.isFinalLoggableStep
 import com.erv.app.workouts.linkFor
+import com.erv.app.workouts.sectionProgressLabel
 import com.erv.app.unifiedroutines.linkFor
 import com.erv.app.ui.theme.ErvDarkTherapyRedDark
 import com.erv.app.ui.theme.ErvDarkTherapyRedGlow
@@ -132,6 +135,8 @@ fun WeightTrainingCategoryScreen(
     onBack: () -> Unit,
     onReturnToUnifiedRun: (String) -> Unit = {},
     onReturnToWorkoutRun: (String) -> Unit = {},
+    /** Discarding a composed-workout weight section returns straight to the workout library. */
+    onReturnToWorkoutLibrary: () -> Unit = {},
     onOpenLog: () -> Unit,
     onOpenExerciseDetail: (String) -> Unit,
     modifier: Modifier = Modifier
@@ -146,6 +151,18 @@ fun WeightTrainingCategoryScreen(
     val state by repository.state.collectAsState(initial = WeightLibraryState())
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
+    // When discarding a composed-workout weight section we navigate straight to the workout
+    // library, but defer clearing the draft until this screen is actually disposed. That keeps
+    // the full-screen live overlay rendered through the navigation transition instead of briefly
+    // unmasking the bare weight-training category screen underneath (the discard "flash").
+    var clearDraftOnDispose by remember { mutableStateOf(false) }
+    DisposableEffect(Unit) {
+        onDispose {
+            if (clearDraftOnDispose) {
+                liveWorkoutViewModel.clearDraft()
+            }
+        }
+    }
     val resolvedInitialTab = WeightTrainingTab.entries
         .firstOrNull { it.name.equals(initialTab, ignoreCase = true) }
         ?.name
@@ -383,7 +400,8 @@ fun WeightTrainingCategoryScreen(
                 else -> false
             }
             suspend fun persistFinishedLiveDraft() {
-                val current = liveWorkoutViewModel.activeDraft.value ?: return
+                val current = liveWorkoutViewModel.activeDraft.value
+                if (current == null) return
                 val workoutLaunch = workoutRepository.currentState().activeWorkoutWeightLaunch()
                     ?: expandedDraft.circuitRun?.let { circuit ->
                         com.erv.app.workouts.ActiveWorkoutItemLaunch(
@@ -404,11 +422,9 @@ fun WeightTrainingCategoryScreen(
                         )
                     }
                 }
-                val hr = if (workoutLaunch == null) {
-                    heartRateBle.takeWorkoutHeartRateSummary()
-                } else {
-                    null
-                }
+                // Per-section HR snapshot: always capture for this section. The continuous
+                // whole-workout HR is recorded separately and attached when the composed run finishes.
+                val hr = heartRateBle.takeWorkoutHeartRateSummary()
                 val end = weightNowEpochSeconds()
                 val segments = if (hr != null) {
                     buildWeightExerciseHrSegments(
@@ -423,7 +439,10 @@ fun WeightTrainingCategoryScreen(
                 val session = current.toFinishedLiveSession(
                     heartRate = hr,
                     heartRateExerciseSegments = segments,
-                ) ?: return
+                )
+                if (session == null) {
+                    return
+                }
                 val estimatedKcal = WeightCalorieEstimator.estimateKcal(session, fallbackBodyWeightKg)
                 val today = LocalDate.now()
                 val workoutRun = workoutRepository.currentState().activeRun?.takeIf { workoutLaunch != null }
@@ -473,6 +492,17 @@ fun WeightTrainingCategoryScreen(
                 }
                 pushDayLog(today)
             }
+            val composedRun = activeWorkoutRun?.takeIf {
+                activeWorkoutWeightLaunch != null || expandedDraft.circuitRun != null
+            }
+            val isUnifiedBlock = activeUnifiedSession != null && activeUnifiedWeightBlockId != null
+            val composedSectionLabel = composedRun?.takeIf { !isUnifiedBlock }?.sectionProgressLabel()
+            val weightFinishLabel = when {
+                isUnifiedBlock -> "Finish"
+                composedRun != null ->
+                    if (composedRun.isFinalLoggableStep()) "Finish workout" else "Next section"
+                else -> "Finish"
+            }
             WeightLiveWorkoutScreen(
                 modifier = Modifier.fillMaxSize(),
                 draft = expandedDraft,
@@ -488,6 +518,8 @@ fun WeightTrainingCategoryScreen(
                 composedWorkoutStartedAtEpochSeconds = expandedDraft.circuitRun?.let {
                     activeWorkoutRun?.startedAtEpochSeconds
                 },
+                composedSectionLabel = composedSectionLabel,
+                finishLabel = weightFinishLabel,
                 onRecordExerciseActivity = { id -> liveWorkoutViewModel.recordExerciseFocus(id) },
                 onAfterCircuitSetLogged = {
                     scope.launch {
@@ -529,11 +561,25 @@ fun WeightTrainingCategoryScreen(
                     }
                 },
                 onDiscardWorkout = {
-                    heartRateBle.discardWorkoutRecording()
-                    liveWorkoutViewModel.clearDraft()
-                    val returnedToParent = returnToParentRun()
-                    if (!returnedToParent && activeUnifiedSession != null && activeUnifiedWeightBlockId != null) {
-                        onBack()
+                    val isComposedWorkout = activeUnifiedSession == null &&
+                        (activeWorkoutWeightLaunch != null ||
+                            (expandedDraft.circuitRun != null && activeWorkoutRun != null))
+                    if (isComposedWorkout) {
+                        // Composed-workout weight section: abandon the run and go straight to the
+                        // workout library in a single pop. The draft is cleared on dispose (see
+                        // clearDraftOnDispose) so the live overlay covers the navigation transition.
+                        heartRateBle.discardWorkoutRecording()
+                        heartRateBle.discardComposedWorkoutRunRecording()
+                        scope.launch { workoutRepository.clearActiveRun() }
+                        clearDraftOnDispose = true
+                        onReturnToWorkoutLibrary()
+                    } else {
+                        heartRateBle.discardWorkoutRecording()
+                        liveWorkoutViewModel.clearDraft()
+                        val returnedToParent = returnToParentRun()
+                        if (!returnedToParent && activeUnifiedSession != null && activeUnifiedWeightBlockId != null) {
+                            onBack()
+                        }
                     }
                 },
                 onCannotFinishNothingLogged = {

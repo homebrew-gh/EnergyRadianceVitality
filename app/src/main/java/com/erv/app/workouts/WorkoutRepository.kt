@@ -127,12 +127,18 @@ class WorkoutRepository(context: Context) {
     }
 
     suspend fun setLastLaunchedItem(segmentId: String, itemId: String) {
+        setLastLaunchedItems(segmentId, listOf(itemId))
+    }
+
+    suspend fun setLastLaunchedItems(segmentId: String, itemIds: List<String>) {
+        val ids = itemIds.distinct()
         updateState { state ->
             val run = state.activeRun ?: return@updateState state
             state.copy(
                 activeRun = run.copy(
                     lastLaunchedSegmentId = segmentId,
-                    lastLaunchedItemId = itemId,
+                    lastLaunchedItemId = ids.firstOrNull(),
+                    lastLaunchedItemIds = ids,
                 ),
             )
         }
@@ -143,6 +149,14 @@ class WorkoutRepository(context: Context) {
             val run = state.activeRun ?: return@updateState state
             if (run.pendingNextSegmentTitle == null) return@updateState state
             state.copy(activeRun = run.copy(pendingNextSegmentTitle = null))
+        }
+    }
+
+    suspend fun clearAutoAdvance() {
+        updateState { state ->
+            val run = state.activeRun ?: return@updateState state
+            if (!run.autoAdvanceRequested) return@updateState state
+            state.copy(activeRun = run.copy(autoAdvanceRequested = false))
         }
     }
 
@@ -157,11 +171,26 @@ class WorkoutRepository(context: Context) {
     ): WorkoutItemCompletionResult? {
         var result: WorkoutItemCompletionResult? = null
         updateState { state ->
-            val run = state.activeRun ?: return@updateState state
-            val segmentId = run.lastLaunchedSegmentId ?: return@updateState state
-            val itemId = run.lastLaunchedItemId ?: return@updateState state
+            val run = state.activeRun
+            if (run == null) {
+                return@updateState state
+            }
             val workout = run.workoutSnapshot
             val position = run.position
+            // Prefer the explicit launch pointer, but fall back to the current run
+            // position so a finished section still advances even if the launch write
+            // never persisted (e.g. navigation cancelled the storyboard coroutine).
+            val fallbackStep = WorkoutRunEngine.currentStep(workout, position)
+            val segmentId = run.lastLaunchedSegmentId
+                ?: workout.segments.getOrNull(position.segmentIndex)?.id
+                ?: run {
+                    return@updateState state
+                }
+            val itemId = run.lastLaunchedItemId
+                ?: fallbackStep?.item?.id
+                ?: run {
+                    return@updateState state
+                }
             val now = nowWorkoutEpochSeconds()
             val recap = WorkoutItemRecap(
                 segmentId = segmentId,
@@ -174,7 +203,9 @@ class WorkoutRepository(context: Context) {
             val itemRecaps = run.itemRecaps
                 .filterNot { it.segmentId == segmentId && it.itemId == itemId } + recap
             val beforeSegmentIndex = position.segmentIndex
-            val nextPosition = WorkoutRunEngine.advance(workout, position)
+            val batchSize = run.lastLaunchedItemIds.size.takeIf { it > 0 }
+                ?: WorkoutRunEngine.consecutiveWeightItemRun(workout, position).size.coerceAtLeast(1)
+            val nextPosition = WorkoutRunEngine.advanceBy(workout, position, batchSize)
             val segmentJustCompleted = nextPosition.segmentIndex > beforeSegmentIndex
             val completedSegmentId = if (segmentJustCompleted) {
                 workout.segments.getOrNull(beforeSegmentIndex)?.id
@@ -198,13 +229,16 @@ class WorkoutRepository(context: Context) {
                 workoutComplete = workoutComplete,
                 nextSegmentTitle = nextSegmentTitle,
             )
+            val autoAdvance = !workoutComplete && workout.stepIsSiloBacked(nextPosition)
             val updatedRun = run.copy(
                 position = nextPosition,
                 itemRecaps = itemRecaps,
                 completedSegmentIds = completedSegmentIds,
                 lastLaunchedSegmentId = null,
                 lastLaunchedItemId = null,
+                lastLaunchedItemIds = emptyList(),
                 pendingNextSegmentTitle = nextSegmentTitle,
+                autoAdvanceRequested = autoAdvance,
             )
             state.copy(activeRun = updatedRun)
         }

@@ -7,6 +7,7 @@ import com.erv.app.stretching.StretchCatalogEntry
 import com.erv.app.stretching.StretchLibraryState
 import com.erv.app.unifiedroutines.UnifiedRoutineLibraryState
 import com.erv.app.weighttraining.WeightLibraryState
+import com.erv.app.workouts.WorkoutLibraryState
 
 fun ProgramDayBlock.summaryLine(
     weightState: WeightLibraryState,
@@ -14,9 +15,16 @@ fun ProgramDayBlock.summaryLine(
     stretchCatalog: List<StretchCatalogEntry>,
     cardioState: CardioLibraryState,
     unifiedRoutineState: UnifiedRoutineLibraryState,
+    workoutState: WorkoutLibraryState = WorkoutLibraryState(),
 ): String {
     val titlePart = title?.let { "$it — " }.orEmpty()
     return titlePart + when (kind) {
+        ProgramBlockKind.WORKOUT -> {
+            val workoutName = workoutId?.let { id ->
+                workoutState.workouts.firstOrNull { it.id == id }?.name
+            }
+            workoutName ?: workoutId?.let { "Saved workout: $it" } ?: "Saved workout"
+        }
         ProgramBlockKind.WEIGHT -> {
             val names = weightExerciseIds.mapNotNull { id -> weightState.exerciseById(id)?.name }
             val routine = weightRoutineId?.let { rid ->

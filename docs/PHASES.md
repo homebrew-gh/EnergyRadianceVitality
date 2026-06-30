@@ -39,9 +39,10 @@ Last updated: June 2026.
 
 ## Next — Phase 3 weekly planner
 
-- Week grid: drop exercises, routines, templates, saved workouts onto days
-- `workoutRefs` on plan days (reference workout by id)
-- Android: Programs + Unified Workouts → single **Planner** tile
+- MVP week grid: assign saved workouts to weekdays on web and sync as `workout` blocks
+- Later: drop exercises, routines, templates, and saved workouts onto days
+- `workoutId` on plan days (reference saved workout by id)
+- Android: Training is the single planning/training hub; legacy Programs/Unified entry points stay behind it
 - Plan strategy, habits, rest notes
 
 **Acceptance test:** Assign two different workouts to two days on web → sync →
@@ -50,7 +51,7 @@ Android week view matches → tap day → run live session.
 ## Pre-AI web prep (parallel track)
 
 Build athlete context on the **Start9 companion** before Phase 4 AI. Android stays live
-logging; web owns profile, history, and analytics.
+logging and live session execution; web owns profile, history, analytics, and all AI generation.
 
 See **[Athlete context & web prep](architecture/ATHLETE_CONTEXT_WEB_PREP.md)** (W1–W6).
 
@@ -63,7 +64,7 @@ See **[Athlete context & web prep](architecture/ATHLETE_CONTEXT_WEB_PREP.md)** (
 ## Later — Phase 4
 
 - Dashboard card: planned workout for today (read-only)
-- AI plan/workout generation (Maple / optional on StartOS) — requires W1–W3 baseline
+- Web-only AI plan/workout generation (Maple / optional on StartOS) — requires W1–W3 baseline
 
 ## Key Nostr d-tags
 

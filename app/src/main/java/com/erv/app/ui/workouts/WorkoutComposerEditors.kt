@@ -72,9 +72,9 @@ fun CardioPrescriptionEditor(
     val usingRoutine = !prescription.cardioRoutineId.isNullOrBlank()
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (cardioState.routines.isNotEmpty()) {
-            Row(
+            Column(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 FilterChip(
                     selected = prescription.cardioRoutineId.isNullOrBlank(),
@@ -159,35 +159,35 @@ fun CardioPrescriptionEditor(
             }
             when (mode) {
                 "sprint_intervals" -> {
-                    Row(
+                    Column(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        IntField("Rounds", prescription.rounds) {
+                        CompactIntField("Rounds", prescription.rounds) {
                             onUpdate(prescription.copy(rounds = it?.coerceAtLeast(1)))
                         }
-                        IntField("Work (s)", prescription.workSeconds) {
+                        CompactIntField("Work (s)", prescription.workSeconds) {
                             onUpdate(prescription.copy(workSeconds = it?.coerceAtLeast(1)))
                         }
-                        IntField("Rest (s)", prescription.restSeconds) {
+                        CompactIntField("Rest (s)", prescription.restSeconds) {
                             onUpdate(prescription.copy(restSeconds = it?.coerceAtLeast(0)))
                         }
                     }
                 }
                 "interval_template" -> {
-                    Row(
+                    Column(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        IntField("Outer rounds", prescription.outerRounds) {
+                        CompactIntField("Outer rounds", prescription.outerRounds) {
                             onUpdate(prescription.copy(outerRounds = it?.coerceAtLeast(1)))
                         }
                         val leg = prescription.legs.firstOrNull()
-                        IntField("Work (s)", leg?.workSeconds) {
+                        CompactIntField("Work (s)", leg?.workSeconds) {
                             val base = leg ?: com.erv.app.workouts.WorkoutCardioIntervalLeg(240, 240)
                             onUpdate(prescription.copy(legs = listOf(base.copy(workSeconds = it ?: 240))))
                         }
-                        IntField("Rest (s)", leg?.restSeconds) {
+                        CompactIntField("Rest (s)", leg?.restSeconds) {
                             val base = leg ?: com.erv.app.workouts.WorkoutCardioIntervalLeg(240, 240)
                             onUpdate(prescription.copy(legs = listOf(base.copy(restSeconds = it ?: 0))))
                         }
@@ -256,13 +256,28 @@ private fun RowScope.IntField(
     value: Int?,
     onValue: (Int?) -> Unit,
 ) {
+    CompactIntField(
+        label = label,
+        value = value,
+        onValue = onValue,
+        modifier = Modifier.weight(1f),
+    )
+}
+
+@Composable
+private fun CompactIntField(
+    label: String,
+    value: Int?,
+    modifier: Modifier = Modifier.fillMaxWidth(),
+    onValue: (Int?) -> Unit,
+) {
     OutlinedTextField(
         value = value?.toString().orEmpty(),
         onValueChange = { raw ->
             onValue(raw.toIntOrNull())
         },
         label = { FieldLabel(label) },
-        modifier = Modifier.weight(1f),
+        modifier = modifier,
         singleLine = true,
     )
 }

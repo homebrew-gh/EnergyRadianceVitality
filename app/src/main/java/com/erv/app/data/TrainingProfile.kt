@@ -27,15 +27,6 @@ enum class TrainingExperienceLevel {
 }
 
 @Serializable
-enum class TrainingSplitPreference {
-    @SerialName("full_body") FULL_BODY,
-    @SerialName("upper_lower") UPPER_LOWER,
-    @SerialName("push_pull_legs") PUSH_PULL_LEGS,
-    @SerialName("custom") CUSTOM,
-    @SerialName("none") NONE,
-}
-
-@Serializable
 enum class TrainingProgressionStyle {
     @SerialName("conservative") CONSERVATIVE,
     @SerialName("moderate") MODERATE,
@@ -52,14 +43,12 @@ enum class TrainingCardioBias {
 
 @Serializable
 data class TrainingProfileNostrPayload(
-    val profileVersion: Int = 1,
+    val profileVersion: Int = 2,
     val primaryGoal: TrainingPrimaryGoal? = null,
     val experienceLevel: TrainingExperienceLevel? = null,
     val typicalSessionMinutes: Int? = null,
     val typicalTrainingDaysPerWeek: Int? = null,
-    val preferredSplit: TrainingSplitPreference? = null,
     val stylePresetIds: List<String> = emptyList(),
-    val influenceLabels: List<String> = emptyList(),
     val styleNotes: String? = null,
     val avoidMovementPatterns: List<String> = emptyList(),
     val customAvoidNotes: String? = null,
@@ -90,23 +79,17 @@ fun TrainingExperienceLevel.displayLabel(): String =
         TrainingExperienceLevel.ADVANCED -> "Advanced"
     }
 
-fun TrainingSplitPreference.displayLabel(): String =
-    when (this) {
-        TrainingSplitPreference.FULL_BODY -> "Full body"
-        TrainingSplitPreference.UPPER_LOWER -> "Upper / lower"
-        TrainingSplitPreference.PUSH_PULL_LEGS -> "Push / pull / legs"
-        TrainingSplitPreference.CUSTOM -> "Custom"
-        TrainingSplitPreference.NONE -> "No preference"
-    }
-
 fun trainingStylePresetLabel(id: String): String =
     when (id) {
-        "longevity_blueprint" -> "Longevity / Blueprint-adjacent"
-        "kot_durable" -> "KOT / joint-durable"
-        "powerlifting" -> "Powerlifting"
-        "hypertrophy" -> "Hypertrophy"
-        "zone2_minimal" -> "Zone 2 + minimal strength"
-        "general_athletic" -> "General athletic"
+        "longevity_recovery", "longevity_blueprint" -> "Longevity & Recovery"
+        "joint_durability", "kot_durable" -> "Joint Durability / ATG"
+        "hypertrophy_bodybuilding", "hypertrophy" -> "Hypertrophy / Bodybuilding"
+        "strength_powerlifting", "powerlifting" -> "Strength / Powerlifting"
+        "zone2_endurance", "zone2_minimal" -> "Zone 2 / Aerobic Base"
+        "hiit_conditioning" -> "HIIT / Conditioning"
+        "general_athletic" -> "General Athletic Performance"
+        "mobility_movement" -> "Mobility & Movement Quality"
+        "calisthenics_minimalist" -> "Calisthenics / Minimal Equipment"
         else -> id.replace('_', ' ').replaceFirstChar { it.titlecase() }
     }
 
@@ -126,9 +109,7 @@ fun TrainingProfileNostrPayload.isBlank(): Boolean {
     if (experienceLevel != null) return false
     if (typicalSessionMinutes != null) return false
     if (typicalTrainingDaysPerWeek != null) return false
-    if (preferredSplit != null) return false
     if (stylePresetIds.isNotEmpty()) return false
-    if (influenceLabels.isNotEmpty()) return false
     if (!styleNotes.isNullOrBlank()) return false
     if (avoidMovementPatterns.isNotEmpty()) return false
     if (!customAvoidNotes.isNullOrBlank()) return false

@@ -48,8 +48,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.erv.app.ui.media.playHiitWorkCountdownTickCue
 import com.erv.app.ui.media.playHiitWorkSegmentEndCue
 import com.erv.app.ui.components.FieldLabel
@@ -121,11 +121,13 @@ private fun ShadowOutlinedNumberField(
         if (value.isEmpty() && !shadowText.isNullOrEmpty()) {
             Text(
                 text = shadowText,
-                style = MaterialTheme.typography.headlineMedium.copy(
-                    fontSize = 28.sp,
+                style = MaterialTheme.typography.bodyLarge.copy(
                     textAlign = TextAlign.Center,
                 ),
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.14f),
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.30f),
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis,
                 modifier = Modifier
                     .align(Alignment.Center)
                     .fillMaxWidth()

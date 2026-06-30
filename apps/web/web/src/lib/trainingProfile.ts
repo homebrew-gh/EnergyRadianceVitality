@@ -12,13 +12,6 @@ export type TrainingPrimaryGoal =
 
 export type TrainingExperienceLevel = "beginner" | "intermediate" | "advanced";
 
-export type TrainingSplitPreference =
-  | "full_body"
-  | "upper_lower"
-  | "push_pull_legs"
-  | "custom"
-  | "none";
-
 export type TrainingProgressionStyle = "conservative" | "moderate" | "aggressive";
 
 export type TrainingCardioBias = "none" | "zone2_base" | "intervals" | "mixed";
@@ -31,9 +24,7 @@ export type TrainingProfilePayload = {
   experienceLevel?: TrainingExperienceLevel | null;
   typicalSessionMinutes?: number | null;
   typicalTrainingDaysPerWeek?: number | null;
-  preferredSplit?: TrainingSplitPreference | null;
   stylePresetIds: string[];
-  influenceLabels: string[];
   styleNotes?: string | null;
   avoidMovementPatterns: string[];
   customAvoidNotes?: string | null;
@@ -50,6 +41,7 @@ export type TrainingStylePreset = {
   id: string;
   label: string;
   description: string;
+  influenceExamples: string[];
 };
 
 export type AvoidMovementPattern = {
@@ -57,38 +49,73 @@ export type AvoidMovementPattern = {
   label: string;
 };
 
+export const MAX_TRAINING_STYLE_PRESETS = 2;
+
 export const TRAINING_STYLE_PRESETS: TrainingStylePreset[] = [
   {
-    id: "longevity_blueprint",
-    label: "Longevity / Blueprint-adjacent",
-    description: "Conservative loading, full-body bias, recovery-aware sessions.",
+    id: "longevity_recovery",
+    label: "Longevity & Recovery",
+    description: "Conservative progression, recovery, mobility, zone 2, and full-body balance.",
+    influenceExamples: ["Bryan Johnson", "Rhonda Patrick", "Peter Attia", "Andrew Huberman"],
   },
   {
-    id: "kot_durable",
-    label: "KOT / joint-durable",
-    description: "Knee and ankle prep, controlled ROM, split squats and tibialis bias.",
+    id: "joint_durability",
+    label: "Joint Durability / ATG",
+    description: "Knee and ankle capacity, controlled ROM, tendon resilience, and progressive range.",
+    influenceExamples: ["Ben Patrick", "Knees Over Toes", "ATG", "Kelly Starrett"],
   },
   {
-    id: "powerlifting",
-    label: "Powerlifting",
-    description: "Squat, bench, and deadlift focus with percentage-style progression.",
+    id: "hypertrophy_bodybuilding",
+    label: "Hypertrophy / Bodybuilding",
+    description: "Volume, 8-15 rep work, accessories, and proximity-to-failure progressions.",
+    influenceExamples: ["Renaissance Periodization", "Mike Israetel", "Jeff Nippard", "Menno Henselmans"],
   },
   {
-    id: "hypertrophy",
-    label: "Hypertrophy",
-    description: "Higher volume, 8–15 rep ranges, accessory density.",
+    id: "strength_powerlifting",
+    label: "Strength / Powerlifting",
+    description: "Squat, bench, deadlift, heavier loading, and planned strength progression.",
+    influenceExamples: ["Starting Strength", "Jim Wendler", "Westside"],
   },
   {
-    id: "zone2_minimal",
-    label: "Zone 2 + minimal strength",
-    description: "Cardio base with short strength maintenance blocks.",
+    id: "zone2_endurance",
+    label: "Zone 2 / Aerobic Base",
+    description: "Aerobic base building, low-intensity cardio, and strength maintenance.",
+    influenceExamples: ["Phil Maffetone", "Inigo San Millan", "Peter Attia"],
+  },
+  {
+    id: "hiit_conditioning",
+    label: "HIIT / Conditioning",
+    description: "Intervals, circuits, work capacity, and careful fatigue control.",
+    influenceExamples: ["Tabata", "Norwegian 4x4", "CrossFit-style conditioning"],
   },
   {
     id: "general_athletic",
-    label: "General athletic",
-    description: "Balanced mixed modalities across the week.",
+    label: "General Athletic Performance",
+    description: "Strength, mobility, cardio, power, and coordination for balanced performance.",
+    influenceExamples: ["Field-sport S&C", "EXOS-style training"],
+  },
+  {
+    id: "mobility_movement",
+    label: "Mobility & Movement Quality",
+    description: "Range of motion, control, prehab, and lower-intensity movement practice.",
+    influenceExamples: ["FRC", "GMB-style movement", "Yoga", "Pilates"],
+  },
+  {
+    id: "calisthenics_minimalist",
+    label: "Calisthenics / Minimal Equipment",
+    description: "Bodyweight progressions, low-equipment strength, and skill practice.",
+    influenceExamples: ["Bodyweight strength", "Pavel-style simple strength", "Rings and bar basics"],
   },
 ];
+
+const STYLE_PRESET_ID_ALIASES: Record<string, string> = {
+  longevity_blueprint: "longevity_recovery",
+  kot_durable: "joint_durability",
+  hypertrophy: "hypertrophy_bodybuilding",
+  powerlifting: "strength_powerlifting",
+  zone2_minimal: "zone2_endurance",
+  general_athletic: "general_athletic",
+};
 
 export const AVOID_MOVEMENT_PATTERNS: AvoidMovementPattern[] = [
   { id: "heavy_overhead_press", label: "Heavy overhead press" },
@@ -112,14 +139,6 @@ export const EXPERIENCE_LEVEL_OPTIONS: { value: TrainingExperienceLevel; label: 
   { value: "beginner", label: "Beginner" },
   { value: "intermediate", label: "Intermediate" },
   { value: "advanced", label: "Advanced" },
-];
-
-export const SPLIT_PREFERENCE_OPTIONS: { value: TrainingSplitPreference; label: string }[] = [
-  { value: "full_body", label: "Full body" },
-  { value: "upper_lower", label: "Upper / lower" },
-  { value: "push_pull_legs", label: "Push / pull / legs" },
-  { value: "custom", label: "Custom" },
-  { value: "none", label: "No preference" },
 ];
 
 export const PROGRESSION_STYLE_OPTIONS: { value: TrainingProgressionStyle; label: string }[] = [
@@ -146,9 +165,8 @@ export const TRAINING_DAYS_PER_WEEK_OPTIONS = [1, 2, 3, 4, 5, 6, 7] as const;
 
 export function emptyTrainingProfile(): TrainingProfilePayload {
   return {
-    profileVersion: 1,
+    profileVersion: 2,
     stylePresetIds: [],
-    influenceLabels: [],
     avoidMovementPatterns: [],
     lastModifiedEpochSeconds: 0,
   };
@@ -160,6 +178,18 @@ function normalizeStringList(raw: unknown): string[] {
     .filter((v): v is string => typeof v === "string")
     .map((s) => s.trim())
     .filter(Boolean);
+}
+
+function normalizeStylePresetIds(raw: unknown): string[] {
+  const allowed = new Set(TRAINING_STYLE_PRESETS.map((preset) => preset.id));
+  const normalized: string[] = [];
+  for (const id of normalizeStringList(raw)) {
+    const mapped = STYLE_PRESET_ID_ALIASES[id] ?? id;
+    if (!allowed.has(mapped) || normalized.includes(mapped)) continue;
+    normalized.push(mapped);
+    if (normalized.length >= MAX_TRAINING_STYLE_PRESETS) break;
+  }
+  return normalized;
 }
 
 function optionalEnum<T extends string>(raw: unknown, allowed: readonly T[]): T | null {
@@ -183,7 +213,7 @@ export function parseTrainingProfilePayload(raw: string): TrainingProfilePayload
   try {
     const data = JSON.parse(raw) as Record<string, unknown>;
     return {
-      profileVersion: typeof data.profileVersion === "number" ? data.profileVersion : 1,
+      profileVersion: typeof data.profileVersion === "number" ? data.profileVersion : 2,
       primaryGoal: optionalEnum(data.primaryGoal, [
         "general_fitness",
         "strength",
@@ -199,15 +229,7 @@ export function parseTrainingProfilePayload(raw: string): TrainingProfilePayload
       ] as const),
       typicalSessionMinutes: optionalInt(data.typicalSessionMinutes),
       typicalTrainingDaysPerWeek: optionalIntInRange(data.typicalTrainingDaysPerWeek, 1, 7),
-      preferredSplit: optionalEnum(data.preferredSplit, [
-        "full_body",
-        "upper_lower",
-        "push_pull_legs",
-        "custom",
-        "none",
-      ] as const),
-      stylePresetIds: normalizeStringList(data.stylePresetIds),
-      influenceLabels: normalizeStringList(data.influenceLabels),
+      stylePresetIds: normalizeStylePresetIds(data.stylePresetIds),
       styleNotes: typeof data.styleNotes === "string" ? data.styleNotes : null,
       avoidMovementPatterns: normalizeStringList(data.avoidMovementPatterns),
       customAvoidNotes:
@@ -245,9 +267,7 @@ export function isTrainingProfileBlank(profile: TrainingProfilePayload): boolean
   if (profile.experienceLevel) return false;
   if (profile.typicalSessionMinutes) return false;
   if (profile.typicalTrainingDaysPerWeek) return false;
-  if (profile.preferredSplit) return false;
   if (profile.stylePresetIds.length > 0) return false;
-  if (profile.influenceLabels.length > 0) return false;
   if (profile.styleNotes?.trim()) return false;
   if (profile.avoidMovementPatterns.length > 0) return false;
   if (profile.customAvoidNotes?.trim()) return false;
@@ -262,9 +282,8 @@ export function isTrainingProfileBlank(profile: TrainingProfilePayload): boolean
 
 export function trainingProfilePayload(profile: TrainingProfilePayload): string {
   const body: Record<string, unknown> = {
-    profileVersion: profile.profileVersion,
-    stylePresetIds: [...profile.stylePresetIds].sort(),
-    influenceLabels: profile.influenceLabels,
+    profileVersion: 2,
+    stylePresetIds: normalizeStylePresetIds(profile.stylePresetIds).sort(),
     avoidMovementPatterns: [...profile.avoidMovementPatterns].sort(),
     lastModifiedEpochSeconds: profile.lastModifiedEpochSeconds,
   };
@@ -274,7 +293,6 @@ export function trainingProfilePayload(profile: TrainingProfilePayload): string 
   if (profile.typicalTrainingDaysPerWeek) {
     body.typicalTrainingDaysPerWeek = profile.typicalTrainingDaysPerWeek;
   }
-  if (profile.preferredSplit) body.preferredSplit = profile.preferredSplit;
   if (profile.styleNotes?.trim()) body.styleNotes = profile.styleNotes.trim();
   if (profile.customAvoidNotes?.trim()) body.customAvoidNotes = profile.customAvoidNotes.trim();
   if (profile.progressionStyle) body.progressionStyle = profile.progressionStyle;

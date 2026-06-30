@@ -158,6 +158,7 @@ fun WorkoutComposerScreen(
     var pickExercisesForSegmentIndex by remember { mutableIntStateOf(-1) }
     var pickCardioForSegmentIndex by remember { mutableIntStateOf(-1) }
     var pickStretchForSegmentIndex by remember { mutableIntStateOf(-1) }
+    var focusedSegmentId by remember(existing?.id) { mutableStateOf(segments.firstOrNull()?.id) }
 
     if (pickExercisesForSegmentIndex >= 0 && pickExercisesForSegmentIndex < segments.size) {
         val segment = segments[pickExercisesForSegmentIndex]
@@ -239,6 +240,12 @@ fun WorkoutComposerScreen(
         }
     }
 
+    fun addSegment(kind: WorkoutSegmentKind) {
+        val next = defaultWorkoutSegment(kind)
+        segments.add(next)
+        focusedSegmentId = next.id
+    }
+
     Scaffold(
         modifier = modifier.fillMaxSize(),
         topBar = {
@@ -294,11 +301,15 @@ fun WorkoutComposerScreen(
                 itemsIndexed(segments, key = { _, segment -> segment.id }) { index, segment ->
                     SegmentEditorCard(
                         segment = segment,
+                        expanded = focusedSegmentId == segment.id,
                         weightState = weightState,
                         cardioState = cardioState,
                         stretchCatalog = stretchCatalog,
                         loadUnit = loadUnit,
                         onUpdate = { segments[index] = it },
+                        onToggleExpanded = {
+                            focusedSegmentId = if (focusedSegmentId == segment.id) null else segment.id
+                        },
                         onMoveUp = {
                             if (index > 0) {
                                 val item = segments.removeAt(index)
@@ -311,7 +322,13 @@ fun WorkoutComposerScreen(
                                 segments.add(index + 1, item)
                             }
                         },
-                        onDelete = { segments.removeAt(index) },
+                        onDelete = {
+                            val removedId = segments[index].id
+                            segments.removeAt(index)
+                            if (focusedSegmentId == removedId) {
+                                focusedSegmentId = segments.getOrNull(index)?.id ?: segments.getOrNull(index - 1)?.id
+                            }
+                        },
                         onAddExercises = { pickExercisesForSegmentIndex = index },
                         onAddCardio = { pickCardioForSegmentIndex = index },
                         onAddStretch = { pickStretchForSegmentIndex = index },
@@ -337,49 +354,49 @@ fun WorkoutComposerScreen(
                                 text = { Text("Straight sets") },
                                 onClick = {
                                     addSegmentMenuExpanded = false
-                                    segments.add(defaultWorkoutSegment(WorkoutSegmentKind.STRAIGHT_SETS))
+                                    addSegment(WorkoutSegmentKind.STRAIGHT_SETS)
                                 },
                             )
                             DropdownMenuItem(
                                 text = { Text("Flow block") },
                                 onClick = {
                                     addSegmentMenuExpanded = false
-                                    segments.add(defaultWorkoutSegment(WorkoutSegmentKind.COMPOSITE))
+                                    addSegment(WorkoutSegmentKind.COMPOSITE)
                                 },
                             )
                             DropdownMenuItem(
                                 text = { Text("Cardio block") },
                                 onClick = {
                                     addSegmentMenuExpanded = false
-                                    segments.add(defaultWorkoutSegment(WorkoutSegmentKind.CARDIO))
+                                    addSegment(WorkoutSegmentKind.CARDIO)
                                 },
                             )
                             DropdownMenuItem(
                                 text = { Text("Interval block") },
                                 onClick = {
                                     addSegmentMenuExpanded = false
-                                    segments.add(defaultWorkoutSegment(WorkoutSegmentKind.INTERVAL))
+                                    addSegment(WorkoutSegmentKind.INTERVAL)
                                 },
                             )
                             DropdownMenuItem(
                                 text = { Text("Mobility block") },
                                 onClick = {
                                     addSegmentMenuExpanded = false
-                                    segments.add(defaultWorkoutSegment(WorkoutSegmentKind.MOBILITY))
+                                    addSegment(WorkoutSegmentKind.MOBILITY)
                                 },
                             )
                             DropdownMenuItem(
                                 text = { Text("Circuit") },
                                 onClick = {
                                     addSegmentMenuExpanded = false
-                                    segments.add(defaultWorkoutSegment(WorkoutSegmentKind.CIRCUIT))
+                                    addSegment(WorkoutSegmentKind.CIRCUIT)
                                 },
                             )
                             DropdownMenuItem(
                                 text = { Text("Superset") },
                                 onClick = {
                                     addSegmentMenuExpanded = false
-                                    segments.add(defaultWorkoutSegment(WorkoutSegmentKind.SUPERSET))
+                                    addSegment(WorkoutSegmentKind.SUPERSET)
                                 },
                             )
                         }
@@ -393,11 +410,13 @@ fun WorkoutComposerScreen(
 @Composable
 private fun SegmentEditorCard(
     segment: WorkoutSegment,
+    expanded: Boolean,
     weightState: WeightLibraryState,
     cardioState: CardioLibraryState,
     stretchCatalog: List<StretchCatalogEntry>,
     loadUnit: BodyWeightUnit,
     onUpdate: (WorkoutSegment) -> Unit,
+    onToggleExpanded: () -> Unit,
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
     onDelete: () -> Unit,
@@ -405,7 +424,6 @@ private fun SegmentEditorCard(
     onAddCardio: () -> Unit,
     onAddStretch: () -> Unit,
 ) {
-    var collapsed by remember { mutableStateOf(false) }
     var pickAlternativeForItemIndex by remember { mutableIntStateOf(-1) }
 
     if (pickAlternativeForItemIndex >= 0 && pickAlternativeForItemIndex < segment.items.size) {
@@ -448,15 +466,15 @@ private fun SegmentEditorCard(
                     text = buildString {
                         append(defaultWorkoutSegmentKindLabel(segment.kind))
                         segment.title?.takeIf { it.isNotBlank() }?.let { append(" · $it") }
-                        if (collapsed) append(" · ${segment.items.size} item(s)")
+                        if (!expanded) append(" · ${segment.items.size} item(s)")
                     },
                     style = MaterialTheme.typography.titleSmall,
                     modifier = Modifier.weight(1f),
                 )
-                IconButton(onClick = { collapsed = !collapsed }) {
+                IconButton(onClick = onToggleExpanded) {
                     Icon(
-                        if (collapsed) Icons.Default.ExpandMore else Icons.Default.ExpandLess,
-                        contentDescription = if (collapsed) "Expand segment" else "Collapse segment",
+                        if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                        contentDescription = if (expanded) "Collapse segment" else "Expand segment",
                     )
                 }
                 IconButton(onClick = onMoveUp) {
@@ -469,7 +487,7 @@ private fun SegmentEditorCard(
                     Icon(Icons.Default.Delete, contentDescription = "Delete segment")
                 }
             }
-            if (!collapsed) {
+            if (expanded) {
             OutlinedTextField(
                 value = segment.title.orEmpty(),
                 onValueChange = { onUpdate(segment.copy(title = it.ifBlank { null })) },
@@ -544,33 +562,33 @@ private fun SegmentEditorCard(
                         onAddAlternative = { pickAlternativeForItemIndex = itemIndex },
                     )
                 }
-                Row(
+                Column(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
                     if (segment.kind == WorkoutSegmentKind.STRAIGHT_SETS ||
                         segment.kind == WorkoutSegmentKind.COMPOSITE ||
                         segment.kind == WorkoutSegmentKind.CIRCUIT ||
                         segment.kind == WorkoutSegmentKind.SUPERSET
                     ) {
-                        TextButton(onClick = onAddExercises, modifier = Modifier.weight(1f)) {
+                        TextButton(onClick = onAddExercises, modifier = Modifier.fillMaxWidth()) {
                             Icon(Icons.Default.Add, contentDescription = null)
-                            Text("Exercise")
+                            Text("Add Exercise")
                         }
                     }
                     if (segment.kind == WorkoutSegmentKind.COMPOSITE ||
                         segment.kind == WorkoutSegmentKind.CARDIO ||
                         segment.kind == WorkoutSegmentKind.INTERVAL
                     ) {
-                        TextButton(onClick = onAddCardio, modifier = Modifier.weight(1f)) {
-                            Text("Cardio")
+                        TextButton(onClick = onAddCardio, modifier = Modifier.fillMaxWidth()) {
+                            Text("Add Cardio")
                         }
                     }
                     if (segment.kind == WorkoutSegmentKind.COMPOSITE ||
                         segment.kind == WorkoutSegmentKind.MOBILITY
                     ) {
-                        TextButton(onClick = onAddStretch, modifier = Modifier.weight(1f)) {
-                            Text("Stretch")
+                        TextButton(onClick = onAddStretch, modifier = Modifier.fillMaxWidth()) {
+                            Text("Add Stretch")
                         }
                     }
                     if (segment.kind == WorkoutSegmentKind.STRAIGHT_SETS ||
@@ -587,9 +605,9 @@ private fun SegmentEditorCard(
                                     ),
                                 )
                             },
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier.fillMaxWidth(),
                         ) {
-                            Text("Rest")
+                            Text("Add Rest")
                         }
                         TextButton(
                             onClick = {
@@ -599,9 +617,9 @@ private fun SegmentEditorCard(
                                     ),
                                 )
                             },
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier.fillMaxWidth(),
                         ) {
-                            Text("Note")
+                            Text("Add Note")
                         }
                     }
                 }
@@ -638,6 +656,24 @@ private fun StraightSetsItemEditor(
     onDelete: () -> Unit,
     onAddAlternative: () -> Unit,
 ) {
+    var expanded by remember(item.id) { mutableStateOf(itemIndex == 0 || itemIndex == itemCount - 1) }
+    val itemTitle = when (item) {
+        is WorkoutItem.Weight -> weightState.exerciseById(item.exerciseId)?.name ?: item.exerciseId
+        is WorkoutItem.Rest -> "Rest"
+        is WorkoutItem.Note -> "Coach note"
+        is WorkoutItem.Cardio -> item.title?.takeIf { it.isNotBlank() } ?: "Cardio"
+        is WorkoutItem.Mobility -> item.title?.takeIf { it.isNotBlank() } ?: "Mobility"
+    }
+    val itemSummary = when (item) {
+        is WorkoutItem.Weight -> item.prescription.displaySummary()
+        is WorkoutItem.Rest -> "${item.durationSeconds}s"
+        is WorkoutItem.Note -> item.text.takeIf { it.isNotBlank() } ?: "No note text"
+        is WorkoutItem.Cardio -> item.cardio.mode.replace('_', ' ')
+        is WorkoutItem.Mobility -> listOfNotNull(
+            item.mobility.holdSeconds?.let { "${it}s hold" },
+            item.mobility.holdSecondsPerSide?.let { "${it}s per side" },
+        ).joinToString(" · ").ifBlank { "No target" }
+    }
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
@@ -652,18 +688,25 @@ private fun StraightSetsItemEditor(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    text = when (item) {
-                        is WorkoutItem.Weight -> weightState.exerciseById(item.exerciseId)?.name
-                            ?: item.exerciseId
-                        is WorkoutItem.Rest -> "Rest"
-                        is WorkoutItem.Note -> "Coach note"
-                        is WorkoutItem.Cardio -> item.title?.takeIf { it.isNotBlank() } ?: "Cardio"
-                        is WorkoutItem.Mobility -> item.title?.takeIf { it.isNotBlank() } ?: "Mobility"
-                    },
-                    style = MaterialTheme.typography.titleSmall,
-                    modifier = Modifier.weight(1f),
-                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = itemTitle,
+                        style = MaterialTheme.typography.titleSmall,
+                    )
+                    if (!expanded) {
+                        Text(
+                            text = itemSummary,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                IconButton(onClick = { expanded = !expanded }) {
+                    Icon(
+                        if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                        contentDescription = if (expanded) "Collapse item" else "Expand item",
+                    )
+                }
                 IconButton(onClick = onMoveUp, enabled = itemIndex > 0) {
                     Icon(Icons.Default.ArrowUpward, contentDescription = "Move up")
                 }
@@ -674,75 +717,78 @@ private fun StraightSetsItemEditor(
                     Icon(Icons.Default.Delete, contentDescription = "Delete item")
                 }
             }
-            when (item) {
-                is WorkoutItem.Weight -> {
-                    val loggingStyle =
-                        weightState.exerciseById(item.exerciseId)?.setLoggingStyle()
-                            ?: WeightSetLoggingStyle.REPS
-                    WeightPrescriptionFields(
-                        prescription = item.prescription,
-                        loggingStyle = loggingStyle,
-                        loadUnit = loadUnit,
-                        onUpdate = { onUpdate(item.copy(prescription = it)) },
-                    )
-                    if (item.alternativeExerciseIds.isNotEmpty()) {
-                        Text(
-                            text = "Alternatives: " + item.alternativeExerciseIds.joinToString(", ") { altId ->
-                                weightState.exerciseById(altId)?.name ?: altId
-                            },
-                            style = MaterialTheme.typography.bodySmall,
+            if (expanded) {
+                when (item) {
+                    is WorkoutItem.Weight -> {
+                        val loggingStyle =
+                            weightState.exerciseById(item.exerciseId)?.setLoggingStyle()
+                                ?: WeightSetLoggingStyle.REPS
+                        WeightPrescriptionFields(
+                            prescription = item.prescription,
+                            loggingStyle = loggingStyle,
+                            loadUnit = loadUnit,
+                            onUpdate = { onUpdate(item.copy(prescription = it)) },
                         )
-                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            item.alternativeExerciseIds.forEach { altId ->
-                                TextButton(
-                                    onClick = {
-                                        onUpdate(
-                                            item.copy(
-                                                alternativeExerciseIds = item.alternativeExerciseIds - altId,
-                                            ),
-                                        )
-                                    },
-                                ) {
-                                    Text("Remove ${weightState.exerciseById(altId)?.name ?: altId}")
+                        if (item.alternativeExerciseIds.isNotEmpty()) {
+                            Text(
+                                text = "Alternatives: " + item.alternativeExerciseIds.joinToString(", ") { altId ->
+                                    weightState.exerciseById(altId)?.name ?: altId
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                item.alternativeExerciseIds.forEach { altId ->
+                                    TextButton(
+                                        onClick = {
+                                            onUpdate(
+                                                item.copy(
+                                                    alternativeExerciseIds = item.alternativeExerciseIds - altId,
+                                                ),
+                                            )
+                                        },
+                                        modifier = Modifier.fillMaxWidth(),
+                                    ) {
+                                        Text("Remove ${weightState.exerciseById(altId)?.name ?: altId}")
+                                    }
                                 }
                             }
                         }
+                        TextButton(onClick = onAddAlternative, modifier = Modifier.fillMaxWidth()) {
+                            Text("Add alternative exercise")
+                        }
                     }
-                    TextButton(onClick = onAddAlternative) {
-                        Text("Add alternative exercise")
+                    is WorkoutItem.Rest -> NumberField(
+                        label = "Duration (seconds)",
+                        value = item.durationSeconds,
+                        min = 1,
+                        onValue = { seconds ->
+                            onUpdate(item.copy(durationSeconds = seconds ?: item.durationSeconds))
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    is WorkoutItem.Note -> OutlinedTextField(
+                        value = item.text,
+                        onValueChange = { onUpdate(item.copy(text = it)) },
+                        label = { FieldLabel("Note text") },
+                        modifier = Modifier.fillMaxWidth(),
+                        minLines = 2,
+                    )
+                    is WorkoutItem.Cardio -> CardioPrescriptionEditor(
+                        prescription = item.cardio,
+                        cardioState = cardioState,
+                        onUpdate = { onUpdate(item.copy(cardio = it)) },
+                    )
+                    is WorkoutItem.Mobility -> {
+                        val stretchName = stretchCatalog.firstOrNull { it.id == item.mobility.catalogId }?.name
+                        Text(
+                            text = stretchName ?: item.mobility.catalogId,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        MobilityPrescriptionEditor(
+                            mobility = item.mobility,
+                            onUpdate = { onUpdate(item.copy(mobility = it)) },
+                        )
                     }
-                }
-                is WorkoutItem.Rest -> NumberField(
-                    label = "Duration (seconds)",
-                    value = item.durationSeconds,
-                    min = 1,
-                    onValue = { seconds ->
-                        onUpdate(item.copy(durationSeconds = seconds ?: item.durationSeconds))
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                is WorkoutItem.Note -> OutlinedTextField(
-                    value = item.text,
-                    onValueChange = { onUpdate(item.copy(text = it)) },
-                    label = { FieldLabel("Note text") },
-                    modifier = Modifier.fillMaxWidth(),
-                    minLines = 2,
-                )
-                is WorkoutItem.Cardio -> CardioPrescriptionEditor(
-                    prescription = item.cardio,
-                    cardioState = cardioState,
-                    onUpdate = { onUpdate(item.copy(cardio = it)) },
-                )
-                is WorkoutItem.Mobility -> {
-                    val stretchName = stretchCatalog.firstOrNull { it.id == item.mobility.catalogId }?.name
-                    Text(
-                        text = stretchName ?: item.mobility.catalogId,
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    MobilityPrescriptionEditor(
-                        mobility = item.mobility,
-                        onUpdate = { onUpdate(item.copy(mobility = it)) },
-                    )
                 }
             }
         }
@@ -849,9 +895,9 @@ private fun WeightPrescriptionFields(
         }
     }
 
-    Row(
+    Column(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         NumberField(
             label = "Sets",
@@ -864,7 +910,7 @@ private fun WeightPrescriptionFields(
                     onUpdate(prescription.copy(setCount = count, sets = sets.take(count)))
                 }
             },
-            modifier = Modifier.weight(1f),
+            modifier = Modifier.fillMaxWidth(),
         )
         if (timedPrescription) {
             OutlinedTextField(
@@ -879,7 +925,7 @@ private fun WeightPrescriptionFields(
                     )
                 },
                 label = {
-                    Text(
+                    FieldLabel(
                         if (loggingStyle == WeightSetLoggingStyle.TIME_ONLY) {
                             "Target duration (s)"
                         } else {
@@ -887,7 +933,7 @@ private fun WeightPrescriptionFields(
                         },
                     )
                 },
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
             )
         } else if (!isMaxReps && !perSide && !showPerSetEditor) {
@@ -898,7 +944,7 @@ private fun WeightPrescriptionFields(
                     onUpdate(prescription.copy(targetReps = reps))
                 },
                 label = { FieldLabel("Target reps") },
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
             )
         }
@@ -910,31 +956,33 @@ private fun WeightPrescriptionFields(
                     onUpdate(prescription.copy(targetWeightKg = kg))
                 },
                 label = { FieldLabel("Target weight ($loadSuffix)") },
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
             )
         }
         if (!timedPrescription && !isMaxReps && !perSide && !showPerSetEditor) {
-            OutlinedTextField(
-                value = prescription.repRangeMin?.toString().orEmpty(),
-                onValueChange = { raw ->
-                    val reps = raw.toIntOrNull()?.coerceAtLeast(1)
-                    onUpdate(prescription.copy(repRangeMin = reps))
-                },
-                label = { FieldLabel("Reps min") },
-                modifier = Modifier.weight(1f),
-                singleLine = true,
-            )
-            OutlinedTextField(
-                value = prescription.repRangeMax?.toString().orEmpty(),
-                onValueChange = { raw ->
-                    val reps = raw.toIntOrNull()?.coerceAtLeast(1)
-                    onUpdate(prescription.copy(repRangeMax = reps))
-                },
-                label = { FieldLabel("Reps max") },
-                modifier = Modifier.weight(1f),
-                singleLine = true,
-            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = prescription.repRangeMin?.toString().orEmpty(),
+                    onValueChange = { raw ->
+                        val reps = raw.toIntOrNull()?.coerceAtLeast(1)
+                        onUpdate(prescription.copy(repRangeMin = reps))
+                    },
+                    label = { FieldLabel("Reps min") },
+                    modifier = Modifier.weight(1f),
+                    singleLine = true,
+                )
+                OutlinedTextField(
+                    value = prescription.repRangeMax?.toString().orEmpty(),
+                    onValueChange = { raw ->
+                        val reps = raw.toIntOrNull()?.coerceAtLeast(1)
+                        onUpdate(prescription.copy(repRangeMax = reps))
+                    },
+                    label = { FieldLabel("Reps max") },
+                    modifier = Modifier.weight(1f),
+                    singleLine = true,
+                )
+            }
         }
     }
     if (!timedPrescription && !isMaxReps) {
@@ -975,9 +1023,9 @@ private fun WeightPrescriptionFields(
     }
     if (perSide) {
         val first = prescription.sets.firstOrNull() ?: WeightSet(reps = 0)
-        Row(
+        Column(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             NumberField(
                 label = "Reps per side",
@@ -993,7 +1041,7 @@ private fun WeightPrescriptionFields(
                         onUpdate(prescription.copy(sets = sets))
                     }
                 },
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.fillMaxWidth(),
             )
             OutlinedTextField(
                 value = first.side.orEmpty(),
@@ -1005,61 +1053,70 @@ private fun WeightPrescriptionFields(
                     onUpdate(prescription.copy(sets = sets))
                 },
                 label = { FieldLabel("Side (each/left/right/alternating)") },
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
             )
         }
     }
     if (showPerSetEditor && !perSide && !isMaxReps && !timedPrescription) {
         prescription.ensureSetRows().forEachIndexed { index, set ->
-            Row(
+            Card(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.45f),
+                ),
             ) {
-                Text("Set ${index + 1}", modifier = Modifier.padding(top = 16.dp))
-                NumberField(
-                    label = "Reps",
-                    value = if (set.reps > 0) set.reps else set.targetReps,
-                    min = 0,
-                    onValue = { reps ->
-                        if (reps != null) {
+                Column(
+                    modifier = Modifier.padding(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text("Set ${index + 1}", style = MaterialTheme.typography.labelLarge)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        NumberField(
+                            label = "Reps",
+                            value = if (set.reps > 0) set.reps else set.targetReps,
+                            min = 0,
+                            onValue = { reps ->
+                                if (reps != null) {
+                                    val sets = prescription.ensureSetRows().toMutableList()
+                                    sets[index] = set.copy(reps = reps, targetReps = reps)
+                                    onUpdate(prescription.copy(sets = sets, setCount = sets.size))
+                                }
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                        OutlinedTextField(
+                            value = set.rir?.toString().orEmpty(),
+                            onValueChange = { raw ->
+                                val rir = raw.toIntOrNull()?.coerceAtLeast(0)
+                                val sets = prescription.ensureSetRows().toMutableList()
+                                sets[index] = set.copy(rir = rir)
+                                onUpdate(prescription.copy(sets = sets, setCount = sets.size))
+                            },
+                            label = { FieldLabel("RIR") },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true,
+                        )
+                    }
+                    OutlinedTextField(
+                        value = (set.targetWeightKg ?: set.weightKg)?.let { formatWeightLoadNumber(it, loadUnit) }.orEmpty(),
+                        onValueChange = { raw ->
+                            val kg = parseWeightInputToKg(raw, loadUnit)
                             val sets = prescription.ensureSetRows().toMutableList()
-                            sets[index] = set.copy(reps = reps, targetReps = reps)
+                            sets[index] = set.copy(targetWeightKg = kg, weightKg = kg)
                             onUpdate(prescription.copy(sets = sets, setCount = sets.size))
-                        }
-                    },
-                    modifier = Modifier.weight(1f),
-                )
-                OutlinedTextField(
-                    value = set.rir?.toString().orEmpty(),
-                    onValueChange = { raw ->
-                        val rir = raw.toIntOrNull()?.coerceAtLeast(0)
-                        val sets = prescription.ensureSetRows().toMutableList()
-                        sets[index] = set.copy(rir = rir)
-                        onUpdate(prescription.copy(sets = sets, setCount = sets.size))
-                    },
-                    label = { FieldLabel("RIR") },
-                    modifier = Modifier.weight(1f),
-                    singleLine = true,
-                )
-                OutlinedTextField(
-                    value = (set.targetWeightKg ?: set.weightKg)?.let { formatWeightLoadNumber(it, loadUnit) }.orEmpty(),
-                    onValueChange = { raw ->
-                        val kg = parseWeightInputToKg(raw, loadUnit)
-                        val sets = prescription.ensureSetRows().toMutableList()
-                        sets[index] = set.copy(targetWeightKg = kg, weightKg = kg)
-                        onUpdate(prescription.copy(sets = sets, setCount = sets.size))
-                    },
-                    label = { FieldLabel("Weight ($loadSuffix)") },
-                    modifier = Modifier.weight(1f),
-                    singleLine = true,
-                )
+                        },
+                        label = { FieldLabel("Weight ($loadSuffix)") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                    )
+                }
             }
         }
     }
-    Row(
+    Column(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         if (!isMaxReps) {
             OutlinedTextField(
@@ -1069,29 +1126,31 @@ private fun WeightPrescriptionFields(
                     onUpdate(prescription.copy(targetRir = rir))
                 },
                 label = { FieldLabel("Target RIR") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(
+                value = prescription.restBetweenSetsSeconds?.toString().orEmpty(),
+                onValueChange = { raw ->
+                    val seconds = raw.toIntOrNull()?.coerceAtLeast(0)
+                    onUpdate(prescription.copy(restBetweenSetsSeconds = seconds))
+                },
+                label = { FieldLabel("Rest between sets (s)") },
+                modifier = Modifier.weight(1f),
+                singleLine = true,
+            )
+            OutlinedTextField(
+                value = prescription.restAfterExerciseSeconds?.toString().orEmpty(),
+                onValueChange = { raw ->
+                    val seconds = raw.toIntOrNull()?.coerceAtLeast(0)
+                    onUpdate(prescription.copy(restAfterExerciseSeconds = seconds))
+                },
+                label = { FieldLabel("Rest after exercise (s)") },
                 modifier = Modifier.weight(1f),
                 singleLine = true,
             )
         }
-        OutlinedTextField(
-            value = prescription.restBetweenSetsSeconds?.toString().orEmpty(),
-            onValueChange = { raw ->
-                val seconds = raw.toIntOrNull()?.coerceAtLeast(0)
-                onUpdate(prescription.copy(restBetweenSetsSeconds = seconds))
-            },
-            label = { FieldLabel("Rest between sets (s)") },
-            modifier = Modifier.weight(1f),
-            singleLine = true,
-        )
-        OutlinedTextField(
-            value = prescription.restAfterExerciseSeconds?.toString().orEmpty(),
-            onValueChange = { raw ->
-                val seconds = raw.toIntOrNull()?.coerceAtLeast(0)
-                onUpdate(prescription.copy(restAfterExerciseSeconds = seconds))
-            },
-            label = { FieldLabel("Rest after exercise (s)") },
-            modifier = Modifier.weight(1f),
-            singleLine = true,
-        )
     }
 }

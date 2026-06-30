@@ -4,6 +4,7 @@ import com.erv.app.cardio.CardioBuiltinActivity
 
 /** Short names for Launch Pad list (duplicates get numeric suffixes). */
 fun baseLaunchLabel(block: ProgramDayBlock): String = when (block.kind) {
+    ProgramBlockKind.WORKOUT -> block.title?.trim()?.takeIf { it.isNotEmpty() } ?: "Workout"
     ProgramBlockKind.WEIGHT -> "Workout"
     ProgramBlockKind.UNIFIED_ROUTINE -> block.title?.trim()?.takeIf { it.isNotEmpty() } ?: "Routine"
     ProgramBlockKind.FLEX_TRAINING -> block.title?.trim()?.takeIf { it.isNotEmpty() } ?: "Workout"

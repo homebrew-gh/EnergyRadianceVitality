@@ -1,6 +1,9 @@
 package com.erv.app.weighttraining
 
 import android.content.Context
+import com.erv.app.data.UserPreferences
+import com.erv.app.hr.HeartRateZoneInputs
+import com.erv.app.hr.toRelaySafeHeartRate
 import com.erv.app.nostr.EventSigner
 import com.erv.app.nostr.dTagOrNull
 import com.erv.app.nostr.fetchLatestKind30078ByDTag
@@ -11,6 +14,7 @@ import com.erv.app.nostr.RelayPool
 import com.erv.app.nostr.RelayPublishOutbox
 import com.erv.app.nostr.TrainingDayLogRelaySync
 import java.time.LocalDate
+import kotlinx.coroutines.flow.first
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
@@ -37,10 +41,19 @@ object WeightSync {
         prettyPrint = false
     }
 
-    private fun relaySafeDayLog(log: WeightDayLog): WeightDayLog =
+    private fun relaySafeDayLog(
+        log: WeightDayLog,
+        zoneInputs: HeartRateZoneInputs = HeartRateZoneInputs(),
+    ): WeightDayLog =
         log.copy(
             workouts = log.workouts.map { workout ->
-                workout.copy(heartRateExerciseSegments = emptyList())
+                workout.copy(
+                    heartRate = workout.heartRate?.toRelaySafeHeartRate(zoneInputs),
+                    heartRateExerciseSegments = emptyList(),
+                    workoutLink = workout.workoutLink?.copy(
+                        sessionHeartRate = workout.workoutLink.sessionHeartRate?.toRelaySafeHeartRate(zoneInputs),
+                    ),
+                )
             }
         )
 
@@ -85,7 +98,8 @@ object WeightSync {
     suspend fun queueDayLogForRelay(appContext: Context, log: WeightDayLog) {
         if (log.workouts.isEmpty()) return
         val dayTag = dailyTag(log.date)
-        val entries = outboxEntriesForDayLog(log)
+        val zoneInputs = UserPreferences(appContext).heartRateZoneInputs.first()
+        val entries = outboxEntriesForDayLog(log, zoneInputs)
         if (entries.size == 1 && entries.first().first == dayTag) {
             TrainingDayLogRelaySync.queueTrainingDayLog(appContext, dayTag, entries.first().second)
         } else {
@@ -97,12 +111,18 @@ object WeightSync {
         }
     }
 
-    fun fullOutboxEntries(state: WeightLibraryState): List<Pair<String, String>> =
-        weightImportOutboxEntries(state, state.logs.map { it.date })
+    fun fullOutboxEntries(
+        state: WeightLibraryState,
+        zoneInputs: HeartRateZoneInputs = HeartRateZoneInputs(),
+    ): List<Pair<String, String>> =
+        weightImportOutboxEntries(state, state.logs.map { it.date }, zoneInputs)
 
     /** Day logs only (for Progress / silo log resync). Skips empty days and exercise/routine masters. */
-    fun dayLogOutboxEntries(state: WeightLibraryState): List<Pair<String, String>> =
-        weightImportOutboxEntries(state, state.logs.map { it.date })
+    fun dayLogOutboxEntries(
+        state: WeightLibraryState,
+        zoneInputs: HeartRateZoneInputs = HeartRateZoneInputs(),
+    ): List<Pair<String, String>> =
+        weightImportOutboxEntries(state, state.logs.map { it.date }, zoneInputs)
             .filter { it.first != WEIGHT_EXERCISES_D_TAG && it.first != WEIGHT_ROUTINES_D_TAG }
 
     fun clearOutboxEntries(state: WeightLibraryState): List<Pair<String, String>> {
@@ -124,19 +144,23 @@ object WeightSync {
     fun weightImportOutboxEntries(
         state: WeightLibraryState,
         affectedDates: List<String>,
+        zoneInputs: HeartRateZoneInputs = HeartRateZoneInputs(),
     ): List<Pair<String, String>> {
         val pairs = mutableListOf<Pair<String, String>>()
         pairs += masterOutboxEntries(state)
         for (dateIso in affectedDates.distinct().sorted()) {
             val log = state.logFor(LocalDate.parse(dateIso)) ?: continue
             if (log.workouts.isEmpty()) continue
-            pairs += outboxEntriesForDayLog(log)
+            pairs += outboxEntriesForDayLog(log, zoneInputs)
         }
         return pairs
     }
 
-    private fun outboxEntriesForDayLog(log: WeightDayLog): List<Pair<String, String>> {
-        val safe = relaySafeDayLog(log)
+    private fun outboxEntriesForDayLog(
+        log: WeightDayLog,
+        zoneInputs: HeartRateZoneInputs = HeartRateZoneInputs(),
+    ): List<Pair<String, String>> {
+        val safe = relaySafeDayLog(log, zoneInputs)
         val dayTag = dailyTag(log.date)
         val dayContent = json.encodeToString(WeightDayLog.serializer(), safe)
         if (dayContent.toByteArray(Charsets.UTF_8).size <= MAX_TRAINING_DAY_PLAINTEXT_BYTES) {

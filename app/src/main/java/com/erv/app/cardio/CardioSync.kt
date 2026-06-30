@@ -1,6 +1,8 @@
 package com.erv.app.cardio
 
 import android.content.Context
+import com.erv.app.data.UserPreferences
+import com.erv.app.hr.HeartRateZoneInputs
 import com.erv.app.nostr.EventSigner
 import com.erv.app.nostr.dTagOrNull
 import com.erv.app.nostr.fetchLatestKind30078ByDTag
@@ -14,6 +16,7 @@ import java.time.LocalDate
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
+import kotlinx.coroutines.flow.first
 
 private const val CARDIO_MASTER_D_TAG = "erv/cardio/routines"
 private const val MAX_TRAINING_DAY_PLAINTEXT_BYTES = 40_000
@@ -64,7 +67,8 @@ object CardioSync {
     suspend fun queueDayLogForRelay(appContext: Context, log: CardioDayLog) {
         if (log.sessions.isEmpty()) return
         val dayTag = dailyTag(log.date)
-        val entries = outboxEntriesForDayLog(log)
+        val zoneInputs = UserPreferences(appContext).heartRateZoneInputs.first()
+        val entries = outboxEntriesForDayLog(log, zoneInputs)
         if (entries.size == 1 && entries.first().first == dayTag) {
             TrainingDayLogRelaySync.queueTrainingDayLog(appContext, dayTag, entries.first().second)
         } else {
@@ -76,12 +80,18 @@ object CardioSync {
         }
     }
 
-    fun fullOutboxEntries(state: CardioLibraryState): List<Pair<String, String>> =
-        cardioImportOutboxEntries(state, state.logs.map { it.date })
+    fun fullOutboxEntries(
+        state: CardioLibraryState,
+        zoneInputs: HeartRateZoneInputs = HeartRateZoneInputs(),
+    ): List<Pair<String, String>> =
+        cardioImportOutboxEntries(state, state.logs.map { it.date }, zoneInputs)
 
     /** Day logs only (for Progress / silo log resync). Skips empty days and the routines master. */
-    fun dayLogOutboxEntries(state: CardioLibraryState): List<Pair<String, String>> =
-        cardioImportOutboxEntries(state, state.logs.map { it.date })
+    fun dayLogOutboxEntries(
+        state: CardioLibraryState,
+        zoneInputs: HeartRateZoneInputs = HeartRateZoneInputs(),
+    ): List<Pair<String, String>> =
+        cardioImportOutboxEntries(state, state.logs.map { it.date }, zoneInputs)
             .filter { it.first != CARDIO_MASTER_D_TAG }
 
     fun clearOutboxEntries(state: CardioLibraryState): List<Pair<String, String>> {
@@ -104,6 +114,7 @@ object CardioSync {
     fun cardioImportOutboxEntries(
         state: CardioLibraryState,
         affectedDates: List<String>,
+        zoneInputs: HeartRateZoneInputs = HeartRateZoneInputs(),
     ): List<Pair<String, String>> {
         val masterPayload = CardioMasterPayload(
             routines = state.routines,
@@ -118,13 +129,16 @@ object CardioSync {
         for (dateIso in affectedDates.distinct().sorted()) {
             val log = state.logFor(LocalDate.parse(dateIso)) ?: continue
             if (log.sessions.isEmpty()) continue
-            pairs += outboxEntriesForDayLog(log)
+            pairs += outboxEntriesForDayLog(log, zoneInputs)
         }
         return pairs
     }
 
-    private fun outboxEntriesForDayLog(log: CardioDayLog): List<Pair<String, String>> {
-        val safe = log.relaySafeForPublish()
+    private fun outboxEntriesForDayLog(
+        log: CardioDayLog,
+        zoneInputs: HeartRateZoneInputs = HeartRateZoneInputs(),
+    ): List<Pair<String, String>> {
+        val safe = log.relaySafeForPublish(zoneInputs)
         val dayTag = dailyTag(log.date)
         val dayContent = json.encodeToString(CardioDayLog.serializer(), safe)
         if (dayContent.toByteArray(Charsets.UTF_8).size <= MAX_TRAINING_DAY_PLAINTEXT_BYTES) {

@@ -413,6 +413,8 @@ export function ProgressTab() {
       weightRoutines,
       cardioRoutines,
       stretchRoutines,
+      weightLogs,
+      cardioLogs,
     }),
     [
       profile,
@@ -427,6 +429,8 @@ export function ProgressTab() {
       weightRoutines,
       cardioRoutines,
       stretchRoutines,
+      weightLogs,
+      cardioLogs,
     ],
   );
 

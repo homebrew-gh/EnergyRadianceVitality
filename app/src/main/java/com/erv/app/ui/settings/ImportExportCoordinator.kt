@@ -200,6 +200,7 @@ class ImportExportCoordinator(
         val entries = WeightSync.weightImportOutboxEntries(
             weightRepository.currentState(),
             outcome.affectedDates,
+            userPreferences.heartRateZoneInputs.first(),
         )
         val drain = withContext(Dispatchers.IO) {
             val outbox = RelayPublishOutbox.get(appContext)
@@ -221,6 +222,7 @@ class ImportExportCoordinator(
         val entries = CardioSync.cardioImportOutboxEntries(
             cardioRepository.currentState(),
             outcome.affectedDates,
+            userPreferences.heartRateZoneInputs.first(),
         )
         val drain = withContext(Dispatchers.IO) {
             val outbox = RelayPublishOutbox.get(appContext)

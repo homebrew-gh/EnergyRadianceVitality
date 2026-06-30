@@ -112,6 +112,48 @@ object WorkoutRunEngine {
     }
 
     /**
+     * Consecutive [WorkoutItem.Weight] items starting at [position] within a plain (non-circuit)
+     * segment. Used to batch a section's lifts into a single live session. Returns an empty list
+     * when the current step is not a plain weight item.
+     */
+    fun consecutiveWeightItemRun(
+        workout: Workout,
+        position: WorkoutRunPosition,
+    ): List<WorkoutItem.Weight> {
+        if (workout.segments.isEmpty()) return emptyList()
+        val segmentIndex = position.segmentIndex
+        if (segmentIndex !in workout.segments.indices) return emptyList()
+        val segment = workout.segments[segmentIndex]
+        if (segment.kind == WorkoutSegmentKind.CIRCUIT || segment.kind == WorkoutSegmentKind.SUPERSET) {
+            return emptyList()
+        }
+        val items = segment.items
+        val start = position.itemIndex
+        if (start !in items.indices) return emptyList()
+        val run = mutableListOf<WorkoutItem.Weight>()
+        var idx = start
+        while (idx < items.size) {
+            val item = items[idx]
+            if (item is WorkoutItem.Weight) {
+                run.add(item)
+                idx++
+            } else {
+                break
+            }
+        }
+        return run
+    }
+
+    /** Advance [steps] times in sequence (used after a batched section completes). */
+    fun advanceBy(workout: Workout, position: WorkoutRunPosition, steps: Int): WorkoutRunPosition {
+        var current = position
+        repeat(steps.coerceAtLeast(1)) {
+            current = advance(workout, current)
+        }
+        return current
+    }
+
+    /**
      * Rest to show after the athlete finishes the item at [position], before [advance].
      * Returns null when the next step should begin immediately.
      */

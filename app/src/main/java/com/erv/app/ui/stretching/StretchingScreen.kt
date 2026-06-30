@@ -522,7 +522,7 @@ fun StretchingCategoryScreen(
                 }
                 delay(80)
             }
-            snackbarHostState.showSnackbar("Stretch routine not found — open Programs to fix this block.")
+            snackbarHostState.showSnackbar("Stretch routine not found — open Weekly Planner to fix this block.")
         } else if (payload.stretchIds.isNotEmpty()) {
             guidedRoutine = StretchRoutine(
                 id = java.util.UUID.randomUUID().toString(),

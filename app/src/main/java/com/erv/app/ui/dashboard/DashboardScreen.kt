@@ -34,8 +34,8 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.automirrored.filled.DirectionsRun
+import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.FitnessCenter
-import androidx.compose.material.icons.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Medication
 import androidx.compose.material.icons.filled.AcUnit
@@ -118,6 +118,7 @@ import com.erv.app.cardio.CardioTimerStyle
 import com.erv.app.cardio.eligibleForPhoneGps
 import com.erv.app.cardio.CardioErgMetrics
 import com.erv.app.cardio.isCyclingActivity
+import com.erv.app.cardio.isErgMonitorActivity
 import com.erv.app.cardio.cardioActivityRowsFor
 import com.erv.app.cardio.effectiveSteps
 import com.erv.app.cardio.stepsSummaryLabel
@@ -164,7 +165,6 @@ import com.erv.app.programs.programBlocksForDate
 import com.erv.app.programs.programChecklistCompletionKey
 import com.erv.app.programs.ProgramStrategyMode
 import com.erv.app.programs.resolveProgramStrategyForDate
-import com.erv.app.programs.strategySummaryForDate
 import com.erv.app.programs.weightRoutineForProgramBlock
 import com.erv.app.ui.cardio.CardioElapsedTimerFullScreen
 import com.erv.app.ui.cardio.drainCardioGpsIfNeeded
@@ -208,6 +208,8 @@ import com.erv.app.weighttraining.WeightRepository
 import com.erv.app.weighttraining.WeightRoutine
 import com.erv.app.ui.weighttraining.WeightWorkoutSummaryFullScreen
 import com.erv.app.weighttraining.weightActivityRowsFor
+import com.erv.app.workouts.WorkoutLibraryState
+import com.erv.app.workouts.WorkoutRepository
 import java.time.LocalDate
 import kotlin.math.max
 import kotlin.math.roundToInt
@@ -227,6 +229,7 @@ fun DashboardScreen(
     onNavigateToEditGoals: () -> Unit,
     onNavigateToCategory: (Category) -> Unit,
     onOpenUnifiedRun: (String) -> Unit,
+    onOpenWorkoutRun: (String) -> Unit,
     onOpenCardioNewWorkout: () -> Unit,
     /** Cardio manual log: opens cardio log with calendar (dashboard date pre-selected). */
     onOpenCardioLogBackfill: (LocalDate) -> Unit,
@@ -243,6 +246,7 @@ fun DashboardScreen(
     heatColdRepository: HeatColdRepository,
     stretchingRepository: StretchingRepository,
     programRepository: ProgramRepository,
+    workoutRepository: WorkoutRepository,
     unifiedRoutineRepository: UnifiedRoutineRepository,
     weightLiveWorkoutViewModel: WeightLiveWorkoutViewModel,
     cardioLiveWorkoutViewModel: CardioLiveWorkoutViewModel,
@@ -275,6 +279,7 @@ fun DashboardScreen(
     val heatColdState by heatColdRepository.state.collectAsState(initial = HeatColdLibraryState())
     val stretchState by stretchingRepository.state.collectAsState(initial = StretchLibraryState())
     val programsState by programRepository.state.collectAsState(initial = ProgramsLibraryState())
+    val workoutState by workoutRepository.state.collectAsState(initial = WorkoutLibraryState())
     val unifiedRoutineState by unifiedRoutineRepository.state.collectAsState(initial = com.erv.app.unifiedroutines.UnifiedRoutineLibraryState())
     val weightKg by userPreferences.fallbackBodyWeightKg.collectAsState(initial = null)
     val cardioDistanceUnit by userPreferences.cardioDistanceUnit.collectAsState(initial = CardioDistanceUnit.MILES)
@@ -346,7 +351,9 @@ fun DashboardScreen(
         )
     }
     val weightTrainingCategory = remember { categories.first { it.id == "weight_training" } }
-    val unifiedCategory = remember { categories.first { it.id == "unified_routines" } }
+    val unifiedCategory = remember {
+        Category("unified_routines", "Unified Workouts", Icons.AutoMirrored.Filled.PlaylistPlay, "category/unified_routines")
+    }
     val cardioCategory = remember { categories.first { it.id == "cardio" } }
     val liveWeightDraft by weightLiveWorkoutViewModel.activeDraft.collectAsState()
     val cardioActiveTimer by cardioLiveWorkoutViewModel.activeTimer.collectAsState()
@@ -358,7 +365,9 @@ fun DashboardScreen(
     val bodyTrackerCategory = remember { categories.first { it.id == "body_tracker" } }
     val supplementCategory = remember { categories.first { it.id == "supplements" } }
     val lightTherapyCategory = remember { categories.first { it.id == "light_therapy" } }
-    val programsCategory = remember { categories.first { it.id == "programs" } }
+    val programsCategory = remember {
+        Category("programs", "Weekly Planner", Icons.Default.CalendarMonth, "category/programs")
+    }
     val trainingCategory = remember { categories.first { it.id == "training" } }
     val today = remember { LocalDate.now() }
     val scope = rememberCoroutineScope()
@@ -402,8 +411,6 @@ fun DashboardScreen(
     val availableLaunchPadTileIds = remember {
         buildSet {
             add(LaunchPadTileId.TRAINING)
-            add(LaunchPadTileId.PROGRAMS)
-            add(LaunchPadTileId.WORKOUT_LAUNCHER)
             add(LaunchPadTileId.STRETCHING)
             add(LaunchPadTileId.CARDIO)
             add(LaunchPadTileId.WEIGHT_TRAINING)
@@ -519,21 +526,31 @@ fun DashboardScreen(
 
     fun startProgramBlockFromLaunchPad(block: ProgramDayBlock) {
         when (block.kind) {
+            ProgramBlockKind.WORKOUT -> {
+                val workoutId = block.workoutId?.takeIf { it.isNotBlank() }
+                if (workoutId == null || workoutState.workouts.none { it.id == workoutId }) {
+                    scope.launch {
+                        snackbarHostState.showSnackbar("No saved workout linked — edit this block in Planner.")
+                    }
+                    return
+                }
+                onOpenWorkoutRun(workoutId)
+            }
             ProgramBlockKind.REST, ProgramBlockKind.CUSTOM -> {
                 scope.launch {
-                    snackbarHostState.showSnackbar("No live session for this block — see notes in Programs.")
+                    snackbarHostState.showSnackbar("No live session for this block — see notes in Weekly Planner.")
                 }
             }
             ProgramBlockKind.FLEX_TRAINING -> {
                 scope.launch {
-                    snackbarHostState.showSnackbar("Choose Weight Training or Cardio from the Programs sheet for this flexible training block.")
+                    snackbarHostState.showSnackbar("Choose Weight Training or Cardio from the Weekly Planner sheet for this flexible training block.")
                 }
             }
             ProgramBlockKind.UNIFIED_ROUTINE -> {
                 val routineId = block.unifiedRoutineId?.takeIf { it.isNotBlank() }
                 if (routineId == null || unifiedRoutineState.routines.none { it.id == routineId }) {
                     scope.launch {
-                        snackbarHostState.showSnackbar("No unified workout linked — edit this block in Programs.")
+                        snackbarHostState.showSnackbar("No unified workout linked — edit this block in Weekly Planner.")
                     }
                     return
                 }
@@ -541,12 +558,12 @@ fun DashboardScreen(
                     userPreferences.setProgramDashboardUnifiedRoutineLaunchJson(
                         encodeUnifiedRoutineLaunch(ProgramDashboardUnifiedRoutineLaunch(routineId = routineId))
                     )
-                    onNavigateToCategory(categories.first { it.id == "unified_routines" })
+                    onNavigateToCategory(unifiedCategory)
                 }
             }
             ProgramBlockKind.OTHER -> {
                 scope.launch {
-                    snackbarHostState.showSnackbar("Use the checklist on the Programs sheet for this day — habits are checked off there.")
+                    snackbarHostState.showSnackbar("Use the checklist on the Weekly Planner sheet for this day.")
                 }
             }
             ProgramBlockKind.WEIGHT -> {
@@ -588,7 +605,7 @@ fun DashboardScreen(
                     delay(120L)
                     val session = cardioTimerSessionForProgramBlock(block, cardioState)
                     if (session == null) {
-                        snackbarHostState.showSnackbar("Could not start cardio — check activity or routine in Programs.")
+                        snackbarHostState.showSnackbar("Could not start cardio — check activity or routine in Weekly Planner.")
                         return@launch
                     }
                     dashboardStartOrQueueCardio(session)
@@ -598,7 +615,7 @@ fun DashboardScreen(
                 val rid = block.stretchRoutineId?.takeIf { it.isNotBlank() }
                 if (rid == null) {
                     scope.launch {
-                        snackbarHostState.showSnackbar("No stretch routine linked — edit this block in Programs.")
+                        snackbarHostState.showSnackbar("No stretch routine linked — edit this block in Weekly Planner.")
                     }
                     return
                 }
@@ -612,7 +629,7 @@ fun DashboardScreen(
             ProgramBlockKind.STRETCH_CATALOG -> {
                 if (block.stretchCatalogIds.isEmpty()) {
                     scope.launch {
-                        snackbarHostState.showSnackbar("No stretches in this block — edit it in Programs.")
+                        snackbarHostState.showSnackbar("No stretches in this block — edit it in Weekly Planner.")
                     }
                     return
                 }
@@ -1155,7 +1172,7 @@ fun DashboardScreen(
                                     weightLiveWorkoutViewModel.setLiveWorkoutUiExpanded(true)
                                     onNavigateToCategory(weightTrainingCategory)
                                 } else {
-                                    snackbarHostState.showSnackbar("Could not start this workout from Programs.")
+                                    snackbarHostState.showSnackbar("Could not start this workout from Weekly Planner.")
                                 }
                             }
                             blank -> {
@@ -1490,7 +1507,8 @@ fun DashboardScreen(
                 if (cardioLiveUiExpanded) {
                     val draft = ct.draft
                     val isCycling = draft.activity.isCyclingActivity()
-                    val ergConnected = isCycling &&
+                    val isErg = draft.activity.isErgMonitorActivity()
+                    val ergConnected = isErg &&
                         ergConnectionState == com.erv.app.cycling.Concept2BleConnectionState.Connected
                     val cscConnected = isCycling &&
                         cyclingConnectionState == com.erv.app.cycling.CyclingCscBleConnectionState.Connected
@@ -1536,7 +1554,7 @@ fun DashboardScreen(
                             scope.launch {
                                 val durationMinutes = max(1, (elapsedSeconds + 59) / 60)
                                 val end = nowEpochSeconds()
-                                val ergSummary = if (isCycling) concept2Ble.takeWorkoutSummary() else null
+                                val ergSummary = if (isErg) concept2Ble.takeWorkoutSummary() else null
                                 val cscDistance = if (isCycling) {
                                     cyclingCscBle.takeWorkoutSummary()?.distanceMeters
                                 } else {
@@ -1555,7 +1573,7 @@ fun DashboardScreen(
                                     endEpoch = end,
                                     elapsedSecondsForDistance = elapsedSeconds,
                                     gpsPoints = gpsPoints,
-                                    preferredDistanceMeters = if (isCycling) {
+                                    preferredDistanceMeters = if (isErg) {
                                         ergSummary?.distanceMeters ?: cscDistance
                                     } else {
                                         null
@@ -1628,8 +1646,21 @@ fun DashboardScreen(
                                 if (session != null) {
                                     val hrSummary = heartRateBle.takeWorkoutHeartRateSummary()
                                     val withHr = hrSummary?.let { session.copy(heartRate = it) } ?: session
+                                    val isErg = ct.state.legs.any { it.activity.isErgMonitorActivity() }
+                                    val ergSummary = if (isErg) concept2Ble.takeWorkoutSummary() else null
+                                    val withErg = ergSummary?.let { summary ->
+                                        withHr.copy(
+                                            distanceMeters = summary.distanceMeters ?: withHr.distanceMeters,
+                                            erg = CardioErgMetrics(
+                                                avgPowerWatts = summary.avgPowerWatts,
+                                                maxPowerWatts = summary.maxPowerWatts,
+                                                avgCadenceRpm = summary.avgCadenceRpm,
+                                                maxCadenceRpm = summary.maxCadenceRpm,
+                                            ),
+                                        )
+                                    } ?: withHr
                                     val finalSession = CardioMetEstimator.applyEstimatedKcal(
-                                        withHr,
+                                        withErg,
                                         cardioRepository.currentState(),
                                         weightKg
                                     )
@@ -1657,6 +1688,8 @@ fun DashboardScreen(
                         },
                         onCancel = {
                             heartRateBle.discardWorkoutRecording()
+                            cyclingCscBle.discardWorkoutRecording()
+                            concept2Ble.discardWorkoutRecording()
                             cardioLiveWorkoutViewModel.clearSession()
                         }
                     )
@@ -2190,9 +2223,6 @@ private fun RoutinesSection(
     val activeProgram = resolvedProgram.program
     val isManualProgramSelection = programsLibraryState.strategy.mode == ProgramStrategyMode.MANUAL
     val usesProgramStrategy = resolvedProgram.isUsingStrategy
-    val programStrategySummary = remember(programsLibraryState, dashboardSelectedDate) {
-        programsLibraryState.strategySummaryForDate(dashboardSelectedDate)
-    }
     val programBlocks = remember(programsLibraryState, dashboardSelectedDate, activeProgram?.id) {
         programsLibraryState.programBlocksForDate(dashboardSelectedDate)
     }
@@ -2224,6 +2254,13 @@ private fun RoutinesSection(
                             programsLibraryState.isCompletionDone(ck)
                         }
                     ProgramBlockProgressState(isDone = done, allowsManualToggle = false)
+                }
+                ProgramBlockKind.WORKOUT -> {
+                    val key = programBlockCompletionKey(pid, block.id, dashboardSelectedDate)
+                    ProgramBlockProgressState(
+                        isDone = programsLibraryState.isCompletionDone(key),
+                        allowsManualToggle = true
+                    )
                 }
                 ProgramBlockKind.WEIGHT -> {
                     val done = remainingWeight > 0
@@ -2281,24 +2318,6 @@ private fun RoutinesSection(
         }
         progress
     }
-    val programTileStatus = remember(
-        activeProgram?.id,
-        programBlocks,
-        programBlockProgress
-    ) {
-        if (activeProgram?.id == null) return@remember null
-        if (programBlocks.isEmpty()) return@remember null
-        val allDone = programBlocks.all { block -> programBlockProgress[block.id]?.isDone == true }
-        if (allDone) QuickLogTileStatusBadge.COMPLETE else QuickLogTileStatusBadge.INCOMPLETE
-    }
-    val programTileSubtitle = when {
-        activeProgram == null -> programStrategySummary
-        programBlocks.isEmpty() && usesProgramStrategy -> "Rest day · $programStrategySummary"
-        programBlocks.isEmpty() -> "Rest day"
-        usesProgramStrategy -> "${programBlocks.size} for this day · $programStrategySummary"
-        else -> "${programBlocks.size} for this day"
-    }
-
     if (showSectionHeading) {
         Text(
             text = "Launch Pad",
@@ -2325,8 +2344,6 @@ private fun RoutinesSection(
                 )
             }
             val availableTileSpecs = remember(
-                programTileSubtitle,
-                programTileStatus,
                 unifiedRoutines,
                 stretchRoutineCount,
                 cardioRoutines,
@@ -2356,31 +2373,6 @@ private fun RoutinesSection(
                                     "${unifiedRoutines.size} mixed workouts"
                             },
                             onClick = onOpenTraining,
-                        )
-                    )
-                    put(
-                        LaunchPadTileId.PROGRAMS,
-                        QuickLogTileSpec(
-                            id = LaunchPadTileId.PROGRAMS,
-                            icon = Icons.Default.CalendarMonth,
-                            label = "Programs",
-                            subtitle = programTileSubtitle,
-                            onClick = { showProgramSheet = true },
-                            statusBadge = programTileStatus,
-                        )
-                    )
-                    put(
-                        LaunchPadTileId.WORKOUT_LAUNCHER,
-                        QuickLogTileSpec(
-                            id = LaunchPadTileId.WORKOUT_LAUNCHER,
-                            icon = Icons.Default.PlaylistPlay,
-                            label = "Unified Workouts",
-                            subtitle = if (unifiedRoutines.isEmpty()) {
-                                "Mixed workouts & routines"
-                            } else {
-                                "${unifiedRoutines.size} mixed routines"
-                            },
-                            onClick = { showWorkoutLauncherSheet = true },
                         )
                     )
                     put(
@@ -2605,7 +2597,7 @@ private fun RoutinesSection(
                     activeProgram == null -> {
                         if (programsLibraryState.programs.isEmpty()) {
                             Text(
-                                "Create a program from a template or import JSON under Programs, then pick it here as your active plan.",
+                                "Create a plan from a template or import JSON under Weekly Planner, then pick it here as your active plan.",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -2616,11 +2608,11 @@ private fun RoutinesSection(
                                 },
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                Text("Open Programs")
+                                Text("Open Weekly Planner")
                             }
                         } else if (!isManualProgramSelection) {
                             Text(
-                                "This date is controlled by your program strategy. Open Programs to edit the rotation or challenge plan.",
+                                "This date is controlled by your plan strategy. Open Weekly Planner to edit the rotation or challenge plan.",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -2631,7 +2623,7 @@ private fun RoutinesSection(
                                 },
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                Text("Manage strategy in Programs")
+                                Text("Manage strategy in Weekly Planner")
                             }
                         } else {
                             Text(
@@ -2695,7 +2687,7 @@ private fun RoutinesSection(
                     }
                     programBlocks.isEmpty() -> {
                         Text(
-                            "Nothing scheduled for this day — rest or add blocks in Programs.",
+                            "Nothing scheduled for this day — rest or add blocks in Weekly Planner.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -2706,13 +2698,13 @@ private fun RoutinesSection(
                             },
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("Open Programs")
+                            Text("Open Weekly Planner")
                         }
                     }
                     else -> {
                         if (usesProgramStrategy) {
                             Text(
-                                "This schedule comes from your program strategy. Edit the strategy or weekly plan in Programs.",
+                                "This schedule comes from your plan strategy. Edit the strategy or weekly plan in Weekly Planner.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -2733,7 +2725,7 @@ private fun RoutinesSection(
                                         if (block.checklistItems.isEmpty()) {
                                             Text(
                                                 text = block.notes?.takeIf { it.isNotBlank() }
-                                                    ?: "Add checklist lines in Programs.",
+                                                    ?: "Add checklist lines in Weekly Planner.",
                                                 style = MaterialTheme.typography.bodySmall,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )

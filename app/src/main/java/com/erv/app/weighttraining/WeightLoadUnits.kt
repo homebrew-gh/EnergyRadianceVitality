@@ -22,6 +22,15 @@ fun formatSetSummaryLine(
     loadSuffix: String,
     /** When true (e.g. bodyweight / station exercises), weight is shown as added load. */
     weightIsAddedLoad: Boolean = false
+): String = "Set $setNumber: ${formatSetValueLine(set, loadUnit, loadSuffix, weightIsAddedLoad)}"
+
+/** The reps/load/RPE portion of a set summary, without any "Set N" prefix. */
+fun formatSetValueLine(
+    set: WeightSet,
+    loadUnit: BodyWeightUnit,
+    loadSuffix: String,
+    /** When true (e.g. bodyweight / station exercises), weight is shown as added load. */
+    weightIsAddedLoad: Boolean = false
 ): String {
     val duration = set.durationSeconds?.takeIf { it > 0 }
     val repsPart = when {
@@ -35,7 +44,7 @@ fun formatSetSummaryLine(
         else " @ $num $loadSuffix"
     }.orEmpty()
     val rpePart = set.rpe?.let { " · RPE ${formatRpeFieldForSets(it)}" }.orEmpty()
-    return "Set $setNumber: $repsPart$weightPart$rpePart"
+    return "$repsPart$weightPart$rpePart"
 }
 
 /** One-line summary for a completed interval block (live or manual log). */

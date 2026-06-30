@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
@@ -124,6 +125,7 @@ import com.erv.app.weighttraining.WeightRepository
 import com.erv.app.weighttraining.WeightRoutine
 import com.erv.app.weighttraining.WeightSync
 import com.erv.app.weighttraining.displayLabel
+import com.erv.app.workouts.WorkoutLibraryState
 import java.io.BufferedWriter
 import java.io.OutputStreamWriter
 import java.nio.charset.StandardCharsets
@@ -387,7 +389,7 @@ fun ProgramsCategoryScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
-                title = { Text("Programs") },
+                title = { Text("Weekly Planner") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -895,9 +897,11 @@ fun ProgramDetailScreen(
     stretchState: StretchLibraryState,
     stretchCatalog: List<com.erv.app.stretching.StretchCatalogEntry>,
     unifiedRoutineState: UnifiedRoutineLibraryState,
+    workoutState: WorkoutLibraryState,
     relayPool: RelayPool?,
     signer: EventSigner?,
     onBack: () -> Unit,
+    onStartWorkout: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val programsState by programRepository.state.collectAsState(initial = ProgramsLibraryState())
@@ -1056,6 +1060,7 @@ fun ProgramDetailScreen(
                 stretchState = stretchState,
                 stretchCatalog = stretchCatalog,
                 unifiedRoutineState = unifiedRoutineState,
+                workoutState = workoutState,
                 relayPool = relayPool,
                 signer = signer,
                 onNotify = { message -> scope.launch { snackbarHostState.showSnackbar(message) } },
@@ -1311,7 +1316,7 @@ fun ProgramDetailScreen(
                                 )
                                 Spacer(Modifier.height(4.dp))
                                 Text(
-                                    block.summaryLine(weightState, stretchState, stretchCatalog, cardioState, unifiedRoutineState),
+                                    block.summaryLine(weightState, stretchState, stretchCatalog, cardioState, unifiedRoutineState, workoutState),
                                     style = MaterialTheme.typography.bodyMedium
                                 )
                                 block.notes?.takeIf { it.isNotBlank() }?.let { n ->
@@ -1380,6 +1385,19 @@ fun ProgramDetailScreen(
                                             addBlockForDay = day.dayOfWeek
                                         }
                                     )
+                                    if (block.kind == ProgramBlockKind.WORKOUT) {
+                                        val linkedWorkoutId = block.workoutId?.takeIf { id ->
+                                            workoutState.workouts.any { it.id == id }
+                                        }
+                                        ProgramBlockActionButton(
+                                            label = "Run Workout",
+                                            icon = { Icon(Icons.Default.PlayArrow, contentDescription = null) },
+                                            enabled = linkedWorkoutId != null,
+                                            onClick = {
+                                                linkedWorkoutId?.let(onStartWorkout)
+                                            }
+                                        )
+                                    }
                                     programBlockContentActionLabel(block.kind)?.let { contentLabel ->
                                         ProgramBlockActionButton(
                                             label = contentLabel,
@@ -1436,6 +1454,7 @@ private fun ProgramBlockActionButton(
 private enum class ProgramBlockEditorMode { STRUCTURE, CONTENT }
 
 private fun programBlockKindLabel(kind: ProgramBlockKind): String = when (kind) {
+    ProgramBlockKind.WORKOUT -> "Saved Workout"
     ProgramBlockKind.WEIGHT -> "Weight Training"
     ProgramBlockKind.CARDIO -> "Cardio"
     ProgramBlockKind.UNIFIED_ROUTINE -> "Unified Workout"
@@ -1449,6 +1468,7 @@ private fun programBlockKindLabel(kind: ProgramBlockKind): String = when (kind) 
 }
 
 private fun programBlockContentActionLabel(kind: ProgramBlockKind): String? = when (kind) {
+    ProgramBlockKind.WORKOUT -> "Workout"
     ProgramBlockKind.WEIGHT -> "Exercises"
     ProgramBlockKind.CARDIO -> "Cardio Setup"
     ProgramBlockKind.UNIFIED_ROUTINE -> "Routine"
@@ -1460,6 +1480,7 @@ private fun programBlockContentActionLabel(kind: ProgramBlockKind): String? = wh
 }
 
 private fun programBlockContentEditorTitle(kind: ProgramBlockKind): String = when (kind) {
+    ProgramBlockKind.WORKOUT -> "Edit Workout"
     ProgramBlockKind.WEIGHT -> "Edit Exercises"
     ProgramBlockKind.CARDIO -> "Edit Cardio Setup"
     ProgramBlockKind.UNIFIED_ROUTINE -> "Edit Routine"
@@ -1493,6 +1514,7 @@ private fun BlockEditorDialog(
     stretchState: StretchLibraryState,
     stretchCatalog: List<com.erv.app.stretching.StretchCatalogEntry>,
     unifiedRoutineState: UnifiedRoutineLibraryState,
+    workoutState: WorkoutLibraryState,
     relayPool: RelayPool?,
     signer: EventSigner?,
     onNotify: (String) -> Unit,
@@ -1534,6 +1556,7 @@ private fun BlockEditorDialog(
     var cardioAct by rememberSaveable { mutableStateOf(existing?.cardioActivity ?: CardioBuiltinActivity.RUN.name) }
     var cardioRId by rememberSaveable { mutableStateOf(existing?.cardioRoutineId.orEmpty()) }
     var unifiedRoutineId by rememberSaveable { mutableStateOf(existing?.unifiedRoutineId.orEmpty()) }
+    var workoutId by rememberSaveable { mutableStateOf(existing?.workoutId.orEmpty()) }
     val stretchBlockKey = existing?.id ?: "new-block"
     val stretchSig = remember(
         stretchBlockKey,
@@ -2072,6 +2095,46 @@ private fun BlockEditorDialog(
                             }
                         }
                     }
+                    ProgramBlockKind.WORKOUT -> {
+                        Spacer(Modifier.height(12.dp))
+                        var workoutExpanded by remember { mutableStateOf(false) }
+                        ExposedDropdownMenuBox(
+                            expanded = workoutExpanded,
+                            onExpandedChange = { workoutExpanded = it }
+                        ) {
+                            OutlinedTextField(
+                                value = workoutState.workouts.firstOrNull { it.id == workoutId }?.name
+                                    ?: if (workoutId.isBlank()) "Choose saved workout" else "Unknown workout",
+                                onValueChange = {},
+                                readOnly = true,
+                                label = { FieldLabel("Saved workout") },
+                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = workoutExpanded) },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .menuAnchor()
+                            )
+                            ExposedDropdownMenu(
+                                expanded = workoutExpanded,
+                                onDismissRequest = { workoutExpanded = false }
+                            ) {
+                                workoutState.workouts.forEach { workout ->
+                                    DropdownMenuItem(
+                                        text = { Text(workout.name) },
+                                        onClick = {
+                                            workoutId = workout.id
+                                            workoutExpanded = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                        Text(
+                            "Saved workouts come from the Workouts library and open in the live workout runner.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 8.dp)
+                        )
+                    }
                     ProgramBlockKind.UNIFIED_ROUTINE -> {
                         Spacer(Modifier.height(12.dp))
                         var unifiedExpanded by remember { mutableStateOf(false) }
@@ -2529,6 +2592,7 @@ private fun BlockEditorDialog(
                         kind = outBlockKind,
                         title = title.ifBlank { null },
                         notes = notes.ifBlank { null },
+                        workoutId = if (kind == ProgramBlockKind.WORKOUT) workoutId.ifBlank { null } else null,
                         weightExerciseIds = outWeightExerciseIds,
                         weightRoutineId = outWeightRoutineId,
                         cardioActivity = if (kind == ProgramBlockKind.CARDIO) cardioAct else null,

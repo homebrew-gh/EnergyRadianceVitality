@@ -159,6 +159,8 @@ These shipped while building the composer and are documented in [WORKOUT_PLAN_ED
 
 ### Phase 3 — Weekly planner (`erv/programs/master`)
 
+- [x] MVP week planner: assign saved workouts to weekdays on web and publish `workout` blocks
+- [x] Android: display synced saved-workout blocks in Programs/Launch Pad and launch the live workout runner
 - [ ] Week grid: drag exercises, routines, templates, and saved workouts onto days
 - [ ] Android: merge Programs + Unified Workouts → **Planner** tile
 - [ ] Plan strategy, habits, rest notes (3b)
@@ -166,11 +168,11 @@ These shipped while building the composer and are documented in [WORKOUT_PLAN_ED
 ### Phase 4 — Dashboard + AI
 
 - [ ] Dashboard: surface planned workout for today (read-only)
-- [ ] AI plan/workout generation (Maple / optional)
+- [ ] Web-only AI plan/workout generation (Maple / optional)
 
 ### Pre-AI athlete context (web-first)
 
-Full spec: [ATHLETE_CONTEXT_WEB_PREP.md](ATHLETE_CONTEXT_WEB_PREP.md). Web = planning desk; Android = live logging.
+Full spec: [ATHLETE_CONTEXT_WEB_PREP.md](ATHLETE_CONTEXT_WEB_PREP.md). Web = planning desk and AI generation; Android = live logging and synced workout execution.
 
 #### W1 — Training profile (`erv/training-profile`)
 

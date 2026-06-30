@@ -125,6 +125,10 @@ android {
         buildConfig = false
         compose = true
     }
+
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
 }
 
 // Android Gradle Plugin does not create the Java plugin's `testClasses` task; some IDE actions still request

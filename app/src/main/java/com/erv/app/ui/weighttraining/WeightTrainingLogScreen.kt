@@ -60,6 +60,8 @@ import com.erv.app.weighttraining.WeightRepository
 import com.erv.app.weighttraining.WeightSync
 import com.erv.app.weighttraining.WeightWorkoutSession
 import com.erv.app.weighttraining.datedWeightWorkoutsForSectionLog
+import com.erv.app.workouts.WorkoutLibraryState
+import com.erv.app.workouts.WorkoutRepository
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.launch
@@ -74,6 +76,7 @@ private sealed class WeightLogEditorState {
 @Composable
 fun WeightTrainingLogScreen(
     repository: WeightRepository,
+    workoutRepository: WorkoutRepository,
     userPreferences: UserPreferences,
     relayPool: RelayPool?,
     signer: EventSigner?,
@@ -87,6 +90,7 @@ fun WeightTrainingLogScreen(
     val loadUnit by userPreferences.weightTrainingLoadUnit.collectAsState(initial = BodyWeightUnit.LB)
     val fallbackBodyWeightKg by userPreferences.fallbackBodyWeightKg.collectAsState(initial = null)
     val state by repository.state.collectAsState(initial = WeightLibraryState())
+    val workoutState by workoutRepository.state.collectAsState(initial = WorkoutLibraryState())
     val datesWithActivity = remember(state) { datesWithWeightActivity(state) }
     var dateFilter by remember(initialSelectedDate) {
         mutableStateOf<SectionLogDateFilter>(
@@ -268,6 +272,7 @@ fun WeightTrainingLogScreen(
                     is SectionLogDateFilter.DateRange -> "No workouts in this date range."
                 },
                 library = state,
+                workoutLibrary = workoutState,
                 loadUnit = loadUnit,
                 onOpen = { logDate, w -> selectedWorkoutForSummary = logDate to w },
                 onEdit = { logDate, w -> manualLogEditor = WeightLogEditorState.Editing(logDate, w) },

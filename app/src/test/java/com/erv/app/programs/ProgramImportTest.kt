@@ -50,6 +50,40 @@ class ProgramImportTest {
     }
 
     @Test
+    fun parseWorkoutReferenceBlock() {
+        val json = """
+            {
+              "ervImportVersion": 1,
+              "programs": [
+                {
+                  "id": "p1",
+                  "name": "Workout refs",
+                  "weeklySchedule": [
+                    {
+                      "dayOfWeek": 1,
+                      "blocks": [
+                        {
+                          "id": "b1",
+                          "kind": "workout",
+                          "title": "Lower strength",
+                          "workoutId": "workout-lower"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+        """.trimIndent()
+        val (env, errs) = ProgramImport.parse(json)
+        assertTrue(errs.isEmpty())
+        val block = env!!.programs.single().weeklySchedule.single().blocks.single()
+        assertEquals(ProgramBlockKind.WORKOUT, block.kind)
+        assertEquals("workout-lower", block.workoutId)
+        assertEquals("Lower strength", block.title)
+    }
+
+    @Test
     fun rejectsEmptyProgramsList() {
         val json = """{"ervImportVersion":1,"programs":[]}"""
         val (env, errs) = ProgramImport.parse(json)

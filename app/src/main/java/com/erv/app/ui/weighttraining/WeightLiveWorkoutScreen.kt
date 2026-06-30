@@ -1,11 +1,13 @@
 package com.erv.app.ui.weighttraining
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -21,6 +23,8 @@ import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.BottomSheetScaffold
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -57,23 +61,29 @@ import com.erv.app.data.BodyWeightUnit
 import com.erv.app.data.UserPreferences
 import com.erv.app.data.WeightLiveRestTimerMode
 import com.erv.app.hr.LocalHeartRateBle
+import com.erv.app.ui.components.FormSectionLabelMedium
 import com.erv.app.ui.media.WorkoutMediaControlPanel
 import com.erv.app.ui.media.playHiitWorkCountdownTickCue
 import com.erv.app.ui.media.playHiitWorkSegmentEndCue
 import com.erv.app.ui.theme.ErvDarkTherapyRedDark
 import com.erv.app.ui.theme.ErvHeaderRed
 import com.erv.app.ui.theme.ErvLightTherapyRedDark
+import com.erv.app.weighttraining.WeightEquipment
 import com.erv.app.weighttraining.WeightExercise
 import com.erv.app.weighttraining.WeightHiitBlockLog
 import com.erv.app.weighttraining.WeightHiitIntervalPlan
 import com.erv.app.weighttraining.WeightLibraryState
 import com.erv.app.weighttraining.WeightSet
 import com.erv.app.weighttraining.displayLabel
+import com.erv.app.weighttraining.formatHiitBlockSummaryLine
+import com.erv.app.weighttraining.formatSetValueLine
 import com.erv.app.weighttraining.useTimedSetLogging
 import com.erv.app.weighttraining.usesTimedHoldCountdownBeeps
 import com.erv.app.weighttraining.isLogged
+import com.erv.app.weighttraining.weightLoadUnitSuffix
 import com.erv.app.weighttraining.WeightWorkoutDraft
 import com.erv.app.workouts.currentSlot
+import com.erv.app.workouts.isCurrentSlotLogged
 import com.erv.app.weighttraining.weightNowEpochSeconds
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -89,6 +99,10 @@ fun WeightLiveWorkoutScreen(
     userPreferences: UserPreferences,
     unifiedWorkoutStartedAtEpochSeconds: Long? = null,
     composedWorkoutStartedAtEpochSeconds: Long? = null,
+    /** Section progress label like "Section 2 of 5" when run from a composed workout. */
+    composedSectionLabel: String? = null,
+    /** Top-bar primary action label; section-aware when run from a composed workout. */
+    finishLabel: String = "Finish",
     /** When the user expands an exercise, logs sets, or starts HIIT — for HR correlation. */
     onRecordExerciseActivity: (String) -> Unit = {},
     /** After a set is logged during a composed-workout circuit — parent may advance the circuit. */
@@ -156,6 +170,9 @@ fun WeightLiveWorkoutScreen(
     var previousRestRemainingSec by remember(draft.startedAtEpochSeconds) { mutableStateOf<Int?>(null) }
 
     val circuitRun = draft.circuitRun
+    // Keyed on round/slot/completion only, so this force-focuses the active slot on an
+    // actual circuit advance — not on every recomposition. Backing out to the overview
+    // (editingExerciseId = null) leaves these keys unchanged, so the user is not re-trapped.
     LaunchedEffect(circuitRun?.currentRound, circuitRun?.currentSlotIndex, circuitRun?.isComplete) {
         val circuit = circuitRun ?: return@LaunchedEffect
         if (circuit.isComplete) {
@@ -379,6 +396,16 @@ fun WeightLiveWorkoutScreen(
             title = {
                 if (editingName != null) {
                     Text(editingName, maxLines = 1)
+                } else if (composedSectionLabel != null) {
+                    Column {
+                        Text(stringResource(R.string.weight_live_screen_title), maxLines = 1)
+                        Text(
+                            composedSectionLabel,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = Color.White.copy(alpha = 0.85f),
+                            maxLines = 1,
+                        )
+                    }
                 } else {
                     Text(stringResource(R.string.weight_live_screen_title))
                 }
@@ -456,7 +483,7 @@ fun WeightLiveWorkoutScreen(
                         },
                         modifier = Modifier.padding(end = 4.dp)
                     ) {
-                        Text("Finish", color = Color.White)
+                        Text(finishLabel, color = Color.White)
                     }
                 }
             },
@@ -546,12 +573,25 @@ fun WeightLiveWorkoutScreen(
                 val circuitRoundSetIndex = circuitRun?.currentRound?.minus(1)
                     ?.takeIf { it in allSets.indices }
                 val sets = circuitRoundSetIndex?.let { listOf(allSets[it]) } ?: allSets
+                val editingActiveSlot = circuitRun?.currentSlot()?.exerciseId == editingId
                 LazyColumn(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
                 ) {
+                    // Circuit: surface every round's logged values so earlier rounds stay visible
+                    // when this exercise comes back around. The current round is edited below.
+                    if (circuitRun != null && circuitRoundSetIndex != null && allSets.size > 1) {
+                        item(key = "rounds_recap_${editingId}") {
+                            CircuitRoundsRecapCard(
+                                sets = allSets,
+                                currentRoundIndex = circuitRoundSetIndex,
+                                loadUnit = loadUnit,
+                                equipment = ex?.equipment,
+                            )
+                        }
+                    }
                     item(key = "edit_${editingId}") {
                         WeightExerciseInlineSetsCard(
                             exerciseName = ex?.name ?: editingId,
@@ -568,7 +608,6 @@ fun WeightLiveWorkoutScreen(
                                 } else {
                                     onSaveSets(editingId, it)
                                 }
-                                if (circuitRun != null) onAfterCircuitSetLogged()
                             },
                             canMoveUp = false,
                             canMoveDown = false,
@@ -610,8 +649,54 @@ fun WeightLiveWorkoutScreen(
                             }
                         )
                     }
+                    if (circuitRun != null && editingActiveSlot) {
+                        item(key = "circuit_advance_${editingId}") {
+                            val slotLogged = circuitRun.isCurrentSlotLogged(
+                                draft.setsByExerciseId,
+                                draft.hiitBlocksByExerciseId,
+                            )
+                            Button(
+                                onClick = { onAfterCircuitSetLogged() },
+                                enabled = slotLogged,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Log set & continue")
+                            }
+                        }
+                    }
                 }
-            } else if (circuitRun == null) {
+            } else if (circuitRun != null) {
+                // Overview of the whole circuit: review every slot's per-round values,
+                // see which slot is active, and tap any exercise to re-open its editor.
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                ) {
+                    itemsIndexed(
+                        circuitRun.slots,
+                        key = { _, slot -> slot.workoutItemId },
+                    ) { index, slot ->
+                        val slotExercise = library.exerciseById(slot.exerciseId)
+                        CircuitSlotOverviewCard(
+                            slotNumber = index + 1,
+                            exerciseName = slotExercise?.name ?: slot.exerciseId,
+                            equipmentLabel = slotExercise?.equipment?.displayLabel(),
+                            equipment = slotExercise?.equipment,
+                            sets = weightSetsInDraft(draft, slot.exerciseId),
+                            hiitBlock = draft.hiitBlocksByExerciseId[slot.exerciseId],
+                            currentRound = circuitRun.currentRound,
+                            isActive = index == circuitRun.currentSlotIndex,
+                            loadUnit = loadUnit,
+                            onClick = {
+                                onRecordExerciseActivity(slot.exerciseId)
+                                editingExerciseId = slot.exerciseId
+                            },
+                        )
+                    }
+                }
+            } else {
                 if (draft.routineName != null) {
                     Text(
                         "From routine: ${draft.routineName}",
@@ -749,6 +834,151 @@ fun WeightLiveWorkoutScreen(
                 containerColor = headerDark.copy(alpha = 0.08f)
             ) { padding ->
                 screenContent(padding)
+            }
+        }
+    }
+}
+
+/** Read-only recap of every round's logged values for the exercise being edited in a circuit. */
+@Composable
+private fun CircuitRoundsRecapCard(
+    sets: List<WeightSet>,
+    currentRoundIndex: Int,
+    loadUnit: BodyWeightUnit,
+    equipment: WeightEquipment?,
+) {
+    val loadSuffix = weightLoadUnitSuffix(loadUnit)
+    val weightIsAddedLoad = equipment == WeightEquipment.OTHER
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        ),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            FormSectionLabelMedium("All rounds")
+            sets.forEachIndexed { idx, set ->
+                val isCurrent = idx == currentRoundIndex
+                val hasValue = set.isLogged() || set.reps > 0 || set.durationSeconds != null ||
+                    set.weightKg != null || set.rpe != null
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Round ${idx + 1}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (isCurrent) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        text = if (hasValue) {
+                            formatSetValueLine(set, loadUnit, loadSuffix, weightIsAddedLoad)
+                        } else {
+                            "Not logged yet"
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (isCurrent) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (isCurrent) {
+                        Text(
+                            text = "Current",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** One tappable circuit slot in the overview, showing its per-round logged values. */
+@Composable
+private fun CircuitSlotOverviewCard(
+    slotNumber: Int,
+    exerciseName: String,
+    equipmentLabel: String?,
+    equipment: WeightEquipment?,
+    sets: List<WeightSet>,
+    hiitBlock: WeightHiitBlockLog?,
+    currentRound: Int,
+    isActive: Boolean,
+    loadUnit: BodyWeightUnit,
+    onClick: () -> Unit,
+) {
+    val loadSuffix = weightLoadUnitSuffix(loadUnit)
+    val weightIsAddedLoad = equipment == WeightEquipment.OTHER
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = if (isActive) MaterialTheme.colorScheme.primaryContainer
+                else MaterialTheme.colorScheme.surfaceVariant
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "$slotNumber. $exerciseName",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.weight(1f),
+                )
+                if (isActive) {
+                    Text(
+                        text = "Current",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
+            equipmentLabel?.let {
+                Text(
+                    it,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (hiitBlock != null) {
+                Text(
+                    formatHiitBlockSummaryLine(hiitBlock, loadUnit, loadSuffix, weightIsAddedLoad),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+            } else {
+                sets.forEachIndexed { idx, set ->
+                    val isCurrent = isActive && (idx + 1) == currentRound
+                    val hasValue = set.isLogged() || set.reps > 0 || set.durationSeconds != null ||
+                        set.weightKg != null || set.rpe != null
+                    Text(
+                        text = "Round ${idx + 1}: " + if (hasValue) {
+                            formatSetValueLine(set, loadUnit, loadSuffix, weightIsAddedLoad)
+                        } else {
+                            "Not logged yet"
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (isCurrent) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurface,
+                    )
+                }
             }
         }
     }

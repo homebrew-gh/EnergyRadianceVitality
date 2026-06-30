@@ -225,9 +225,13 @@ data class WorkoutActiveRun(
     val completedSegmentIds: List<String> = emptyList(),
     val lastLaunchedSegmentId: String? = null,
     val lastLaunchedItemId: String? = null,
+    /** All storyboard items batched into the active silo session (e.g. consecutive weight lifts). */
+    val lastLaunchedItemIds: List<String> = emptyList(),
     val itemRecaps: List<WorkoutItemRecap> = emptyList(),
     /** Set after a segment finishes; cleared when the athlete acknowledges the next-section prompt. */
     val pendingNextSegmentTitle: String? = null,
+    /** Set after a section finishes when the next step is silo-backed; drives continuous auto-advance. */
+    val autoAdvanceRequested: Boolean = false,
     val displayRef: String = generateWorkoutRunDisplayRef(),
 )
 

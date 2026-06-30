@@ -21,8 +21,6 @@ enum class LaunchPadTileId {
 
 val defaultLaunchPadTileOrder: List<LaunchPadTileId> = listOf(
     LaunchPadTileId.TRAINING,
-    LaunchPadTileId.PROGRAMS,
-    LaunchPadTileId.WORKOUT_LAUNCHER,
     LaunchPadTileId.STRETCHING,
     LaunchPadTileId.CARDIO,
     LaunchPadTileId.WEIGHT_TRAINING,
@@ -38,7 +36,6 @@ val defaultFirstRunLaunchPadTileIds: Set<LaunchPadTileId> = setOf(
     LaunchPadTileId.CARDIO,
     LaunchPadTileId.WEIGHT_TRAINING,
     LaunchPadTileId.STRETCHING,
-    LaunchPadTileId.WORKOUT_LAUNCHER,
     LaunchPadTileId.FASTING,
     LaunchPadTileId.HOT_COLD,
 )

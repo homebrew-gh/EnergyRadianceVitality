@@ -15,8 +15,8 @@ Last updated: June 2026.
 
 | Surface | Owns | Does not own |
 |---------|------|--------------|
-| **Start9 web** | Training profile, style presets, history review, training snapshot, workout/plan authoring | Live workout timer / set logging |
-| **Android** | Live run, session logs, read-only profile summary | Full profile editor (edit on web) |
+| **Start9 web** | Training profile, style presets, history review, training snapshot, workout/plan authoring, AI workout/plan generation | Live workout timer / set logging |
+| **Android** | Live run, session logs, read-only profile summary, synced workout/plan execution | Full profile editor or AI generation (edit/generate on web) |
 
 ---
 
@@ -26,6 +26,7 @@ Last updated: June 2026.
 |-------|---------|----------|
 | **Synced profile** | Nostr d-tag (user-edited) | Goals, experience, style presets, injuries/avoid list, HR zones, session duration |
 | **Computed snapshot** | Derived from logs (optional future d-tag) | Working weights, weekly volume by muscle group, cardio load |
+| **Optional HR load** | Derived from Android HR summaries in day logs | Zone time, avg/max/min HR, high-intensity exposure |
 | **Ephemeral overrides** | Per-generation prompt only (Phase 4) | “Deload this week”, “45 min today only” |
 
 Profile = who you want to be. Snapshot = what you’ve been doing. Generation needs both.
@@ -111,6 +112,7 @@ Check boxes here as work lands. Mirror key items in [START9_COMPANION_V1.md](STA
 - [x] “Copy training context” bundle (profile + snapshot + equipment + catalog ids)
 - [x] Extends today’s programs reference bundle pattern
 - [x] Validates completeness before Phase 4 `AiContextBuilder`
+- [x] Includes progression guardrails with optional heart-rate evidence when Android logs provide it
 
 ---
 
@@ -120,13 +122,12 @@ Wire JSON (encrypted kind 30078, d-tag `erv/training-profile`):
 
 | Field | Type | Notes |
 |-------|------|-------|
-| `profileVersion` | int | Start at `1` |
+| `profileVersion` | int | Current profile shape is `2`; v1 payloads remain readable |
 | `primaryGoal` | enum | `general_fitness`, `strength`, `hypertrophy`, `endurance`, `longevity`, `sport` |
 | `experienceLevel` | enum | `beginner`, `intermediate`, `advanced` |
 | `typicalSessionMinutes` | int? | e.g. 45, 60 |
-| `preferredSplit` | enum | `full_body`, `upper_lower`, `push_pull_legs`, `custom`, `none` |
-| `stylePresetIds` | string[] | Curated ids — see §7 |
-| `influenceLabels` | string[] | Display names (“Bryan Johnson”, “Ben Patrick”) |
+| `typicalTrainingDaysPerWeek` | int? | 1–7 |
+| `stylePresetIds` | string[] | Curated ids, max 2 — see §7 |
 | `styleNotes` | string? | Free-text nuance |
 | `avoidMovementPatterns` | string[] | Structured tags — see §8 |
 | `customAvoidNotes` | string? | Injury / limitation notes |
@@ -143,17 +144,23 @@ Wire JSON (encrypted kind 30078, d-tag `erv/training-profile`):
 ## 7. Style preset ids (curated)
 
 Presets map to fixed bullet lists in future `AiContextBuilder` — not raw influencer names alone.
+Users may select up to **2** presets. The workout split is derived later from selected presets,
+goal, training days, session length, equipment, recovery, and training history — it is not a
+profile field.
 
-| id | Label | Intent |
-|----|-------|--------|
-| `longevity_blueprint` | Longevity / Blueprint-adjacent | Conservative load, full-body bias, recovery-aware |
-| `kot_durable` | KOT / joint-durable | Knee/ankle prep, controlled ROM, tibialis/split squat bias |
-| `powerlifting` | Powerlifting | Squat/bench/deadlift focus, percentage-style progression |
-| `hypertrophy` | Hypertrophy | Volume, rep ranges 8–15, accessory density |
-| `zone2_minimal` | Zone 2 + minimal strength | Cardio base + short strength maintenance |
-| `general_athletic` | General athletic | Mixed modalities, balanced weekly structure |
+| id | Label | Influence examples | Intent |
+|----|-------|--------------------|--------|
+| `longevity_recovery` | Longevity & Recovery | Bryan Johnson, Rhonda Patrick, Peter Attia, Andrew Huberman | Conservative progression, recovery, mobility, zone 2, full-body balance |
+| `joint_durability` | Joint Durability / ATG | Ben Patrick, Knees Over Toes, ATG, Kelly Starrett | Knee/ankle capacity, controlled ROM, tendon resilience, progressive range |
+| `hypertrophy_bodybuilding` | Hypertrophy / Bodybuilding | Renaissance Periodization, Mike Israetel, Jeff Nippard, Menno Henselmans | Volume, 8–15 rep ranges, accessories, proximity to failure |
+| `strength_powerlifting` | Strength / Powerlifting | Starting Strength, Jim Wendler, Westside | Squat/bench/deadlift focus, heavier loading, planned progression |
+| `zone2_endurance` | Zone 2 / Aerobic Base | Phil Maffetone, Inigo San Millan, Peter Attia | Aerobic base, low-intensity cardio, strength maintenance |
+| `hiit_conditioning` | HIIT / Conditioning | Tabata, Norwegian 4x4, CrossFit-style conditioning | Intervals, circuits, work capacity, careful fatigue control |
+| `general_athletic` | General Athletic Performance | Field-sport S&C, EXOS-style training | Strength, mobility, cardio, power, coordination |
+| `mobility_movement` | Mobility & Movement Quality | FRC, GMB-style movement, yoga, pilates | Range of motion, control, prehab, lower intensity |
+| `calisthenics_minimalist` | Calisthenics / Minimal Equipment | Bodyweight strength, Pavel-style simple strength, rings/bar basics | Bodyweight progressions, low equipment, skill strength |
 
-`influenceLabels` are optional human-facing tags; **`stylePresetIds` drive deterministic context**.
+Influence examples are UI copy only. **`stylePresetIds` drive deterministic context**.
 
 ---
 
@@ -183,10 +190,22 @@ Presets map to fixed bullet lists in future `AiContextBuilder` — not raw influ
 
 When AI ships ([PROGRAMS_AND_WORKOUTS_MERGE_AND_AI.md](PROGRAMS_AND_WORKOUTS_MERGE_AND_AI.md) §6):
 
-1. `AiContextBuilder` reads: profile + snapshot + equipment + catalogs + saved workout ids
+1. Web-only `AiContextBuilder` reads: profile + snapshot + equipment + catalogs + saved workout ids
 2. Ephemeral user prompt appended at generate time
 3. Output → existing workout import envelope → validate ids → preview in builder
 4. Never auto-publish to Nostr
+
+AI workout/plan generation is a Start9 web companion feature only. Android does not host prompts,
+providers, generation queues, or draft validators; it only syncs saved workouts/plans and runs live
+sessions after the user saves generated output on web.
+
+Progression guardrails should treat heart-rate data as optional evidence:
+
+- Missing HR data must not block generation.
+- Avg/max/min HR summaries may add soft fatigue or cardio-load warnings.
+- `heartRate.load.zoneSeconds` is preferred when available because it supports weekly Z1–Z5 comparisons.
+- Whole-workout and segment HR are useful for circuits, supersets, intervals, and conditioning blocks.
+- Per-exercise HR windows remain local-only / low confidence because HR lag makes attribution noisy.
 
 **Do not** add LLM UI until W1–W3 (minimum) are usable without AI.
 
@@ -226,5 +245,5 @@ When AI ships ([PROGRAMS_AND_WORKOUTS_MERGE_AND_AI.md](PROGRAMS_AND_WORKOUTS_MER
 |------|------------|
 | Web has no logs until W2 | W1 still valuable; snapshot blocked until W2 |
 | Profile/log merge conflicts | Profile: lastModified wins; logs: existing day-log merge rules |
-| Influencer names hallucinate protocols | Presets + validate → preview; influenceLabels are hints only |
+| Influencer names hallucinate protocols | Presets + validate → preview; influence examples are UI copy only |
 | Settings clutter on Android | Read-only summary only |

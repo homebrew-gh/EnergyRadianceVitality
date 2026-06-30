@@ -40,8 +40,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.unit.dp
-import com.erv.app.cardio.isCyclingActivity
-import com.erv.app.cardio.isStationaryBikeActivity
+import com.erv.app.cardio.isErgMonitorActivity
 import com.erv.app.cycling.Concept2BleConnectionState
 import com.erv.app.cycling.Concept2ScanRow
 import com.erv.app.cycling.CyclingCscBleConnectionState
@@ -60,6 +59,8 @@ import com.erv.app.ui.components.FormSectionLabel
 @Stable
 class CardioBikeErgSensorConnectHandle internal constructor(
     internal val enabled: Boolean,
+    /** Whether a cycling speed/cadence (CSC) sensor is relevant; false for RowErg / SkiErg. */
+    internal val cyclingSensorApplicable: Boolean = true,
 ) {
     var ergConnected by mutableStateOf(false)
         internal set
@@ -89,8 +90,14 @@ class CardioBikeErgSensorConnectHandle internal constructor(
 fun rememberCardioBikeErgSensorConnect(
     enabled: Boolean,
     sessionKey: Any = Unit,
+    cyclingSensorApplicable: Boolean = true,
 ): CardioBikeErgSensorConnectHandle {
-    val handle = remember(enabled, sessionKey) { CardioBikeErgSensorConnectHandle(enabled = enabled) }
+    val handle = remember(enabled, sessionKey, cyclingSensorApplicable) {
+        CardioBikeErgSensorConnectHandle(
+            enabled = enabled,
+            cyclingSensorApplicable = cyclingSensorApplicable,
+        )
+    }
 
     if (!enabled) {
         handle.ergConnected = false
@@ -320,9 +327,14 @@ fun CardioBikeErgSensorPreStartPanel(
     val connectedColor = Color(0xFF80CBC4)
 
     val statusText = when {
-        handle.ergConnected -> "Concept2 connected — power, cadence, and distance will stream live."
+        handle.ergConnected && handle.cyclingSensorApplicable ->
+            "Concept2 connected — power, cadence, and distance will stream live."
+        handle.ergConnected ->
+            "Concept2 connected — power, stroke rate, and distance will stream live."
         handle.cscConnected -> "Speed sensor connected — distance and cadence will stream live."
-        else -> "Connect your Concept2 BikeErg (or a speed sensor) before you start pedaling."
+        handle.cyclingSensorApplicable ->
+            "Connect your Concept2 BikeErg (or a speed sensor) before you start pedaling."
+        else -> "Connect your Concept2 erg before you start."
     }
 
     val containerModifier = if (lightOnDark) {
@@ -381,7 +393,7 @@ private fun CardioBikeErgPreStartPanelContent(
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Text(
-            text = "Bike sensor",
+            text = if (handle.cyclingSensorApplicable) "Bike sensor" else "Erg sensor",
             style = MaterialTheme.typography.titleSmall,
             color = titleColor,
         )
@@ -410,23 +422,25 @@ private fun CardioBikeErgPreStartPanelContent(
                     Spacer(Modifier.width(6.dp))
                     Text(if (handle.ergConnected) "Concept2" else "Connect Concept2")
                 }
-                OutlinedButton(
-                    onClick = { handle.showCyclingSensorDialog = true },
-                    modifier = Modifier.weight(1f),
-                    colors = if (lightOnDark) {
-                        ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
-                    } else {
-                        ButtonDefaults.outlinedButtonColors()
-                    },
-                    border = if (lightOnDark) {
-                        ButtonDefaults.outlinedButtonBorder.copy(brush = SolidColor(Color.White))
-                    } else {
-                        ButtonDefaults.outlinedButtonBorder
-                    },
-                ) {
-                    Icon(Icons.Filled.Bluetooth, contentDescription = null)
-                    Spacer(Modifier.width(6.dp))
-                    Text("CSC sensor")
+                if (handle.cyclingSensorApplicable) {
+                    OutlinedButton(
+                        onClick = { handle.showCyclingSensorDialog = true },
+                        modifier = Modifier.weight(1f),
+                        colors = if (lightOnDark) {
+                            ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
+                        } else {
+                            ButtonDefaults.outlinedButtonColors()
+                        },
+                        border = if (lightOnDark) {
+                            ButtonDefaults.outlinedButtonBorder.copy(brush = SolidColor(Color.White))
+                        } else {
+                            ButtonDefaults.outlinedButtonBorder
+                        },
+                    ) {
+                        Icon(Icons.Filled.Bluetooth, contentDescription = null)
+                        Spacer(Modifier.width(6.dp))
+                        Text("CSC sensor")
+                    }
                 }
             }
         } else {
@@ -459,15 +473,17 @@ fun RowScope.CardioBikeErgSensorToolbarActions(
             },
         )
     }
-    IconButton(onClick = { handle.showCyclingSensorDialog = true }) {
-        Icon(
-            Icons.Filled.Bluetooth,
-            contentDescription = "Cycling sensor",
-            tint = when {
-                handle.cscConnected -> Color(0xFF80CBC4)
-                else -> idleTint
-            },
-        )
+    if (handle.cyclingSensorApplicable) {
+        IconButton(onClick = { handle.showCyclingSensorDialog = true }) {
+            Icon(
+                Icons.Filled.Bluetooth,
+                contentDescription = "Cycling sensor",
+                tint = when {
+                    handle.cscConnected -> Color(0xFF80CBC4)
+                    else -> idleTint
+                },
+            )
+        }
     }
 }
 
@@ -477,11 +493,13 @@ internal fun CardioBikeErgConnectInlineSection(
     sessionKey: Any = Unit,
     lightOnDark: Boolean = false,
     compact: Boolean = false,
+    cyclingSensorApplicable: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     val handle = rememberCardioBikeErgSensorConnect(
         enabled = activitySupportsErg,
         sessionKey = sessionKey,
+        cyclingSensorApplicable = cyclingSensorApplicable,
     )
     CardioBikeErgSensorPreStartPanel(
         handle = handle,
@@ -492,7 +510,7 @@ internal fun CardioBikeErgConnectInlineSection(
 }
 
 fun com.erv.app.cardio.CardioActivitySnapshot.supportsBikeErgSensorConnect(): Boolean =
-    isStationaryBikeActivity() || isCyclingActivity()
+    isErgMonitorActivity()
 
 @Composable
 internal fun CardioCyclingSensorSessionDialog(

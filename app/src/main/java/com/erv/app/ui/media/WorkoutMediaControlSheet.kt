@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -43,6 +44,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -53,12 +55,15 @@ import com.erv.app.media.ErvMediaControlHelper
  * Inline or sheet media UI: track info + transport, optional notification-listener onboarding.
  * @param useLightOnDarkBackground true for live timer gradient (white text); false for standard sheet surface.
  * @param showHeaderTitle when true, shows the "Media" title (bottom sheet); false for compact live overlay.
+ * @param compact when true, renders a single-row layout (track + transport) so it stays unobtrusive
+ *   on top of a live workout and leaves room for stats. Onboarding collapses to one action button.
  */
 @Composable
 fun WorkoutMediaControlPanel(
     modifier: Modifier = Modifier,
     useLightOnDarkBackground: Boolean = false,
     showHeaderTitle: Boolean = true,
+    compact: Boolean = false,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -128,6 +133,22 @@ fun WorkoutMediaControlPanel(
         if (useLightOnDarkBackground) Color.White.copy(alpha = 0.78f) else MaterialTheme.colorScheme.onSurfaceVariant
     val onMuted =
         if (useLightOnDarkBackground) Color.White.copy(alpha = 0.65f) else MaterialTheme.colorScheme.onSurfaceVariant
+
+    if (compact) {
+        WorkoutMediaControlCompactRow(
+            modifier = modifier,
+            sdkSupported = Build.VERSION.SDK_INT >= 21,
+            listenerEnabled = listenerEnabled,
+            controller = activeController,
+            metadata = metadata,
+            playbackState = playbackState,
+            onPrimary = onPrimary,
+            onSecondary = onSecondary,
+            onMuted = onMuted,
+            useLightOnDarkBackground = useLightOnDarkBackground,
+        )
+        return
+    }
 
     val scrollModifier =
         if (useLightOnDarkBackground) {
@@ -277,6 +298,130 @@ fun WorkoutMediaControlPanel(
                 stringResource(R.string.media_control_no_session),
                 style = MaterialTheme.typography.bodyMedium,
                 color = onMuted
+            )
+        }
+    }
+}
+
+/**
+ * Single-row media control used as a live-workout overlay: track text on the left (truncated to one
+ * line each) and prev / play-pause / next on the right, so stats stay visible behind it.
+ */
+@Composable
+private fun WorkoutMediaControlCompactRow(
+    modifier: Modifier,
+    sdkSupported: Boolean,
+    listenerEnabled: Boolean,
+    controller: MediaController?,
+    metadata: MediaMetadata?,
+    playbackState: PlaybackState?,
+    onPrimary: Color,
+    onSecondary: Color,
+    onMuted: Color,
+    useLightOnDarkBackground: Boolean,
+) {
+    val context = LocalContext.current
+
+    if (!sdkSupported) {
+        Text(
+            stringResource(R.string.media_control_no_session),
+            modifier = modifier,
+            style = MaterialTheme.typography.bodySmall,
+            color = onMuted
+        )
+        return
+    }
+
+    if (!listenerEnabled) {
+        Button(
+            onClick = { ErvMediaControlHelper.openNotificationListenerSettings(context) },
+            modifier = modifier.fillMaxWidth(),
+            colors = if (useLightOnDarkBackground) {
+                ButtonDefaults.buttonColors(
+                    containerColor = Color.White.copy(alpha = 0.22f),
+                    contentColor = Color.White
+                )
+            } else {
+                ButtonDefaults.buttonColors()
+            }
+        ) {
+            Text(stringResource(R.string.media_control_open_listener_settings))
+        }
+        return
+    }
+
+    val title = metadata?.getString(MediaMetadata.METADATA_KEY_TITLE)
+    val artist = metadata?.getString(MediaMetadata.METADATA_KEY_ARTIST)
+        ?: metadata?.getString(MediaMetadata.METADATA_KEY_ALBUM_ARTIST)
+    val playing = playbackState?.state == PlaybackState.STATE_PLAYING
+
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            if (!title.isNullOrBlank() || !artist.isNullOrBlank()) {
+                Text(
+                    title?.takeIf { it.isNotBlank() } ?: "—",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = onPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (!artist.isNullOrBlank()) {
+                    Text(
+                        artist,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = onSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            } else {
+                Text(
+                    stringResource(R.string.media_control_no_session),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = onMuted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+        IconButton(
+            onClick = { controller?.transportControls?.skipToPrevious() },
+            enabled = controller != null,
+            modifier = Modifier.size(40.dp)
+        ) {
+            Icon(
+                Icons.Default.SkipPrevious,
+                contentDescription = stringResource(R.string.media_control_cd_skip_previous),
+                tint = onPrimary
+            )
+        }
+        IconButton(
+            onClick = {
+                val tc = controller?.transportControls ?: return@IconButton
+                if (playing) tc.pause() else tc.play()
+            },
+            enabled = controller != null,
+            modifier = Modifier.size(40.dp)
+        ) {
+            Icon(
+                if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
+                contentDescription = stringResource(R.string.media_control_cd_play_pause),
+                tint = onPrimary
+            )
+        }
+        IconButton(
+            onClick = { controller?.transportControls?.skipToNext() },
+            enabled = controller != null,
+            modifier = Modifier.size(40.dp)
+        ) {
+            Icon(
+                Icons.Default.SkipNext,
+                contentDescription = stringResource(R.string.media_control_cd_skip_next),
+                tint = onPrimary
             )
         }
     }

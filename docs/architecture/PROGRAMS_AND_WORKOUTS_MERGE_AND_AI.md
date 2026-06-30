@@ -195,43 +195,50 @@ In the merged section (toolbar or “Create with AI” entry point), user picks:
 | **Maple Proxy** (recommended private cloud) | Start9 or desktop Maple Proxy; TEE-encrypted; uses Maple subscription credits |
 | **Custom OpenAI-compatible** | Any endpoint: local llama.cpp, other StartOS LLM packages, LAN dev proxy |
 
-Store per-provider settings in `UserPreferences` (encrypted where needed):
+Store per-provider settings in the Start9 web companion/server config (encrypted where needed):
 
 - `aiEnabled` (master toggle)
 - `aiProvider` enum: `OFF`, `MAPLE`, `OPENAI_COMPAT`
 - `aiBaseUrl` (e.g. `http://start9-host:8080/v1` for Maple API interface)
 - `aiApiKey` (optional if proxy/server stores key — Maple allows per-request `Authorization`)
 - `aiModel` (from `GET /v1/models` or free-text)
-- `aiTimeoutSeconds`, `aiLargeJobsWifiOnly`
+- `aiTimeoutSeconds`
 
 **Maple-specific notes:**
 
 - Run [maple-proxy-startos](https://github.com/islandbitcoin/maple-proxy-startos) on Start9; API on port **8080**, optional Web UI on port **80**.
-- Client targets `{baseUrl}/v1/chat/completions` with **streaming SSE** (Maple supports streaming only).
-- Phone reaches Start9 via LAN or home VPN (e.g. WireGuard); Android may need cleartext HTTP allowance for private hostnames.
+- Web companion targets `{baseUrl}/v1/chat/completions` with **streaming SSE** (Maple supports streaming only).
 - Usage bills against Maple Pro/Team/Max credits; health prompts leave the device encrypted to Maple’s enclave — still disclose in UI.
 
 **Custom backend notes:**
 
 - llama.cpp and most local servers expose the same OpenAI-compatible API; reuse one client.
 - Prefer **single-flight queue** (one request at a time) when the backend is a shared home CPU.
-- **Wi-Fi + charging** toggle for large generations (full multi-week plans).
+- Add a large-generation warning for full multi-week plans when the backend is a shared home CPU.
 
-### 6.2 Shared `com.erv.app.ai` package
+### 6.2 Web-only AI package
 
 | Component | Responsibility |
 |-----------|----------------|
-| `OpenAiCompatibleClient` | OkHttp POST `/v1/chat/completions`, SSE parse; modeled on `SupplementApiClient` |
+| `OpenAiCompatibleClient` | Web/server POST `/v1/chat/completions`, SSE parse |
 | `AiRequestQueue` | Single-flight + cancel + “busy” state |
 | `AiContextBuilder` | Token-budgeted bundle: **training profile + snapshot** (see [ATHLETE_CONTEXT_WEB_PREP.md](ATHLETE_CONTEXT_WEB_PREP.md)), equipment, **weight/cardio/stretch catalogs**, saved workout ids, **light devices/routines**, heat/cold not cataloged (mode only) — reuses import reference bundle shapes |
 | `AiDraftValidator` | Parse JSON → `ProgramImportEnvelope` / workout DTO; remap hallucinated exercise ids; surface errors for preview |
-| `AiSettingsScreen` | Connection test (`GET /v1/models`, `GET /health` for Maple) |
+| `ProgressionGuardrails` | Deterministic policy + validators for load, reps, volume, recovery, and optional HR load evidence |
+| `AiSettingsPanel` | Connection test (`GET /v1/models`, `GET /health` for Maple) |
 
 **Hard rule:** AI output is always a **local draft**; user previews and saves. **Never auto-publish to Nostr.**
+AI authoring is only implemented in the Start9 web companion. Android does not host prompts,
+provider settings, generation queues, or draft validation; it only syncs saved workouts/plans and
+runs live sessions after the user saves web-generated output.
+
+Progression guardrails use HR only as optional evidence. Android day logs may include compact
+`heartRate.load.zoneSeconds` summaries, but web generation must still work from reps, load, RPE/RIR,
+volume, frequency, equipment, and profile when HR is missing or partial.
 
 ### 6.3 AI actions in the merged UI
 
-Expose a consistent **“AI” affordance** (icon or segmented control) on:
+Expose a consistent **“AI” affordance** (icon or segmented control) on web:
 
 | Action | Input | Output |
 |--------|-------|--------|
@@ -264,6 +271,7 @@ Update the AI guide bundle (`shareProgramsReferenceBundle`) to include **workout
 - Request **JSON-only** output; strip markdown fences if present.
 - Optional: GBNF grammar / `response_format` for OpenAI-compatible servers that support it (local llama.cpp).
 - **Post-validate** every id against on-device libraries; fuzzy-match names for unknown lifts and offer “create custom exercise” before save.
+- Post-validate progression against deterministic guardrails before preview: no excessive load jumps, no uncontrolled weekly set spikes, no stacked HIIT days, and no HR-only load decisions.
 
 ---
 
@@ -275,11 +283,11 @@ The [Workout & plan editor spec](WORKOUT_PLAN_EDITOR_SPEC.md) adds **`ExercisePr
 
 ### 7.2 Weekly digest
 
-Independent feature: WorkManager job + `AiContextBuilder` + Dashboard card. Can ship after Phase C without waiting for Phase B. Digest suggestions may deep-link into “Generate adjusted plan” (Phase D).
+Independent web/server feature: scheduled digest job + `AiContextBuilder` + Dashboard card. Can ship after Phase C without waiting for Phase B. Digest suggestions may deep-link into “Generate adjusted plan” (Phase D) in the web companion.
 
 ### 7.3 Agent API / Nostr
 
-Longer term: [USER_AGENT_NOSTR_AUTHORIZATION.md](../archive/planning/USER_AGENT_NOSTR_AUTHORIZATION.md) for user-owned agents. In-app Maple/llama remains the **interactive authoring** path; external agents use the same JSON import envelopes.
+Longer term: [USER_AGENT_NOSTR_AUTHORIZATION.md](../archive/planning/USER_AGENT_NOSTR_AUTHORIZATION.md) for user-owned agents. Web Maple/llama remains the **interactive authoring** path; external agents use the same JSON import envelopes.
 
 ---
 
@@ -321,11 +329,11 @@ Longer term: [USER_AGENT_NOSTR_AUTHORIZATION.md](../archive/planning/USER_AGENT_
 
 **AI**
 
-- [ ] `com.erv.app.ai.*` package
-- [ ] `UserPreferences.kt` — AI + Maple settings
-- [ ] Merged section: provider selector + generate/edit entry points
-- [ ] Workout import envelope + preview dialog (file picker)
-- [ ] Extend `ImportExportCoordinator` context bundle for workouts
+- [ ] Web/server AI package for provider client, queue, context builder, and draft validation
+- [ ] Web companion settings — AI + Maple settings
+- [ ] Web merged section: provider selector + generate/edit entry points
+- [ ] Web workout import envelope + preview dialog
+- [ ] Extend web context bundle for workouts
 
 **Docs**
 

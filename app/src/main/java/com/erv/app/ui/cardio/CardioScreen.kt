@@ -178,6 +178,8 @@ import com.erv.app.cardio.parseCardioDistanceInputToMeters
 import com.erv.app.cardio.defaultSprintIndoorTreadmillParams
 import com.erv.app.cardio.displayName
 import com.erv.app.cardio.isCyclingActivity
+import com.erv.app.cardio.isErgMonitorActivity
+import com.erv.app.cardio.isStrokeErgActivity
 import com.erv.app.cardio.label
 import com.erv.app.cardio.nowEpochSeconds
 import com.erv.app.cardio.resolveSnapshot
@@ -240,8 +242,10 @@ import com.erv.app.workouts.WorkoutLibraryState
 import com.erv.app.workouts.WorkoutLoggedItemKind
 import com.erv.app.workouts.WorkoutRepository
 import com.erv.app.workouts.activeWorkoutCardioLaunch
+import com.erv.app.workouts.isFinalLoggableStep
 import com.erv.app.workouts.linkFor
 import kotlin.math.min
+import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.Instant
@@ -745,7 +749,8 @@ fun CardioCategoryScreen(
                 if (cardioLiveUiExpanded) {
                     val draft = timer.draft
                     val isCycling = draft.activity.isCyclingActivity()
-                    val ergConnected = isCycling &&
+                    val isErg = draft.activity.isErgMonitorActivity()
+                    val ergConnected = isErg &&
                         ergConnectionState == Concept2BleConnectionState.Connected
                     val cscConnected = isCycling &&
                         cyclingConnectionState == CyclingCscBleConnectionState.Connected
@@ -761,6 +766,10 @@ fun CardioCategoryScreen(
                     val showGpsPermissionHint =
                         draft.eligibleForPhoneGps() && cardioGpsPreferred && !locationFineGranted && !paceOnlyTimer
                     val parentRunCtx = resolveCardioParentRunContext(unifiedState, workoutState)
+                    val cardioFinishLabel = parentRunCtx.workoutRun
+                        ?.takeIf { parentRunCtx.workoutLaunch != null }
+                        ?.let { if (it.isFinalLoggableStep()) "Finish workout" else "Next section" }
+                        ?: "Finish"
                     CardioElapsedTimerFullScreen(
                         draft = draft,
                         userPreferences = userPreferences,
@@ -768,6 +777,7 @@ fun CardioCategoryScreen(
                         dark = therapyRedDark,
                         mid = therapyRedMid,
                         glow = therapyRedGlow,
+                        finishLabel = cardioFinishLabel,
                         preferredLiveDistanceMeters = cyclingDistanceMeters,
                         cyclingSensorConnected = ergConnected || cscConnected,
                         cyclingSpeedKmh = when {
@@ -802,7 +812,7 @@ fun CardioCategoryScreen(
                             val durationMinutes = max(1, (elapsedSeconds + 59) / 60)
                             val end = nowEpochSeconds()
                             // Take both erg and CSC summaries to clear their buffers; prefer the erg.
-                            val ergSummary = if (isCycling) concept2Ble.takeWorkoutSummary() else null
+                            val ergSummary = if (isErg) concept2Ble.takeWorkoutSummary() else null
                             val cscDistance = if (isCycling) {
                                 cyclingCscBle.takeWorkoutSummary()?.distanceMeters
                             } else {
@@ -821,7 +831,7 @@ fun CardioCategoryScreen(
                                 endEpoch = end,
                                 elapsedSecondsForDistance = elapsedSeconds,
                                 gpsPoints = gpsPoints,
-                                preferredDistanceMeters = if (isCycling) {
+                                preferredDistanceMeters = if (isErg) {
                                     ergSummary?.distanceMeters ?: cscDistance
                                 } else {
                                     null
@@ -830,11 +840,10 @@ fun CardioCategoryScreen(
                                 ergMetrics = ergMetrics
                             )
                             val completionCtx = resolveCardioParentRunContext(unifiedState, workoutState)
-                            val hrSummary = if (completionCtx.workoutLaunch == null) {
-                                heartRateBle.takeWorkoutHeartRateSummary()
-                            } else {
-                                null
-                            }
+                            // Per-section HR snapshot: always capture for this leg/section. The
+                            // continuous whole-workout HR is recorded separately and attached when
+                            // the composed run finishes.
+                            val hrSummary = heartRateBle.takeWorkoutHeartRateSummary()
                             val withHr = hrSummary?.let { raw.copy(heartRate = it) } ?: raw
                             val session = CardioMetEstimator.applyEstimatedKcal(
                                 withHr,
@@ -918,13 +927,10 @@ fun CardioCategoryScreen(
                                 )
                                 if (session != null) {
                                     val completionCtx = resolveCardioParentRunContext(unifiedState, workoutState)
-                                    val isCycling = timer.state.legs.any { it.activity.isCyclingActivity() }
-                                    val ergSummary = if (isCycling) concept2Ble.takeWorkoutSummary() else null
-                                    val hrSummary = if (completionCtx.workoutLaunch == null) {
-                                        heartRateBle.takeWorkoutHeartRateSummary()
-                                    } else {
-                                        null
-                                    }
+                                    val isErg = timer.state.legs.any { it.activity.isErgMonitorActivity() }
+                                    val ergSummary = if (isErg) concept2Ble.takeWorkoutSummary() else null
+                                    // Per-section HR snapshot for this interval block.
+                                    val hrSummary = heartRateBle.takeWorkoutHeartRateSummary()
                                     val withHr = hrSummary?.let { session.copy(heartRate = it) } ?: session
                                     val withErg = ergSummary?.let { summary ->
                                         withHr.copy(
@@ -2119,6 +2125,7 @@ private fun CardioTimerStartOptionsDialog(
                         activitySupportsErg = true,
                         sessionKey = dialogKey,
                         compact = true,
+                        cyclingSensorApplicable = activity.isCyclingActivity(),
                     )
                 }
             }
@@ -2290,6 +2297,7 @@ private fun CardioHiitIntervalParamsDialog(
                         activitySupportsErg = true,
                         sessionKey = activityLabel,
                         compact = true,
+                        cyclingSensorApplicable = activity.isCyclingActivity(),
                     )
                 }
             }
@@ -3086,6 +3094,8 @@ fun CardioElapsedTimerFullScreen(
     gpsRecordingActive: Boolean = false,
     showGpsPermissionHint: Boolean = false,
     onRequestLocationPermission: () -> Unit = {},
+    /** Top-bar/stop action label; section-aware when run from a composed workout. */
+    finishLabel: String = "Finish",
     /** Back arrow: leave full-screen UI; timer and optional GPS keep running (like weight training). */
     onLeaveTimerUi: (() -> Unit)? = null,
     onBeginWorkout: () -> Unit = {},
@@ -3097,6 +3107,9 @@ fun CardioElapsedTimerFullScreen(
     val concept2Ble = LocalConcept2Pm.current
     val heartRateBle = LocalHeartRateBle.current
     val isCyclingWorkout = draft.activity.isCyclingActivity()
+    // Erg = Concept2-pairable (BikeErg / RowErg / SkiErg); stroke ergs use spm + /500m pace.
+    val isErgWorkout = draft.activity.isErgMonitorActivity()
+    val isStrokeErgWorkout = draft.activity.isStrokeErgActivity()
     val heartRateBannerExpanded by userPreferences.heartRateBannerExpanded.collectAsState(initial = true)
     val heartRateZoneInputs by userPreferences.heartRateZoneInputs.collectAsState(
         initial = com.erv.app.hr.HeartRateZoneInputs(),
@@ -3122,8 +3135,9 @@ fun CardioElapsedTimerFullScreen(
     val distanceCountdownTarget = (draft.timerStyle as? CardioTimerStyle.CountDownDistance)?.targetMeters
     val tickKey = draft.startEpoch
     val bikeErgHandle = rememberCardioBikeErgSensorConnect(
-        enabled = isCyclingWorkout,
+        enabled = isErgWorkout,
         sessionKey = tickKey,
+        cyclingSensorApplicable = isCyclingWorkout,
     )
     val awaitingStart = draft.isPendingStart()
     var showMediaSheet by remember(tickKey) { mutableStateOf(false) }
@@ -3402,7 +3416,7 @@ fun CardioElapsedTimerFullScreen(
                                 tint = if (heartRateBannerExpanded) Color(0xFFFF8A80) else Color.White.copy(alpha = 0.88f)
                             )
                         }
-                        if (isCyclingWorkout) {
+                        if (isErgWorkout) {
                             with(bikeErgHandle) {
                                 CardioBikeErgSensorToolbarActions(handle = this, lightOnDark = true)
                             }
@@ -3475,7 +3489,7 @@ fun CardioElapsedTimerFullScreen(
                         style = MaterialTheme.typography.bodyLarge,
                         color = Color.White.copy(alpha = 0.8f)
                     )
-                    if (isCyclingWorkout) {
+                    if (isErgWorkout) {
                         Spacer(Modifier.height(16.dp))
                         CardioBikeErgSensorPreStartPanel(
                             handle = bikeErgHandle,
@@ -3539,50 +3553,14 @@ fun CardioElapsedTimerFullScreen(
                     style = MaterialTheme.typography.bodyMedium,
                     color = Color.White.copy(alpha = 0.75f)
                 )
-                if (draft.activity.isCyclingActivity() && cyclingSensorConnected) {
-                    val sensorDistance = preferredLiveDistanceMeters
-                    val hasLiveSensorMetric =
-                        cyclingSpeedKmh != null || cyclingCadenceRpm != null ||
-                            sensorDistance != null || ergPowerWatts != null
-                    Spacer(Modifier.height(12.dp))
-                    if (ergPowerWatts != null) {
-                        Text(
-                            text = "$ergPowerWatts W",
-                            style = MaterialTheme.typography.headlineMedium,
-                            color = Color.White
-                        )
-                        Text(
-                            text = "Power",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color.White.copy(alpha = 0.7f)
-                        )
-                        Spacer(Modifier.height(6.dp))
-                    }
-                    Text(
-                        text = cyclingSpeedKmh?.let { speed ->
-                            "Speed ${formatCardioSpeedFromKmh(speed, distanceUnit)}"
-                        } ?: "Speed --",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = Color.White.copy(alpha = if (cyclingSpeedKmh != null) 0.95f else 0.65f)
-                    )
-                    Text(
-                        text = sensorDistance?.let { distance ->
-                            "Distance ${formatCardioDistanceFromMeters(distance, distanceUnit)}"
-                        } ?: "Distance --",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Color.White.copy(alpha = if (sensorDistance != null) 0.9f else 0.65f)
-                    )
-                    Text(
-                        text = cyclingCadenceRpm?.let { cadence ->
-                            "$cadence rpm cadence"
-                        } ?: "Cadence --",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Color.White.copy(alpha = if (cyclingCadenceRpm != null) 0.9f else 0.65f)
-                    )
-                    Text(
-                        if (hasLiveSensorMetric) "Live cycling sensor data" else "Start pedaling to stream sensor stats",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color.White.copy(alpha = 0.65f)
+                if (isErgWorkout && cyclingSensorConnected) {
+                    CardioLiveErgSensorStats(
+                        distanceUnit = distanceUnit,
+                        speedKmh = cyclingSpeedKmh,
+                        cadenceRpm = cyclingCadenceRpm,
+                        distanceMeters = preferredLiveDistanceMeters,
+                        powerWatts = ergPowerWatts,
+                        strokeBased = isStrokeErgWorkout,
                     )
                 }
                 if (remainingDistance == null) {
@@ -3622,8 +3600,8 @@ fun CardioElapsedTimerFullScreen(
                         )
                         Text(
                             when {
-                                draft.activity.isCyclingActivity() && cyclingSensorConnected ->
-                                    "Distance from cycling speed sensor"
+                                isErgWorkout && cyclingSensorConnected ->
+                                    if (isStrokeErgWorkout) "Distance from Concept2 erg" else "Distance from cycling speed sensor"
                                 gpsRecordingActive && liveGpsMeters != null -> "Pace × time (comparison)"
                                 gpsRecordingActive -> "Pace × time while GPS locks"
                                 else -> "Distance from pace × time"
@@ -3671,9 +3649,10 @@ fun CardioElapsedTimerFullScreen(
                         WorkoutMediaControlPanel(
                             useLightOnDarkBackground = true,
                             showHeaderTitle = false,
+                            compact = true,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(12.dp)
+                                .padding(horizontal = 12.dp, vertical = 4.dp)
                         )
                     }
                 }
@@ -3730,7 +3709,7 @@ fun CardioElapsedTimerFullScreen(
                         ) {
                             Icon(Icons.Default.Stop, contentDescription = null)
                             Spacer(Modifier.width(8.dp))
-                            Text("Finish")
+                            Text(finishLabel)
                         }
                         OutlinedButton(
                             onClick = {
@@ -4261,13 +4240,16 @@ fun CardioWorkoutSummaryFullScreen(
                     color = Color.White.copy(alpha = 0.88f)
                 )
             }
-            if (session.activity.isCyclingActivity()) {
-                formatCardioAverageSpeed(elapsedSeconds, session.distanceMeters, distanceUnit)?.let { speed ->
-                    Text(
-                        "Avg speed: $speed",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = Color.White.copy(alpha = 0.88f)
-                    )
+            if (session.activity.isErgMonitorActivity()) {
+                val strokeErg = session.activity.isStrokeErgActivity()
+                if (!strokeErg) {
+                    formatCardioAverageSpeed(elapsedSeconds, session.distanceMeters, distanceUnit)?.let { speed ->
+                        Text(
+                            "Avg speed: $speed",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = Color.White.copy(alpha = 0.88f)
+                        )
+                    }
                 }
                 val erg = session.erg
                 if (erg != null) {
@@ -4280,22 +4262,32 @@ fun CardioWorkoutSummaryFullScreen(
                         )
                     }
                     erg.avgCadenceRpm?.let { avg ->
-                        val maxSuffix = erg.maxCadenceRpm?.let { " (max $it rpm)" } ?: ""
+                        val unit = if (strokeErg) "spm" else "rpm"
+                        val label = if (strokeErg) "Avg stroke rate" else "Avg cadence"
+                        val maxSuffix = erg.maxCadenceRpm?.let { " (max $it $unit)" } ?: ""
                         Text(
-                            "Avg cadence: $avg rpm$maxSuffix",
+                            "$label: $avg $unit$maxSuffix",
                             style = MaterialTheme.typography.bodyLarge,
                             color = Color.White.copy(alpha = 0.9f)
                         )
                     }
                     Text(
-                        "Power, cadence, and distance captured from the Concept2 monitor.",
+                        if (strokeErg) {
+                            "Power, stroke rate, and distance captured from the Concept2 monitor."
+                        } else {
+                            "Power, cadence, and distance captured from the Concept2 monitor."
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = Color.White.copy(alpha = 0.65f)
                     )
                 } else {
                     session.distanceMeters?.takeIf { it > 1 }?.let {
                         Text(
-                            "Cycling distance uses a connected speed sensor (CSC or Concept2) when available.",
+                            if (strokeErg) {
+                                "Erg distance uses a connected Concept2 monitor when available."
+                            } else {
+                                "Cycling distance uses a connected speed sensor (CSC or Concept2) when available."
+                            },
                             style = MaterialTheme.typography.bodySmall,
                             color = Color.White.copy(alpha = 0.65f)
                         )
@@ -4756,6 +4748,78 @@ private suspend fun publishWorkoutNote(
 private const val CardioIntervalWorkoutPrepSeconds = 20
 
 @Composable
+private fun CardioLiveErgSensorStats(
+    distanceUnit: CardioDistanceUnit,
+    speedKmh: Double?,
+    cadenceRpm: Int?,
+    distanceMeters: Double?,
+    powerWatts: Int?,
+    strokeBased: Boolean = false,
+) {
+    val hasLiveSensorMetric =
+        speedKmh != null || cadenceRpm != null || distanceMeters != null || powerWatts != null
+    Spacer(Modifier.height(12.dp))
+    if (powerWatts != null) {
+        Text(
+            text = "$powerWatts W",
+            style = MaterialTheme.typography.headlineMedium,
+            color = Color.White
+        )
+        Text(
+            text = "Power",
+            style = MaterialTheme.typography.bodySmall,
+            color = Color.White.copy(alpha = 0.7f)
+        )
+        Spacer(Modifier.height(6.dp))
+    }
+    Text(
+        text = if (strokeBased) {
+            speedKmh?.let { speed -> "Pace ${format500mPaceFromKmh(speed)}" } ?: "Pace --"
+        } else {
+            speedKmh?.let { speed -> "Speed ${formatCardioSpeedFromKmh(speed, distanceUnit)}" } ?: "Speed --"
+        },
+        style = MaterialTheme.typography.titleMedium,
+        color = Color.White.copy(alpha = if (speedKmh != null) 0.95f else 0.65f)
+    )
+    Text(
+        text = distanceMeters?.let { distance ->
+            "Distance ${formatCardioDistanceFromMeters(distance, distanceUnit)}"
+        } ?: "Distance --",
+        style = MaterialTheme.typography.bodyMedium,
+        color = Color.White.copy(alpha = if (distanceMeters != null) 0.9f else 0.65f)
+    )
+    Text(
+        text = if (strokeBased) {
+            cadenceRpm?.let { rate -> "$rate spm stroke rate" } ?: "Stroke rate --"
+        } else {
+            cadenceRpm?.let { cadence -> "$cadence rpm cadence" } ?: "Cadence --"
+        },
+        style = MaterialTheme.typography.bodyMedium,
+        color = Color.White.copy(alpha = if (cadenceRpm != null) 0.9f else 0.65f)
+    )
+    Text(
+        when {
+            hasLiveSensorMetric && strokeBased -> "Live erg sensor data"
+            hasLiveSensorMetric -> "Live cycling sensor data"
+            strokeBased -> "Start the erg to stream sensor stats"
+            else -> "Start pedaling to stream sensor stats"
+        },
+        style = MaterialTheme.typography.bodySmall,
+        color = Color.White.copy(alpha = 0.65f)
+    )
+}
+
+/** Concept2-style rowing/ski pace: time per 500 m derived from the monitor's simulated speed. */
+private fun format500mPaceFromKmh(speedKmh: Double): String {
+    val metersPerSecond = speedKmh / 3.6
+    if (metersPerSecond <= 0.0) return "--"
+    val secondsPer500 = (500.0 / metersPerSecond).roundToInt()
+    val minutes = secondsPer500 / 60
+    val seconds = secondsPer500 % 60
+    return "%d:%02d /500m".format(minutes, seconds)
+}
+
+@Composable
 fun CardioMultiLegTimerFullScreen(
     state: CardioMultiLegTimerState,
     stateKey: Any,
@@ -4770,23 +4834,47 @@ fun CardioMultiLegTimerFullScreen(
 ) {
     key(stateKey) {
         val heartRateBle = LocalHeartRateBle.current
+        val cyclingCscBle = LocalCyclingCsc.current
+        val concept2Ble = LocalConcept2Pm.current
         val heartRateBannerExpanded by userPreferences.heartRateBannerExpanded.collectAsState(initial = true)
         val heartRateZoneInputs by userPreferences.heartRateZoneInputs.collectAsState(
             initial = com.erv.app.hr.HeartRateZoneInputs(),
         )
+        val distanceUnit by userPreferences.cardioDistanceUnit.collectAsState(initial = CardioDistanceUnit.MILES)
         val scope = rememberCoroutineScope()
         val requestHeartRateBlePermissions = rememberLauncherForActivityResult(
             ActivityResultContracts.RequestMultiplePermissions()
         ) { }
+        // Live erg/sensor stats for the current leg (Concept2 erg preferred over a CSC speed sensor).
+        val currentLegIsCycling = state.currentLeg.activity.isCyclingActivity()
+        val currentLegIsErg = state.currentLeg.activity.isErgMonitorActivity()
+        val currentLegIsStrokeErg = state.currentLeg.activity.isStrokeErgActivity()
+        val ergConnectionState by concept2Ble.connectionState.collectAsState()
+        val cyclingConnectionState by cyclingCscBle.connectionState.collectAsState()
+        val ergPowerWatts by concept2Ble.currentPowerWatts.collectAsState()
+        val ergSpeedKmh by concept2Ble.currentSpeedKmh.collectAsState()
+        val ergCadenceRpm by concept2Ble.currentCadenceRpm.collectAsState()
+        val ergWorkoutDistanceMeters by concept2Ble.workoutDistanceMeters.collectAsState()
+        val cyclingSpeedKmh by cyclingCscBle.currentSpeedKmh.collectAsState()
+        val cyclingCadenceRpm by cyclingCscBle.currentCadenceRpm.collectAsState()
+        val cyclingWorkoutDistanceMeters by cyclingCscBle.workoutDistanceMeters.collectAsState()
+        val ergLegConnected = currentLegIsErg &&
+            ergConnectionState == Concept2BleConnectionState.Connected
+        val cscLegConnected = currentLegIsCycling &&
+            cyclingConnectionState == CyclingCscBleConnectionState.Connected
         val targetMinutes = state.currentLeg.targetDurationMinutes?.takeIf { it > 0 }
         val guided = targetMinutes != null
         val awaitingStart = state.isPendingStart()
         val bikeErgEnabled = remember(state.legs) {
             state.legs.any { it.activity.supportsBikeErgSensorConnect() }
         }
+        val anyCyclingLeg = remember(state.legs) {
+            state.legs.any { it.activity.isCyclingActivity() }
+        }
         val bikeErgHandle = rememberCardioBikeErgSensorConnect(
             enabled = bikeErgEnabled,
             sessionKey = stateKey,
+            cyclingSensorApplicable = anyCyclingLeg,
         )
         var showMediaSheet by remember { mutableStateOf(false) }
         var running by remember(stateKey) { mutableStateOf(!awaitingStart) }
@@ -5004,6 +5092,20 @@ fun CardioMultiLegTimerFullScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = Color.White.copy(alpha = 0.75f)
                     )
+                    if (ergLegConnected || cscLegConnected) {
+                        CardioLiveErgSensorStats(
+                            distanceUnit = distanceUnit,
+                            speedKmh = if (ergLegConnected) ergSpeedKmh else cyclingSpeedKmh,
+                            cadenceRpm = if (ergLegConnected) ergCadenceRpm else cyclingCadenceRpm,
+                            distanceMeters = if (ergLegConnected) {
+                                ergWorkoutDistanceMeters
+                            } else {
+                                cyclingWorkoutDistanceMeters
+                            },
+                            powerWatts = if (ergLegConnected) ergPowerWatts else null,
+                            strokeBased = currentLegIsStrokeErg,
+                        )
+                    }
                     }
                 }
                 Column(
@@ -5019,9 +5121,10 @@ fun CardioMultiLegTimerFullScreen(
                             WorkoutMediaControlPanel(
                                 useLightOnDarkBackground = true,
                                 showHeaderTitle = false,
+                                compact = true,
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(12.dp)
+                                    .padding(horizontal = 12.dp, vertical = 4.dp)
                             )
                         }
                     }

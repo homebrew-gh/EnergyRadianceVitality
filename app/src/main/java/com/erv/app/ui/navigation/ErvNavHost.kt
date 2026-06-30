@@ -280,9 +280,15 @@ fun ErvNavHost(
                         launchSingleTop = true
                     }
                 },
+                onOpenWorkoutRun = { workoutId ->
+                    navController.navigate(Routes.workoutRun(workoutId)) {
+                        launchSingleTop = true
+                    }
+                },
                 heatColdRepository = heatColdRepository,
                 stretchingRepository = stretchingRepository,
                 programRepository = programRepository,
+                workoutRepository = workoutRepository,
                 unifiedRoutineRepository = unifiedRoutineRepository,
                 viewModel = dashboardViewModel
             )
@@ -524,6 +530,13 @@ fun ErvNavHost(
                         navController.navigate(Routes.workoutRun(workoutId)) { launchSingleTop = true }
                     }
                 },
+                onReturnToWorkoutLibrary = {
+                    // Single pop that clears the weight-training category and the composed run
+                    // off the back stack at once, landing directly on the workout library.
+                    if (!navController.popBackStack(Routes.workoutLibrary, false)) {
+                        navController.navigate(Routes.workoutLibrary) { launchSingleTop = true }
+                    }
+                },
                 onOpenLog = {
                     navController.navigate(Routes.weightTrainingLog) { launchSingleTop = true }
                 },
@@ -536,30 +549,18 @@ fun ErvNavHost(
         composable(Routes.trainingCategory) {
             val programsState by programRepository.state.collectAsState(initial = com.erv.app.programs.ProgramsLibraryState())
             val workoutState by workoutRepository.state.collectAsState(initial = WorkoutLibraryState())
-            val weightState by weightRepository.state.collectAsState(initial = WeightLibraryState())
-            val cardioState by cardioRepository.state.collectAsState(initial = CardioLibraryState())
-            val stretchState by stretchingRepository.state.collectAsState(initial = StretchLibraryState())
             TrainingCategoryScreen(
                 programsState = programsState,
-                workoutLibraryCount = workoutState.workouts.size,
-                weightRoutineCount = weightState.routines.size,
-                stretchRoutineCount = stretchState.routines.size,
-                cardioRoutineCount = cardioState.routines.size,
+                workoutState = workoutState,
                 onBack = { navController.popBackStack() },
-                onOpenPrograms = {
+                onOpenWeeklyPlanner = {
                     navController.navigate(Routes.programsCategory) { launchSingleTop = true }
                 },
-                onOpenUnifiedWorkouts = {
+                onOpenWorkoutLibrary = {
                     navController.navigate(Routes.workoutLibrary) { launchSingleTop = true }
                 },
-                onOpenWeightTraining = {
-                    navController.navigate(Routes.weightTrainingCategoryTab("Routines")) { launchSingleTop = true }
-                },
-                onOpenStretching = {
-                    navController.navigate(Routes.stretchingCategoryTab("Routines")) { launchSingleTop = true }
-                },
-                onOpenCardio = {
-                    navController.navigate(Routes.cardioCategoryTab("Routines")) { launchSingleTop = true }
+                onRunWorkout = { workoutId ->
+                    navController.navigate(Routes.workoutRun(workoutId)) { launchSingleTop = true }
                 },
             )
         }
@@ -690,6 +691,7 @@ fun ErvNavHost(
         composable(Routes.weightTrainingLog) {
             WeightTrainingLogScreen(
                 repository = weightRepository,
+                workoutRepository = workoutRepository,
                 userPreferences = userPreferences,
                 relayPool = relayPool,
                 signer = signer,
@@ -841,6 +843,7 @@ fun ErvNavHost(
             val cardioState by cardioRepository.state.collectAsState(initial = CardioLibraryState())
             val stretchState by stretchingRepository.state.collectAsState(initial = StretchLibraryState())
             val unifiedState by unifiedRoutineRepository.state.collectAsState(initial = UnifiedRoutineLibraryState())
+            val workoutState by workoutRepository.state.collectAsState(initial = WorkoutLibraryState())
             ProgramDetailScreen(
                 programId = pid,
                 programRepository = programRepository,
@@ -851,9 +854,13 @@ fun ErvNavHost(
                 stretchState = stretchState,
                 stretchCatalog = stretchingRepository.catalog,
                 unifiedRoutineState = unifiedState,
+                workoutState = workoutState,
                 relayPool = relayPool,
                 signer = signer,
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackStack() },
+                onStartWorkout = { workoutId ->
+                    navController.navigate(Routes.workoutRun(workoutId)) { launchSingleTop = true }
+                }
             )
         }
 
@@ -865,6 +872,7 @@ fun ErvNavHost(
             val initialDate = runCatching { LocalDate.parse(logDateStr) }.getOrElse { LocalDate.now() }
             WeightTrainingLogScreen(
                 repository = weightRepository,
+                workoutRepository = workoutRepository,
                 userPreferences = userPreferences,
                 relayPool = relayPool,
                 signer = signer,

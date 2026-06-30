@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { FieldLabel, SectionHeader } from "../components/FieldLabel";
 import { useUnsavedChangesWarning } from "../hooks/useUnsavedChangesWarning";
 import { useTrainingProfile } from "../lib/trainingProfileData";
@@ -7,25 +7,14 @@ import {
   CARDIO_BIAS_OPTIONS,
   EXPERIENCE_LEVEL_OPTIONS,
   HEART_RATE_ZONE_METHOD_OPTIONS,
+  MAX_TRAINING_STYLE_PRESETS,
   PRIMARY_GOAL_OPTIONS,
   PROGRESSION_STYLE_OPTIONS,
   SESSION_LENGTH_OPTIONS,
-  SPLIT_PREFERENCE_OPTIONS,
   TRAINING_DAYS_PER_WEEK_OPTIONS,
   TRAINING_STYLE_PRESETS,
   type TrainingProfilePayload,
 } from "../lib/trainingProfile";
-
-function parseInfluenceInput(raw: string): string[] {
-  return raw
-    .split(/[,;\n]/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
-
-function influenceInputValue(labels: string[]): string {
-  return labels.join(", ");
-}
 
 export function ProfileTab() {
   const {
@@ -33,7 +22,6 @@ export function ProfileTab() {
     loading,
     publishing,
     dirty,
-    published,
     error,
     lastEventId,
     reload,
@@ -44,19 +32,6 @@ export function ProfileTab() {
   } = useTrainingProfile();
 
   const [success, setSuccess] = useState<string | null>(null);
-  const [influenceDraft, setInfluenceDraft] = useState("");
-
-  useEffect(() => {
-    if (!loading) {
-      setInfluenceDraft(influenceInputValue(profile.influenceLabels));
-    }
-  }, [loading, published]);
-
-  useEffect(() => {
-    if (!dirty && !loading) {
-      setInfluenceDraft(influenceInputValue(profile.influenceLabels));
-    }
-  }, [dirty, loading, profile.influenceLabels]);
 
   useUnsavedChangesWarning(dirty);
 
@@ -69,7 +44,7 @@ export function ProfileTab() {
     patch({
       stylePresetIds: has
         ? profile.stylePresetIds.filter((p) => p !== id)
-        : [...profile.stylePresetIds, id],
+        : [...profile.stylePresetIds, id].slice(0, MAX_TRAINING_STYLE_PRESETS),
     });
   };
 
@@ -230,29 +205,6 @@ export function ProfileTab() {
           </label>
           <label className="block space-y-1">
             <span className="label">
-              <FieldLabel>Preferred split</FieldLabel>
-            </span>
-            <select
-              className="input w-full"
-              value={profile.preferredSplit ?? ""}
-              onChange={(e) =>
-                patch({
-                  preferredSplit: e.target.value
-                    ? (e.target.value as TrainingProfilePayload["preferredSplit"])
-                    : null,
-                })
-              }
-            >
-              <option value="">Not set</option>
-              {SPLIT_PREFERENCE_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="block space-y-1">
-            <span className="label">
               <FieldLabel>Progression style</FieldLabel>
             </span>
             <select
@@ -320,51 +272,44 @@ export function ProfileTab() {
       <section className="card p-5 space-y-4">
         <SectionHeader>Training style</SectionHeader>
         <p className="text-sm text-muted">
-          Presets encode structured coaching bias for future workout generation. Influence
-          names (e.g. coaches or programs you follow) are optional labels — presets do the
-          heavy lifting.
+          Choose up to {MAX_TRAINING_STYLE_PRESETS} structured influences. These presets guide
+          future workout generation; the actual split should be derived from your goal, schedule,
+          equipment, and training history.
         </p>
+        {profile.stylePresetIds.length >= MAX_TRAINING_STYLE_PRESETS ? (
+          <p className="text-xs text-muted">
+            Deselect one preset before choosing another.
+          </p>
+        ) : null}
         <div className="space-y-3">
           {TRAINING_STYLE_PRESETS.map((preset) => {
             const checked = profile.stylePresetIds.includes(preset.id);
+            const disabled = !checked && profile.stylePresetIds.length >= MAX_TRAINING_STYLE_PRESETS;
             return (
               <label
                 key={preset.id}
-                className={`flex gap-3 rounded-lg border p-3 cursor-pointer ${
+                className={`flex gap-3 rounded-lg border p-3 ${
                   checked ? "border-[var(--erv-primary)] bg-[var(--erv-surface)]" : "border-[var(--erv-outline-variant)]"
-                }`}
+                } ${disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}
               >
                 <input
                   type="checkbox"
                   className="mt-1"
                   checked={checked}
+                  disabled={disabled}
                   onChange={() => togglePreset(preset.id)}
                 />
                 <span>
                   <span className="font-medium text-heading block">{preset.label}</span>
                   <span className="text-sm text-muted">{preset.description}</span>
+                  <span className="text-xs text-muted block mt-1">
+                    Influence examples: {preset.influenceExamples.join(", ")}
+                  </span>
                 </span>
               </label>
             );
           })}
         </div>
-        <label className="block space-y-1">
-          <span className="label">
-            <FieldLabel>Style influences</FieldLabel>
-          </span>
-          <input
-            type="text"
-            className="input w-full"
-            placeholder="e.g. Bryan Johnson, Ben Patrick"
-            value={influenceDraft}
-            onChange={(e) => {
-              const value = e.target.value;
-              setInfluenceDraft(value);
-              patch({ influenceLabels: parseInfluenceInput(value) });
-            }}
-          />
-          <p className="text-xs text-muted">Comma-separated names or programs for context.</p>
-        </label>
         <label className="block space-y-1">
           <span className="label">
             <FieldLabel>Style notes</FieldLabel>

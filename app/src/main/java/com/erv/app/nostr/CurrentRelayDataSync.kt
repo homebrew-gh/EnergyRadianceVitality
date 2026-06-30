@@ -48,8 +48,9 @@ object CurrentRelayDataSync {
         workoutRepository: WorkoutRepository,
     ): List<Pair<String, String>> {
         val pairs = mutableListOf<Pair<String, String>>()
-        pairs += WeightSync.fullOutboxEntries(weightRepository.currentState())
-        pairs += CardioSync.fullOutboxEntries(cardioRepository.currentState())
+        val heartRateZoneInputs = userPreferences.heartRateZoneInputs.first()
+        pairs += WeightSync.fullOutboxEntries(weightRepository.currentState(), heartRateZoneInputs)
+        pairs += CardioSync.fullOutboxEntries(cardioRepository.currentState(), heartRateZoneInputs)
         pairs += StretchingSync.fullOutboxEntries(stretchingRepository.currentState())
         pairs += HeatColdSync.fullOutboxEntries(heatColdRepository.currentState())
         pairs += LightSync.fullOutboxEntries(lightTherapyRepository.currentState())

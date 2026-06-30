@@ -1,10 +1,14 @@
 /**
- * W6 — Athlete context bundle for external AI or future in-app AiContextBuilder.
+ * W6 — Athlete context bundle for external AI or future web AiContextBuilder.
  * Markdown (paste-friendly) + JSON (machine-readable dry run).
  */
 
 import type { CardioCatalogActivity, StretchCatalogEntry } from "./catalog";
 import type { CardioRoutine } from "./cardioTraining";
+import {
+  buildProgressionGuardrailContext,
+  type ProgressionGuardrailContext,
+} from "./aiProgressionGuardrails";
 import {
   displayEquipmentTitle,
   equipmentSummaryLine,
@@ -12,6 +16,7 @@ import {
   type FitnessEquipmentPayload,
 } from "./fitnessEquipment";
 import type { StretchRoutine } from "./stretchTraining";
+import type { CardioDayLog, WeightDayLog } from "./trainingHistory";
 import {
   formatDaysSince,
   workingWeightSummary,
@@ -25,7 +30,6 @@ import {
   isTrainingProfileBlank,
   PRIMARY_GOAL_OPTIONS,
   PROGRESSION_STYLE_OPTIONS,
-  SPLIT_PREFERENCE_OPTIONS,
   stylePresetLabel,
   TRAINING_STYLE_PRESETS,
   type TrainingProfilePayload,
@@ -41,33 +45,50 @@ const MAX_STRETCH_CATALOG_LINES = 40;
 
 /** Curated hints when a style preset is selected (see ATHLETE_CONTEXT_WEB_PREP §7). */
 export const STYLE_PRESET_AI_HINTS: Record<string, string[]> = {
-  longevity_blueprint: [
-    "Conservative load progression; prioritize recovery and full-body balance.",
-    "Favor compound movements at moderate intensity over max-effort singles.",
-    "Keep session density manageable; avoid excessive failure sets.",
+  longevity_recovery: [
+    "Use conservative progression; prioritize recovery, mobility, and durable consistency.",
+    "Favor full-body balance, zone 2 cardio, and moderate-intensity compound work.",
+    "Avoid excessive failure sets, abrupt volume spikes, and recovery debt.",
   ],
-  kot_durable: [
-    "Emphasize knee and ankle durability: split squats, tibialis, controlled ROM.",
-    "Progress range and control before adding load.",
-    "Avoid aggressive jumping or deep loaded flexion early in blocks.",
+  joint_durability: [
+    "Emphasize knee, ankle, hip, and shoulder durability with progressive range of motion.",
+    "Progress control, tempo, and pain-free range before adding load.",
+    "Include tendon-capacity accessories such as tibialis, calf, split squat, and controlled mobility work when equipment supports it.",
   ],
-  powerlifting: [
-    "Center squat, bench, and deadlift variants with clear progression.",
-    "Use percentage-style or rep-max based loading when history supports it.",
-    "Accessories support the main lifts; avoid redundant volume.",
+  hypertrophy_bodybuilding: [
+    "Use volume as the main driver; target 8-15 reps for most working sets.",
+    "Include accessories for muscle-group coverage and weak points.",
+    "Use proximity to failure thoughtfully; progress load when reps and form are stable.",
   ],
-  hypertrophy: [
-    "Target 8–15 reps for most working sets; higher set counts per muscle group.",
-    "Include accessories for weak points; moderate rest periods.",
-    "Volume progression is primary; load increases when reps are stable.",
+  strength_powerlifting: [
+    "Center squat, bench, deadlift, and close variants when equipment and history support them.",
+    "Use planned strength progression with heavier loading and enough rest between hard sets.",
+    "Accessories should support the main lifts; avoid redundant fatigue.",
   ],
-  zone2_minimal: [
-    "Prioritize zone 2 cardio base; keep strength blocks short and maintenance-focused.",
-    "Full-body or upper/lower splits with low weekly strength volume.",
+  zone2_endurance: [
+    "Prioritize aerobic base building with low-intensity zone 2 work.",
+    "Keep strength volume supportive and compatible with cardio recovery.",
+    "Use intervals sparingly unless cardio bias, history, and recovery support them.",
+  ],
+  hiit_conditioning: [
+    "Use interval work, circuits, and conditioning blocks to build work capacity.",
+    "Control fatigue by limiting high-intensity days and preserving warmups/cooldowns.",
+    "Avoid stacking maximal strength and maximal conditioning stress without recovery.",
   ],
   general_athletic: [
-    "Balance strength, cardio, and mobility across the week.",
-    "Mixed modalities; avoid overspecializing a single movement pattern.",
+    "Balance strength, cardio, mobility, power, and coordination across the week.",
+    "Use mixed modalities without overspecializing one movement pattern.",
+    "Include loaded carries, jumps, throws, or agility only when equipment and movement limits allow.",
+  ],
+  mobility_movement: [
+    "Prioritize movement quality, range of motion, positional control, and prehab.",
+    "Keep intensity lower unless the user also selected a strength or hypertrophy preset.",
+    "Use mobility as planned training, not only warmup filler.",
+  ],
+  calisthenics_minimalist: [
+    "Favor bodyweight and minimal-equipment progressions.",
+    "Use skill-appropriate pushing, pulling, squatting, hinging, core, and carry patterns.",
+    "Progress difficulty through leverage, tempo, range, reps, and density before adding external load.",
   ],
 };
 
@@ -82,6 +103,8 @@ export type TrainingContextBundleInput = {
   weightRoutines: WeightRoutine[];
   cardioRoutines: CardioRoutine[];
   stretchRoutines: StretchRoutine[];
+  weightLogs?: WeightDayLog[];
+  cardioLogs?: CardioDayLog[];
   equipmentUnit?: BodyWeightUnit;
 };
 
@@ -124,7 +147,7 @@ function profileSection(profile: TrainingProfilePayload): string {
     profile.typicalTrainingDaysPerWeek
       ? `Training days per week: ${profile.typicalTrainingDaysPerWeek}`
       : null,
-    `Preferred split: ${labelForOption(profile.preferredSplit, SPLIT_PREFERENCE_OPTIONS)}`,
+    "Split preference: derive from goal, days per week, session length, equipment, recovery, and training history.",
     profile.progressionStyle
       ? `Progression: ${labelForOption(profile.progressionStyle, PROGRESSION_STYLE_OPTIONS)}`
       : null,
@@ -132,9 +155,6 @@ function profileSection(profile: TrainingProfilePayload): string {
       ? `Cardio bias: ${labelForOption(profile.cardioBias, CARDIO_BIAS_OPTIONS)}`
       : null,
     profile.ageYears ? `Age: ${profile.ageYears}` : null,
-    profile.influenceLabels.length > 0
-      ? `Style influences: ${profile.influenceLabels.join(", ")}`
-      : null,
     profile.styleNotes?.trim() ? `Style notes: ${profile.styleNotes.trim()}` : null,
     profile.customAvoidNotes?.trim()
       ? `Limitation notes: ${profile.customAvoidNotes.trim()}`
@@ -247,8 +267,43 @@ function equipmentSection(equipment: FitnessEquipmentPayload, unit: BodyWeightUn
   return mdListSection("Equipment And Gym", items, "No equipment profile saved.");
 }
 
+function formatMinutes(seconds: number): string {
+  return `${Math.round(seconds / 60)} min`;
+}
+
+function progressionGuardrailsSection(guardrails: ProgressionGuardrailContext): string {
+  const hr = guardrails.heartRate;
+  const items = [
+    `Progression policy: ${guardrails.policyLabel} (${guardrails.policyId})`,
+    `Heart-rate evidence: ${hr.status} (${hr.confidence} confidence)`,
+    `Sessions with HR: ${hr.sessionsWithHr}`,
+    hr.sessionsWithZoneLoad > 0
+      ? `Sessions with zone load: ${hr.sessionsWithZoneLoad}`
+      : null,
+    hr.sessionsWithZoneLoad > 0
+      ? `Current week Z4/Z5: ${formatMinutes(hr.currentWeekHighIntensitySeconds)}`
+      : null,
+    hr.sessionsWithZoneLoad > 0
+      ? `Recent baseline Z4/Z5 per week: ${formatMinutes(hr.baselineWeeklyHighIntensitySeconds)}`
+      : null,
+    hr.highIntensityDeltaRatio != null
+      ? `High-intensity ratio vs baseline: ${hr.highIntensityDeltaRatio.toFixed(1)}x`
+      : null,
+    ...hr.notes.map((note) => `HR note: ${note}`),
+  ].filter((s): s is string => Boolean(s));
+  return [
+    mdListSection("Progression Guardrails", items, ""),
+    mdListSection("Guardrail Rules", guardrails.rules, ""),
+  ].join("\n");
+}
+
 export function buildTrainingContextMarkdown(input: TrainingContextBundleInput): string {
   const unit = input.equipmentUnit ?? "LB";
+  const guardrails = buildProgressionGuardrailContext({
+    profile: input.profile,
+    weightLogs: input.weightLogs ?? [],
+    cardioLogs: input.cardioLogs ?? [],
+  });
   const customExercises = input.exercises
     .filter((e) => !e.id.startsWith("erv-weight-exercise-"))
     .sort((a, b) => a.name.localeCompare(b.name));
@@ -283,10 +338,12 @@ export function buildTrainingContextMarkdown(input: TrainingContextBundleInput):
     "- Use only exercise ids listed below or custom ids that already exist on this account.",
     "- Respect equipment limits — do not prescribe movements that require unavailable gear.",
     "- Respect movement limits and limitation notes in the training profile.",
+    "- Derive workout split from profile constraints, equipment, and training baseline; do not require an explicit user-selected split.",
     "- Use working weights and muscle recency as progression hints, not medical prescriptions.",
     "- Prefer referencing saved workout ids when reusing an existing template.",
     "",
     profileSection(input.profile),
+    progressionGuardrailsSection(guardrails),
     snapshotSection(input.snapshot, input.exercises),
     equipmentSection(input.equipment, unit),
     mdListSection(
@@ -344,10 +401,16 @@ export function buildTrainingContextJson(input: TrainingContextBundleInput): str
   const customExercises = input.exercises.filter(
     (e) => !e.id.startsWith("erv-weight-exercise-"),
   );
+  const guardrails = buildProgressionGuardrailContext({
+    profile: input.profile,
+    weightLogs: input.weightLogs ?? [],
+    cardioLogs: input.cardioLogs ?? [],
+  });
   const body = {
     ervTrainingContextVersion: TRAINING_CONTEXT_VERSION,
     exportedAtEpochSeconds: Math.floor(Date.now() / 1000),
     profile: isTrainingProfileBlank(input.profile) ? null : input.profile,
+    progressionGuardrails: guardrails,
     snapshot: JSON.parse(trainingSnapshotPayload(input.snapshot)),
     equipment: input.equipment,
     savedWorkoutIds: input.workouts.map((w) => ({ id: w.id, name: w.name })),

@@ -122,11 +122,6 @@ private val setupSectionOptions: List<SetupSectionOption> = listOf(
         "Use guided mobility routines, build custom stretch sessions, and track flexibility work."
     ),
     SetupSectionOption(
-        LaunchPadTileId.WORKOUT_LAUNCHER,
-        "Unified Workouts",
-        "Combine cardio, lifting, stretching, and recovery blocks into one mixed workout flow."
-    ),
-    SetupSectionOption(
         LaunchPadTileId.FASTING,
         "Fasting",
         "Run intermittent or extended fasting timers and keep a fasting history."
@@ -135,11 +130,6 @@ private val setupSectionOptions: List<SetupSectionOption> = listOf(
         LaunchPadTileId.HOT_COLD,
         "Hot + Cold",
         "Log sauna and cold-plunge sessions with timers, temperatures, and recovery notes."
-    ),
-    SetupSectionOption(
-        LaunchPadTileId.PROGRAMS,
-        "Programs",
-        "Follow templates, challenges, and day-by-day plans that can drive your Launch Pad."
     ),
     SetupSectionOption(
         LaunchPadTileId.BODY_TRACKER,

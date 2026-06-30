@@ -45,6 +45,13 @@ import {
   workoutLibraryPayload,
   type Workout,
 } from "./workoutTraining";
+import {
+  emptyProgramMaster,
+  parseProgramMasterPayload,
+  PROGRAMS_MASTER_D_TAG,
+  programMasterPayload,
+  type ProgramMasterPayload,
+} from "./programTraining";
 
 export const ROUTINES_PUBLISHED_EVENT = "erv-routines-published";
 
@@ -57,6 +64,7 @@ type TrainingContextValue = {
   stretchRoutines: StretchRoutine[];
   cardioRoutines: CardioRoutine[];
   workouts: Workout[];
+  programMaster: ProgramMasterPayload;
   exercises: WeightExercise[];
   catalogs: ErvCatalogs;
   stretchCatalog: StretchCatalogEntry[];
@@ -71,6 +79,7 @@ type TrainingContextValue = {
   saveStretchRoutines: (routines: StretchRoutine[]) => Promise<void>;
   saveCardioRoutines: (routines: CardioRoutine[]) => Promise<void>;
   saveWorkouts: (workouts: Workout[]) => Promise<void>;
+  saveProgramMaster: (programMaster: ProgramMasterPayload) => Promise<void>;
   /** @deprecated Use saveWeightRoutines */
   createWeightRoutine: (input: {
     name: string;
@@ -88,6 +97,7 @@ export function TrainingProvider({ children }: { children: ReactNode }) {
   const [stretchRoutines, setStretchRoutines] = useState<StretchRoutine[]>([]);
   const [cardioRoutines, setCardioRoutines] = useState<CardioRoutine[]>([]);
   const [workouts, setWorkouts] = useState<Workout[]>([]);
+  const [programMaster, setProgramMaster] = useState<ProgramMasterPayload>(emptyProgramMaster);
   const [exercises, setExercises] = useState<WeightExercise[]>([]);
   const [catalogs, setCatalogs] = useState<ErvCatalogs>(EMPTY_CATALOGS);
   const [cardioMaster, setCardioMaster] = useState<CardioMasterPayload>({
@@ -121,6 +131,9 @@ export function TrainingProvider({ children }: { children: ReactNode }) {
       const workoutsRecord = records.find(
         (r) => r.d_tag === WORKOUTS_LIBRARY_D_TAG,
       );
+      const programMasterRecord = records.find(
+        (r) => r.d_tag === PROGRAMS_MASTER_D_TAG,
+      );
 
       const nextRoutines = routinesRecord?.plaintext
         ? parseRoutinesPayload(routinesRecord.plaintext)
@@ -138,11 +151,15 @@ export function TrainingProvider({ children }: { children: ReactNode }) {
       const nextWorkouts = workoutsRecord?.plaintext
         ? parseWorkoutLibraryPayload(workoutsRecord.plaintext)
         : [];
+      const nextProgramMaster = programMasterRecord?.plaintext
+        ? parseProgramMasterPayload(programMasterRecord.plaintext)
+        : emptyProgramMaster();
 
       setRoutines(nextRoutines);
       setStretchRoutines(nextStretch);
       setCardioRoutines(nextCardioMaster.routines);
       setWorkouts(nextWorkouts);
+      setProgramMaster(nextProgramMaster);
       setCardioMaster(nextCardioMaster);
       setCatalogs(nextCatalogs);
       setExercises(
@@ -298,12 +315,43 @@ export function TrainingProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const saveProgramMaster = useCallback(async (nextProgramMaster: ProgramMasterPayload) => {
+    setSaving(true);
+    setError(null);
+    try {
+      const now = Math.floor(Date.now() / 1000);
+      const stamped: ProgramMasterPayload = {
+        ...nextProgramMaster,
+        masterUpdatedAtEpochSeconds: now,
+        programs: nextProgramMaster.programs.map((program) => ({
+          ...program,
+          lastModifiedEpochSeconds: program.lastModifiedEpochSeconds || now,
+        })),
+      };
+      const result = await api.publishAppData({
+        d_tag: PROGRAMS_MASTER_D_TAG,
+        plaintext: programMasterPayload(stamped),
+      });
+      setProgramMaster(stamped);
+      setLastEventId(result.event_id);
+      notifyRoutinesPublished();
+    } catch (e) {
+      const msg =
+        e instanceof ApiError ? e.message : "Could not publish weekly planner.";
+      setError(msg);
+      throw e;
+    } finally {
+      setSaving(false);
+    }
+  }, []);
+
   const value = useMemo<TrainingContextValue>(
     () => ({
       routines,
       stretchRoutines,
       cardioRoutines,
       workouts,
+      programMaster,
       exercises,
       catalogs,
       stretchCatalog: catalogs.stretch,
@@ -318,6 +366,7 @@ export function TrainingProvider({ children }: { children: ReactNode }) {
       saveStretchRoutines,
       saveCardioRoutines,
       saveWorkouts,
+      saveProgramMaster,
       createWeightRoutine,
       createRoutine: createWeightRoutine,
     }),
@@ -326,6 +375,7 @@ export function TrainingProvider({ children }: { children: ReactNode }) {
       stretchRoutines,
       cardioRoutines,
       workouts,
+      programMaster,
       exercises,
       catalogs,
       loading,
@@ -338,6 +388,7 @@ export function TrainingProvider({ children }: { children: ReactNode }) {
       saveStretchRoutines,
       saveCardioRoutines,
       saveWorkouts,
+      saveProgramMaster,
       createWeightRoutine,
     ],
   );

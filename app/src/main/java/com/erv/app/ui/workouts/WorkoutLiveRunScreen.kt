@@ -54,15 +54,20 @@ import androidx.compose.material3.SnackbarHostState
 import com.erv.app.cardio.CardioBuiltinActivity
 import com.erv.app.cardio.CardioLibraryState
 import com.erv.app.cardio.CardioRepository
+import com.erv.app.cardio.isCyclingActivity
 import com.erv.app.cardio.resolveSnapshot
 import com.erv.app.data.UserPreferences
 import com.erv.app.programs.encodeStretchLaunch
+import com.erv.app.hr.HeartRateSessionAnalyticsSection
+import com.erv.app.hr.HeartRateZoneInputs
 import com.erv.app.stretching.StretchingRepository
 import com.erv.app.ui.cardio.CardioBikeErgConnectInlineSection
 import com.erv.app.ui.cardio.CardioLiveWorkoutViewModel
 import com.erv.app.ui.cardio.supportsBikeErgSensorConnect
 import com.erv.app.weighttraining.WeightRepository
+import com.erv.app.workouts.ComposedWorkoutHrSummary
 import com.erv.app.workouts.attachComposedWorkoutHeartRateToLinkedLogs
+import com.erv.app.workouts.buildComposedWorkoutHrSummary
 import com.erv.app.workouts.resolveCardioLaunch
 import com.erv.app.workouts.resolveStretchLaunch
 import com.erv.app.workouts.weightItems
@@ -101,55 +106,27 @@ fun WorkoutLiveRunScreen(
     val liveWeightDraft by weightLiveWorkoutViewModel.activeDraft.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val fgsDisclosureSeen by userPreferences.weightLiveWorkoutFgsDisclosureSeen.collectAsState(initial = false)
+    val heartRateZoneInputs by userPreferences.heartRateZoneInputs.collectAsState(initial = HeartRateZoneInputs())
+    var composedSummary by remember { mutableStateOf<ComposedWorkoutHrSummary?>(null) }
+    var runFinalized by remember { mutableStateOf(false) }
+    var finishingRun by remember { mutableStateOf(false) }
     var pendingWeightItem by remember { mutableStateOf<WorkoutItem.Weight?>(null) }
     var pendingWeightLabel by remember { mutableStateOf<String?>(null) }
     var pendingAlternativeChoice by remember {
         mutableStateOf<Pair<WorkoutItem.Weight, String>?>(null)
     }
     var pendingCircuitSegment by remember { mutableStateOf<WorkoutSegment?>(null) }
+    var pendingWeightBatch by remember { mutableStateOf<List<WorkoutItem.Weight>?>(null) }
     var activeRest by remember { mutableStateOf<ActiveWorkoutRest?>(null) }
-    var segmentCompletePrompt by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(activeRun?.pendingNextSegmentTitle) {
-        activeRun?.pendingNextSegmentTitle?.let { segmentCompletePrompt = it }
-    }
-
-    val segmentPromptTitle = segmentCompletePrompt
-    if (segmentPromptTitle != null) {
-        AlertDialog(
-            onDismissRequest = {
-                segmentCompletePrompt = null
-                scope.launch { repository.clearPendingNextSegmentPrompt() }
-            },
-            title = { Text("Section complete") },
-            text = {
-                Text("Ready to start $segmentPromptTitle?")
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        segmentCompletePrompt = null
-                        scope.launch { repository.clearPendingNextSegmentPrompt() }
-                    },
-                ) {
-                    Text("Continue")
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = {
-                        segmentCompletePrompt = null
-                        scope.launch { repository.clearPendingNextSegmentPrompt() }
-                    },
-                ) {
-                    Text("Not yet")
-                }
-            },
-        )
+        val title = activeRun?.pendingNextSegmentTitle ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar("Next: $title")
+        repository.clearPendingNextSegmentPrompt()
     }
 
     LaunchedEffect(workoutId, workout) {
-        if (workout != null && (activeRun == null || activeRun.workoutId != workoutId)) {
+        if (!finishingRun && workout != null && (activeRun == null || activeRun.workoutId != workoutId)) {
             repository.startRun(workoutId)
         }
     }
@@ -181,11 +158,13 @@ fun WorkoutLiveRunScreen(
         )
         if (started) {
             val firstItem = segment.weightItems().firstOrNull()
-            if (firstItem != null) {
-                scope.launch { repository.setLastLaunchedItem(segment.id, firstItem.id) }
+            scope.launch {
+                if (firstItem != null) {
+                    repository.setLastLaunchedItem(segment.id, firstItem.id)
+                }
+                weightLiveWorkoutViewModel.setLiveWorkoutUiExpanded(true)
+                onOpenWeightCategory()
             }
-            weightLiveWorkoutViewModel.setLiveWorkoutUiExpanded(true)
-            onOpenWeightCategory()
         }
     }
 
@@ -213,11 +192,13 @@ fun WorkoutLiveRunScreen(
             suppressNotification = true,
         )
         if (started) {
-            if (segmentId != null) {
-                scope.launch { repository.setLastLaunchedItem(segmentId, item.id) }
+            scope.launch {
+                if (segmentId != null) {
+                    repository.setLastLaunchedItem(segmentId, item.id)
+                }
+                weightLiveWorkoutViewModel.setLiveWorkoutUiExpanded(true)
+                onOpenWeightCategory()
             }
-            weightLiveWorkoutViewModel.setLiveWorkoutUiExpanded(true)
-            onOpenWeightCategory()
         }
     }
 
@@ -236,6 +217,49 @@ fun WorkoutLiveRunScreen(
             return
         }
         proceedToWeightLaunch(item, label)
+    }
+
+    fun launchWeightBatchInternal(items: List<WorkoutItem.Weight>, label: String) {
+        if (weightLiveWorkoutViewModel.hasLiveSession) {
+            weightLiveWorkoutViewModel.setLiveWorkoutUiExpanded(true)
+            onOpenWeightCategory()
+            return
+        }
+        val segmentIndex = activeRun?.position?.segmentIndex ?: 0
+        val segmentId = workout?.segments?.getOrNull(segmentIndex)?.id
+        val started = weightLiveWorkoutViewModel.tryStartFromWorkoutWeightItems(
+            items = items,
+            library = weightState,
+            sessionLabel = label,
+            suppressNotification = true,
+        )
+        if (started) {
+            scope.launch {
+                if (segmentId != null) {
+                    repository.setLastLaunchedItems(segmentId, items.map { it.id })
+                }
+                weightLiveWorkoutViewModel.setLiveWorkoutUiExpanded(true)
+                onOpenWeightCategory()
+            }
+        }
+    }
+
+    fun proceedToWeightBatch(items: List<WorkoutItem.Weight>, label: String) {
+        if (!fgsDisclosureSeen) {
+            pendingWeightBatch = items
+            return
+        }
+        launchWeightBatchInternal(items, label)
+    }
+
+    fun launchWeightSection() {
+        val current = workout ?: return
+        val pos = activeRun?.position ?: WorkoutRunPosition()
+        val sectionRun = WorkoutRunEngine.consecutiveWeightItemRun(current, pos)
+        when {
+            sectionRun.size > 1 -> proceedToWeightBatch(sectionRun, current.name)
+            sectionRun.size == 1 -> launchWeightItem(sectionRun.first(), current.name)
+        }
     }
 
     fun launchCardioItem(item: WorkoutItem.Cardio) {
@@ -263,11 +287,14 @@ fun WorkoutLiveRunScreen(
             return
         }
         val segmentIndex = activeRun?.position?.segmentIndex ?: 0
-        workout?.segments?.getOrNull(segmentIndex)?.id?.let { segmentId ->
-            scope.launch { repository.setLastLaunchedItem(segmentId, item.id) }
+        val cardioSegmentId = workout?.segments?.getOrNull(segmentIndex)?.id
+        scope.launch {
+            if (cardioSegmentId != null) {
+                repository.setLastLaunchedItem(cardioSegmentId, item.id)
+            }
+            cardioLiveWorkoutViewModel.setCardioLiveUiExpanded(true)
+            onOpenCardioCategory()
         }
-        cardioLiveWorkoutViewModel.setCardioLiveUiExpanded(true)
-        onOpenCardioCategory()
     }
 
     fun launchMobilityItem(item: WorkoutItem.Mobility) {
@@ -327,22 +354,30 @@ fun WorkoutLiveRunScreen(
     }
 
     WeightLiveWorkoutFgsDisclosureDialog(
-        visible = (pendingWeightItem != null || pendingCircuitSegment != null) && !fgsDisclosureSeen,
+        visible = (
+            pendingWeightItem != null ||
+                pendingCircuitSegment != null ||
+                pendingWeightBatch != null
+            ) && !fgsDisclosureSeen,
         onDismiss = {
             pendingWeightItem = null
             pendingWeightLabel = null
             pendingCircuitSegment = null
+            pendingWeightBatch = null
         },
         onContinue = {
             scope.launch { userPreferences.setWeightLiveWorkoutFgsDisclosureSeen(true) }
             val item = pendingWeightItem
             val label = pendingWeightLabel
             val circuit = pendingCircuitSegment
+            val batch = pendingWeightBatch
             pendingWeightItem = null
             pendingWeightLabel = null
             pendingCircuitSegment = null
+            pendingWeightBatch = null
             when {
                 circuit != null -> launchCircuitSegment(circuit)
+                batch != null -> launchWeightBatchInternal(batch, workout?.name.orEmpty())
                 item != null -> launchWeightItemInternal(item, label ?: workout?.name.orEmpty())
             }
         },
@@ -374,6 +409,50 @@ fun WorkoutLiveRunScreen(
             currentStep?.isComplete == true
     )
     val isResting = activeRest != null
+
+    // Finalize once the run completes, regardless of how completion was reached: stamp the
+    // continuous whole-workout HR onto each linked section log and build the finish summary.
+    LaunchedEffect(isComplete) {
+        if (isComplete && !runFinalized) {
+            runFinalized = true
+            val run = repository.currentState().activeRun
+            val wholeRunHeartRate = heartRateBle.takeComposedWorkoutRunHeartRateSummary()
+            if (run != null) {
+                if (wholeRunHeartRate != null) {
+                    attachComposedWorkoutHeartRateToLinkedLogs(
+                        run = run,
+                        heartRate = wholeRunHeartRate,
+                        cardioRepository = cardioRepository,
+                        weightRepository = weightRepository,
+                        stretchingRepository = stretchingRepository,
+                    )
+                }
+                composedSummary = buildComposedWorkoutHrSummary(
+                    run = run,
+                    wholeRun = wholeRunHeartRate,
+                    cardioRepository = cardioRepository,
+                    weightRepository = weightRepository,
+                    stretchingRepository = stretchingRepository,
+                )
+            }
+        }
+    }
+
+    val summary = composedSummary
+    if (summary != null) {
+        ComposedWorkoutSummaryScreen(
+            summary = summary,
+            zoneInputs = heartRateZoneInputs,
+            onDone = {
+                finishingRun = true
+                scope.launch {
+                    repository.clearActiveRun()
+                    onBack()
+                }
+            },
+        )
+        return
+    }
 
     suspend fun applyAdvance(from: WorkoutRunPosition) {
         val next = WorkoutRunEngine.advance(workout, from)
@@ -424,6 +503,37 @@ fun WorkoutLiveRunScreen(
         if (!runStarted || isResting || isComplete) return@LaunchedEffect
         val duration = WorkoutRunEngine.restDurationForItem(currentStep?.item) ?: return@LaunchedEffect
         startRest(position, duration, "Rest")
+    }
+
+    LaunchedEffect(
+        activeRun?.autoAdvanceRequested,
+        position.segmentIndex,
+        position.itemIndex,
+        position.round,
+    ) {
+        if (activeRun?.autoAdvanceRequested != true) return@LaunchedEffect
+        repository.clearAutoAdvance()
+        if (!runStarted || isResting || isComplete) {
+            return@LaunchedEffect
+        }
+        if (weightLiveWorkoutViewModel.hasLiveSession || cardioLiveWorkoutViewModel.hasActiveTimer) {
+            return@LaunchedEffect
+        }
+        val step = currentStep
+        if (step == null) {
+            return@LaunchedEffect
+        }
+        val segment = step.segment
+        if (segment.kind == WorkoutSegmentKind.CIRCUIT || segment.kind == WorkoutSegmentKind.SUPERSET) {
+            proceedToCircuitLaunch(segment)
+            return@LaunchedEffect
+        }
+        when (val item = step.item) {
+            is WorkoutItem.Weight -> launchWeightSection()
+            is WorkoutItem.Cardio -> launchCardioItem(item)
+            is WorkoutItem.Mobility -> launchMobilityItem(item)
+            else -> Unit
+        }
     }
 
     Scaffold(
@@ -567,6 +677,10 @@ fun WorkoutLiveRunScreen(
                 val weightItem = stepItem
                 val exerciseName = weightState.exerciseById(weightItem.exerciseId)?.name
                 item {
+                    val sectionRun = remember(workout, position) {
+                        WorkoutRunEngine.consecutiveWeightItemRun(workout, position)
+                    }
+                    val extraInSection = (sectionRun.size - 1).coerceAtLeast(0)
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Column(
                             modifier = Modifier.padding(16.dp),
@@ -580,13 +694,18 @@ fun WorkoutLiveRunScreen(
                                 text = weightItem.prescription.displaySummary(),
                                 style = MaterialTheme.typography.bodyMedium,
                             )
+                            if (extraInSection > 0) {
+                                Text(
+                                    text = "+$extraInSection more in this section",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                             Button(
-                                onClick = {
-                                    launchWeightItem(weightItem, workout.name)
-                                },
+                                onClick = { launchWeightSection() },
                                 modifier = Modifier.fillMaxWidth(),
                             ) {
-                                Text("Log sets")
+                                Text(if (extraInSection > 0) "Log section" else "Log sets")
                             }
                         }
                     }
@@ -620,11 +739,12 @@ fun WorkoutLiveRunScreen(
             if (runStarted && !isComplete && !isResting && stepItem is WorkoutItem.Cardio) {
                 val cardioItem = stepItem
                 item {
-                    val cardioSupportsErg = remember(cardioItem.cardio.activity) {
+                    val cardioErgSnapshot = remember(cardioItem.cardio.activity) {
                         runCatching { CardioBuiltinActivity.valueOf(cardioItem.cardio.activity) }.getOrNull()
-                            ?.let { builtin -> cardioState.resolveSnapshot(builtin, null).supportsBikeErgSensorConnect() }
-                            ?: false
+                            ?.let { builtin -> cardioState.resolveSnapshot(builtin, null) }
                     }
+                    val cardioSupportsErg = cardioErgSnapshot?.supportsBikeErgSensorConnect() ?: false
+                    val cardioCyclingApplicable = cardioErgSnapshot?.isCyclingActivity() ?: false
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Column(
                             modifier = Modifier.padding(16.dp),
@@ -643,6 +763,7 @@ fun WorkoutLiveRunScreen(
                                     activitySupportsErg = true,
                                     sessionKey = cardioItem.id,
                                     compact = true,
+                                    cyclingSensorApplicable = cardioCyclingApplicable,
                                 )
                             }
                             Button(
@@ -812,23 +933,13 @@ fun WorkoutLiveRunScreen(
                 }
             }
             if (isComplete) {
+                // The completion summary is shown automatically once finalize runs; this is a
+                // fallback to leave the run if the summary could not be built.
                 item {
                     TextButton(
                         onClick = {
+                            finishingRun = true
                             scope.launch {
-                                val run = repository.currentState().activeRun
-                                val heartRate = heartRateBle.takeComposedWorkoutRunHeartRateSummary()
-                                if (run != null && heartRate != null) {
-                                    attachComposedWorkoutHeartRateToLinkedLogs(
-                                        run = run,
-                                        heartRate = heartRate,
-                                        cardioRepository = cardioRepository,
-                                        weightRepository = weightRepository,
-                                        stretchingRepository = stretchingRepository,
-                                    )
-                                } else {
-                                    heartRateBle.discardComposedWorkoutRunRecording()
-                                }
                                 repository.clearActiveRun()
                                 onBack()
                             }
@@ -837,6 +948,92 @@ fun WorkoutLiveRunScreen(
                     ) {
                         Text("Finish")
                     }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ComposedWorkoutSummaryScreen(
+    summary: ComposedWorkoutHrSummary,
+    zoneInputs: HeartRateZoneInputs,
+    onDone: () -> Unit,
+) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Workout complete") },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = ErvHeaderRed,
+                    titleContentColor = Color.White,
+                ),
+            )
+        },
+    ) { padding ->
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            item {
+                Text(summary.workoutName, style = MaterialTheme.typography.headlineSmall)
+            }
+            if (summary.wholeRun != null) {
+                item {
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Text("Whole workout", style = MaterialTheme.typography.titleMedium)
+                            HeartRateSessionAnalyticsSection(
+                                heartRate = summary.wholeRun,
+                                zoneInputs = zoneInputs,
+                                useLightOnDarkBackground = false,
+                            )
+                        }
+                    }
+                }
+            } else {
+                item {
+                    Text(
+                        "No heart rate was recorded for this workout. Connect a heart rate monitor " +
+                            "before your next session to see effort analysis.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            val sectionsWithHr = summary.sections.filter { it.heartRate != null }
+            if (sectionsWithHr.isNotEmpty()) {
+                item {
+                    Text("By section", style = MaterialTheme.typography.titleMedium)
+                }
+                sectionsWithHr.forEach { section ->
+                    item {
+                        Card(modifier = Modifier.fillMaxWidth()) {
+                            Column(
+                                modifier = Modifier.padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Text(section.title, style = MaterialTheme.typography.titleSmall)
+                                HeartRateSessionAnalyticsSection(
+                                    heartRate = section.heartRate,
+                                    zoneInputs = zoneInputs,
+                                    useLightOnDarkBackground = false,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            item {
+                Button(onClick = onDone, modifier = Modifier.fillMaxWidth()) {
+                    Text("Done")
                 }
             }
         }

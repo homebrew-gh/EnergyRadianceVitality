@@ -52,9 +52,6 @@ fun TrainingProfileSettingsSection(profile: TrainingProfileNostrPayload) {
                 if (days == 1) "1 day" else "$days days",
             )
         }
-        profile.preferredSplit?.let { split ->
-            ProfileSummaryRow("Preferred split", split.displayLabel())
-        }
         if (profile.stylePresetIds.isNotEmpty()) {
             FormSectionLabelMedium("Training style presets")
             profile.stylePresetIds.forEach { id ->
@@ -63,9 +60,6 @@ fun TrainingProfileSettingsSection(profile: TrainingProfileNostrPayload) {
                     style = MaterialTheme.typography.bodyMedium,
                 )
             }
-        }
-        if (profile.influenceLabels.isNotEmpty()) {
-            ProfileSummaryRow("Influences", profile.influenceLabels.joinToString(", "))
         }
         profile.styleNotes?.takeIf { it.isNotBlank() }?.let { notes ->
             ProfileSummaryRow("Style notes", notes)

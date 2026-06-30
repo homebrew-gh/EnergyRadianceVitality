@@ -8,7 +8,7 @@ class LaunchPadTileOrderTest {
     @Test
     fun resolveVisibleLaunchPadTileOrder_usesDefaultOrder_whenNoSavedOrder() {
         val visible = setOf(
-            LaunchPadTileId.PROGRAMS,
+            LaunchPadTileId.TRAINING,
             LaunchPadTileId.STRETCHING,
             LaunchPadTileId.CARDIO,
             LaunchPadTileId.WEIGHT_TRAINING,
@@ -23,7 +23,7 @@ class LaunchPadTileOrderTest {
 
         assertEquals(
             listOf(
-                LaunchPadTileId.PROGRAMS,
+                LaunchPadTileId.TRAINING,
                 LaunchPadTileId.STRETCHING,
                 LaunchPadTileId.CARDIO,
                 LaunchPadTileId.WEIGHT_TRAINING,
@@ -37,7 +37,7 @@ class LaunchPadTileOrderTest {
     @Test
     fun mergeVisibleLaunchPadTileOrder_preservesHiddenTileSlots() {
         val stored = listOf(
-            LaunchPadTileId.PROGRAMS,
+            LaunchPadTileId.TRAINING,
             LaunchPadTileId.SUPPLEMENTS,
             LaunchPadTileId.STRETCHING,
             LaunchPadTileId.CARDIO,
@@ -51,7 +51,7 @@ class LaunchPadTileOrderTest {
             storedOrder = stored,
             visibleOrder = listOf(
                 LaunchPadTileId.BODY_TRACKER,
-                LaunchPadTileId.PROGRAMS,
+                LaunchPadTileId.TRAINING,
                 LaunchPadTileId.STRETCHING,
                 LaunchPadTileId.CARDIO,
                 LaunchPadTileId.WEIGHT_TRAINING,
@@ -63,7 +63,7 @@ class LaunchPadTileOrderTest {
             listOf(
                 LaunchPadTileId.BODY_TRACKER,
                 LaunchPadTileId.SUPPLEMENTS,
-                LaunchPadTileId.PROGRAMS,
+                LaunchPadTileId.TRAINING,
                 LaunchPadTileId.STRETCHING,
                 LaunchPadTileId.LIGHT_THERAPY,
                 LaunchPadTileId.CARDIO,
@@ -79,13 +79,13 @@ class LaunchPadTileOrderTest {
         val encoded = encodeLaunchPadHiddenTiles(
             setOf(
                 LaunchPadTileId.PROGRAMS,
+                LaunchPadTileId.WORKOUT_LAUNCHER,
                 LaunchPadTileId.HOT_COLD,
             )
         )
 
         assertEquals(
             setOf(
-                LaunchPadTileId.PROGRAMS,
                 LaunchPadTileId.HOT_COLD,
             ),
             decodeLaunchPadHiddenTiles(encoded),

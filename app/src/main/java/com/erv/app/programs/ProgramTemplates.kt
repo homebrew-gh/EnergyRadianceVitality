@@ -83,7 +83,7 @@ object ProgramTemplates {
         ProgramTemplateOption(
             id = "75_soft",
             title = "75 Soft–style week",
-            description = "Gentler daily habits and one 45 min flex workout per day (cardio or weights from the Programs sheet); customize rules and the weekly outdoor reminder.",
+            description = "Gentler daily habits and one 45 min flex workout per day (cardio or weights from Weekly Planner); customize rules and the weekly outdoor reminder.",
             category = ProgramTemplateCategory.CHALLENGE,
             frequencyLabel = "Daily structure",
             ::template75SoftWeek
@@ -366,7 +366,7 @@ private fun template75HardWeek(): FitnessProgram {
     val habits = ProgramDayBlock(
         kind = ProgramBlockKind.OTHER,
         title = "75 Hard — daily habits",
-        notes = "Check each line on the dashboard for the selected date. Log both workouts via Start on the Programs sheet (Cardio or Weight Training — not limited to running or walking).",
+        notes = "Check each line on the dashboard for the selected date. Log both workouts via Start in Weekly Planner (Cardio or Weight Training — not limited to running or walking).",
         checklistItems = listOf(
             "Follow your diet (no alcohol / cheat meals)",
             "Drink 1 gallon (≈3.8 L) water",
@@ -385,7 +385,7 @@ private fun template75HardWeek(): FitnessProgram {
         kind = ProgramBlockKind.FLEX_TRAINING,
         title = "Workout 2 — cardio or weights (45+ min)",
         targetMinutes = 45,
-        notes = "Second session of the day: again Cardio or Weight Training from the Programs sheet. Split indoor vs outdoor however fits your plan; replace these flex blocks with fixed cardio or weight blocks in the builder if you want the same thing every day."
+        notes = "Second session of the day: again Cardio or Weight Training from Weekly Planner. Split indoor vs outdoor however fits your plan; replace these flex blocks with fixed cardio or weight blocks in the builder if you want the same thing every day."
     )
     val blocks = listOf(habits, firstWorkout, secondWorkout)
     return FitnessProgram(
@@ -416,13 +416,13 @@ private fun template75SoftWeek(): FitnessProgram {
         kind = ProgramBlockKind.FLEX_TRAINING,
         title = "Daily workout — cardio or weights (45 min)",
         targetMinutes = 45,
-        notes = "Tap Start on the Programs sheet for Cardio or Weight Training. Indoor or outdoor is up to you except where your checklist calls for an outdoor day."
+        notes = "Tap Start in Weekly Planner for Cardio or Weight Training. Indoor or outdoor is up to you except where your checklist calls for an outdoor day."
     )
     val blocksMonSat = listOf(habits, workout)
     val outdoorNote = ProgramDayBlock(
         kind = ProgramBlockKind.CUSTOM,
         title = "Outdoor session reminder",
-        notes = "Use one day this week for an outdoor workout (cardio or weights). Start from the Programs sheet, or add a dedicated cardio/weight block here if you prefer a fixed schedule."
+        notes = "Use one day this week for an outdoor workout (cardio or weights). Start from Weekly Planner, or add a dedicated cardio/weight block here if you prefer a fixed schedule."
     )
     return FitnessProgram(
         id = UUID.randomUUID().toString(),

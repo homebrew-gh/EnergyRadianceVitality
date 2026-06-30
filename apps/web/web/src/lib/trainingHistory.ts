@@ -44,6 +44,8 @@ export type WeightWorkoutSession = {
   routineName?: string | null;
   entries: WeightWorkoutEntry[];
   estimatedKcal?: number | null;
+  heartRate?: CardioHeartRateSummary | null;
+  workoutLink?: WorkoutSessionLink | null;
 };
 
 export type WeightDayLog = {
@@ -72,12 +74,33 @@ export type CardioSession = {
   loggedAtEpochSeconds?: number | null;
   heartRate?: CardioHeartRateSummary | null;
   routeImageUrl?: string | null;
+  workoutLink?: WorkoutSessionLink | null;
+};
+
+export type HeartRateLoadSummary = {
+  sampleCount: number;
+  durationSeconds?: number | null;
+  /** Seconds in Z1..Z5. */
+  zoneSeconds: number[];
+  zoneMethod?: string | null;
+  maxBpm?: number | null;
+  restingBpm?: number | null;
 };
 
 export type CardioHeartRateSummary = {
   avgBpm?: number | null;
   maxBpm?: number | null;
   minBpm?: number | null;
+  load?: HeartRateLoadSummary | null;
+};
+
+export type WorkoutSessionLink = {
+  sessionId: string;
+  workoutId: string;
+  segmentId: string;
+  itemId: string;
+  displayRef: string;
+  sessionHeartRate?: CardioHeartRateSummary | null;
 };
 
 export type CardioDayLog = {
@@ -171,6 +194,10 @@ function parseWeightWorkout(raw: unknown): WeightWorkoutSession | null {
     ? w.entries.map(parseWeightEntry).filter((e): e is WeightWorkoutEntry => e != null)
     : [];
   if (entries.length === 0) return null;
+  const heartRate =
+    w.heartRate && typeof w.heartRate === "object"
+      ? parseCardioHeartRate(w.heartRate)
+      : null;
   return {
     id: typeof w.id === "string" ? w.id : crypto.randomUUID(),
     source,
@@ -183,6 +210,11 @@ function parseWeightWorkout(raw: unknown): WeightWorkoutSession | null {
     routineName: typeof w.routineName === "string" ? w.routineName : null,
     entries,
     estimatedKcal: typeof w.estimatedKcal === "number" ? w.estimatedKcal : null,
+    heartRate,
+    workoutLink:
+      w.workoutLink && typeof w.workoutLink === "object"
+        ? parseWorkoutSessionLink(w.workoutLink)
+        : null,
   };
 }
 
@@ -264,17 +296,75 @@ function parseCardioSession(raw: unknown): CardioSession | null {
       typeof s.loggedAtEpochSeconds === "number" ? s.loggedAtEpochSeconds : null,
     heartRate,
     routeImageUrl: typeof s.routeImageUrl === "string" ? s.routeImageUrl : null,
+    workoutLink:
+      s.workoutLink && typeof s.workoutLink === "object"
+        ? parseWorkoutSessionLink(s.workoutLink)
+        : null,
+  };
+}
+
+function parseHeartRateLoadSummary(raw: unknown): HeartRateLoadSummary | null {
+  if (!raw || typeof raw !== "object") return null;
+  const data = raw as Record<string, unknown>;
+  const zoneSeconds = Array.isArray(data.zoneSeconds)
+    ? data.zoneSeconds
+        .map((v) => (typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.round(v)) : null))
+        .filter((v): v is number => v != null)
+        .slice(0, 5)
+    : [];
+  if (zoneSeconds.length === 0 && typeof data.sampleCount !== "number") return null;
+  return {
+    sampleCount:
+      typeof data.sampleCount === "number" && Number.isFinite(data.sampleCount)
+        ? Math.max(0, Math.round(data.sampleCount))
+        : 0,
+    durationSeconds:
+      typeof data.durationSeconds === "number" && Number.isFinite(data.durationSeconds)
+        ? Math.max(0, Math.round(data.durationSeconds))
+        : null,
+    zoneSeconds,
+    zoneMethod: typeof data.zoneMethod === "string" ? data.zoneMethod : null,
+    maxBpm: typeof data.maxBpm === "number" ? data.maxBpm : null,
+    restingBpm: typeof data.restingBpm === "number" ? data.restingBpm : null,
   };
 }
 
 function parseCardioHeartRate(raw: object): CardioHeartRateSummary | null {
   const hr = raw as Record<string, unknown>;
+  const load = parseHeartRateLoadSummary(hr.load);
   const parsed = {
     avgBpm: typeof hr.avgBpm === "number" ? hr.avgBpm : null,
     maxBpm: typeof hr.maxBpm === "number" ? hr.maxBpm : null,
     minBpm: typeof hr.minBpm === "number" ? hr.minBpm : null,
+    load,
   };
-  return parsed.avgBpm || parsed.maxBpm || parsed.minBpm ? parsed : null;
+  return parsed.avgBpm != null || parsed.maxBpm != null || parsed.minBpm != null || load
+    ? parsed
+    : null;
+}
+
+function parseWorkoutSessionLink(raw: unknown): WorkoutSessionLink | null {
+  if (!raw || typeof raw !== "object") return null;
+  const link = raw as Record<string, unknown>;
+  if (
+    typeof link.sessionId !== "string" ||
+    typeof link.workoutId !== "string" ||
+    typeof link.segmentId !== "string" ||
+    typeof link.itemId !== "string"
+  ) {
+    return null;
+  }
+  return {
+    sessionId: link.sessionId,
+    workoutId: link.workoutId,
+    segmentId: link.segmentId,
+    itemId: link.itemId,
+    displayRef: typeof link.displayRef === "string" ? link.displayRef : "",
+    sessionHeartRate:
+      link.sessionHeartRate && typeof link.sessionHeartRate === "object"
+        ? parseCardioHeartRate(link.sessionHeartRate)
+        : null,
+  };
 }
 
 export function parseCardioDayLog(raw: string, dateFallback: string): CardioDayLog | null {

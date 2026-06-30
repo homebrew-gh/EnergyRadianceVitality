@@ -586,6 +586,7 @@ private fun previewRows(program: FitnessProgram): List<Pair<Int, String>> =
 
 private fun previewBlockLabel(block: ProgramDayBlock): String =
     block.title?.takeIf { it.isNotBlank() } ?: when (block.kind) {
+        ProgramBlockKind.WORKOUT -> "Saved Workout"
         ProgramBlockKind.WEIGHT -> "Weight Training"
         ProgramBlockKind.UNIFIED_ROUTINE -> "Routine"
         ProgramBlockKind.FLEX_TRAINING -> "Flexible Training"
@@ -614,6 +615,11 @@ private fun wizardKindLabel(kind: ProgramBlockKind): String = when (kind) {
 }
 
 private fun defaultWizardBlockForKind(kind: ProgramBlockKind): ProgramDayBlock = when (kind) {
+    ProgramBlockKind.WORKOUT -> ProgramDayBlock(
+        kind = ProgramBlockKind.WORKOUT,
+        title = "Saved Workout",
+        notes = "Attach a saved workout from the Workouts library in the advanced editor."
+    )
     ProgramBlockKind.WEIGHT -> ProgramDayBlock(
         kind = ProgramBlockKind.WEIGHT,
         title = "Weight Training",

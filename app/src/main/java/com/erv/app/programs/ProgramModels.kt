@@ -7,11 +7,12 @@ import java.util.UUID
 /**
  * Weekly schedule programs: each [ProgramWeekDay] is ISO day-of-week 1 (Monday) .. 7 (Sunday).
  * Blocks can reference weight exercises/routines, cardio activities/routines, saved stretch routines,
- * built-in stretch catalog ids, sauna / cold plunge, rest, free-form custom text,
+ * built-in stretch catalog ids, saved workouts, sauna / cold plunge, rest, free-form custom text,
  * or [OTHER] with [ProgramDayBlock.checklistItems] for habits ERV does not auto-track (user checks off on the dashboard).
  */
 @Serializable
 enum class ProgramBlockKind {
+    @SerialName("workout") WORKOUT,
     @SerialName("weight") WEIGHT,
     @SerialName("cardio") CARDIO,
     @SerialName("unified_routine") UNIFIED_ROUTINE,
@@ -32,6 +33,8 @@ data class ProgramDayBlock(
     /** Optional short label shown in lists (and for CUSTOM / REST). */
     val title: String? = null,
     val notes: String? = null,
+    /** Saved `erv/workouts/library` workout id for [ProgramBlockKind.WORKOUT]. */
+    val workoutId: String? = null,
     val weightExerciseIds: List<String> = emptyList(),
     val weightRoutineId: String? = null,
     /** [com.erv.app.cardio.CardioBuiltinActivity] name, e.g. RUN, BIKE */

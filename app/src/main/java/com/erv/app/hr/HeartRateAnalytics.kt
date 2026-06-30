@@ -1,6 +1,7 @@
 package com.erv.app.hr
 
 import androidx.compose.ui.graphics.Color
+import com.erv.app.cardio.CardioHrLoadSummary
 import com.erv.app.cardio.CardioHrSample
 import com.erv.app.cardio.CardioHrScaffolding
 import com.erv.app.cardio.CardioLibraryState
@@ -228,6 +229,39 @@ fun zoneDurationsSeconds(samples: List<CardioHrSample>, inputs: HeartRateZoneInp
     val maxHr = resolvedMaxHrForZones(inputs, samples)
     return zoneDurationsSeconds(samples, maxHr, inputs.restingBpm, inputs.method)
 }
+
+private fun HeartRateZoneMethod.wireName(): String =
+    when (this) {
+        HeartRateZoneMethod.PERCENT_MAX_HR -> "percent_max_hr"
+        HeartRateZoneMethod.KARVONEN_HRR -> "karvonen_hrr"
+    }
+
+fun buildHeartRateLoadSummary(
+    heartRate: CardioHrScaffolding,
+    inputs: HeartRateZoneInputs,
+): CardioHrLoadSummary? {
+    val samples = heartRate.samples
+    if (samples.size < 2) return heartRate.load
+    val maxHr = resolvedMaxHrForZones(inputs, samples)
+    val zones = zoneDurationsSeconds(samples, maxHr, inputs.restingBpm, inputs.method).toList()
+    val durationSeconds = zones.sum().takeIf { it > 0 }
+    return CardioHrLoadSummary(
+        sampleCount = samples.size,
+        durationSeconds = durationSeconds,
+        zoneSeconds = zones,
+        zoneMethod = inputs.method.wireName(),
+        maxBpm = maxHr,
+        restingBpm = inputs.restingBpm,
+    )
+}
+
+fun CardioHrScaffolding.toRelaySafeHeartRate(
+    inputs: HeartRateZoneInputs,
+): CardioHrScaffolding =
+    copy(
+        load = buildHeartRateLoadSummary(this, inputs),
+        samples = emptyList(),
+    )
 
 fun formatDurationSeconds(totalSec: Int): String {
     if (totalSec <= 0) return "0:00"

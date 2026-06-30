@@ -1,6 +1,6 @@
 # ERV — AI / coach guide: weekly programs → import JSON
 
-Use this document when an **LLM, coach tool, or script** should output JSON that **Energy Radiance Vitality (ERV)** can import as **Programs** (weekly plans with day blocks for strength, cardio, stretching, sauna/cold, rest, or notes).
+Use this document when a coach tool or script should output JSON that **Energy Radiance Vitality (ERV)** can import as **Programs** (weekly plans with day blocks for saved workouts, strength, cardio, stretching, sauna/cold, rest, or notes).
 
 The user imports from **Settings → Import And Export → Import Programs File**. The app **parses, validates, shows a preview, then merges** into local program storage (same merge rules as the Programs category upload).
 
@@ -32,7 +32,7 @@ Unknown top-level keys are ignored where safe.
 - New ids are **added** to the library.
 - If `activeProgramId` is present and valid, it is applied **after** merge.
 
-There is **no relay/Nostr upload** for programs in the current build; data stays **on device** (and any future sync would follow the same JSON shapes).
+Programs sync through encrypted kind-30078 app data under `erv/programs/master` when the user is signed in. The same JSON shapes are used by web Planner and Android Programs.
 
 ---
 
@@ -82,6 +82,7 @@ You may supply **multiple** `ProgramWeekDay` rows with the same `dayOfWeek`; the
 | `kind` | **Yes** | One of the **serial names** in §5 |
 | `title` | No | Short label (Launch Pad / UI) |
 | `notes` | No | Longer text; shown for **rest**, **custom**, and other kinds as context |
+| `workoutId` | For **workout** | Saved workout id from `erv/workouts/library`; preferred Phase 3 weekly-planner block |
 | `weightExerciseIds` | For **weight** | List of **ERV weight exercise ids** (see Weight Training built-in id doc in the same Import screen) |
 | `weightRoutineId` | No | Optional saved **weight routine** id if the user already has that routine |
 | `cardioActivity` | For **cardio** (no routine) | **Exact** `CardioBuiltinActivity` enum name: `RUN`, `BIKE`, `WALK`, … (see **Cardio Training Import AI Guide** §3 table in-app) |
@@ -102,6 +103,7 @@ These are the **wire strings** (lowercase with underscore). They map to ERV `Pro
 
 | `kind` value | Purpose |
 | --- | --- |
+| `workout` | Saved workout-library reference: `workoutId` |
 | `weight` | Resistance session: `weightExerciseIds` and/or `weightRoutineId` |
 | `cardio` | `cardioRoutineId` **or** `cardioActivity` (+ optional `targetMinutes`) |
 | `stretch_routine` | Guided routine: `stretchRoutineId` |
@@ -131,9 +133,9 @@ These are the **wire strings** (lowercase with underscore). They map to ERV `Pro
           "dayOfWeek": 1,
           "blocks": [
             {
-              "kind": "weight",
+              "kind": "workout",
               "title": "Lower",
-              "weightExerciseIds": ["erv-weight-exercise-squat-v1", "erv-weight-exercise-deadlift-v1"]
+              "workoutId": "saved-workout-lower"
             }
           ]
         },

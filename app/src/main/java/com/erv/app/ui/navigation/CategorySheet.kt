@@ -42,11 +42,9 @@ val implementedCategoryIds: Set<String> = setOf(
     "light_therapy",
     "cardio",
     "weight_training",
-    "unified_routines",
     "heat_cold",
     "stretching",
     "fasting",
-    "programs",
     "body_tracker",
 )
 
@@ -55,7 +53,6 @@ fun Category.isImplemented(): Boolean = id in implementedCategoryIds
 val categories = listOf(
     Category("training", "Training", Icons.Default.Sports, "category/training"),
     Category("stretching", "Stretching", Icons.Default.FavoriteBorder, "category/stretching"),
-    Category("unified_routines", "Unified Workouts", Icons.Default.PlaylistPlay, "category/unified_routines"),
     Category("weight_training", "Weight Training", Icons.Default.FitnessCenter, "category/weight_training"),
     Category("cardio", "Cardio", Icons.AutoMirrored.Filled.DirectionsRun, "category/cardio"),
     Category("fasting", "Fasting", Icons.Default.Restaurant, "category/fasting"),
@@ -69,8 +66,7 @@ val categories = listOf(
     Category("light_therapy", "Light Therapy", Icons.Default.WbSunny, "category/light_therapy"),
     Category("supplements", "Supplements", Icons.Default.LocalPharmacy, "category/supplements"),
     // Sleep & protocols: hidden for first iteration — re-add Category rows when ready to ship.
-    Category("body_tracker", "Body Tracker", Icons.Default.MonitorWeight, "category/body_tracker"),
-    Category("programs", "Programs", Icons.Default.CalendarMonth, "category/programs")
+    Category("body_tracker", "Body Tracker", Icons.Default.MonitorWeight, "category/body_tracker")
 )
 
 @Composable

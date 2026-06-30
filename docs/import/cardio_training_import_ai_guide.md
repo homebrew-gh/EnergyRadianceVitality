@@ -115,7 +115,7 @@ Align fields with the app’s `CardioSession` (camelCase):
 | `source` | No | Ignored on import; sessions are stored as **Imported** (`IMPORTED`). |
 | `startEpochSeconds`, `endEpochSeconds` | No | Unix seconds if known from GPX/Strava. |
 | `loggedAtEpochSeconds` | No | Omit; app can set “now” on import. |
-| `heartRate` | No | `{ avgBpm?, maxBpm?, minBpm? }` if known. |
+| `heartRate` | No | `{ avgBpm?, maxBpm?, minBpm?, load? }` if known. `load.zoneSeconds` is compact Z1–Z5 seconds for web Progress / future AI guardrails; raw samples are not required. |
 | `segments` | No | Non-empty → multi-leg brick session; each segment matches segment shape (activity, modality, treadmill?, durationMinutes, distanceMeters?, estimatedKcal?, orderIndex). |
 | `gpsTrack` | No | **Omit** for AI imports unless the user explicitly wants a full track in the file (large). Future importer may accept simplified tracks: `points[]` with `lat`, `lon`, `epochSeconds`, optional `altitudeMeters`. |
 | `routeImageUrl` | No | Omit. |
