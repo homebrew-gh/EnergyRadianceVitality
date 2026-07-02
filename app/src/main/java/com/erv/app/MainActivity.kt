@@ -474,6 +474,9 @@ private fun MainAppShell(
     val relayPool = remember(signer, trustSelfSignedLanTls) {
         signer?.let { RelayPool(it, RelayOkHttpClient.create(trustSelfSignedLanTls), trustSelfSignedLanTls) }
     }
+    LaunchedEffect(relayPool, signer, keyManager) {
+        SessionMediaBackupRuntime.update(relayPool, signer, keyManager)
+    }
     var relayUrlsVersion by remember { mutableIntStateOf(0) }
     var relayDataSyncInProgress by remember { mutableStateOf(false) }
     val lastRelayDataSyncAtMs = remember { mutableLongStateOf(0L) }
@@ -504,8 +507,19 @@ private fun MainAppShell(
             val pubkey = sig.publicKey
             val appCtx = context.applicationContext
             val latestByTag = withContext(Dispatchers.IO) {
-                fetchLatestKind30078ByDTag(pool, pubkey, timeoutMs = 8000, signer = sig)
+                val connected = pool.awaitAtLeastOneConnected(timeoutMs = 12_000)
+                android.util.Log.i(
+                    "ErvRelaySync",
+                    "runRelayDataSync: force=$force connected=$connected " +
+                        "relayUrls=${keyManager.relayUrlsForKind30078Publish()} " +
+                        "relayStates=${pool.relayStates.value}",
+                )
+                fetchLatestKind30078ByDTag(pool, pubkey, timeoutMs = 12_000, signer = sig)
             }
+            android.util.Log.i(
+                "ErvRelaySync",
+                "runRelayDataSync: latestByTag=${latestByTag.size} tags=${latestByTag.keys}",
+            )
             withContext(Dispatchers.IO) {
                 CatalogSync.syncCatalogs(
                     appCtx,
@@ -663,25 +677,6 @@ private fun MainAppShell(
             userPreferences.rememberNostrRelayUsage(keyManager.relayUrlsForKind30078Publish())
         }
     }
-    LaunchedEffect(
-        relayPool,
-        signer,
-        userPreferences,
-        supplementRepository,
-        lightTherapyRepository,
-        cardioRepository,
-        weightRepository,
-        heatColdRepository,
-        stretchingRepository,
-        programRepository,
-        bodyTrackerRepository,
-        workoutRepository,
-    ) {
-        val pool = relayPool ?: return@LaunchedEffect
-        val sig = signer ?: return@LaunchedEffect
-        delay(1500)
-        runRelayDataSync(pool, sig, force = true)
-    }
     // Re-pull from relays whenever the user returns to the app, so activity logged on another
     // device appears without a full restart. Debounced via [RELAY_DATA_SYNC_MIN_INTERVAL_MS].
     LaunchedEffect(relayPool, signer) {
@@ -715,7 +710,10 @@ private fun MainAppShell(
     LaunchedEffect(relayPool, signer, relayUrlsVersion) {
         val pool = relayPool ?: return@LaunchedEffect
         val sig = signer ?: return@LaunchedEffect
-        delay(800)
+        delay(1500)
+        runRelayDataSync(pool, sig, force = true)
+        // Pull remote library/planner state before uploading queued day logs so a stale local
+        // outbox entry cannot overwrite newer web companion publishes on the relay.
         withContext(Dispatchers.IO) {
             TrainingDayLogRelaySync.drainPending(context.applicationContext)
         }
@@ -732,12 +730,12 @@ private fun MainAppShell(
             .distinctUntilChanged()
             .collect { anyDataRelayConnected ->
                 if (!anyDataRelayConnected) return@collect
-                withContext(Dispatchers.IO) {
-                    TrainingDayLogRelaySync.drainPending(context.applicationContext)
-                }
                 // A data relay just (re)connected: pull down anything logged elsewhere while we
                 // were disconnected. Debounced so it does not duplicate the startup pull.
                 runRelayDataSync(pool, sig, force = false)
+                withContext(Dispatchers.IO) {
+                    TrainingDayLogRelaySync.drainPending(context.applicationContext)
+                }
             }
     }
 

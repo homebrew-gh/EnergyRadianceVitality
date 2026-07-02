@@ -12,7 +12,7 @@ import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import java.time.LocalDate
 
-private const val PROGRAMS_MASTER_D_TAG = "erv/programs/master"
+const val PROGRAMS_MASTER_D_TAG = "erv/programs/master"
 private const val PROGRAMS_PROGRESS_PREFIX = "erv/programs/progress/"
 
 @Serializable

@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import com.erv.app.nostr.LibraryStateMerge
+import com.erv.app.nostr.SessionMediaBackupRuntime
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import com.erv.app.weighttraining.WeightSync
@@ -73,6 +74,7 @@ class WeightRepository(context: Context) {
     }
 
     suspend fun addWorkout(date: LocalDate, session: WeightWorkoutSession) {
+        SessionMediaBackupRuntime.scheduleWeightBackup(appContext, session, date.toString())
         updateState { current ->
             val log = current.logFor(date) ?: WeightDayLog(date = date.toString())
             current.copy(

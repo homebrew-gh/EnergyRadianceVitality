@@ -249,16 +249,15 @@ private fun DayOverviewCard(
                         Text("View Library")
                     }
                 }
-                return@Column
-            }
-
-            workoutBlocks.forEach { block ->
-                PlannedWorkoutOverview(
-                    block = block,
-                    workout = block.workoutId?.let(workoutById::get),
-                    onRunWorkout = onRunWorkout,
-                    onOpenWorkoutLibrary = onOpenWorkoutLibrary,
-                )
+            } else {
+                workoutBlocks.forEach { block ->
+                    PlannedWorkoutOverview(
+                        block = block,
+                        workout = block.workoutId?.let(workoutById::get),
+                        onRunWorkout = onRunWorkout,
+                        onOpenWorkoutLibrary = onOpenWorkoutLibrary,
+                    )
+                }
             }
         }
     }

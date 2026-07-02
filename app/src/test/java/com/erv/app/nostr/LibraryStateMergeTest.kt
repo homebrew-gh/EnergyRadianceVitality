@@ -3,6 +3,11 @@ package com.erv.app.nostr
 import com.erv.app.bodytracker.BodyTrackerDayLog
 import com.erv.app.bodytracker.BodyTrackerLibraryState
 import com.erv.app.bodytracker.BodyTrackerPhoto
+import com.erv.app.programs.FitnessProgram
+import com.erv.app.programs.ProgramBlockKind
+import com.erv.app.programs.ProgramDayBlock
+import com.erv.app.programs.ProgramsLibraryState
+import com.erv.app.programs.ProgramWeekDay
 import com.erv.app.cardio.CardioActivitySnapshot
 import com.erv.app.cardio.CardioBuiltinActivity
 import com.erv.app.cardio.CardioDayLog
@@ -113,5 +118,49 @@ class LibraryStateMergeTest {
         val day = merged.logs.single()
         assertEquals(75.0, day.weightKg!!, 0.001)
         assertEquals(listOf(photo), day.photos)
+    }
+
+    @Test
+    fun mergePrograms_keepsRemoteProgramWhenLocalMasterIsNewer() {
+        val localProgram = FitnessProgram(
+            id = "local-plan",
+            name = "Phone plan",
+            lastModifiedEpochSeconds = 50L,
+        )
+        val remoteProgram = FitnessProgram(
+            id = "web-plan",
+            name = "Web plan",
+            weeklySchedule = listOf(
+                ProgramWeekDay(
+                    dayOfWeek = 1,
+                    blocks = listOf(
+                        ProgramDayBlock(
+                            id = "block-1",
+                            kind = ProgramBlockKind.WORKOUT,
+                            workoutId = "workout-1",
+                            title = "Push day",
+                        ),
+                    ),
+                ),
+            ),
+            lastModifiedEpochSeconds = 200L,
+        )
+        val local = ProgramsLibraryState(
+            programs = listOf(localProgram),
+            activeProgramId = localProgram.id,
+            masterUpdatedAtEpochSeconds = 300L,
+        )
+        val remote = ProgramsLibraryState(
+            programs = listOf(remoteProgram),
+            activeProgramId = remoteProgram.id,
+            masterUpdatedAtEpochSeconds = 100L,
+        )
+
+        val merged = LibraryStateMerge.mergePrograms(local, remote)
+
+        assertEquals(setOf("local-plan", "web-plan"), merged.programs.map { it.id }.toSet())
+        assertEquals("Web plan", merged.programById("web-plan")?.name)
+        assertEquals("workout-1", merged.programById("web-plan")?.weeklySchedule?.single()?.blocks?.single()?.workoutId)
+        assertEquals("local-plan", merged.activeProgramId)
     }
 }

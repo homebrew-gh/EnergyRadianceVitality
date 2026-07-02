@@ -345,27 +345,31 @@ object LibraryStateMerge {
     fun mergePrograms(local: ProgramsLibraryState, remote: ProgramsLibraryState): ProgramsLibraryState {
         val localState = local.sanitized()
         val remoteState = remote.sanitized()
-        val useLegacyMerge = localState.masterUpdatedAtEpochSeconds == 0L || remoteState.masterUpdatedAtEpochSeconds == 0L
-        val mergedMaster = if (useLegacyMerge) {
-            val programs = mergeProgramsByLastModified(remoteState.programs, localState.programs)
-            val activeProgramId = localState.activeProgramId
-                ?: remoteState.activeProgramId?.takeIf { id -> programs.any { it.id == id } }
-            val strategy = if (localState.strategy != com.erv.app.programs.ProgramStrategy()) {
-                localState.strategy
-            } else {
-                remoteState.strategy
-            }
-            ProgramsLibraryState(
-                programs = programs,
-                activeProgramId = activeProgramId,
-                strategy = strategy,
-                masterUpdatedAtEpochSeconds = max(localState.masterUpdatedAtEpochSeconds, remoteState.masterUpdatedAtEpochSeconds)
-            )
-        } else if (localState.masterUpdatedAtEpochSeconds >= remoteState.masterUpdatedAtEpochSeconds) {
-            localState.copy(completionState = emptyMap())
-        } else {
-            remoteState.copy(completionState = emptyMap())
+        val programs = mergeProgramsByLastModified(remoteState.programs, localState.programs)
+        val remoteMasterNewer = remoteState.masterUpdatedAtEpochSeconds > localState.masterUpdatedAtEpochSeconds
+        val activeProgramId = when {
+            remoteMasterNewer ->
+                remoteState.activeProgramId?.takeIf { id -> programs.any { it.id == id } }
+                    ?: localState.activeProgramId?.takeIf { id -> programs.any { it.id == id } }
+            else ->
+                localState.activeProgramId?.takeIf { id -> programs.any { it.id == id } }
+                    ?: remoteState.activeProgramId?.takeIf { id -> programs.any { it.id == id } }
         }
+        val strategy = when {
+            remoteMasterNewer -> remoteState.strategy
+            localState.masterUpdatedAtEpochSeconds > remoteState.masterUpdatedAtEpochSeconds -> localState.strategy
+            localState.strategy != com.erv.app.programs.ProgramStrategy() -> localState.strategy
+            else -> remoteState.strategy
+        }
+        val mergedMaster = ProgramsLibraryState(
+            programs = programs,
+            activeProgramId = activeProgramId,
+            strategy = strategy,
+            masterUpdatedAtEpochSeconds = max(
+                localState.masterUpdatedAtEpochSeconds,
+                remoteState.masterUpdatedAtEpochSeconds,
+            ),
+        )
         val completionKeys = (localState.completionState.keys + remoteState.completionState.keys).toSet()
         val mergedCompletion = completionKeys.associateWith { key ->
             mergeProgramCompletionMark(localState.completionState[key], remoteState.completionState[key])

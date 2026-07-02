@@ -4402,6 +4402,7 @@ fun CardioWorkoutSummaryFullScreen(
                                         colorTop = dark.toArgb(),
                                         colorMid = mid.toArgb(),
                                         colorBottom = glow.toArgb(),
+                                        zoneInputs = heartRateZoneInputs,
                                     )
                                     val message = when {
                                         result.origin == null ->
