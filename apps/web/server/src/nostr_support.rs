@@ -24,6 +24,8 @@ pub const KIND_APP_DATA_FETCH_LIMIT: usize = 2500;
 
 const RELAY_CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 const RELAY_AUTH_SETTLE: Duration = Duration::from_secs(3);
+const RELAY_PROBE_LIMIT: usize = 1;
+const RELAY_PROBE_TIMEOUT: Duration = Duration::from_secs(8);
 
 #[derive(Debug, Clone, Serialize)]
 pub struct KeyIdentity {
@@ -183,6 +185,76 @@ pub async fn fetch_kind_events(
     client.unsubscribe(&sub_id).await;
     client.shutdown().await;
     Ok(events)
+}
+
+/// Lightweight reachability check: one websocket connect + REQ with `limit(1)`.
+/// Used by the status banner — not a full library/history fetch.
+pub async fn probe_relay_connection(
+    keys: &Keys,
+    relay_urls: &[String],
+    relay_opts: impl Fn(&str) -> RelayConnectOptions,
+) -> anyhow::Result<()> {
+    if relay_urls.is_empty() {
+        return Err(anyhow!("no relay urls configured"));
+    }
+
+    let mut errors = Vec::new();
+    for relay_url in relay_urls {
+        let connect_url = resolve_relay_url(relay_url);
+        let opts = relay_opts(&connect_url);
+        match probe_kind_events(keys, relay_url, KIND_APP_DATA, opts).await {
+            Ok(()) => return Ok(()),
+            Err(err) => errors.push(format!("{connect_url}: {err}")),
+        }
+    }
+    Err(anyhow!("all relay probes failed: {}", errors.join("; ")))
+}
+
+async fn probe_kind_events(
+    keys: &Keys,
+    relay_url: &str,
+    kind: u16,
+    opts: RelayConnectOptions,
+) -> anyhow::Result<()> {
+    let relay_url = resolve_relay_url(relay_url);
+    let filter = Filter::new()
+        .author(keys.public_key())
+        .kind(Kind::Custom(kind))
+        .limit(RELAY_PROBE_LIMIT);
+
+    if opts.insecure_tls && relay_url.starts_with("wss://") {
+        relay_raw::fetch_events(keys, &relay_url, filter, opts).await?;
+        return Ok(());
+    }
+
+    let client = prepare_relay_client(keys, &relay_url).await?;
+    let sub_output = client.subscribe_to([&relay_url], filter, None).await?;
+    let sub_id = sub_output.val;
+    let mut notifications = client.notifications();
+    let deadline = tokio::time::Instant::now() + RELAY_PROBE_TIMEOUT;
+
+    while tokio::time::Instant::now() < deadline {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        let Ok(notification) = tokio::time::timeout(remaining, notifications.recv()).await else {
+            break;
+        };
+        match notification {
+            Ok(nostr_sdk::RelayPoolNotification::Message { message, .. }) => {
+                if let RelayMessage::EndOfStoredEvents(eose_id) = &message {
+                    if eose_id.as_ref() == &sub_id {
+                        break;
+                    }
+                }
+            }
+            Ok(nostr_sdk::RelayPoolNotification::Shutdown) => break,
+            Err(_) => break,
+            _ => {}
+        }
+    }
+
+    client.unsubscribe(&sub_id).await;
+    client.shutdown().await;
+    Ok(())
 }
 
 pub async fn fetch_app_data_events(

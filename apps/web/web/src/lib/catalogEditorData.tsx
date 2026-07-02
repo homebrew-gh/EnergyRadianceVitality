@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { ApiError, api, type AppDataRecord } from "./api";
+import { APP_DATA_TTL_MS, appDataCacheAgeMs, getAppData } from "./appDataCache";
 import {
   CARDIO_CATALOG_D_TAG,
   EMPTY_CATALOGS,
@@ -50,7 +51,7 @@ type CatalogEditorContextValue = {
   weightSyncing: boolean;
   stretchSyncing: boolean;
   cardioSyncing: boolean;
-  reload: () => Promise<void>;
+  reload: (force?: boolean) => Promise<void>;
   setWeightExercises: (next: WeightCatalogExercise[]) => void;
   setStretchEntries: (next: StretchCatalogEntry[]) => void;
   setCardioActivities: (next: CardioCatalogActivity[]) => void;
@@ -129,11 +130,17 @@ export function CatalogEditorProvider({ children }: { children: ReactNode }) {
   stretchVersionRef.current = stretchVersion;
   cardioVersionRef.current = cardioVersion;
 
-  const reload = useCallback(async () => {
+  const reload = useCallback(async (force = false) => {
     setError(null);
-    setLoading(true);
+    const cacheFresh =
+      !force &&
+      appDataCacheAgeMs() != null &&
+      appDataCacheAgeMs()! < APP_DATA_TTL_MS;
+    if (!cacheFresh) {
+      setLoading(true);
+    }
     try {
-      const { records } = await api.listAppData();
+      const { records } = await getAppData({ force });
       const weight = initialWeightDraft(records);
       const stretch = initialStretchDraft(records);
       const cardio = initialCardioDraft(records);

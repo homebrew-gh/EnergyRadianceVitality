@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use anyhow::Context;
 use rand::RngCore;
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone)]
 pub struct Config {
@@ -98,7 +99,32 @@ impl Config {
     }
 }
 
-pub const DETECTED_RELAY_LABEL: &str = "Nostr RS Relay";
+pub const DETECTED_RELAY_LABEL: &str = "Local Nostr relay";
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct DetectedRelay {
+    pub label: String,
+    pub internal: String,
+    pub suggested: Option<String>,
+}
+
+pub fn detected_relays() -> Vec<DetectedRelay> {
+    if let Ok(raw) = std::env::var("ERV_DETECTED_RELAYS_JSON") {
+        if let Ok(relays) = serde_json::from_str::<Vec<DetectedRelay>>(&raw) {
+            if !relays.is_empty() {
+                return relays;
+            }
+        }
+    }
+    detected_relay_url()
+        .map(|internal| DetectedRelay {
+            label: detected_relay_label().unwrap_or_else(|| DETECTED_RELAY_LABEL.to_string()),
+            internal,
+            suggested: suggested_relay_url(),
+        })
+        .into_iter()
+        .collect()
+}
 
 pub fn detected_relay_label() -> Option<String> {
     std::env::var("ERV_DETECTED_RELAY_LABEL")
@@ -149,29 +175,63 @@ pub fn resolve_relay_url(url: &str) -> String {
             .ok()
             .filter(|s| !s.trim().is_empty())
             .as_deref(),
+        &detected_relays(),
     ))
+}
+
+fn relay_url_port(url: &str) -> Option<u16> {
+    use nostr::Url;
+
+    let parsed = Url::parse(url).ok()?;
+    parsed.port().or_else(|| match parsed.scheme() {
+        "wss" | "https" => Some(443),
+        "ws" | "http" => Some(80),
+        _ => None,
+    })
+}
+
+fn internal_for_lan_relay_url(url: &str, detected: &[DetectedRelay], fallback: Option<&str>) -> Option<String> {
+    use nostr::Url;
+
+    let parsed = Url::parse(url).ok()?;
+    if !parsed.host_str().is_some_and(is_startos_lan_relay_host) {
+        return None;
+    }
+    let user_port = relay_url_port(url)?;
+
+    for relay in detected {
+        if let Some(suggested) = &relay.suggested {
+            if relay_url_port(suggested) == Some(user_port) {
+                return Some(relay.internal.clone());
+            }
+        }
+    }
+
+    fallback.map(str::to_string)
 }
 
 fn resolve_relay_url_with(
     url: &str,
     internal_relay_url: Option<&str>,
     relay_host_override: Option<&str>,
+    detected_relays: &[DetectedRelay],
 ) -> String {
     use nostr::Url;
 
-    if let Some(internal) = internal_relay_url {
-        if let Ok(parsed) = Url::parse(url) {
-            if parsed
-                .host_str()
-                .is_some_and(is_startos_lan_relay_host)
-            {
-                tracing::info!(
-                    configured = %url,
-                    internal = %internal,
-                    "using StartOS internal relay URL for LAN-configured relay"
-                );
-                return internal.to_string();
-            }
+    if let Ok(parsed) = Url::parse(url) {
+        if parsed.host_str().is_some_and(|host| host.ends_with(".startos")) {
+            return url.to_string();
+        }
+
+        if let Some(internal) =
+            internal_for_lan_relay_url(url, detected_relays, internal_relay_url)
+        {
+            tracing::info!(
+                configured = %url,
+                internal = %internal,
+                "using StartOS internal relay URL for LAN-configured relay"
+            );
+            return internal;
         }
     }
 
@@ -335,11 +395,64 @@ mod tests {
 
     #[test]
     fn resolve_relay_url_rewrites_private_ip_when_internal_configured() {
+        let detected = vec![DetectedRelay {
+            label: "Nostr RS Relay".into(),
+            internal: "ws://nostr-rs-relay.startos:8080".into(),
+            suggested: Some("wss://10.0.0.47:64644".into()),
+        }];
         assert_eq!(
             resolve_relay_url_with(
                 "wss://10.0.0.47:64644",
-                Some("ws://nostr-rs-relay.startos:8080"),
+                Some("ws://haven.startos:3355"),
                 None,
+                &detected,
+            ),
+            "ws://nostr-rs-relay.startos:8080"
+        );
+    }
+
+    #[test]
+    fn resolve_relay_url_matches_lan_port_across_multiple_detected_relays() {
+        let detected = vec![
+            DetectedRelay {
+                label: "Haven".into(),
+                internal: "ws://haven.startos:3355".into(),
+                suggested: Some("wss://10.0.0.47:49748".into()),
+            },
+            DetectedRelay {
+                label: "Nostr RS Relay".into(),
+                internal: "ws://nostr-rs-relay.startos:8080".into(),
+                suggested: Some("wss://10.0.0.47:64644".into()),
+            },
+        ];
+        assert_eq!(
+            resolve_relay_url_with(
+                "wss://10.0.0.47:49748",
+                Some("ws://haven.startos:3355"),
+                None,
+                &detected,
+            ),
+            "ws://haven.startos:3355"
+        );
+        assert_eq!(
+            resolve_relay_url_with(
+                "wss://10.0.0.47:64644",
+                Some("ws://haven.startos:3355"),
+                None,
+                &detected,
+            ),
+            "ws://nostr-rs-relay.startos:8080"
+        );
+    }
+
+    #[test]
+    fn resolve_relay_url_leaves_startos_internal_urls_unchanged() {
+        assert_eq!(
+            resolve_relay_url_with(
+                "ws://nostr-rs-relay.startos:8080",
+                Some("ws://haven.startos:3355"),
+                None,
+                &[],
             ),
             "ws://nostr-rs-relay.startos:8080"
         );
@@ -347,11 +460,17 @@ mod tests {
 
     #[test]
     fn resolve_relay_url_rewrites_local_hostname_when_internal_configured() {
+        let detected = vec![DetectedRelay {
+            label: "Nostr RS Relay".into(),
+            internal: "ws://nostr-rs-relay.startos:8080".into(),
+            suggested: Some("wss://embassy-fasting-gangs.local:64644".into()),
+        }];
         assert_eq!(
             resolve_relay_url_with(
                 "wss://embassy-fasting-gangs.local:64644",
-                Some("ws://nostr-rs-relay.startos:8080"),
+                Some("ws://haven.startos:3355"),
                 None,
+                &detected,
             ),
             "ws://nostr-rs-relay.startos:8080"
         );
@@ -364,6 +483,7 @@ mod tests {
                 "wss://relay.damus.io",
                 Some("ws://nostr-rs-relay.startos:8080"),
                 None,
+                &[],
             ),
             "wss://relay.damus.io"
         );

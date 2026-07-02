@@ -1,7 +1,17 @@
-import type { AuthStatus } from "./api";
+import type { AuthStatus, DetectedRelayOption } from "./api";
+
+export type { DetectedRelayOption };
 
 export const RELAY_URL_POLICY =
-  "Use wss:// for remote relays. On StartOS, ERV auto-detects Nostr RS Relay or Haven when installed (ws://…startos).";
+  "Use wss:// for remote relays. On StartOS, pick a detected local relay or enter ws://<package>.startos for an explicit internal relay.";
+
+export function relayConnectUrl(relay: DetectedRelayOption): string {
+  return relay.suggested?.trim() || relay.internal;
+}
+
+export function detectedRelaysFromStatus(status: AuthStatus | null): DetectedRelayOption[] {
+  return status?.detected_relays ?? [];
+}
 
 export function isAllowedRelayUrl(url: string): boolean {
   const trimmed = url.trim();

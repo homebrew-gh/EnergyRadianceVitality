@@ -4,6 +4,7 @@ pub const WEIGHT_EXERCISES_D_TAG: &str = "erv/weight/exercises";
 pub const WEIGHT_ROUTINES_D_TAG: &str = "erv/weight/routines";
 pub const PROGRAMS_MASTER_D_TAG: &str = "erv/programs/master";
 pub const WORKOUTS_LIBRARY_D_TAG: &str = "erv/workouts/library";
+pub const WORKOUTS_LIBRARY_WORKOUT_PREFIX: &str = "erv/workouts/library/workout/";
 pub const CARDIO_ROUTINES_D_TAG: &str = "erv/cardio/routines";
 pub const STRETCHING_ROUTINES_D_TAG: &str = "erv/stretching/routines";
 
@@ -78,6 +79,29 @@ pub fn is_training_day_log_d_tag(d_tag: &str) -> bool {
     weight_day_log_date(d_tag).is_some() || cardio_day_log_date(d_tag).is_some()
 }
 
+/// `erv/workouts/library/workout/<workoutId>` and optional `/segment/<segmentId>` shards.
+pub fn is_workouts_library_shard_d_tag(d_tag: &str) -> bool {
+    let d_tag = d_tag.trim();
+    if !d_tag.starts_with(WORKOUTS_LIBRARY_WORKOUT_PREFIX) {
+        return false;
+    }
+    let suffix = &d_tag[WORKOUTS_LIBRARY_WORKOUT_PREFIX.len()..];
+    !suffix.is_empty()
+}
+
+/// Workout id when d-tag is exactly `erv/workouts/library/workout/<id>` (no segment suffix).
+pub fn workouts_library_workout_id(d_tag: &str) -> Option<&str> {
+    let d_tag = d_tag.trim();
+    if !d_tag.starts_with(WORKOUTS_LIBRARY_WORKOUT_PREFIX) {
+        return None;
+    }
+    let suffix = &d_tag[WORKOUTS_LIBRARY_WORKOUT_PREFIX.len()..];
+    if suffix.is_empty() || suffix.contains("/segment/") {
+        return None;
+    }
+    Some(suffix)
+}
+
 /// Whether the web companion may publish this d-tag in v1.
 pub fn is_erv_publishable_d_tag(d_tag: &str) -> bool {
     let d_tag = d_tag.trim();
@@ -85,6 +109,7 @@ pub fn is_erv_publishable_d_tag(d_tag: &str) -> bool {
         || d_tag == WEIGHT_ROUTINES_D_TAG
         || d_tag == PROGRAMS_MASTER_D_TAG
         || d_tag == WORKOUTS_LIBRARY_D_TAG
+        || is_workouts_library_shard_d_tag(d_tag)
         || d_tag == CARDIO_ROUTINES_D_TAG
         || d_tag == STRETCHING_ROUTINES_D_TAG
         || d_tag == FITNESS_EQUIPMENT_D_TAG
@@ -119,6 +144,10 @@ mod tests {
     #[test]
     fn publishable_v1_tags() {
         assert!(is_erv_publishable_d_tag(WORKOUTS_LIBRARY_D_TAG));
+        assert!(is_erv_publishable_d_tag("erv/workouts/library/workout/abc-123"));
+        assert!(is_erv_publishable_d_tag(
+            "erv/workouts/library/workout/abc-123/segment/seg-1"
+        ));
         assert!(is_erv_publishable_d_tag(WEIGHT_ROUTINES_D_TAG));
         assert!(is_erv_publishable_d_tag(STRETCHING_ROUTINES_D_TAG));
         assert!(is_erv_publishable_d_tag(FITNESS_EQUIPMENT_D_TAG));

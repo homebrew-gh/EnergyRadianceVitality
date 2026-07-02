@@ -4,6 +4,7 @@
 //! the key lives in memory only. The server connects to the user's Nostr relay
 //! (same as the Android app), fetches kind-30078 ERV events, and serves the SPA.
 
+mod blossom;
 mod config;
 mod crypto;
 mod error;

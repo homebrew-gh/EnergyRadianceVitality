@@ -3,10 +3,12 @@ import { useEffect, useRef, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import { AuthCard } from "../components/AuthCard";
 import { DetectedRelayNotice } from "../components/DetectedRelayNotice";
+import { LocalRelayPicker } from "../components/LocalRelayPicker";
 import { SecretInput } from "../components/SecretInput";
 import { ApiError, api } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import {
+  detectedRelaysFromStatus,
   isAllowedRelayUrl,
   relayPrefillFromStatus,
   RELAY_URL_POLICY,
@@ -77,6 +79,13 @@ export function SetupRoute() {
     >
       <form className="space-y-4" onSubmit={onSubmit}>
         {status ? <DetectedRelayNotice status={status} /> : null}
+        {status ? (
+          <LocalRelayPicker
+            relays={detectedRelaysFromStatus(status)}
+            value={relayUrl}
+            onChange={setRelayUrl}
+          />
+        ) : null}
         <div>
           <label className="label" htmlFor="nsec">
             <FieldLabel>Nostr secret key (nsec)</FieldLabel>

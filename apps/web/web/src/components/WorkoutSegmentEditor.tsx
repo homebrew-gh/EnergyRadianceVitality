@@ -33,6 +33,7 @@ import {
   updateWeightItemPrescription,
   updateWorkoutItem,
   workoutItemKey,
+  exerciseSupportsTargetWeight,
   type WorkoutItem,
   type WorkoutSegment,
   type WorkoutWeightPrescription,
@@ -75,6 +76,7 @@ function WeightPrescriptionFields({
   onChange,
   compact = false,
   suggestedTargetKg,
+  supportsTargetWeight = loggingStyle !== "time_only",
   weightLoadUnit = "LB",
 }: {
   prescription: WorkoutWeightPrescription;
@@ -82,6 +84,7 @@ function WeightPrescriptionFields({
   onChange: (next: WorkoutWeightPrescription) => void;
   compact?: boolean;
   suggestedTargetKg?: number | null;
+  supportsTargetWeight?: boolean;
   weightLoadUnit?: BodyWeightUnit;
 }) {
   const [showPerSetEditor, setShowPerSetEditor] = useState(() => {
@@ -272,7 +275,7 @@ function WeightPrescriptionFields({
               { positive: true },
             )
           : null}
-        {!timedPrescription && !isMaxReps && !showPerSetEditor
+        {supportsTargetWeight && !isMaxReps && !showPerSetEditor
           ? weightField(
               `Target weight (${loadSuffix})`,
               prescription.targetWeightKg ?? null,
@@ -735,6 +738,15 @@ export function WorkoutSegmentEditor({
                               trainingSnapshot,
                             )}
                             loggingStyle={exerciseSetLoggingStyle(
+                              catalogExercises.find((ex) => ex.id === item.exerciseId) ?? {
+                                id: item.exerciseId,
+                                name: item.exerciseId,
+                                muscleGroup: "",
+                                pushOrPull: "push",
+                                equipment: "",
+                              },
+                            )}
+                            supportsTargetWeight={exerciseSupportsTargetWeight(
                               catalogExercises.find((ex) => ex.id === item.exerciseId) ?? {
                                 id: item.exerciseId,
                                 name: item.exerciseId,

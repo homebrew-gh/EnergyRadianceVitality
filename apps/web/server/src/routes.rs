@@ -1,10 +1,7 @@
-use std::io::{Read, Write};
-use std::net::TcpStream;
 use std::sync::Arc;
-use std::time::Duration;
 
 use axum::{
-    extract::State,
+    extract::{Query, State},
     http::{header, HeaderValue, StatusCode, Uri},
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -20,9 +17,13 @@ use tower_http::services::ServeDir;
 use tower_http::set_header::SetResponseHeaderLayer;
 use tower_http::trace::TraceLayer;
 
+use crate::blossom::{
+    allowed_blossom_origins, blossom_origin_from_relay_url, check_blossom_status,
+    fetch_blossom_blob, is_allowed_blossom_blob_url,
+};
 use crate::config::{
-    detected_relay_label, detected_relay_url, normalize_relay_url, relay_prefill_url,
-    suggested_relay_url, Config, DETECTED_RELAY_LABEL,
+    detected_relay_label, detected_relay_url, detected_relays, normalize_relay_url, relay_prefill_url,
+    suggested_relay_url, Config, DetectedRelay, DETECTED_RELAY_LABEL,
 };
 use crate::crypto::{open as crypto_open, seal};
 use crate::error::{AppError, AppResult};
@@ -73,7 +74,8 @@ pub async fn build_router(cfg: Config) -> anyhow::Result<Router> {
         .route("/nostr/outbox", get(outbox_status))
         .route("/nostr/outbox/retry", post(outbox_retry))
         .route("/nostr/outbox/clear", post(outbox_clear))
-        .route("/media/blossom-status", get(blossom_status));
+        .route("/media/blossom-status", get(blossom_status))
+        .route("/media/blob", get(blossom_blob));
 
     let app = Router::new()
         .nest("/api", api)
@@ -115,6 +117,7 @@ pub struct AuthStatus {
     relay_urls: Vec<String>,
     detected_relay_url: Option<String>,
     detected_relay_label: Option<String>,
+    detected_relays: Vec<DetectedRelay>,
     suggested_relay_url: Option<String>,
     relay_prefill_url: Option<String>,
 }
@@ -123,6 +126,7 @@ fn auth_status_from(p: &PersistentState, unlocked: bool) -> AuthStatus {
     let detected = detected_relay_url();
     let suggested = suggested_relay_url();
     let prefill = relay_prefill_url();
+    let relays = detected_relays();
     AuthStatus {
         has_state: p.sealed.is_some(),
         unlocked,
@@ -137,6 +141,7 @@ fn auth_status_from(p: &PersistentState, unlocked: bool) -> AuthStatus {
             }
         }),
         detected_relay_url: detected,
+        detected_relays: relays,
         suggested_relay_url: suggested,
         relay_prefill_url: prefill,
     }
@@ -355,9 +360,15 @@ struct RelayConnectionResponse {
 #[derive(Serialize)]
 struct BlossomStatusResponse {
     available: bool,
+    auth_verified: bool,
     origin: Option<String>,
     derived_from_relay_url: Option<String>,
     message: String,
+}
+
+#[derive(Deserialize)]
+struct BlossomBlobQuery {
+    url: String,
 }
 
 async fn relay_connection(
@@ -367,7 +378,7 @@ async fn relay_connection(
     let (keys, _) = require_keys(&s, &jar).await?;
     let relay_urls = configured_relay_urls(&s).await?;
     let cfg = s.cfg.clone();
-    match crate::nostr_support::fetch_app_data_events_from_relays(
+    match crate::nostr_support::probe_relay_connection(
         &keys,
         &relay_urls,
         |url| cfg.relay_connect_options(url),
@@ -389,12 +400,13 @@ async fn blossom_status(
     State(s): State<AppState>,
     jar: SignedCookieJar,
 ) -> AppResult<Json<BlossomStatusResponse>> {
-    require_unlocked(&s, &jar).await?;
+    let (keys, _) = require_keys(&s, &jar).await?;
     let relay_urls = configured_relay_urls(&s).await?;
     let relay_url = relay_urls.first().cloned();
     let Some(relay_url) = relay_url else {
         return Ok(Json(BlossomStatusResponse {
             available: false,
+            auth_verified: false,
             origin: None,
             derived_from_relay_url: None,
             message: "No relay configured.".into(),
@@ -403,6 +415,7 @@ async fn blossom_status(
     let Some(origin) = blossom_origin_from_relay_url(&relay_url) else {
         return Ok(Json(BlossomStatusResponse {
             available: false,
+            auth_verified: false,
             origin: None,
             derived_from_relay_url: Some(relay_url),
             message: "Relay URL cannot be mapped to an HTTP Blossom origin.".into(),
@@ -411,25 +424,58 @@ async fn blossom_status(
 
     let probe_origin = origin.clone();
     let accept_invalid_tls = s.cfg.insecure_relay_tls.unwrap_or(false);
-    let probe =
-        tokio::task::spawn_blocking(move || probe_blossom_origin(&probe_origin, accept_invalid_tls))
-            .await
-            .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
+    let keys = keys.clone();
+    let probe = tokio::task::spawn_blocking(move || {
+        check_blossom_status(&probe_origin, accept_invalid_tls, &keys)
+    })
+    .await
+    .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
 
-    match probe {
-        Ok(message) => Ok(Json(BlossomStatusResponse {
-            available: true,
-            origin: Some(origin),
-            derived_from_relay_url: Some(relay_url),
-            message,
-        })),
-        Err(message) => Ok(Json(BlossomStatusResponse {
-            available: false,
-            origin: Some(origin),
-            derived_from_relay_url: Some(relay_url),
-            message,
-        })),
+    Ok(Json(BlossomStatusResponse {
+        available: probe.available,
+        auth_verified: probe.auth_verified,
+        origin: Some(origin),
+        derived_from_relay_url: Some(relay_url),
+        message: probe.message,
+    }))
+}
+
+async fn blossom_blob(
+    State(s): State<AppState>,
+    jar: SignedCookieJar,
+    Query(query): Query<BlossomBlobQuery>,
+) -> AppResult<Response> {
+    require_unlocked(&s, &jar).await?;
+    let relay_urls = configured_relay_urls(&s).await?;
+    let allowed = allowed_blossom_origins(&relay_urls);
+    if allowed.is_empty() {
+        return Err(AppError::BadRequest(
+            "No Blossom origin can be derived from the configured relay.".into(),
+        ));
     }
+    if !is_allowed_blossom_blob_url(&query.url, &allowed) {
+        return Err(AppError::BadRequest(
+            "Blob URL is not under the configured Blossom origin.".into(),
+        ));
+    }
+
+    let blob_url = query.url.clone();
+    let accept_invalid_tls = s.cfg.insecure_relay_tls.unwrap_or(false);
+    let fetched = tokio::task::spawn_blocking(move || fetch_blossom_blob(&blob_url, accept_invalid_tls))
+        .await
+        .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?
+        .map_err(AppError::BadRequest)?;
+
+    let (body, content_type) = fetched;
+    let mut response = Response::builder().status(StatusCode::OK);
+    if let Some(content_type) = content_type {
+        response = response.header(header::CONTENT_TYPE, content_type);
+    } else {
+        response = response.header(header::CONTENT_TYPE, "application/octet-stream");
+    }
+    response
+        .body(axum::body::Body::from(body))
+        .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))
 }
 
 async fn list_app_data(
@@ -636,115 +682,6 @@ fn is_allowed_relay_url(url: &str) -> bool {
 
 fn relay_url_policy_message() -> String {
     "relay url must be wss://, ws://<package>.startos (StartOS internal relay), or ws://127.0.0.1 / ws://localhost".into()
-}
-
-fn blossom_origin_from_relay_url(relay_url: &str) -> Option<String> {
-    let trimmed = relay_url.trim();
-    let (scheme, rest) = if let Some(rest) = trimmed.strip_prefix("wss://") {
-        ("https", rest)
-    } else if let Some(rest) = trimmed.strip_prefix("ws://") {
-        ("http", rest)
-    } else {
-        return None;
-    };
-    let authority = rest
-        .split(['/', '?', '#'])
-        .next()
-        .unwrap_or_default()
-        .trim();
-    if authority.is_empty() {
-        return None;
-    }
-    Some(format!("{scheme}://{authority}"))
-}
-
-fn probe_blossom_origin(origin: &str, accept_invalid_tls: bool) -> Result<String, String> {
-    let parsed = parse_http_origin(origin).ok_or_else(|| "Invalid Blossom origin.".to_string())?;
-    let port = parsed.port.unwrap_or(if parsed.https { 443 } else { 80 });
-    let path = "/upload";
-    let request = format!(
-        "HEAD {path} HTTP/1.1\r\nHost: {}\r\nUser-Agent: erv-web/blossom-probe\r\nConnection: close\r\n\r\n",
-        parsed.host_header
-    );
-
-    let addr = format!("{}:{port}", parsed.host);
-    let mut tcp =
-        TcpStream::connect(addr).map_err(|e| format!("Blossom endpoint unreachable: {e}"))?;
-    let timeout = Some(Duration::from_secs(5));
-    let _ = tcp.set_read_timeout(timeout);
-    let _ = tcp.set_write_timeout(timeout);
-
-    let mut response = String::new();
-    if parsed.https {
-        let mut builder = native_tls::TlsConnector::builder();
-        builder.danger_accept_invalid_certs(accept_invalid_tls);
-        let connector = builder
-            .build()
-            .map_err(|e| format!("TLS setup failed: {e}"))?;
-        let mut stream = connector
-            .connect(&parsed.host, tcp)
-            .map_err(|e| format!("TLS connection failed: {e}"))?;
-        stream
-            .write_all(request.as_bytes())
-            .map_err(|e| format!("Probe request failed: {e}"))?;
-        let _ = stream.read_to_string(&mut response);
-    } else {
-        tcp.write_all(request.as_bytes())
-            .map_err(|e| format!("Probe request failed: {e}"))?;
-        let _ = tcp.read_to_string(&mut response);
-    }
-
-    let status = response
-        .lines()
-        .next()
-        .unwrap_or_default()
-        .trim()
-        .to_string();
-    if status.starts_with("HTTP/") {
-        Ok(format!("Blossom-compatible HTTP endpoint responded: {status}"))
-    } else {
-        Err("No HTTP response from derived Blossom endpoint.".into())
-    }
-}
-
-struct ParsedHttpOrigin {
-    https: bool,
-    host: String,
-    host_header: String,
-    port: Option<u16>,
-}
-
-fn parse_http_origin(origin: &str) -> Option<ParsedHttpOrigin> {
-    let trimmed = origin.trim().trim_end_matches('/');
-    let (https, rest) = if let Some(rest) = trimmed.strip_prefix("https://") {
-        (true, rest)
-    } else if let Some(rest) = trimmed.strip_prefix("http://") {
-        (false, rest)
-    } else {
-        return None;
-    };
-    let authority = rest.split('/').next().unwrap_or_default();
-    if authority.is_empty() {
-        return None;
-    }
-    let (host, port) = authority
-        .rsplit_once(':')
-        .and_then(|(host, raw_port)| {
-            raw_port
-                .parse::<u16>()
-                .ok()
-                .map(|port| (host, Some(port)))
-        })
-        .unwrap_or((authority, None));
-    if host.is_empty() {
-        return None;
-    }
-    Some(ParsedHttpOrigin {
-        https,
-        host: host.trim_matches(['[', ']']).to_string(),
-        host_header: authority.to_string(),
-        port,
-    })
 }
 
 fn session_cookie(sid: String, secure: bool) -> Cookie<'static> {

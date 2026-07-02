@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import { ApiError, api } from "./api";
+import { APP_DATA_TTL_MS, appDataCacheAgeMs, getAppData } from "./appDataCache";
 import {
   CARDIO_ROUTINES_D_TAG,
   cardioMasterPayload,
@@ -40,9 +41,9 @@ import {
   type WeightRoutine,
 } from "./weightTraining";
 import {
-  parseWorkoutLibraryPayload,
-  WORKOUTS_LIBRARY_D_TAG,
-  workoutLibraryPayload,
+  buildWorkoutLibraryPublishEntries,
+  parseWorkoutsFromAppDataRecords,
+  WorkoutLibraryPublishError,
   type Workout,
 } from "./workoutTraining";
 import {
@@ -74,7 +75,7 @@ type TrainingContextValue = {
   error: string | null;
   lastEventId: string | null;
   lastLoadedAt: number | null;
-  reload: () => Promise<void>;
+  reload: (force?: boolean) => Promise<void>;
   saveWeightRoutines: (routines: WeightRoutine[]) => Promise<void>;
   saveStretchRoutines: (routines: StretchRoutine[]) => Promise<void>;
   saveCardioRoutines: (routines: CardioRoutine[]) => Promise<void>;
@@ -111,11 +112,17 @@ export function TrainingProvider({ children }: { children: ReactNode }) {
   const [lastEventId, setLastEventId] = useState<string | null>(null);
   const [lastLoadedAt, setLastLoadedAt] = useState<number | null>(null);
 
-  const reload = useCallback(async () => {
+  const reload = useCallback(async (force = false) => {
     setError(null);
-    setLoading(true);
+    const cacheFresh =
+      !force &&
+      appDataCacheAgeMs() != null &&
+      appDataCacheAgeMs()! < APP_DATA_TTL_MS;
+    if (!cacheFresh) {
+      setLoading(true);
+    }
     try {
-      const { records } = await api.listAppData();
+      const { records } = await getAppData({ force });
       const routinesRecord = records.find(
         (r) => r.d_tag === WEIGHT_ROUTINES_D_TAG,
       );
@@ -127,9 +134,6 @@ export function TrainingProvider({ children }: { children: ReactNode }) {
       );
       const cardioRecord = records.find(
         (r) => r.d_tag === CARDIO_ROUTINES_D_TAG,
-      );
-      const workoutsRecord = records.find(
-        (r) => r.d_tag === WORKOUTS_LIBRARY_D_TAG,
       );
       const programMasterRecord = records.find(
         (r) => r.d_tag === PROGRAMS_MASTER_D_TAG,
@@ -148,9 +152,7 @@ export function TrainingProvider({ children }: { children: ReactNode }) {
       const nextCardioMaster = cardioRecord?.plaintext
         ? parseCardioMasterPayload(cardioRecord.plaintext)
         : { routines: [], customActivityTypes: [], quickLaunches: [] };
-      const nextWorkouts = workoutsRecord?.plaintext
-        ? parseWorkoutLibraryPayload(workoutsRecord.plaintext)
-        : [];
+      const nextWorkouts = parseWorkoutsFromAppDataRecords(records);
       const nextProgramMaster = programMasterRecord?.plaintext
         ? parseProgramMasterPayload(programMasterRecord.plaintext)
         : emptyProgramMaster();
@@ -180,7 +182,7 @@ export function TrainingProvider({ children }: { children: ReactNode }) {
   }, [reload]);
 
   useEffect(() => {
-    const onRefresh = () => void reload();
+    const onRefresh = () => void reload(true);
     window.addEventListener(CATALOG_PUBLISHED_EVENT, onRefresh);
     return () => window.removeEventListener(CATALOG_PUBLISHED_EVENT, onRefresh);
   }, [reload]);
@@ -298,16 +300,22 @@ export function TrainingProvider({ children }: { children: ReactNode }) {
         ...workout,
         lastModifiedEpochSeconds: workout.lastModifiedEpochSeconds ?? now,
       }));
-      const result = await api.publishAppData({
-        d_tag: WORKOUTS_LIBRARY_D_TAG,
-        plaintext: workoutLibraryPayload(stamped, now),
-      });
+      const entries = buildWorkoutLibraryPublishEntries(stamped, now);
+      let lastEventIdLocal: string | null = null;
+      for (const entry of entries) {
+        const result = await api.publishAppData(entry);
+        lastEventIdLocal = result.event_id;
+      }
       setWorkouts(stamped);
-      setLastEventId(result.event_id);
+      setLastEventId(lastEventIdLocal);
       notifyRoutinesPublished();
     } catch (e) {
       const msg =
-        e instanceof ApiError ? e.message : "Could not publish workout library.";
+        e instanceof WorkoutLibraryPublishError
+          ? e.message
+          : e instanceof ApiError
+            ? e.message
+            : "Could not publish workout library.";
       setError(msg);
       throw e;
     } finally {

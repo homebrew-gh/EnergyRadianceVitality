@@ -14,12 +14,22 @@ type DetectedRelay = {
   label: string
 }
 
-async function detectInstalledRelay(effects: any): Promise<DetectedRelay | null> {
+function dedupeDetectedRelays(relays: DetectedRelay[]): DetectedRelay[] {
+  const seen = new Set<string>()
+  return relays.filter((relay) => {
+    if (seen.has(relay.internal)) return false
+    seen.add(relay.internal)
+    return true
+  })
+}
+
+async function detectInstalledRelays(effects: any): Promise<DetectedRelay[]> {
+  const detected: DetectedRelay[] = []
   for (const candidate of relayCandidates) {
-    const detected = await probeRelayCandidate(effects, candidate)
-    if (detected) return detected
+    const probed = await probeRelayCandidate(effects, candidate)
+    if (probed) detected.push(probed)
   }
-  return null
+  return dedupeDetectedRelays(detected)
 }
 
 async function probeRelayCandidate(
@@ -46,7 +56,8 @@ async function probeRelayCandidate(
 export const main = sdk.setupMain(async ({ effects }) => {
   console.info(i18n('Starting ERV'))
 
-  const detected = await detectInstalledRelay(effects)
+  const detectedRelays = await detectInstalledRelays(effects)
+  const detected = detectedRelays[0] ?? null
 
   const subcontainer = await sdk.SubContainer.of(
     effects,
@@ -61,14 +72,21 @@ export const main = sdk.setupMain(async ({ effects }) => {
   )
 
   const relayEnv: Record<string, string> = {}
-  if (detected) {
-    relayEnv.ERV_INTERNAL_RELAY_URL = detected.internal
-    relayEnv.ERV_DETECTED_RELAY_LABEL = detected.label
-    if (detected.suggested) {
-      relayEnv.ERV_SUGGESTED_RELAY_URL = detected.suggested
+  if (detectedRelays.length > 0) {
+    relayEnv.ERV_DETECTED_RELAYS_JSON = JSON.stringify(
+      detectedRelays.map(({ label, internal, suggested }) => ({
+        label,
+        internal,
+        suggested,
+      })),
+    )
+    relayEnv.ERV_INTERNAL_RELAY_URL = detected!.internal
+    relayEnv.ERV_DETECTED_RELAY_LABEL = detected!.label
+    if (detected!.suggested) {
+      relayEnv.ERV_SUGGESTED_RELAY_URL = detected!.suggested
     }
     console.info(
-      `Linked relay detected: ${detected.label} at ${detected.internal}`,
+      `Linked relays detected: ${detectedRelays.map((r) => `${r.label}@${r.internal}`).join(', ')}`,
     )
   } else {
     console.info(

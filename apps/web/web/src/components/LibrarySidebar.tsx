@@ -157,6 +157,11 @@ export function LibrarySidebar({
       ? false
       : (selectedIds?.has(id) ?? false);
 
+  const handlePick = (item: LibraryPick) => {
+    onPick(item);
+    setQuery("");
+  };
+
   return (
     <aside
       className={`card flex flex-col min-h-0 overflow-hidden ${className}`}
@@ -246,7 +251,7 @@ export function LibrarySidebar({
                     meta={ex.equipment}
                     selected={isSelected("weight", ex.id)}
                     onPick={() =>
-                      onPick({
+                      handlePick({
                         kind: "weight",
                         id: ex.id,
                         name: ex.name,
@@ -271,7 +276,7 @@ export function LibrarySidebar({
                     meta={entry.requiresBothSides ? "both sides" : undefined}
                     selected={isSelected("stretch", entry.id)}
                     onPick={() =>
-                      onPick({
+                      handlePick({
                         kind: "stretch",
                         id: entry.id,
                         name: entry.name,
@@ -295,7 +300,7 @@ export function LibrarySidebar({
                     name={activity.displayName}
                     selected={isSelected("cardio", activity.id)}
                     onPick={() =>
-                      onPick({
+                      handlePick({
                         kind: "cardio",
                         id: activity.id,
                         name: activity.displayName,

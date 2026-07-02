@@ -9,6 +9,11 @@ const TIME_ONLY_PER_SET_IDS = new Set([
   "erv-weight-exercise-kb-carry-v1",
 ]);
 
+const TIME_ONLY_LOADABLE_IDS = new Set([
+  "erv-weight-exercise-db-farmers-carry-v1",
+  "erv-weight-exercise-kb-carry-v1",
+]);
+
 const KB_REP_ONLY_SKILL_IDS = new Set([
   "erv-weight-exercise-kb-windmill-v1",
   "erv-weight-exercise-kb-turkish-getup-v1",
@@ -57,6 +62,11 @@ export function exerciseSetLoggingStyle(exercise: WeightCatalogExercise): Weight
   if (exercise.timePerSetCapable && exercise.repPerSetCapable !== false) return "reps_or_time";
   if (exercise.timePerSetCapable) return "time_only";
   return "reps";
+}
+
+export function exerciseSupportsTargetWeight(exercise: WeightCatalogExercise): boolean {
+  if (TIME_ONLY_LOADABLE_IDS.has(exercise.id)) return true;
+  return exerciseSetLoggingStyle(exercise) !== "time_only";
 }
 
 export function withResolvedBuiltinExerciseFlags(

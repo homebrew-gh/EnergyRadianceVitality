@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { SessionMediaGallery } from "../components/SessionMediaPreview";
 import { TrainingBaselinePanel } from "../components/TrainingBaselinePanel";
 import { TrainingRelayDiagnostics } from "../components/TrainingRelayDiagnostics";
 import { TrainingContextExportCard } from "../components/TrainingContextExportCard";
@@ -28,7 +29,13 @@ import {
   weightSourceLabel,
   formatDistanceMeters,
   type RecentWorkoutItem,
+  type HistoryTimelineItem,
 } from "../lib/trainingHistory";
+import {
+  sessionMediaForId,
+  useSessionMediaLibrary,
+  type SessionMediaIndex,
+} from "../lib/sessionMedia";
 
 const PERIOD_OPTIONS: { value: HistoryPeriodWeeks; label: string }[] = [
   { value: 4, label: "4 weeks" },
@@ -164,9 +171,11 @@ function VerticalWeekChart({
 function RecentWorkoutsPanel({
   items,
   exercises,
+  sessionMediaIndex,
 }: {
   items: RecentWorkoutItem[];
   exercises: ReturnType<typeof useTraining>["exercises"];
+  sessionMediaIndex: SessionMediaIndex;
 }) {
   const [openKey, setOpenKey] = useState<string | null>(items[0]?.contextKey ?? null);
 
@@ -223,9 +232,16 @@ function RecentWorkoutsPanel({
               {open ? (
                 <div className="border-t border-[var(--erv-outline-variant)] px-4 pb-4 pt-3">
                   {item.kind === "weight" ? (
-                    <RecentStrengthDetails item={item} exercises={exercises} />
+                    <RecentStrengthDetails
+                      item={item}
+                      exercises={exercises}
+                      sessionMediaIndex={sessionMediaIndex}
+                    />
                   ) : (
-                    <RecentCardioDetails item={item} />
+                    <RecentCardioDetails
+                      item={item}
+                      sessionMediaIndex={sessionMediaIndex}
+                    />
                   )}
                 </div>
               ) : null}
@@ -240,11 +256,14 @@ function RecentWorkoutsPanel({
 function RecentStrengthDetails({
   item,
   exercises,
+  sessionMediaIndex,
 }: {
   item: Extract<RecentWorkoutItem, { kind: "weight" }>;
   exercises: ReturnType<typeof useTraining>["exercises"];
+  sessionMediaIndex: SessionMediaIndex;
 }) {
   const session = item.session;
+  const mediaItems = sessionMediaForId(sessionMediaIndex, session.id);
   const elapsed = formatElapsedSeconds(
     session.durationSeconds ??
       (session.startedAtEpochSeconds && session.finishedAtEpochSeconds
@@ -273,16 +292,43 @@ function RecentStrengthDetails({
           </div>
         ))}
       </div>
+      {session.heartRate ? (
+        <div className="grid gap-2 sm:grid-cols-3">
+          <MiniMetric
+            label="Avg HR"
+            value={session.heartRate.avgBpm ? `${session.heartRate.avgBpm} bpm` : "—"}
+          />
+          <MiniMetric
+            label="Max HR"
+            value={session.heartRate.maxBpm ? `${session.heartRate.maxBpm} bpm` : "—"}
+          />
+          <MiniMetric
+            label="Min HR"
+            value={session.heartRate.minBpm ? `${session.heartRate.minBpm} bpm` : "—"}
+          />
+        </div>
+      ) : null}
+      <SessionMediaGallery
+        items={mediaItems}
+        emptyMessage={
+          session.heartRate
+            ? "Heart rate graph appears here after Android backs it up to Blossom."
+            : undefined
+        }
+      />
     </div>
   );
 }
 
 function RecentCardioDetails({
   item,
+  sessionMediaIndex,
 }: {
   item: Extract<RecentWorkoutItem, { kind: "cardio" }>;
+  sessionMediaIndex: SessionMediaIndex;
 }) {
   const session = item.session;
+  const mediaItems = sessionMediaForId(sessionMediaIndex, session.id);
   const elapsed = formatElapsedSeconds(
     session.startEpochSeconds && session.endEpochSeconds
       ? session.endEpochSeconds - session.startEpochSeconds
@@ -316,21 +362,125 @@ function RecentCardioDetails({
       ) : (
         <p className="text-xs text-muted">Heart rate summary was not recorded for this session.</p>
       )}
-      {session.routeImageUrl ? (
+      <SessionMediaGallery
+        items={mediaItems}
+        emptyMessage={
+          session.routeImageUrl
+            ? undefined
+            : "Route and heart rate images appear here after Android backs them up to Blossom."
+        }
+      />
+      {session.routeImageUrl && mediaItems.length === 0 ? (
         <a
           href={session.routeImageUrl}
           target="_blank"
           rel="noreferrer"
           className="inline-flex text-xs font-medium text-[var(--erv-primary)] hover:underline"
         >
-          Open Route Image
+          Open Public Route Image
         </a>
-      ) : (
-        <p className="text-xs text-muted">
-          GPS route images backed up through Blossom appear in the Media tab.
-        </p>
-      )}
+      ) : null}
     </div>
+  );
+}
+
+function TimelineSessionDetails({
+  item,
+  exercises,
+  sessionMediaIndex,
+}: {
+  item: HistoryTimelineItem;
+  exercises: ReturnType<typeof useTraining>["exercises"];
+  sessionMediaIndex: SessionMediaIndex;
+}) {
+  if (item.kind === "weight") {
+    return (
+      <RecentStrengthDetails
+        item={{
+          ...item,
+          contextKey: `${item.kind}-${item.date}-${item.session.id}`,
+        }}
+        exercises={exercises}
+        sessionMediaIndex={sessionMediaIndex}
+      />
+    );
+  }
+  return (
+    <RecentCardioDetails
+      item={{
+        ...item,
+        contextKey: `${item.kind}-${item.date}-${item.session.id}`,
+      }}
+      sessionMediaIndex={sessionMediaIndex}
+    />
+  );
+}
+
+function TimelineSessionList({
+  items,
+  exercises,
+  sessionMediaIndex,
+}: {
+  items: HistoryTimelineItem[];
+  exercises: ReturnType<typeof useTraining>["exercises"];
+  sessionMediaIndex: SessionMediaIndex;
+}) {
+  const [openKey, setOpenKey] = useState<string | null>(null);
+
+  return (
+    <ul className="divide-y divide-[var(--erv-outline-variant)]">
+      {items.map((item) => {
+        const key = `${item.kind}-${item.date}-${item.session.id}`;
+        const open = openKey === key;
+        const mediaCount = sessionMediaForId(sessionMediaIndex, item.session.id).length;
+        return (
+          <li key={key} className="py-3 first:pt-0">
+            <button
+              type="button"
+              className="w-full text-left"
+              onClick={() => setOpenKey(open ? null : key)}
+            >
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <span className="text-xs font-mono text-muted">{item.date}</span>
+                <div className="flex items-center gap-2">
+                  {mediaCount > 0 ? (
+                    <span className="text-[11px] text-muted">{mediaCount} media</span>
+                  ) : null}
+                  <span
+                    className={`text-xs px-2 py-0.5 rounded-full ${
+                      item.kind === "weight"
+                        ? "bg-[var(--erv-primary-container)] text-[var(--erv-on-primary-container)]"
+                        : "bg-[var(--erv-secondary-container)] text-[var(--erv-on-secondary-container)]"
+                    }`}
+                  >
+                    {item.kind === "weight" ? "Strength" : "Cardio"}
+                  </span>
+                </div>
+              </div>
+              <p className="text-sm font-medium text-heading mt-1">
+                {item.kind === "weight"
+                  ? summarizeWeightSession(item.session)
+                  : summarizeCardioSession(item.session)}
+              </p>
+              {item.kind === "weight" ? (
+                <p className="text-xs text-muted mt-0.5">
+                  {weightSourceLabel(item.session.source)}
+                </p>
+              ) : null}
+            </button>
+            {open ? (
+              <div className="mt-3 rounded-xl border border-[var(--erv-outline-variant)] bg-[var(--erv-surface)]/60 p-4">
+                <TimelineSessionDetails
+                  item={item}
+                  exercises={exercises}
+                  sessionMediaIndex={sessionMediaIndex}
+                />
+              </div>
+            ) : null}
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 
@@ -385,6 +535,7 @@ export function ProgressTab() {
     lastLoadedAt,
     reload,
   } = useTrainingHistory();
+  const { index: sessionMediaIndex, reload: reloadSessionMedia } = useSessionMediaLibrary();
 
   const snapshot = useMemo(
     () =>
@@ -578,7 +729,10 @@ export function ProgressTab() {
             </div>
           </div>
           <div className="flex flex-col items-start gap-2 sm:items-end">
-            <button type="button" className="btn-primary text-sm" onClick={() => void reload()}>
+            <button type="button" className="btn-primary text-sm" onClick={() => {
+              void reload(true);
+              void reloadSessionMedia(true);
+            }}>
               Reload From Relay
             </button>
             {lastLoadedAt ? (
@@ -701,7 +855,11 @@ export function ProgressTab() {
 
       <TrainingContextExportCard bundleInput={contextBundleInput} />
 
-      <RecentWorkoutsPanel items={recentWorkouts} exercises={exercises} />
+      <RecentWorkoutsPanel
+        items={recentWorkouts}
+        exercises={exercises}
+        sessionMediaIndex={sessionMediaIndex}
+      />
 
       {noDataAtAll ? (
         <section className="card p-6 space-y-2">
@@ -739,34 +897,14 @@ export function ProgressTab() {
 
           <section className="card p-5 space-y-4">
             <SectionHeader>Session timeline</SectionHeader>
-            <ul className="divide-y divide-[var(--erv-outline-variant)]">
-              {timeline.slice(0, 50).map((item) => (
-                <li key={`${item.kind}-${item.date}-${item.session.id}`} className="py-3 first:pt-0">
-                  <div className="flex flex-wrap items-baseline justify-between gap-2">
-                    <span className="text-xs font-mono text-muted">{item.date}</span>
-                    <span
-                      className={`text-xs px-2 py-0.5 rounded-full ${
-                        item.kind === "weight"
-                          ? "bg-[var(--erv-primary-container)] text-[var(--erv-on-primary-container)]"
-                          : "bg-[var(--erv-secondary-container)] text-[var(--erv-on-secondary-container)]"
-                      }`}
-                    >
-                      {item.kind === "weight" ? "Strength" : "Cardio"}
-                    </span>
-                  </div>
-                  <p className="text-sm font-medium text-heading mt-1">
-                    {item.kind === "weight"
-                      ? summarizeWeightSession(item.session)
-                      : summarizeCardioSession(item.session)}
-                  </p>
-                  {item.kind === "weight" ? (
-                    <p className="text-xs text-muted mt-0.5">
-                      {weightSourceLabel(item.session.source)}
-                    </p>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
+            <p className="text-xs text-muted">
+              Tap a session to expand route and heart rate images backed up from Android.
+            </p>
+            <TimelineSessionList
+              items={timeline.slice(0, 50)}
+              exercises={exercises}
+              sessionMediaIndex={sessionMediaIndex}
+            />
             {timeline.length > 50 ? (
               <p className="text-xs text-muted">Showing 50 most recent sessions.</p>
             ) : null}

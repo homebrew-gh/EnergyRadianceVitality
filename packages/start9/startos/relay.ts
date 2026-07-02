@@ -7,6 +7,16 @@ export type StartOsRelayCandidate = {
 }
 
 export const relayCandidates: StartOsRelayCandidate[] = [
+  // haven-kit-startos (Letdown2491) exposes its outbox relay under interface id
+  // `websocket` (its private/chat/inbox relays use `private`/`chat`/`inbox`). The
+  // outbox root path is what matches the Android app's root-path connection.
+  {
+    packageId: 'haven',
+    interfaceId: 'websocket',
+    internalPort: 3355,
+    label: 'Haven',
+  },
+  // Other Haven StartOS wrappers expose the relay under interface id `relay`.
   {
     packageId: 'haven',
     interfaceId: 'relay',

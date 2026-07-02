@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { SectionHeader } from "../components/FieldLabel";
-import { api, relayHost } from "../lib/api";
+import { relayHost } from "../lib/api";
+import { APP_DATA_TTL_MS, appDataCacheAgeMs, getAppData } from "../lib/appDataCache";
 import {
   fetchAndDecryptMediaItem,
   MEDIA_LIBRARY_D_TAG,
@@ -25,10 +26,16 @@ type PreviewState =
 export function MediaGalleryTab() {
   const [state, setState] = useState<GalleryState>({ kind: "loading" });
 
-  const load = useCallback(async () => {
-    setState({ kind: "loading" });
+  const load = useCallback(async (force = false) => {
+    const cacheFresh =
+      !force &&
+      appDataCacheAgeMs() != null &&
+      appDataCacheAgeMs()! < APP_DATA_TTL_MS;
+    if (!cacheFresh) {
+      setState({ kind: "loading" });
+    }
     try {
-      const { records } = await api.listAppData();
+      const { records } = await getAppData({ force });
       const mediaRecord = records.find((r) => r.d_tag === MEDIA_LIBRARY_D_TAG);
       if (!mediaRecord?.plaintext) {
         setState({ kind: "empty" });
@@ -69,7 +76,7 @@ export function MediaGalleryTab() {
             Decrypt Blossom-backed ERV media from your encrypted media manifest.
           </p>
         </div>
-        <button type="button" className="btn-ghost" onClick={() => void load()}>
+        <button type="button" className="btn-ghost" onClick={() => void load(true)}>
           Refresh
         </button>
       </div>

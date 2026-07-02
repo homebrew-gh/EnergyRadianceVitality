@@ -13,6 +13,7 @@ import {
   newCustomStretchId,
   newCustomWeightExerciseId,
   normalizeCatalogGroupKey,
+  STRETCH_TARGET_BODY_PART_OPTIONS,
   WEIGHT_EQUIPMENT_OPTIONS,
   type CardioCatalogActivity,
   type StretchCatalogEntry,
@@ -136,7 +137,7 @@ export function CatalogEditorTab() {
         <button
           type="button"
           className="btn-ghost text-sm ml-auto"
-          onClick={() => void editor.reload()}
+          onClick={() => void editor.reload(true)}
           disabled={editor.loading || editor.weightDirty || editor.stretchDirty || editor.cardioDirty || editor.weightSyncing || editor.stretchSyncing || editor.cardioSyncing}
           title={
             editor.weightDirty || editor.stretchDirty || editor.cardioDirty
@@ -366,6 +367,15 @@ function matchesQuery(query: string, ...fields: string[]): boolean {
   const q = query.trim().toLowerCase();
   if (!q) return true;
   return fields.some((field) => field.toLowerCase().includes(q));
+}
+
+function normalizeTargetBodyPart(part: string): string {
+  return part.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function selectedStretchTargetBodyParts(parts: string[]): string[] {
+  const selected = new Set(parts.map(normalizeTargetBodyPart));
+  return STRETCH_TARGET_BODY_PART_OPTIONS.filter((option) => selected.has(option));
 }
 
 function TabButton({
@@ -642,6 +652,20 @@ function StretchEntryModal({
   onSave: (next: StretchDraft) => void;
 }) {
   const [form, setForm] = useState(draft);
+  const selectedTargetBodyParts = selectedStretchTargetBodyParts(form.targetBodyParts);
+  const selectedTargetBodyPartSet = new Set(selectedTargetBodyParts);
+  const toggleTargetBodyPart = (part: string) => {
+    const next = new Set(selectedTargetBodyParts);
+    if (next.has(part)) {
+      next.delete(part);
+    } else {
+      next.add(part);
+    }
+    setForm({
+      ...form,
+      targetBodyParts: STRETCH_TARGET_BODY_PART_OPTIONS.filter((option) => next.has(option)),
+    });
+  };
 
   return (
     <ModalShell
@@ -655,7 +679,7 @@ function StretchEntryModal({
           ...form,
           name: form.name.trim(),
           category,
-          targetBodyParts: form.targetBodyParts.filter(Boolean),
+          targetBodyParts: selectedStretchTargetBodyParts(form.targetBodyParts),
         });
       }}
     >
@@ -674,20 +698,26 @@ function StretchEntryModal({
         onChange={(category) => setForm({ ...form, category })}
         customHint="This category will appear in the dropdown for future stretches."
       />
-      <Field label="Target body parts (comma-separated)">
-        <input
-          className="input"
-          value={form.targetBodyParts.join(", ")}
-          onChange={(e) =>
-            setForm({
-              ...form,
-              targetBodyParts: e.target.value
-                .split(",")
-                .map((part) => part.trim())
-                .filter(Boolean),
-            })
-          }
-        />
+      <Field label="Target body parts">
+        <div className="flex flex-wrap gap-2 rounded-card border border-outline/40 bg-[var(--erv-input-bg)] p-2">
+          {STRETCH_TARGET_BODY_PART_OPTIONS.map((part) => {
+            const selected = selectedTargetBodyPartSet.has(part);
+            return (
+              <button
+                key={part}
+                type="button"
+                className={selected ? "btn-primary text-xs py-1 px-3" : "btn-ghost text-xs py-1 px-3"}
+                aria-pressed={selected}
+                onClick={() => toggleTargetBodyPart(part)}
+              >
+                {formatCategoryLabel(part)}
+              </button>
+            );
+          })}
+        </div>
+        <p className="mt-1 text-xs text-muted">
+          Choose each area this stretch targets.
+        </p>
       </Field>
       <Field label="Procedure / cues">
         <textarea

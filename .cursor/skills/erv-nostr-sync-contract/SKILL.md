@@ -20,6 +20,7 @@ Source of truth for server allowlist: `apps/web/server/src/erv_tags.rs`.
 | `erv/catalog/stretch` | Stretch catalog | 1 |
 | `erv/catalog/cardio` | Cardio activity catalog | 1 |
 | `erv/workouts/library` | Workout storyboard library | 2 |
+| `erv/workouts/library/workout/<id>` | Single workout shard when library exceeds NIP-44 size | 2 |
 | `erv/programs/master` | Weekly plan | 3 |
 | `erv/training-profile` | Athlete profile + style presets | W1 |
 | `erv/training-snapshot` | Computed baseline (local v1; publish TBD) | W3 |

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, relayHost, type OutboxStatus } from "../lib/api";
 import { useAuth } from "../lib/auth";
 
-const POLL_MS = 15000;
+const POLL_MS = 60_000;
 
 type Conn = { connected: boolean; message?: string | null };
 

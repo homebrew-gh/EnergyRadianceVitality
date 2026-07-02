@@ -43,6 +43,8 @@ export function mediaSourceLabel(source: string): string {
       return "Body Tracker";
     case "cardio_route":
       return "Cardio Route";
+    case "heart_rate_graph":
+      return "Heart Rate Graph";
     case "workout_route":
       return "Workout Route";
     default:
@@ -56,11 +58,7 @@ export async function fetchAndDecryptMediaItem(
   if (item.encryption.algorithm !== "AES-256-GCM") {
     throw new Error(`Unsupported encryption: ${item.encryption.algorithm}`);
   }
-  const response = await fetch(item.blobUrl, { cache: "no-store" });
-  if (!response.ok) {
-    throw new Error(`${response.status} ${response.statusText}`);
-  }
-  const encrypted = await response.arrayBuffer();
+  const encrypted = await fetchMediaBlob(item.blobUrl);
   const keyBytes = base64ToArrayBuffer(item.encryption.keyBase64);
   const nonceBytes = base64ToArrayBuffer(item.encryption.nonceBase64);
   const key = await crypto.subtle.importKey(
@@ -76,6 +74,25 @@ export async function fetchAndDecryptMediaItem(
     encrypted,
   );
   return new Blob([plaintext], { type: item.contentType || "image/jpeg" });
+}
+
+async function fetchMediaBlob(blobUrl: string): Promise<ArrayBuffer> {
+  const proxyUrl = `/api/media/blob?url=${encodeURIComponent(blobUrl)}`;
+  const response = await fetch(proxyUrl, {
+    credentials: "same-origin",
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    let message = `${response.status} ${response.statusText}`;
+    try {
+      const body = (await response.json()) as { error?: string };
+      if (body.error) message = body.error;
+    } catch {
+      // Keep status-line message when the proxy returns non-JSON.
+    }
+    throw new Error(message);
+  }
+  return response.arrayBuffer();
 }
 
 function isMediaItem(value: unknown): value is MediaLibraryItem {

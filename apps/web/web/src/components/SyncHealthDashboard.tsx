@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { SectionHeader } from "./FieldLabel";
 import { api, relayHost, type OutboxStatus } from "../lib/api";
 import { useAuth } from "../lib/auth";
@@ -12,8 +12,6 @@ type RelayConnectionState = {
 };
 
 type HealthTone = "ok" | "warn" | "error" | "idle";
-
-const POLL_MS = 20000;
 
 function toneClasses(tone: HealthTone): string {
   switch (tone) {
@@ -41,7 +39,6 @@ export function SyncHealthDashboard() {
   const [outbox, setOutbox] = useState<OutboxStatus | null>(null);
   const [checking, setChecking] = useState(false);
   const [retrying, setRetrying] = useState(false);
-  const timer = useRef<number | null>(null);
 
   const relay =
     status?.relay_url?.trim() ||
@@ -72,10 +69,6 @@ export function SyncHealthDashboard() {
 
   useEffect(() => {
     void poll();
-    timer.current = window.setInterval(() => void poll(), POLL_MS);
-    return () => {
-      if (timer.current != null) window.clearInterval(timer.current);
-    };
   }, [poll]);
 
   const retryFailed = async () => {
@@ -227,7 +220,7 @@ export function SyncHealthDashboard() {
           <button
             type="button"
             className="btn-ghost text-sm"
-            onClick={() => void training.reload()}
+            onClick={() => void training.reload(true)}
             disabled={training.loading}
           >
             {training.loading ? "Reloading Library..." : "Reload Library"}
@@ -235,7 +228,7 @@ export function SyncHealthDashboard() {
           <button
             type="button"
             className="btn-ghost text-sm"
-            onClick={() => void history.reload()}
+            onClick={() => void history.reload(true)}
             disabled={history.loading}
           >
             {history.loading ? "Reloading History..." : "Reload History"}

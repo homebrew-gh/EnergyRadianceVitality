@@ -236,7 +236,7 @@ export function EquipmentTab() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h3 className="text-lg font-semibold text-heading">Your inventory</h3>
           {!dirty ? (
-            <button type="button" className="btn-ghost text-sm" onClick={() => void reload()}>
+            <button type="button" className="btn-ghost text-sm" onClick={() => void reload(true)}>
               Reload from relay
             </button>
           ) : null}

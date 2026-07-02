@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import { ApiError, api } from "./api";
+import { APP_DATA_TTL_MS, appDataCacheAgeMs, getAppData } from "./appDataCache";
 import {
   emptyTrainingProfile,
   isTrainingProfileBlank,
@@ -32,7 +33,7 @@ type TrainingProfileContextValue = {
   dirty: boolean;
   error: string | null;
   lastEventId: string | null;
-  reload: () => Promise<void>;
+  reload: (force?: boolean) => Promise<void>;
   updateProfile: (next: TrainingProfilePayload) => void;
   publish: () => Promise<void>;
   discardChanges: () => void;
@@ -54,11 +55,17 @@ export function TrainingProfileProvider({ children }: { children: ReactNode }) {
     setProfile(payload);
   }, []);
 
-  const reload = useCallback(async () => {
+  const reload = useCallback(async (force = false) => {
     setError(null);
-    setLoading(true);
+    const cacheFresh =
+      !force &&
+      appDataCacheAgeMs() != null &&
+      appDataCacheAgeMs()! < APP_DATA_TTL_MS;
+    if (!cacheFresh) {
+      setLoading(true);
+    }
     try {
-      const { records } = await api.listAppData();
+      const { records } = await getAppData({ force });
       const record = records.find((r) => r.d_tag === TRAINING_PROFILE_D_TAG);
       const payload = record?.plaintext
         ? parseTrainingProfilePayload(record.plaintext)

@@ -6,6 +6,7 @@
  */
 
 import { withResolvedBuiltinExerciseFlags } from "./exerciseLogging";
+import { invalidateAppDataCache } from "./appDataCache";
 
 export const WEIGHT_CATALOG_D_TAG = "erv/catalog/weight";
 export const STRETCH_CATALOG_D_TAG = "erv/catalog/stretch";
@@ -268,6 +269,26 @@ export const STRETCH_CATEGORY_ORDER = [
   "other",
 ] as const;
 
+export const STRETCH_TARGET_BODY_PART_OPTIONS = [
+  "neck",
+  "upper back",
+  "shoulders",
+  "forearms",
+  "wrists",
+  "chest",
+  "back",
+  "core",
+  "hips",
+  "obliques",
+  "hamstrings",
+  "calves",
+  "quads",
+  "adductors",
+  "it band",
+  "thoracic spine",
+  "glutes",
+] as const;
+
 export const CARDIO_SECTION_ORDER = ["steady", "hybrid", "hiit"] as const;
 
 export const WEIGHT_EQUIPMENT_OPTIONS = [
@@ -504,5 +525,6 @@ export function newCustomStretchId(): string {
 export const CATALOG_PUBLISHED_EVENT = "erv-catalog-published";
 
 export function notifyCatalogPublished() {
+  invalidateAppDataCache();
   window.dispatchEvent(new CustomEvent(CATALOG_PUBLISHED_EVENT));
 }

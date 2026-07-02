@@ -1,10 +1,10 @@
 import { IMPOSSIBLE, VersionInfo } from '@start9labs/start-sdk'
 
 export const v_0_1_2_0 = VersionInfo.of({
-  version: '0.1.2:19',
+  version: '0.1.2:23',
   releaseNotes: {
     en_US:
-      'Add web weekly planner publishing, profile preset updates, and AI progression guardrail context.',
+      'Blossom media proxy and authenticated probe; Progress session images; Android auto-backups for GPS routes and HR graphs; relay sync and workout library improvements.',
   },
   migrations: {
     up: async () => {},

@@ -1,3 +1,9 @@
+export type DetectedRelayOption = {
+  label: string;
+  internal: string;
+  suggested: string | null;
+};
+
 export type AuthStatus = {
   has_state: boolean;
   unlocked: boolean;
@@ -6,6 +12,7 @@ export type AuthStatus = {
   relay_urls?: string[];
   detected_relay_url?: string | null;
   detected_relay_label?: string | null;
+  detected_relays?: DetectedRelayOption[];
   suggested_relay_url?: string | null;
   relay_prefill_url?: string | null;
 };
@@ -46,6 +53,7 @@ export type OutboxStatus = {
 
 export type BlossomStatus = {
   available: boolean;
+  auth_verified: boolean;
   origin?: string | null;
   derived_from_relay_url?: string | null;
   message: string;

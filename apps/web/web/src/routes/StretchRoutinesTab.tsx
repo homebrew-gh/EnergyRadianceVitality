@@ -212,7 +212,7 @@ export function StretchRoutinesTab() {
           loading={loading}
           routines={stretchRoutines}
           editingId={editingId}
-          onReload={() => void reload()}
+          onReload={() => void reload(true)}
           getId={(r) => r.id}
           getName={(r) => r.name}
           getDetail={(r) =>

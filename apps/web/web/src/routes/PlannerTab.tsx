@@ -156,7 +156,7 @@ export function PlannerTab() {
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <button type="button" className="btn-ghost text-sm" onClick={() => void reload()}>
+            <button type="button" className="btn-ghost text-sm" onClick={() => void reload(true)}>
               Reload
             </button>
             <button

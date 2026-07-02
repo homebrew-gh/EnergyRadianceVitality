@@ -7,7 +7,8 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { ApiError, api, type AppDataFetchMeta, type AppDataRecord } from "./api";
+import { ApiError, type AppDataFetchMeta, type AppDataRecord } from "./api";
+import { APP_DATA_TTL_MS, appDataCacheAgeMs, getAppData } from "./appDataCache";
 import {
   buildTimeline,
   exerciseIdsInLogs,
@@ -37,7 +38,7 @@ type TrainingHistoryContextValue = {
   relayMeta: AppDataFetchMeta | null;
   relayRecords: AppDataRecord[];
   lastLoadedAt: number | null;
-  reload: () => Promise<void>;
+  reload: (force?: boolean) => Promise<void>;
 };
 
 const TrainingHistoryContext = createContext<TrainingHistoryContextValue | null>(null);
@@ -55,11 +56,17 @@ export function TrainingHistoryProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [lastLoadedAt, setLastLoadedAt] = useState<number | null>(null);
 
-  const reload = useCallback(async () => {
+  const reload = useCallback(async (force = false) => {
     setError(null);
-    setLoading(true);
+    const cacheFresh =
+      !force &&
+      appDataCacheAgeMs() != null &&
+      appDataCacheAgeMs()! < APP_DATA_TTL_MS;
+    if (!cacheFresh) {
+      setLoading(true);
+    }
     try {
-      const { records, meta } = await api.listAppData();
+      const { records, meta } = await getAppData({ force });
       setRelayRecords(records);
       const parsed = parseLogsFromAppData(records);
       setWeightLogs(parsed.weightLogs);

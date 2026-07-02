@@ -31,7 +31,8 @@ export function BlossomMediaStatus() {
   }, []);
 
   const ready = state.kind === "ready" ? state.status : null;
-  const available = ready?.available === true;
+  const verified = ready?.available === true && ready.auth_verified === true;
+  const detected = ready?.available === true && ready.auth_verified !== true;
 
   return (
     <section className="card p-5 space-y-3">
@@ -39,8 +40,9 @@ export function BlossomMediaStatus() {
         <div>
           <SectionHeader>Media Backup</SectionHeader>
           <p className="text-sm text-muted mt-1">
-            ERV checks whether your configured relay also exposes Blossom media
-            storage for image backup.
+            ERV checks whether your configured relay exposes Blossom storage and
+            whether upload auth works for your key. Back up photos from Android;
+            this companion fetches and decrypts them in the Media tab.
           </p>
         </div>
         <button
@@ -56,26 +58,34 @@ export function BlossomMediaStatus() {
       <div
         className={[
           "rounded-2xl border p-4",
-          available
+          verified
             ? "border-[var(--erv-success)]/40 bg-[var(--erv-success)]/10"
-            : "border-[var(--erv-outline)]/50 bg-[var(--erv-surface-muted)]",
+            : detected
+              ? "border-[var(--erv-secondary)]/40 bg-[var(--erv-secondary-container)]/30"
+              : "border-[var(--erv-outline)]/50 bg-[var(--erv-surface-muted)]",
         ].join(" ")}
       >
         <p
           className="font-semibold"
           style={{
-            color: available ? "var(--erv-success)" : "var(--erv-on-surface)",
+            color: verified
+              ? "var(--erv-success)"
+              : detected
+                ? "var(--erv-on-secondary-container)"
+                : "var(--erv-on-surface)",
           }}
         >
           {state.kind === "loading"
             ? "Checking Blossom…"
-            : available
-              ? "Blossom Media Storage Available"
-              : "Relay Sync Only"}
+            : verified
+              ? "Ready For Media Backup"
+              : detected
+                ? "Endpoint Detected"
+                : "Relay Sync Only"}
         </p>
         <p className="text-sm text-muted mt-1">
           {state.kind === "loading"
-            ? "Deriving the media endpoint from your relay URL."
+            ? "Probing the media endpoint derived from your relay URL."
             : state.kind === "error"
               ? state.message
               : state.status.message}
@@ -87,10 +97,24 @@ export function BlossomMediaStatus() {
         ) : null}
       </div>
 
-      <p className="text-xs text-muted">
-        This is a detection-only first step. Image upload, encrypted media
-        manifests, and gallery restore will build on this status.
-      </p>
+      {verified ? (
+        <p className="text-xs text-muted">
+          On Android, open Body Tracker or cardio route backup to publish encrypted
+          blobs and the `erv/media/library` manifest. Refresh the Media tab here
+          after backup completes.
+        </p>
+      ) : detected ? (
+        <p className="text-xs text-muted">
+          The Blossom HTTP endpoint responded, but upload auth was not verified.
+          Confirm this companion uses the same nsec as your phone and that Haven
+          is running on the relay host.
+        </p>
+      ) : (
+        <p className="text-xs text-muted">
+          Install Haven on StartOS for local relay sync and Blossom media storage,
+          or use a relay bundle that includes Blossom on the same host.
+        </p>
+      )}
     </section>
   );
 }

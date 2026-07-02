@@ -4,9 +4,11 @@ import { BlossomMediaStatus } from "../components/BlossomMediaStatus";
 import { FieldLabel } from "../components/FieldLabel";
 import { RemoveAccountForm } from "../components/RemoveAccountForm";
 import { SyncHealthDashboard } from "../components/SyncHealthDashboard";
+import { LocalRelayPicker } from "../components/LocalRelayPicker";
 import { ApiError, api, relayHost, type AuthStatus } from "../lib/api";
+import { invalidateAppDataCache } from "../lib/appDataCache";
 import { useAuth } from "../lib/auth";
-import { isAllowedRelayUrl, RELAY_URL_POLICY } from "../lib/relayUrl";
+import { detectedRelaysFromStatus, isAllowedRelayUrl, RELAY_URL_POLICY } from "../lib/relayUrl";
 import { useWeightLoadUnit } from "../lib/weightLoadUnit";
 
 function relayUrlsFromStatus(status: AuthStatus | null): string[] {
@@ -95,6 +97,7 @@ export function SettingsTab() {
     setSavingRelays(true);
     try {
       const saved = await api.updateRelaySettings({ relay_urls: nextRelays });
+      invalidateAppDataCache();
       setRelayText(saved.relay_urls.join("\n"));
       await refresh();
       setRelayMessage("Relay settings saved. Reload library or history below to fetch from the new relay.");
@@ -164,6 +167,18 @@ export function SettingsTab() {
         )}
 
         <form className="space-y-3" onSubmit={onSaveRelays}>
+          {status ? (
+            <LocalRelayPicker
+              relays={detectedRelaysFromStatus(status)}
+              value={parseRelayUrls(relayText)[0] ?? ""}
+              onChange={(url) => {
+                const rest = parseRelayUrls(relayText).slice(1);
+                setRelayText([url, ...rest].join("\n"));
+                setRelayError(null);
+                setRelayMessage(null);
+              }}
+            />
+          ) : null}
           <div>
             <label className="label" htmlFor="relay-urls">
               <FieldLabel>Relay URLs</FieldLabel>

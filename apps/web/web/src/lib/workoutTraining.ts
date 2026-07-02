@@ -2,14 +2,30 @@
 
 import type { WeightCatalogExercise } from "./catalog";
 import {
+  exerciseSupportsTargetWeight,
   exerciseSetLoggingStyle,
   type WeightSetLoggingStyle,
 } from "./exerciseLogging";
 
 export const WORKOUTS_LIBRARY_D_TAG = "erv/workouts/library";
+export const WORKOUTS_LIBRARY_WORKOUT_PREFIX = "erv/workouts/library/workout/";
+
+/** NIP-44 plaintext cap is 65535 bytes; stay under for encryption + relay headroom. */
+export const MAX_WORKOUT_LIBRARY_PLAINTEXT_BYTES = 40_000;
+
+export function workoutLibraryWorkoutShardTag(workoutId: string): string {
+  return `${WORKOUTS_LIBRARY_WORKOUT_PREFIX}${workoutId}`;
+}
+
+export function workoutLibrarySegmentShardTag(
+  workoutId: string,
+  segmentId: string,
+): string {
+  return `${WORKOUTS_LIBRARY_WORKOUT_PREFIX}${workoutId}/segment/${segmentId}`;
+}
 
 export type { WeightSetLoggingStyle };
-export { exerciseSetLoggingStyle };
+export { exerciseSetLoggingStyle, exerciseSupportsTargetWeight };
 
 export type WorkoutSegmentKind =
   | "straight_sets"
@@ -143,12 +159,43 @@ export type Workout = {
 };
 
 export type WorkoutLibraryPayload = {
-  workouts: Workout[];
+  workouts?: Workout[];
   libraryUpdatedAtEpochSeconds?: number;
+  /** When true, full workouts live at `erv/workouts/library/workout/<id>`. */
+  sharded?: boolean;
+  workoutIds?: string[];
 };
+
+export type WorkoutLibraryShardPayload = {
+  workout: Workout;
+  /** When true, segment bodies live at `.../workout/<id>/segment/<segmentId>`. */
+  segmentShards?: boolean;
+  segmentIds?: string[];
+};
+
+export type WorkoutSegmentShardPayload = {
+  segment: WorkoutSegment;
+};
+
+export type WorkoutLibraryPublishEntry = {
+  d_tag: string;
+  plaintext: string;
+};
+
+export class WorkoutLibraryPublishError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "WorkoutLibraryPublishError";
+  }
+}
+
+function plaintextUtf8ByteLength(text: string): number {
+  return new TextEncoder().encode(text).length;
+}
 
 export function parseWorkoutLibraryPayload(raw: string): Workout[] {
   const parsed = JSON.parse(raw) as WorkoutLibraryPayload;
+  if (parsed.sharded) return [];
   return Array.isArray(parsed.workouts) ? parsed.workouts : [];
 }
 
@@ -160,6 +207,207 @@ export function workoutLibraryPayload(
     workouts,
     libraryUpdatedAtEpochSeconds,
   } satisfies WorkoutLibraryPayload);
+}
+
+function workoutLibraryIndexPayload(
+  workoutIds: string[],
+  libraryUpdatedAtEpochSeconds: number,
+): string {
+  return JSON.stringify({
+    sharded: true,
+    workoutIds,
+    libraryUpdatedAtEpochSeconds,
+  } satisfies WorkoutLibraryPayload);
+}
+
+function workoutShardPayload(workout: Workout): string {
+  return JSON.stringify({ workout } satisfies WorkoutLibraryShardPayload);
+}
+
+function workoutHeadShardPayload(workout: Workout, segmentIds: string[]): string {
+  return JSON.stringify({
+    workout: { ...workout, segments: [] },
+    segmentShards: true,
+    segmentIds,
+  } satisfies WorkoutLibraryShardPayload);
+}
+
+function segmentShardPayload(segment: WorkoutSegment): string {
+  return JSON.stringify({ segment } satisfies WorkoutSegmentShardPayload);
+}
+
+function segmentId(segment: WorkoutSegment, index: number): string {
+  return segment.id?.trim() || `segment-${index}`;
+}
+
+/** Publish rows for one cohesive workout (may use transparent segment shards). */
+function buildWorkoutShardPublishEntries(workout: Workout): WorkoutLibraryPublishEntry[] {
+  const fullPayload = workoutShardPayload(workout);
+  if (plaintextUtf8ByteLength(fullPayload) <= MAX_WORKOUT_LIBRARY_PLAINTEXT_BYTES) {
+    return [
+      {
+        d_tag: workoutLibraryWorkoutShardTag(workout.id),
+        plaintext: fullPayload,
+      },
+    ];
+  }
+
+  const segmentIds = workout.segments.map((segment, index) => segmentId(segment, index));
+  const entries: WorkoutLibraryPublishEntry[] = [
+    {
+      d_tag: workoutLibraryWorkoutShardTag(workout.id),
+      plaintext: workoutHeadShardPayload(workout, segmentIds),
+    },
+  ];
+
+  for (const [index, segment] of workout.segments.entries()) {
+    const id = segmentIds[index];
+    const segmentPayload = segmentShardPayload({ ...segment, id });
+    const bytes = plaintextUtf8ByteLength(segmentPayload);
+    if (bytes > MAX_WORKOUT_LIBRARY_PLAINTEXT_BYTES) {
+      throw new WorkoutLibraryPublishError(
+        `Segment "${segment.title ?? segment.kind}" in "${workout.name}" is too large to sync (${bytes.toLocaleString()} bytes). Shorten coach notes in that segment.`,
+      );
+    }
+    entries.push({
+      d_tag: workoutLibrarySegmentShardTag(workout.id, id),
+      plaintext: segmentPayload,
+    });
+  }
+  return entries;
+}
+
+/**
+ * Build kind-30078 publish rows for the workout library.
+ * Each workout stays one logical storyboard; transport may use multiple relay events.
+ */
+export function buildWorkoutLibraryPublishEntries(
+  workouts: Workout[],
+  libraryUpdatedAtEpochSeconds: number,
+): WorkoutLibraryPublishEntry[] {
+  if (workouts.length === 0) {
+    return [
+      {
+        d_tag: WORKOUTS_LIBRARY_D_TAG,
+        plaintext: workoutLibraryPayload([], libraryUpdatedAtEpochSeconds),
+      },
+    ];
+  }
+
+  const entries: WorkoutLibraryPublishEntry[] = [
+    {
+      d_tag: WORKOUTS_LIBRARY_D_TAG,
+      plaintext: workoutLibraryIndexPayload(
+        workouts.map((w) => w.id),
+        libraryUpdatedAtEpochSeconds,
+      ),
+    },
+  ];
+
+  for (const workout of workouts) {
+    entries.push(...buildWorkoutShardPublishEntries(workout));
+  }
+  return entries;
+}
+
+function isWorkoutHeadShardTag(dTag: string): boolean {
+  const prefix = WORKOUTS_LIBRARY_WORKOUT_PREFIX;
+  if (!dTag.startsWith(prefix)) return false;
+  const suffix = dTag.slice(prefix.length);
+  return suffix.length > 0 && !suffix.includes("/segment/");
+}
+
+function parseWorkoutSegmentShardTag(dTag: string): { workoutId: string; segmentId: string } | null {
+  const marker = "/segment/";
+  const prefix = WORKOUTS_LIBRARY_WORKOUT_PREFIX;
+  if (!dTag.startsWith(prefix) || !dTag.includes(marker)) return null;
+  const rest = dTag.slice(prefix.length);
+  const [workoutId, segmentId] = rest.split(marker);
+  if (!workoutId || !segmentId) return null;
+  return { workoutId, segmentId };
+}
+
+function assembleWorkoutFromShardRecords(
+  records: AppDataRecordLike[],
+  shardPlaintext: string,
+): Workout | null {
+  try {
+    const parsed = JSON.parse(shardPlaintext) as WorkoutLibraryShardPayload;
+    const workout = parsed.workout;
+    if (!workout?.id) return null;
+    if (!parsed.segmentShards) {
+      return workout;
+    }
+
+    const segmentById = new Map<string, WorkoutSegment>();
+    for (const record of records) {
+      const dTag = record.d_tag?.trim();
+      if (!dTag || !record.plaintext) continue;
+      const ref = parseWorkoutSegmentShardTag(dTag);
+      if (!ref || ref.workoutId !== workout.id) continue;
+      try {
+        const segmentPayload = JSON.parse(record.plaintext) as WorkoutSegmentShardPayload;
+        if (segmentPayload.segment) {
+          segmentById.set(ref.segmentId, segmentPayload.segment);
+        }
+      } catch {
+        // ignore corrupt segment shard
+      }
+    }
+
+    const orderedIds = parsed.segmentIds?.length ? parsed.segmentIds : [...segmentById.keys()];
+    const segments = orderedIds
+      .map((id) => segmentById.get(id))
+      .filter((segment): segment is WorkoutSegment => segment != null);
+
+    return { ...workout, segments };
+  } catch {
+    return null;
+  }
+}
+
+type AppDataRecordLike = {
+  d_tag?: string | null;
+  plaintext?: string | null;
+};
+
+/** Merge master + shard tags from relay app-data records into workouts. */
+export function parseWorkoutsFromAppDataRecords(
+  records: AppDataRecordLike[],
+): Workout[] {
+  const master = records.find((r) => r.d_tag === WORKOUTS_LIBRARY_D_TAG);
+  const masterWorkouts = master?.plaintext
+    ? parseWorkoutLibraryPayload(master.plaintext)
+    : [];
+  if (masterWorkouts.length > 0) {
+    return masterWorkouts;
+  }
+
+  const shardById = new Map<string, Workout>();
+  for (const record of records) {
+    const dTag = record.d_tag?.trim();
+    if (!dTag || !isWorkoutHeadShardTag(dTag) || !record.plaintext) {
+      continue;
+    }
+    const workout = assembleWorkoutFromShardRecords(records, record.plaintext);
+    if (workout) {
+      shardById.set(workout.id, workout);
+    }
+  }
+
+  if (shardById.size === 0) {
+    return [];
+  }
+
+  const masterParsed = master?.plaintext
+    ? (JSON.parse(master.plaintext) as WorkoutLibraryPayload)
+    : null;
+  const orderedIds = masterParsed?.workoutIds?.length
+    ? masterParsed.workoutIds
+    : [...shardById.keys()].sort();
+  return orderedIds
+    .map((id) => shardById.get(id))
+    .filter((workout): workout is Workout => workout != null);
 }
 
 export function upsertWorkout(workouts: Workout[], workout: Workout): Workout[] {

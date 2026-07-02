@@ -78,7 +78,8 @@ See **[Athlete context & web prep](architecture/ATHLETE_CONTEXT_WEB_PREP.md)** (
 | `erv/catalog/weight` | Exercise catalog |
 | `erv/catalog/stretch` | Stretch catalog |
 | `erv/catalog/cardio` | Cardio activity catalog |
-| `erv/workouts/library` | Workout storyboard library (Phase 2) |
+| `erv/workouts/library` | Workout storyboard library (Phase 2); index + per-workout shards |
+| `erv/workouts/library/workout/<id>` | One cohesive workout; segment shards under `.../segment/<id>` if needed |
 | `erv/programs/master` | Weekly plan (Phase 3) |
 | `erv/training-profile` | Athlete profile + style presets (pre-AI web) |
 | `erv/equipment` | Home gym + exercise packs |

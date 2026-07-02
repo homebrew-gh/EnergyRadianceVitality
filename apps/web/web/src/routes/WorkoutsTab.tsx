@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import type { LibraryItemKind } from "../components/LibrarySidebar";
 import { RoutineBuilderLayout } from "../components/RoutineBuilderLayout";
@@ -7,6 +7,7 @@ import { ReorderableList } from "../components/ReorderableList";
 import { SavedRoutinesPanel } from "../components/SavedRoutinesPanel";
 import { FieldLabel, SectionHeader } from "../components/FieldLabel";
 import { WorkoutPreviewCard } from "../components/WorkoutPreviewCard";
+import { WorkoutComposerDock } from "../components/WorkoutComposerDock";
 import { WorkoutSegmentEditor } from "../components/WorkoutSegmentEditor";
 import { useEquipment } from "../lib/equipmentData";
 import { useTrainingProfile } from "../lib/trainingProfileData";
@@ -46,6 +47,8 @@ import {
   instantiateSegmentTemplate,
   WORKOUT_SEGMENT_TEMPLATES,
 } from "../lib/segmentTemplates";
+
+const WORKOUT_COMPOSER_FORM_ID = "workout-composer-form";
 
 function newSegment(kind: WorkoutSegmentKind): WorkoutSegment {
   const base: WorkoutSegment = {
@@ -113,6 +116,7 @@ export function WorkoutsTab() {
   const [success, setSuccess] = useState<string | null>(null);
   const [weightPickerFilter, setWeightPickerFilter] =
     useState<WeightExercisePickerFilter>("ALL");
+  const alertsRef = useRef<HTMLDivElement>(null);
 
   const catalogExercises = exercises;
   const activeSegmentIndexResolved =
@@ -370,14 +374,15 @@ export function WorkoutsTab() {
     };
 
     try {
+      const wasEditing = editingId != null;
       await saveWorkouts(upsertWorkout(workouts, workout));
-      if (editingId) {
-        setSegments(normalizedSegments);
-        setSuccess("Workout updated on the relay. Open ERV on your phone and sync to use it.");
-      } else {
-        resetForm();
-        setSuccess("Workout published to the relay. Open ERV on your phone and sync to use it.");
-      }
+      resetForm();
+      setSuccess(
+        wasEditing
+          ? "Workout updated on the relay. Open ERV on your phone and sync to use it."
+          : "Workout published to the relay. Open ERV on your phone and sync to use it.",
+      );
+      alertsRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
     } catch (err) {
       setFormError(err instanceof Error ? err.message : "Save failed.");
     }
@@ -388,6 +393,8 @@ export function WorkoutsTab() {
     ? `${segmentKindLabel(activeSegment.kind)}${activeSegment.title ? ` - ${activeSegment.title}` : ""}`
     : "Choose a segment";
   const baselineLabel = hasBaseline ? "Baseline loads ready" : "Sync logs for load hints";
+  const showComposerDock =
+    editingId != null || name.trim().length > 0 || segments.length > 0;
 
   const segmentChoice = (
     kind: WorkoutSegmentKind,
@@ -411,7 +418,7 @@ export function WorkoutsTab() {
   );
 
   return (
-    <div className="space-y-5">
+    <div className={`space-y-5 ${showComposerDock ? "lg:pr-[15rem]" : ""}`}>
       <section className="hero-card">
         <div className="flex flex-wrap items-start justify-between gap-5">
           <div className="max-w-2xl space-y-3">
@@ -459,19 +466,21 @@ export function WorkoutsTab() {
         </p>
       ) : null}
 
-      <RoutineFormAlerts
-        error={error}
-        formError={formError}
-        success={success}
-        lastEventId={lastEventId}
-      />
+      <div ref={alertsRef}>
+        <RoutineFormAlerts
+          error={error}
+          formError={formError}
+          success={success}
+          lastEventId={lastEventId}
+        />
+      </div>
 
       <SavedRoutinesPanel
         title="Saved workouts"
         loading={loading}
         routines={workouts}
         editingId={editingId}
-        onReload={() => void reload()}
+        onReload={() => void reload(true)}
         getId={(w) => w.id}
         getName={(w) => w.name}
         getDetail={(w) =>
@@ -514,7 +523,11 @@ export function WorkoutsTab() {
         stretchCatalog={catalogs.stretch}
         cardioCatalog={catalogs.cardio}
       >
-        <form onSubmit={(e) => void onSubmit(e)} className="card overflow-hidden">
+        <form
+          id={WORKOUT_COMPOSER_FORM_ID}
+          onSubmit={(e) => void onSubmit(e)}
+          className="card overflow-hidden pb-24 sm:pb-4"
+        >
           <div className="border-b border-[var(--erv-outline-variant)] bg-[var(--erv-surface-variant)]/35 p-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
@@ -662,19 +675,36 @@ export function WorkoutsTab() {
             ) : null}
           </div>
 
-          <div className="flex flex-wrap gap-2">
-            <button type="submit" className="btn-primary" disabled={saving}>
-              {saving ? "Publishing…" : editingId ? "Publish update" : "Publish to relay"}
-            </button>
-            {editingId ? (
-              <button type="button" className="btn-ghost" onClick={resetForm}>
-                Cancel edit
+          {!showComposerDock ? (
+            <div className="flex flex-wrap gap-2">
+              <button type="submit" className="btn-primary" disabled={saving}>
+                {saving ? "Publishing…" : editingId ? "Publish update" : "Publish to relay"}
               </button>
-            ) : null}
-          </div>
+              {editingId ? (
+                <button type="button" className="btn-ghost" onClick={resetForm}>
+                  Cancel edit
+                </button>
+              ) : null}
+            </div>
+          ) : (
+            <p className="text-xs text-muted">
+              Use the publish panel on the right to save this workout to your relay.
+            </p>
+          )}
           </div>
         </form>
       </RoutineBuilderLayout>
+
+      <WorkoutComposerDock
+        visible={showComposerDock}
+        formId={WORKOUT_COMPOSER_FORM_ID}
+        saving={saving}
+        editing={editingId != null}
+        draftLabel={name}
+        segmentCount={segments.length}
+        itemCount={draftItemCount}
+        onCancelEdit={resetForm}
+      />
     </div>
   );
 }
