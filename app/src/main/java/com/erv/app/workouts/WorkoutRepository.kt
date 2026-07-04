@@ -147,8 +147,15 @@ class WorkoutRepository(context: Context) {
     suspend fun clearPendingNextSegmentPrompt() {
         updateState { state ->
             val run = state.activeRun ?: return@updateState state
-            if (run.pendingNextSegmentTitle == null) return@updateState state
-            state.copy(activeRun = run.copy(pendingNextSegmentTitle = null))
+            if (run.pendingNextSegmentTitle == null && run.pendingCompletedSegmentTitle == null) {
+                return@updateState state
+            }
+            state.copy(
+                activeRun = run.copy(
+                    pendingNextSegmentTitle = null,
+                    pendingCompletedSegmentTitle = null,
+                ),
+            )
         }
     }
 
@@ -223,6 +230,11 @@ class WorkoutRepository(context: Context) {
             } else {
                 null
             }
+            val completedSegmentTitle = if (segmentJustCompleted && !workoutComplete) {
+                workout.segments.getOrNull(beforeSegmentIndex)?.displayTitle()
+            } else {
+                null
+            }
             result = WorkoutItemCompletionResult(
                 segmentJustCompleted = segmentJustCompleted,
                 completedSegmentId = completedSegmentId,
@@ -238,6 +250,7 @@ class WorkoutRepository(context: Context) {
                 lastLaunchedItemId = null,
                 lastLaunchedItemIds = emptyList(),
                 pendingNextSegmentTitle = nextSegmentTitle,
+                pendingCompletedSegmentTitle = completedSegmentTitle,
                 autoAdvanceRequested = autoAdvance,
             )
             state.copy(activeRun = updatedRun)

@@ -260,12 +260,24 @@ fun WeightLiveWorkoutScreen(
     val darkTheme = isSystemInDarkTheme()
     val headerMid = ErvHeaderRed
     val headerDark = if (darkTheme) ErvDarkTherapyRedDark else ErvLightTherapyRedDark
+    // When this weight session is part of a larger workout (composed run or unified routine),
+    // default to showing the total workout clock so it keeps counting across sections instead
+    // of appearing to reset each time a new section starts. The athlete can still swipe to the
+    // per-section "Weight session" clock.
+    val hasTotalWorkoutClock =
+        unifiedWorkoutStartedAtEpochSeconds != null || composedWorkoutStartedAtEpochSeconds != null
     var timerDisplayMode by rememberSaveable(
         draft.startedAtEpochSeconds,
         unifiedWorkoutStartedAtEpochSeconds,
         composedWorkoutStartedAtEpochSeconds,
     ) {
-        mutableStateOf(WorkoutTimerDisplayMode.SESSION)
+        mutableStateOf(
+            if (hasTotalWorkoutClock) {
+                WorkoutTimerDisplayMode.TOTAL
+            } else {
+                WorkoutTimerDisplayMode.SESSION
+            },
+        )
     }
 
     if (showPickExercise) {

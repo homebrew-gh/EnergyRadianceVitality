@@ -515,9 +515,7 @@ fun WeightTrainingCategoryScreen(
                     } else {
                         null
                     },
-                composedWorkoutStartedAtEpochSeconds = expandedDraft.circuitRun?.let {
-                    activeWorkoutRun?.startedAtEpochSeconds
-                },
+                composedWorkoutStartedAtEpochSeconds = composedRun?.startedAtEpochSeconds,
                 composedSectionLabel = composedSectionLabel,
                 finishLabel = weightFinishLabel,
                 onRecordExerciseActivity = { id -> liveWorkoutViewModel.recordExerciseFocus(id) },

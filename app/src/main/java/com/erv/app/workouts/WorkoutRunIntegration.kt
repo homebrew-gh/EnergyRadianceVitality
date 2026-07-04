@@ -2,6 +2,12 @@ package com.erv.app.workouts
 
 import com.erv.app.cardio.CardioHrScaffolding
 import com.erv.app.cardio.CardioRepository
+import com.erv.app.nostr.EventSigner
+import com.erv.app.nostr.RelayPool
+import com.erv.app.nostr.UnsignedEvent
+import com.erv.app.nostr.buildWorkoutShareHashtagContentLineFromTopics
+import com.erv.app.nostr.parseWorkoutShareTopics
+import com.erv.app.nostr.workoutShareKind1TopicTagsFromTopics
 import com.erv.app.stretching.StretchingRepository
 import com.erv.app.weighttraining.WeightRepository
 import java.time.LocalDate
@@ -130,6 +136,8 @@ data class ComposedWorkoutHrSummary(
     val workoutName: String,
     val wholeRun: CardioHrScaffolding?,
     val sections: List<ComposedWorkoutHrSection>,
+    val totalElapsedSeconds: Int? = null,
+    val sectionCount: Int = 0,
 ) {
     val hasAnyHeartRate: Boolean
         get() = wholeRun != null || sections.any { it.heartRate != null }
@@ -170,11 +178,84 @@ suspend fun buildComposedWorkoutHrSummary(
             }
             ComposedWorkoutHrSection(title = title, kind = recap.kind, heartRate = heartRate)
         }
+    val totalElapsedSeconds = run.startedAtEpochSeconds?.let { start ->
+        val end = run.itemRecaps.mapNotNull { it.finishedAtEpochSeconds }.maxOrNull()
+            ?: nowWorkoutEpochSeconds()
+        (end - start).coerceAtLeast(0).toInt()
+    }
     return ComposedWorkoutHrSummary(
         workoutName = run.workoutSnapshot.name,
         wholeRun = wholeRun,
         sections = sections,
+        totalElapsedSeconds = totalElapsedSeconds,
+        sectionCount = run.workoutSnapshot.segments.size,
     )
+}
+
+/** Human-readable kind label for a logged section, used in summary + share text. */
+fun WorkoutLoggedItemKind.summaryLabel(): String = when (this) {
+    WorkoutLoggedItemKind.WEIGHT -> "Weights"
+    WorkoutLoggedItemKind.CARDIO -> "Cardio"
+    WorkoutLoggedItemKind.MOBILITY -> "Mobility"
+}
+
+/** Build the Nostr kind-1 share text for a finished composed workout. */
+fun buildComposedWorkoutNoteContent(
+    summary: ComposedWorkoutHrSummary,
+    personalMessage: String = "",
+    hashtagLine: String = "",
+): String = buildString {
+    append("\uD83C\uDFCB\uFE0F ${summary.workoutName.ifBlank { "Workout" }}\n")
+    personalMessage.trim().takeIf { it.isNotEmpty() }?.let { message ->
+        append(message)
+        append("\n\n")
+    }
+    summary.totalElapsedSeconds?.takeIf { it > 0 }?.let { seconds ->
+        append("Duration: %d:%02d\n".format(seconds / 60, seconds % 60))
+    }
+    if (summary.sectionCount > 0) {
+        append("Sections: ${summary.sectionCount}\n")
+    }
+    summary.wholeRun?.let { hr ->
+        append("Heart rate: avg ${hr.avgBpm} bpm · max ${hr.maxBpm} bpm\n")
+    }
+    if (summary.sections.isNotEmpty()) {
+        append("\n")
+        summary.sections.forEach { section ->
+            append("• ${section.title} (${section.kind.summaryLabel()})")
+            section.heartRate?.let { hr -> append(" — avg ${hr.avgBpm} bpm") }
+            append("\n")
+        }
+    }
+    hashtagLine.trim().takeIf { it.isNotEmpty() }?.let { line ->
+        append("\n")
+        append(line)
+    }
+}
+
+/** Publish a finished composed workout as a Nostr kind-1 note to the athlete's relays. */
+suspend fun publishComposedWorkoutNote(
+    relayPool: RelayPool,
+    signer: EventSigner,
+    summary: ComposedWorkoutHrSummary,
+    personalMessage: String = "",
+    hashtagsInput: String = "",
+): Boolean {
+    val topics = parseWorkoutShareTopics(hashtagsInput)
+    val content = buildComposedWorkoutNoteContent(
+        summary = summary,
+        personalMessage = personalMessage,
+        hashtagLine = buildWorkoutShareHashtagContentLineFromTopics(topics),
+    )
+    val unsigned = UnsignedEvent(
+        pubkey = signer.publicKey,
+        createdAt = System.currentTimeMillis() / 1000,
+        kind = 1,
+        tags = workoutShareKind1TopicTagsFromTopics(topics),
+        content = content,
+    )
+    val signed = signer.sign(unsigned)
+    return relayPool.publish(signed)
 }
 
 /** Stamp the full-workout HR summary onto every silo log entry linked to this run. */

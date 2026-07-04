@@ -418,7 +418,7 @@ export function WorkoutsTab() {
   );
 
   return (
-    <div className={`space-y-5 ${showComposerDock ? "lg:pr-[15rem]" : ""}`}>
+    <div className="space-y-5">
       <section className="hero-card">
         <div className="flex flex-wrap items-start justify-between gap-5">
           <div className="max-w-2xl space-y-3">
@@ -522,11 +522,25 @@ export function WorkoutsTab() {
         weightCatalog={catalogExercises}
         stretchCatalog={catalogs.stretch}
         cardioCatalog={catalogs.cardio}
+        aside={
+          showComposerDock ? (
+            <WorkoutComposerDock
+              visible
+              formId={WORKOUT_COMPOSER_FORM_ID}
+              saving={saving}
+              editing={editingId != null}
+              draftLabel={name}
+              segmentCount={segments.length}
+              itemCount={draftItemCount}
+              onCancelEdit={resetForm}
+            />
+          ) : undefined
+        }
       >
         <form
           id={WORKOUT_COMPOSER_FORM_ID}
           onSubmit={(e) => void onSubmit(e)}
-          className="card overflow-hidden pb-24 sm:pb-4"
+          className="card w-full overflow-hidden pb-24 lg:pb-4"
         >
           <div className="border-b border-[var(--erv-outline-variant)] bg-[var(--erv-surface-variant)]/35 p-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
@@ -694,17 +708,6 @@ export function WorkoutsTab() {
           </div>
         </form>
       </RoutineBuilderLayout>
-
-      <WorkoutComposerDock
-        visible={showComposerDock}
-        formId={WORKOUT_COMPOSER_FORM_ID}
-        saving={saving}
-        editing={editingId != null}
-        draftLabel={name}
-        segmentCount={segments.length}
-        itemCount={draftItemCount}
-        onCancelEdit={resetForm}
-      />
     </div>
   );
 }

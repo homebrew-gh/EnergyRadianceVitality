@@ -15,11 +15,18 @@ class RoutineReminderReceiver : BroadcastReceiver() {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val repository = RoutineReminderRepository(context)
-                val reminder = repository.reminderForRoutine(routineId) ?: return@launch
+                val reminder = repository.reminderForRoutine(routineId)
+                if (reminder == null) {
+                    RoutineReminderScheduler.cancel(context, routineId)
+                    return@launch
+                }
                 if (!reminder.enabled) return@launch
                 RoutineReminderScheduler.showNotification(context, reminder)
-                if (reminder.frequency != RoutineReminderFrequency.ONCE) {
-                    RoutineReminderScheduler.schedule(context, reminder)
+                when (reminder.frequency) {
+                    RoutineReminderFrequency.ONCE ->
+                        repository.upsertReminder(reminder.copy(enabled = false))
+                    else ->
+                        RoutineReminderScheduler.schedule(context, reminder)
                 }
             } finally {
                 pendingResult.finish()

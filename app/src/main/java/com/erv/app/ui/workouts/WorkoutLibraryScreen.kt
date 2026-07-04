@@ -152,44 +152,63 @@ fun WorkoutLibraryScreen(
             )
         },
     ) { padding ->
-        LazyColumn(
+        WorkoutLibraryListContent(
+            state = state,
+            onRun = onOpenRun,
+            onEdit = onOpenComposer,
+            onDuplicate = { workout ->
+                scope.launch {
+                    repository.upsertWorkout(workout.duplicateCopy())
+                    publishLibrary()
+                }
+            },
+            onDelete = { deleting = it },
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
+        )
+    }
+}
+
+@Composable
+fun WorkoutLibraryListContent(
+    state: WorkoutLibraryState,
+    onRun: (String) -> Unit,
+    onEdit: (String) -> Unit,
+    onDuplicate: (Workout) -> Unit,
+    onDelete: (Workout) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    LazyColumn(
+        modifier = modifier,
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        item {
+            Text(
+                text = "Storyboard workouts with segments (straight sets, circuits, and more).",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (state.workouts.isEmpty()) {
             item {
                 Text(
-                    text = "Storyboard workouts with segments (straight sets, circuits, and more).",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    text = "No workouts synced yet. Workouts published from the Start9 builder " +
+                        "appear here after a relay sync — tap Sync above or reopen the app.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(vertical = 24.dp),
                 )
             }
-            if (state.workouts.isEmpty()) {
-                item {
-                    Text(
-                        text = "No workouts synced yet. Workouts published from the Start9 builder " +
-                            "appear here after a relay sync — tap Sync above or reopen the app.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.padding(vertical = 24.dp),
-                    )
-                }
-            } else {
-                items(state.workouts, key = { it.id }) { workout ->
-                    WorkoutLibraryRow(
-                        workout = workout,
-                        onRun = { onOpenRun(workout.id) },
-                        onEdit = { onOpenComposer(workout.id) },
-                        onDuplicate = {
-                            scope.launch {
-                                repository.upsertWorkout(workout.duplicateCopy())
-                                publishLibrary()
-                            }
-                        },
-                        onDelete = { deleting = workout },
-                    )
-                }
+        } else {
+            items(state.workouts, key = { it.id }) { workout ->
+                WorkoutLibraryRow(
+                    workout = workout,
+                    onRun = { onRun(workout.id) },
+                    onEdit = { onEdit(workout.id) },
+                    onDuplicate = { onDuplicate(workout) },
+                    onDelete = { onDelete(workout) },
+                )
             }
         }
     }

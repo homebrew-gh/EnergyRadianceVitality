@@ -549,15 +549,27 @@ fun ErvNavHost(
         composable(Routes.trainingCategory) {
             val programsState by programRepository.state.collectAsState(initial = com.erv.app.programs.ProgramsLibraryState())
             val workoutState by workoutRepository.state.collectAsState(initial = WorkoutLibraryState())
+            val weightState by weightRepository.state.collectAsState(initial = WeightLibraryState())
             TrainingCategoryScreen(
                 programsState = programsState,
                 workoutState = workoutState,
+                workoutRepository = workoutRepository,
+                weightState = weightState,
+                stretchCatalog = stretchingRepository.catalog,
+                keyManager = keyManager,
+                relayPool = relayPool,
+                signer = signer,
+                onPullFromRelay = onPullRelayData,
                 onBack = { navController.popBackStack() },
                 onOpenWeeklyPlanner = {
                     navController.navigate(Routes.programsCategory) { launchSingleTop = true }
                 },
-                onOpenWorkoutLibrary = {
-                    navController.navigate(Routes.workoutLibrary) { launchSingleTop = true }
+                onOpenComposer = { workoutId ->
+                    if (workoutId == null) {
+                        navController.navigate(Routes.workoutComposerNew) { launchSingleTop = true }
+                    } else {
+                        navController.navigate(Routes.workoutComposer(workoutId)) { launchSingleTop = true }
+                    }
                 },
                 onRunWorkout = { workoutId ->
                     navController.navigate(Routes.workoutRun(workoutId)) { launchSingleTop = true }
@@ -653,6 +665,8 @@ fun ErvNavHost(
                 userPreferences = userPreferences,
                 weightLiveWorkoutViewModel = weightLiveWorkoutViewModel,
                 cardioLiveWorkoutViewModel = cardioLiveWorkoutViewModel,
+                relayPool = relayPool,
+                signer = signer,
                 onBack = { navController.popBackStack() },
                 onOpenWeightCategory = {
                     navController.navigate(Routes.weightTrainingCategory) { launchSingleTop = true }

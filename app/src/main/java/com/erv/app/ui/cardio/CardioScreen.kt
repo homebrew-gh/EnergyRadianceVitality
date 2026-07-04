@@ -778,6 +778,9 @@ fun CardioCategoryScreen(
                         mid = therapyRedMid,
                         glow = therapyRedGlow,
                         finishLabel = cardioFinishLabel,
+                        composedWorkoutStartedAtEpochSeconds = parentRunCtx.workoutRun
+                            ?.takeIf { parentRunCtx.workoutLaunch != null }
+                            ?.startedAtEpochSeconds,
                         preferredLiveDistanceMeters = cyclingDistanceMeters,
                         cyclingSensorConnected = ergConnected || cscConnected,
                         cyclingSpeedKmh = when {
@@ -3094,6 +3097,11 @@ fun CardioElapsedTimerFullScreen(
     gpsRecordingActive: Boolean = false,
     showGpsPermissionHint: Boolean = false,
     onRequestLocationPermission: () -> Unit = {},
+    /**
+     * Start time of the overall composed workout, when this cardio leg is one section of a
+     * larger workout. Used to show the total workout clock alongside the section elapsed time.
+     */
+    composedWorkoutStartedAtEpochSeconds: Long? = null,
     /** Top-bar/stop action label; section-aware when run from a composed workout. */
     finishLabel: String = "Finish",
     /** Back arrow: leave full-screen UI; timer and optional GPS keep running (like weight training). */
@@ -3539,6 +3547,19 @@ fun CardioElapsedTimerFullScreen(
                         text = "%d:%02d".format(mins, secs),
                         style = MaterialTheme.typography.displayLarge,
                         color = Color.White
+                    )
+                }
+                if (composedWorkoutStartedAtEpochSeconds != null) {
+                    val totalWorkoutSeconds = remember(tick, composedWorkoutStartedAtEpochSeconds) {
+                        (nowEpochSeconds() - composedWorkoutStartedAtEpochSeconds).coerceAtLeast(0).toInt()
+                    }
+                    val totalMins = totalWorkoutSeconds / 60
+                    val totalSecs = totalWorkoutSeconds % 60
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        text = "Total workout %d:%02d".format(totalMins, totalSecs),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = Color.White.copy(alpha = 0.85f)
                     )
                 }
                 Spacer(Modifier.height(8.dp))

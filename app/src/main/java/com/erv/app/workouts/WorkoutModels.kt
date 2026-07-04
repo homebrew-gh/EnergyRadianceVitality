@@ -230,6 +230,8 @@ data class WorkoutActiveRun(
     val itemRecaps: List<WorkoutItemRecap> = emptyList(),
     /** Set after a segment finishes; cleared when the athlete acknowledges the next-section prompt. */
     val pendingNextSegmentTitle: String? = null,
+    /** Title of the section that just finished; paired with [pendingNextSegmentTitle] for the transition splash. */
+    val pendingCompletedSegmentTitle: String? = null,
     /** Set after a section finishes when the next step is silo-backed; drives continuous auto-advance. */
     val autoAdvanceRequested: Boolean = false,
     val displayRef: String = generateWorkoutRunDisplayRef(),
@@ -320,6 +322,28 @@ fun WorkoutItem.Cardio.displaySummary(activityLabel: String? = null): String = b
         append(" · log: ${cardio.logFields.joinToString(", ") { it.name.lowercase() }}")
     }
 }
+
+data class WorkoutPlannedItemLabelContext(
+    val weightExerciseName: (String) -> String? = { null },
+    val stretchName: (String) -> String? = { null },
+    val cardioActivityLabel: (String) -> String? = { null },
+)
+
+fun WorkoutItem.plannedLabel(context: WorkoutPlannedItemLabelContext = WorkoutPlannedItemLabelContext()): String? =
+    when (this) {
+        is WorkoutItem.Weight -> displayExerciseName(context.weightExerciseName(exerciseId))
+        is WorkoutItem.Cardio ->
+            title?.takeIf { it.isNotBlank() }
+                ?: displaySummary(context.cardioActivityLabel(cardio.activity))
+        is WorkoutItem.Mobility ->
+            title?.takeIf { it.isNotBlank() }
+                ?: displaySummary(context.stretchName(mobility.catalogId))
+        is WorkoutItem.Rest, is WorkoutItem.Note -> null
+    }
+
+fun Workout.plannedExerciseLabels(
+    context: WorkoutPlannedItemLabelContext = WorkoutPlannedItemLabelContext(),
+): List<String> = segments.flatMap { segment -> segment.items }.mapNotNull { it.plannedLabel(context) }
 
 fun WorkoutItem.Mobility.displaySummary(stretchLabel: String? = null): String = buildString {
     append(stretchLabel?.takeIf { it.isNotBlank() } ?: mobility.catalogId)

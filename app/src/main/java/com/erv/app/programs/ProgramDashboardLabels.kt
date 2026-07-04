@@ -1,6 +1,7 @@
 package com.erv.app.programs
 
 import com.erv.app.cardio.CardioBuiltinActivity
+import com.erv.app.workouts.Workout
 
 /** Short names for Launch Pad list (duplicates get numeric suffixes). */
 fun baseLaunchLabel(block: ProgramDayBlock): String = when (block.kind) {
@@ -57,4 +58,21 @@ fun launchPadLabelsForBlocks(blocks: List<ProgramDayBlock>): List<String> {
 fun programBlocksForCalendarDay(program: FitnessProgram?, dayOfWeekIso: Int): List<ProgramDayBlock> {
     if (program == null || dayOfWeekIso !in 1..7) return emptyList()
     return program.normalizedWeek().firstOrNull { it.dayOfWeek == dayOfWeekIso }?.blocks.orEmpty()
+}
+
+/**
+ * Subtitle for the Training Launch Pad tile: the first planned composed workout for the day,
+ * or "Rest" when no [ProgramBlockKind.WORKOUT] block is scheduled.
+ */
+fun trainingLaunchPadSubtitle(
+    blocks: List<ProgramDayBlock>,
+    workoutById: Map<String, Workout>,
+): String {
+    val workoutBlocks = blocks.filter { it.kind == ProgramBlockKind.WORKOUT }
+    if (workoutBlocks.isEmpty()) return "Rest"
+    val block = workoutBlocks.first()
+    return block.workoutId
+        ?.let { id -> workoutById[id]?.name?.trim()?.takeIf { it.isNotEmpty() } }
+        ?: block.title?.trim()?.takeIf { it.isNotEmpty() }
+        ?: "Workout"
 }

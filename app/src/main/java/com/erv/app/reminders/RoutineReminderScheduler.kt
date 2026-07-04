@@ -188,6 +188,12 @@ object RoutineReminderScheduler {
         }
     }
 
+    /** Test seam for alarm scheduling without [AlarmManager]. */
+    internal fun nextTriggerMillisForTest(
+        reminder: RoutineReminder,
+        nowMillis: Long = System.currentTimeMillis(),
+    ): Long? = nextTriggerMillis(reminder, nowMillis)
+
     private fun DayOfWeek.toSupplementWeekday(): SupplementWeekday = when (this) {
         DayOfWeek.MONDAY -> SupplementWeekday.MONDAY
         DayOfWeek.TUESDAY -> SupplementWeekday.TUESDAY

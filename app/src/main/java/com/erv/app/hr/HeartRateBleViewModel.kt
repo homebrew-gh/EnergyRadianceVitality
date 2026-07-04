@@ -249,9 +249,15 @@ class HeartRateBleViewModel(application: Application) : AndroidViewModel(applica
         unifiedWorkoutHrSamples.clear()
     }
 
-    /** Continuous HR across all storyboard sections in Training → Workout live run. */
+    /**
+     * Continuous HR across all storyboard sections in Training → Workout live run.
+     *
+     * Idempotent: the storyboard's start effect re-runs every time we return from a silo section,
+     * so this MUST NOT wipe the buffer or every prior section's samples would be lost. When a run
+     * genuinely ends the buffer is already cleared (finalize takes it, back/discard clears it), so
+     * a fresh run always starts from an empty buffer.
+     */
     fun startComposedWorkoutRunRecording() {
-        discardUnifiedWorkoutRecording()
         startUnifiedWorkoutRecording()
     }
 

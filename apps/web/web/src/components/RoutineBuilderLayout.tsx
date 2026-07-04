@@ -20,6 +20,8 @@ type RoutineBuilderLayoutProps = {
   weightCatalog: Parameters<typeof LibrarySidebar>[0]["weightCatalog"];
   stretchCatalog: Parameters<typeof LibrarySidebar>[0]["stretchCatalog"];
   cardioCatalog: Parameters<typeof LibrarySidebar>[0]["cardioCatalog"];
+  /** Optional trailing column (e.g. workout publish dock). */
+  aside?: ReactNode;
   children: ReactNode;
 };
 
@@ -39,10 +41,17 @@ export function RoutineBuilderLayout({
   weightCatalog,
   stretchCatalog,
   cardioCatalog,
+  aside,
   children,
 }: RoutineBuilderLayoutProps) {
   return (
-    <div className="grid gap-5 lg:grid-cols-[minmax(260px,330px)_1fr] items-start">
+    <div
+      className={`grid w-full items-start gap-5 ${
+        aside
+          ? "lg:grid-cols-[minmax(260px,330px)_minmax(0,1fr)_13.5rem]"
+          : "lg:grid-cols-[minmax(260px,330px)_1fr]"
+      }`}
+    >
       <LibrarySidebar
         key={sidebarKinds.join(",")}
         className="lg:sticky lg:top-24"
@@ -62,7 +71,10 @@ export function RoutineBuilderLayout({
         stretchCatalog={stretchCatalog}
         cardioCatalog={cardioCatalog}
       />
-      <div className="space-y-4 min-w-0">{children}</div>
+      <div className="min-w-0 space-y-4">{children}</div>
+      {aside ? (
+        <div className="min-w-0 lg:sticky lg:top-24 lg:self-start">{aside}</div>
+      ) : null}
     </div>
   );
 }

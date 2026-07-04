@@ -1,14 +1,20 @@
 package com.erv.app.ui.workouts
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Share
 import com.erv.app.ui.components.FormSectionLabelSmall
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -17,6 +23,8 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -30,9 +38,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.erv.app.hr.LocalHeartRateBle
 import com.erv.app.ui.theme.ErvHeaderRed
 import com.erv.app.ui.weighttraining.WeightLiveWorkoutFgsDisclosureDialog
@@ -65,8 +77,13 @@ import com.erv.app.ui.cardio.CardioBikeErgConnectInlineSection
 import com.erv.app.ui.cardio.CardioLiveWorkoutViewModel
 import com.erv.app.ui.cardio.supportsBikeErgSensorConnect
 import com.erv.app.weighttraining.WeightRepository
+import com.erv.app.nostr.EventSigner
+import com.erv.app.nostr.RelayPool
+import com.erv.app.nostr.buildWorkoutShareHashtagContentLineFromTopics
+import com.erv.app.nostr.workoutShareBaseTopicTags
 import com.erv.app.workouts.ComposedWorkoutHrSummary
 import com.erv.app.workouts.attachComposedWorkoutHeartRateToLinkedLogs
+import com.erv.app.workouts.publishComposedWorkoutNote
 import com.erv.app.workouts.buildComposedWorkoutHrSummary
 import com.erv.app.workouts.resolveCardioLaunch
 import com.erv.app.workouts.resolveStretchLaunch
@@ -79,6 +96,16 @@ private data class ActiveWorkoutRest(
     val secondsRemaining: Int,
     val label: String,
 )
+
+/** Between-section splash shown after finishing one section, counting down into the next. */
+private data class WorkoutSectionTransition(
+    val finishedTitle: String,
+    val nextTitle: String,
+    val secondsRemaining: Int,
+    val autoAdvance: Boolean,
+)
+
+private const val SECTION_TRANSITION_COUNTDOWN_SECONDS = 5
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -95,6 +122,8 @@ fun WorkoutLiveRunScreen(
     userPreferences: UserPreferences,
     weightLiveWorkoutViewModel: WeightLiveWorkoutViewModel,
     cardioLiveWorkoutViewModel: CardioLiveWorkoutViewModel,
+    relayPool: RelayPool? = null,
+    signer: EventSigner? = null,
     onBack: () -> Unit,
     onOpenWeightCategory: () -> Unit,
     onOpenCardioCategory: () -> Unit,
@@ -118,11 +147,23 @@ fun WorkoutLiveRunScreen(
     var pendingCircuitSegment by remember { mutableStateOf<WorkoutSegment?>(null) }
     var pendingWeightBatch by remember { mutableStateOf<List<WorkoutItem.Weight>?>(null) }
     var activeRest by remember { mutableStateOf<ActiveWorkoutRest?>(null) }
+    var sectionTransition by remember { mutableStateOf<WorkoutSectionTransition?>(null) }
 
+    // A finished section leaves both a "next section" title and (when the workout continues) a
+    // "just finished" title. Turn that into a full-screen transition splash that counts down into
+    // the next section instead of a quick snackbar + instant auto-advance.
     LaunchedEffect(activeRun?.pendingNextSegmentTitle) {
-        val title = activeRun?.pendingNextSegmentTitle ?: return@LaunchedEffect
-        snackbarHostState.showSnackbar("Next: $title")
+        val nextTitle = activeRun?.pendingNextSegmentTitle ?: return@LaunchedEffect
+        sectionTransition = WorkoutSectionTransition(
+            finishedTitle = activeRun.pendingCompletedSegmentTitle ?: "Section",
+            nextTitle = nextTitle,
+            secondsRemaining = SECTION_TRANSITION_COUNTDOWN_SECONDS,
+            autoAdvance = activeRun.autoAdvanceRequested,
+        )
+        // Consume the prompt + auto-advance flag now; the countdown drives the launch itself so
+        // the auto-advance effect below does not fire underneath the splash.
         repository.clearPendingNextSegmentPrompt()
+        repository.clearAutoAdvance()
     }
 
     LaunchedEffect(workoutId, workout) {
@@ -157,6 +198,9 @@ fun WorkoutLiveRunScreen(
             suppressNotification = true,
         )
         if (started) {
+            // Re-arm the per-section HR buffer so every section (not just the first) captures its
+            // own snapshot; the continuous whole-workout buffer keeps running untouched.
+            heartRateBle.resetWorkoutRecordingOnLiveStart()
             val firstItem = segment.weightItems().firstOrNull()
             scope.launch {
                 if (firstItem != null) {
@@ -192,6 +236,7 @@ fun WorkoutLiveRunScreen(
             suppressNotification = true,
         )
         if (started) {
+            heartRateBle.resetWorkoutRecordingOnLiveStart()
             scope.launch {
                 if (segmentId != null) {
                     repository.setLastLaunchedItem(segmentId, item.id)
@@ -234,6 +279,7 @@ fun WorkoutLiveRunScreen(
             suppressNotification = true,
         )
         if (started) {
+            heartRateBle.resetWorkoutRecordingOnLiveStart()
             scope.launch {
                 if (segmentId != null) {
                     repository.setLastLaunchedItems(segmentId, items.map { it.id })
@@ -286,6 +332,7 @@ fun WorkoutLiveRunScreen(
             }
             return
         }
+        heartRateBle.resetWorkoutRecordingOnLiveStart()
         val segmentIndex = activeRun?.position?.segmentIndex ?: 0
         val cardioSegmentId = workout?.segments?.getOrNull(segmentIndex)?.id
         scope.launch {
@@ -443,9 +490,12 @@ fun WorkoutLiveRunScreen(
         ComposedWorkoutSummaryScreen(
             summary = summary,
             zoneInputs = heartRateZoneInputs,
+            relayPool = relayPool,
+            signer = signer,
             onDone = {
                 finishingRun = true
                 scope.launch {
+                    heartRateBle.discardComposedWorkoutRunRecording()
                     repository.clearActiveRun()
                     onBack()
                 }
@@ -480,6 +530,38 @@ fun WorkoutLiveRunScreen(
         }
     }
 
+    // Launch the silo screen for the current step. Shared by continuous auto-advance and by the
+    // section-transition splash once its countdown reaches zero.
+    fun launchCurrentStepSilo() {
+        if (!runStarted || isResting || isComplete) return
+        if (weightLiveWorkoutViewModel.hasLiveSession || cardioLiveWorkoutViewModel.hasActiveTimer) return
+        val step = currentStep ?: return
+        val segment = step.segment
+        if (segment.kind == WorkoutSegmentKind.CIRCUIT || segment.kind == WorkoutSegmentKind.SUPERSET) {
+            proceedToCircuitLaunch(segment)
+            return
+        }
+        when (val item = step.item) {
+            is WorkoutItem.Weight -> launchWeightSection()
+            is WorkoutItem.Cardio -> launchCardioItem(item)
+            is WorkoutItem.Mobility -> launchMobilityItem(item)
+            else -> Unit
+        }
+    }
+
+    // Drive the between-section splash countdown, then continue into the next section.
+    LaunchedEffect(sectionTransition?.secondsRemaining) {
+        val transition = sectionTransition ?: return@LaunchedEffect
+        if (transition.secondsRemaining <= 0) {
+            val shouldAutoAdvance = transition.autoAdvance
+            sectionTransition = null
+            if (shouldAutoAdvance) launchCurrentStepSilo()
+            return@LaunchedEffect
+        }
+        delay(1_000L)
+        sectionTransition = transition.copy(secondsRemaining = transition.secondsRemaining - 1)
+    }
+
     LaunchedEffect(activeRest?.advanceFrom, activeRest?.secondsRemaining) {
         val rest = activeRest ?: return@LaunchedEffect
         if (rest.secondsRemaining <= 0) {
@@ -507,37 +589,24 @@ fun WorkoutLiveRunScreen(
 
     LaunchedEffect(
         activeRun?.autoAdvanceRequested,
+        activeRun?.pendingNextSegmentTitle,
         position.segmentIndex,
         position.itemIndex,
         position.round,
     ) {
         if (activeRun?.autoAdvanceRequested != true) return@LaunchedEffect
+        // Section boundaries are handled by the transition splash, which launches the next
+        // section when its countdown finishes; skip the instant auto-advance in that case.
+        if (activeRun.pendingNextSegmentTitle != null || sectionTransition != null) {
+            return@LaunchedEffect
+        }
         repository.clearAutoAdvance()
-        if (!runStarted || isResting || isComplete) {
-            return@LaunchedEffect
-        }
-        if (weightLiveWorkoutViewModel.hasLiveSession || cardioLiveWorkoutViewModel.hasActiveTimer) {
-            return@LaunchedEffect
-        }
-        val step = currentStep
-        if (step == null) {
-            return@LaunchedEffect
-        }
-        val segment = step.segment
-        if (segment.kind == WorkoutSegmentKind.CIRCUIT || segment.kind == WorkoutSegmentKind.SUPERSET) {
-            proceedToCircuitLaunch(segment)
-            return@LaunchedEffect
-        }
-        when (val item = step.item) {
-            is WorkoutItem.Weight -> launchWeightSection()
-            is WorkoutItem.Cardio -> launchCardioItem(item)
-            is WorkoutItem.Mobility -> launchMobilityItem(item)
-            else -> Unit
-        }
+        launchCurrentStepSilo()
     }
 
+    Box(modifier = modifier.fillMaxSize()) {
     Scaffold(
-        modifier = modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize(),
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
@@ -940,6 +1009,7 @@ fun WorkoutLiveRunScreen(
                         onClick = {
                             finishingRun = true
                             scope.launch {
+                                heartRateBle.discardComposedWorkoutRunRecording()
                                 repository.clearActiveRun()
                                 onBack()
                             }
@@ -952,6 +1022,17 @@ fun WorkoutLiveRunScreen(
             }
         }
     }
+    sectionTransition?.let { transition ->
+        WorkoutSectionTransitionSplash(
+            finishedTitle = transition.finishedTitle,
+            nextTitle = transition.nextTitle,
+            secondsRemaining = transition.secondsRemaining,
+            onStartNow = {
+                sectionTransition = transition.copy(secondsRemaining = 0)
+            },
+        )
+    }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -959,8 +1040,18 @@ fun WorkoutLiveRunScreen(
 private fun ComposedWorkoutSummaryScreen(
     summary: ComposedWorkoutHrSummary,
     zoneInputs: HeartRateZoneInputs,
+    relayPool: RelayPool?,
+    signer: EventSigner?,
     onDone: () -> Unit,
 ) {
+    val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
+    var sharing by remember { mutableStateOf(false) }
+    var shared by remember { mutableStateOf(false) }
+    var sharePersonalMessage by remember { mutableStateOf("") }
+    var shareHashtags by remember {
+        mutableStateOf(buildWorkoutShareHashtagContentLineFromTopics(workoutShareBaseTopicTags))
+    }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -971,6 +1062,7 @@ private fun ComposedWorkoutSummaryScreen(
                 ),
             )
         },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
         LazyColumn(
             modifier = Modifier
@@ -981,6 +1073,35 @@ private fun ComposedWorkoutSummaryScreen(
         ) {
             item {
                 Text(summary.workoutName, style = MaterialTheme.typography.headlineSmall)
+            }
+            item {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        summary.totalElapsedSeconds?.takeIf { it > 0 }?.let { seconds ->
+                            Text(
+                                text = "Total time  ${seconds / 60}:${"%02d".format(seconds % 60)}",
+                                style = MaterialTheme.typography.titleMedium,
+                            )
+                        }
+                        if (summary.sectionCount > 0) {
+                            Text(
+                                text = "${summary.sectionCount} section(s) completed",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        summary.wholeRun?.let { hr ->
+                            Text(
+                                text = "Heart rate  avg ${hr.avgBpm} · max ${hr.maxBpm} bpm",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
             }
             if (summary.wholeRun != null) {
                 item {
@@ -1031,10 +1152,129 @@ private fun ComposedWorkoutSummaryScreen(
                     }
                 }
             }
+            if (relayPool != null && signer != null) {
+                item {
+                    OutlinedTextField(
+                        value = sharePersonalMessage,
+                        onValueChange = { sharePersonalMessage = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !sharing && !shared,
+                        label = { Text("Add a note (optional)") },
+                        minLines = 2,
+                        maxLines = 5,
+                    )
+                }
+                item {
+                    OutlinedTextField(
+                        value = shareHashtags,
+                        onValueChange = { shareHashtags = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !sharing && !shared,
+                        label = { Text("Hashtags") },
+                        minLines = 1,
+                        maxLines = 3,
+                    )
+                }
+                item {
+                    OutlinedButton(
+                        onClick = {
+                            if (sharing || shared) return@OutlinedButton
+                            sharing = true
+                            scope.launch {
+                                val ok = publishComposedWorkoutNote(
+                                    relayPool = relayPool,
+                                    signer = signer,
+                                    summary = summary,
+                                    personalMessage = sharePersonalMessage,
+                                    hashtagsInput = shareHashtags,
+                                )
+                                sharing = false
+                                shared = ok
+                                snackbarHostState.showSnackbar(
+                                    if (ok) "Shared to your relays!" else "Failed to share — check relay connection",
+                                )
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !sharing && !shared,
+                    ) {
+                        Icon(Icons.Filled.Share, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            when {
+                                sharing -> "Sharing…"
+                                shared -> "Shared"
+                                else -> "Share workout"
+                            },
+                        )
+                    }
+                }
+            }
             item {
                 Button(onClick = onDone, modifier = Modifier.fillMaxWidth()) {
                     Text("Done")
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WorkoutSectionTransitionSplash(
+    finishedTitle: String,
+    nextTitle: String,
+    secondsRemaining: Int,
+    onStartNow: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(ErvHeaderRed),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(
+                text = "$finishedTitle finished",
+                style = MaterialTheme.typography.headlineSmall,
+                color = Color.White,
+                fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.Center,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = "Next section",
+                style = MaterialTheme.typography.labelLarge,
+                color = Color.White.copy(alpha = 0.8f),
+            )
+            Text(
+                text = nextTitle,
+                style = MaterialTheme.typography.headlineMedium,
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
+            )
+            Spacer(Modifier.height(16.dp))
+            Text(
+                text = secondsRemaining.coerceAtLeast(0).toString(),
+                style = MaterialTheme.typography.displayLarge,
+                fontSize = 96.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+            )
+            Text(
+                text = "Starts in ${secondsRemaining.coerceAtLeast(0)}s",
+                style = MaterialTheme.typography.bodyLarge,
+                color = Color.White.copy(alpha = 0.8f),
+            )
+            Spacer(Modifier.height(16.dp))
+            TextButton(onClick = onStartNow) {
+                Text("Start now", color = Color.White)
             }
         }
     }

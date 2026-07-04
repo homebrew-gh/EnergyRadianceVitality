@@ -15,6 +15,7 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -162,6 +163,7 @@ import com.erv.app.programs.encodeUnifiedRoutineLaunch
 import com.erv.app.programs.launchPadLabelsForBlocks
 import com.erv.app.programs.programBlockCompletionKey
 import com.erv.app.programs.programBlocksForDate
+import com.erv.app.programs.trainingLaunchPadSubtitle
 import com.erv.app.programs.programChecklistCompletionKey
 import com.erv.app.programs.ProgramStrategyMode
 import com.erv.app.programs.resolveProgramStrategyForDate
@@ -660,16 +662,17 @@ fun DashboardScreen(
         }
     }
 
-    LaunchedEffect(pendingReminderRoutineId, supplementState.routines) {
+    LaunchedEffect(pendingReminderRoutineId) {
         val routineId = pendingReminderRoutineId ?: return@LaunchedEffect
-        for (attempt in 0 until 20) {
-            val routine = supplementState.routines.firstOrNull { it.id == routineId }
+        for (attempt in 0 until 40) {
+            val routine = supplementRepository.currentState().routines
+                .firstOrNull { it.id == routineId }
+                ?: supplementState.routines.firstOrNull { it.id == routineId }
             if (routine != null) {
                 routinePreview = routine
                 onConsumePendingReminderRoutineId()
                 return@LaunchedEffect
             }
-            if (supplementState.routines.isNotEmpty()) break
             delay(100)
         }
         onConsumePendingReminderRoutineId()
@@ -923,6 +926,7 @@ fun DashboardScreen(
                                     dashboardSelectedDate = selectedDate,
                                     userPreferences = userPreferences,
                                     programsLibraryState = programsState,
+                                    workoutState = workoutState,
                                     programRepository = programRepository,
                                     onOpenProgramsBuilder = { onNavigateToCategory(programsCategory) },
                                     onProgramBlockStart = { block -> startProgramBlockFromLaunchPad(block) },
@@ -1855,6 +1859,7 @@ private data class QuickLogTileSpec(
     val onClick: () -> Unit,
     val secondaryIcon: ImageVector? = null,
     val statusBadge: QuickLogTileStatusBadge? = null,
+    val subtitleMarquee: Boolean = false,
 )
 
 private enum class QuickLogTileStatusBadge {
@@ -2127,6 +2132,7 @@ private fun QuickLogTilesLayout(
                         secondaryIcon = tile.secondaryIcon,
                         statusBadge = tile.statusBadge,
                         elevation = animatedElevation,
+                        subtitleMarquee = tile.subtitleMarquee,
                         onHide = if (editMode) ({ onTileHidden(tile.id) }) else null,
                     )
                 }
@@ -2159,6 +2165,7 @@ private fun RoutinesSection(
     dashboardSelectedDate: LocalDate,
     userPreferences: UserPreferences,
     programsLibraryState: ProgramsLibraryState,
+    workoutState: WorkoutLibraryState,
     programRepository: ProgramRepository,
     onOpenProgramsBuilder: () -> Unit,
     onProgramBlockStart: (ProgramDayBlock) -> Unit,
@@ -2225,6 +2232,9 @@ private fun RoutinesSection(
     val usesProgramStrategy = resolvedProgram.isUsingStrategy
     val programBlocks = remember(programsLibraryState, dashboardSelectedDate, activeProgram?.id) {
         programsLibraryState.programBlocksForDate(dashboardSelectedDate)
+    }
+    val todayTrainingBlocks = remember(programsLibraryState, activeProgram?.id) {
+        programsLibraryState.programBlocksForDate(LocalDate.now())
     }
     val programRowLabels = remember(programBlocks) { launchPadLabelsForBlocks(programBlocks) }
     val programBlockProgress = remember(
@@ -2344,7 +2354,8 @@ private fun RoutinesSection(
                 )
             }
             val availableTileSpecs = remember(
-                unifiedRoutines,
+                todayTrainingBlocks,
+                workoutState.workouts,
                 stretchRoutineCount,
                 cardioRoutines,
                 cardioQuickLaunches,
@@ -2357,6 +2368,8 @@ private fun RoutinesSection(
                 onOpenFastingCategory,
                 onOpenBodyTrackerCategory,
             ) {
+                val workoutById = workoutState.workouts.associateBy { it.id }
+                val trainingSubtitle = trainingLaunchPadSubtitle(todayTrainingBlocks, workoutById)
                 buildMap<LaunchPadTileId, QuickLogTileSpec> {
                     put(
                         LaunchPadTileId.TRAINING,
@@ -2364,14 +2377,8 @@ private fun RoutinesSection(
                             id = LaunchPadTileId.TRAINING,
                             icon = Icons.Default.Sports,
                             label = "Training",
-                            subtitle = when {
-                                unifiedRoutines.isEmpty() && activeProgram == null ->
-                                    "Workouts, plans & building blocks"
-                                activeProgram != null ->
-                                    "Active plan · ${unifiedRoutines.size} workouts"
-                                else ->
-                                    "${unifiedRoutines.size} mixed workouts"
-                            },
+                            subtitle = trainingSubtitle,
+                            subtitleMarquee = trainingSubtitle != "Rest",
                             onClick = onOpenTraining,
                         )
                     )
@@ -3973,6 +3980,7 @@ private fun SupplementTimeOfDay.label(): String = when (this) {
     SupplementTimeOfDay.OTHER -> "Other"
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun RoutineTile(
     icon: ImageVector,
@@ -3982,6 +3990,7 @@ private fun RoutineTile(
     secondaryIcon: ImageVector? = null,
     statusBadge: QuickLogTileStatusBadge? = null,
     elevation: Dp = 4.dp,
+    subtitleMarquee: Boolean = false,
     onHide: (() -> Unit)? = null,
 ) {
     ElevatedCard(
@@ -4031,7 +4040,17 @@ private fun RoutineTile(
                     text = subtitle,
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center
+                    textAlign = TextAlign.Center,
+                    maxLines = 1,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .then(
+                            if (subtitleMarquee) {
+                                Modifier.basicMarquee()
+                            } else {
+                                Modifier
+                            },
+                        ),
                 )
             }
             statusBadge?.let { badge ->

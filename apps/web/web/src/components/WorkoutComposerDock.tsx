@@ -30,7 +30,7 @@ export function WorkoutComposerDock({
 
   return (
     <div
-      className="fixed z-30 pointer-events-none inset-x-3 bottom-4 sm:inset-x-auto sm:right-5 sm:bottom-auto sm:top-1/2 sm:-translate-y-1/2 sm:w-[13.5rem]"
+      className="pointer-events-none fixed inset-x-3 bottom-4 z-30 lg:relative lg:inset-auto lg:bottom-auto lg:z-auto lg:w-full"
       role="complementary"
       aria-label="Workout publish actions"
     >

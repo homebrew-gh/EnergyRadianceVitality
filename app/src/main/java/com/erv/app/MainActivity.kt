@@ -184,7 +184,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun handleReminderIntent(intent: android.content.Intent?) {
-        pendingReminderRoutineId.value = intent?.getStringExtra(com.erv.app.reminders.RoutineReminderScheduler.EXTRA_ROUTINE_ID)
+        if (intent == null) return
+        val fromReminderTap = intent.getBooleanExtra(RoutineReminderScheduler.EXTRA_FROM_REMINDER, false) ||
+            intent.action == RoutineReminderScheduler.ACTION_ROUTINE_REMINDER
+        if (!fromReminderTap) return
+        pendingReminderRoutineId.value = intent.getStringExtra(RoutineReminderScheduler.EXTRA_ROUTINE_ID)
     }
 }
 
