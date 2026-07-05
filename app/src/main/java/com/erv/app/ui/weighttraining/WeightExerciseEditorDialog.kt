@@ -62,6 +62,9 @@ fun WeightExerciseEditorDialog(
     var pushOrPull by remember(initial?.id) { mutableStateOf(initial?.pushOrPull ?: WeightPushPull.PUSH) }
     var equipment by remember(initial?.id) { mutableStateOf(initial?.equipment ?: WeightEquipment.BARBELL) }
     var hiitCapable by remember(initial?.id) { mutableStateOf(initial?.hiitCapable == true) }
+    var timePerSetCapable by remember(initial?.id) { mutableStateOf(initial?.timePerSetCapable == true) }
+    var repPerSetCapable by remember(initial?.id) { mutableStateOf(initial?.repPerSetCapable != false) }
+    val isBuiltin = initial?.id?.startsWith("erv-weight-exercise-") == true
     val resolvedMuscleGroup = if (useCustomMuscleGroup) {
         customMuscleGroup.trim()
     } else {
@@ -165,6 +168,59 @@ fun WeightExerciseEditorDialog(
                         )
                     }
                 }
+                if (!isBuiltin) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .toggleable(
+                                value = timePerSetCapable,
+                                role = Role.Checkbox,
+                                onValueChange = {
+                                    timePerSetCapable = it
+                                    if (!it) repPerSetCapable = true
+                                },
+                            ),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Checkbox(checked = timePerSetCapable, onCheckedChange = null)
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                "Timed sets",
+                                style = MaterialTheme.typography.bodyLarge,
+                            )
+                            Text(
+                                "Prescribe and log holds or carries by duration instead of reps.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    if (timePerSetCapable) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .toggleable(
+                                    value = repPerSetCapable,
+                                    role = Role.Checkbox,
+                                    onValueChange = { repPerSetCapable = it },
+                                ),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Checkbox(checked = repPerSetCapable, onCheckedChange = null)
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    "Also allow rep-based sets",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                )
+                                Text(
+                                    "When off, this exercise is time-only (e.g. carries, planks).",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                }
             }
         },
         confirmButton = {
@@ -181,6 +237,18 @@ fun WeightExerciseEditorDialog(
                             equipment = equipment,
                             exercisePackId = initial?.exercisePackId,
                             hiitCapable = hiitCapable,
+                            timePerSetCapable = if (isBuiltin) {
+                                initial?.timePerSetCapable == true
+                            } else {
+                                timePerSetCapable
+                            },
+                            repPerSetCapable = if (isBuiltin) {
+                                initial?.repPerSetCapable != false
+                            } else if (timePerSetCapable) {
+                                repPerSetCapable
+                            } else {
+                                true
+                            },
                             sessionSummaries = initial?.sessionSummaries.orEmpty()
                         )
                     )

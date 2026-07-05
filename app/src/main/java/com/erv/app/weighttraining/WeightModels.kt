@@ -6,6 +6,7 @@ import com.erv.app.cardio.CardioHrScaffolding
 import com.erv.app.unifiedroutines.UnifiedSessionLink
 import kotlinx.serialization.EncodeDefault
 import kotlinx.serialization.SerialName
+import com.erv.app.workouts.DEFAULT_TIMED_PREP_SECONDS
 import kotlinx.serialization.Serializable
 import java.time.LocalDate
 import java.util.Locale
@@ -125,14 +126,32 @@ data class WeightSet(
     val durationSeconds: Int? = null,
     /** Builder / prescription hint shown as a ghost value until the athlete logs reps. */
     val targetReps: Int? = null,
+    /** Ghost rep hint for a prescription range (e.g. "5-8") when [targetReps] is unset. */
+    val targetRepsRangeLabel: String? = null,
     /** Builder / prescription hint shown as a ghost load until the athlete logs weight. */
     val targetWeightKg: Double? = null,
     /** Builder / prescription hint for timed holds; live timer defaults to this or 30s. */
     val targetDurationSeconds: Int? = null,
 )
 
+/** Ghost text for the live-workout reps field (single target or range label). */
+fun WeightSet.repsShadowText(): String? =
+    targetReps?.takeIf { it > 0 }?.toString()
+        ?: targetRepsRangeLabel?.takeIf { it.isNotBlank() }
+
 /** A set is "logged" (worth keeping) when it has reps or a timed hold. */
 fun WeightSet.isLogged(): Boolean = reps > 0 || (durationSeconds ?: 0) > 0
+
+/** True when a set row transitions from empty to logged (reps or timed hold). */
+fun weightSetLoggingTriggersRest(previous: List<WeightSet>, updated: List<WeightSet>): Boolean {
+    val limit = maxOf(previous.size, updated.size)
+    for (i in 0 until limit) {
+        val before = previous.getOrNull(i) ?: WeightSet()
+        val after = updated.getOrNull(i) ?: continue
+        if (!before.isLogged() && after.isLogged()) return true
+    }
+    return false
+}
 
 /** Logged result of completing a guided interval block for one exercise in a session. */
 @Serializable
@@ -335,7 +354,23 @@ data class WeightWorkoutDraft(
     /** When the user focused an exercise (expand / log sets / HIIT); used to correlate HR samples. */
     val exerciseFocusMarks: List<WeightExerciseFocusMark> = emptyList(),
     val circuitRun: WeightWorkoutCircuitRun? = null,
+    /** Per-exercise rest between sets from a planned workout prescription (seconds). */
+    val restBetweenSetsSecondsByExerciseId: Map<String, Int> = emptyMap(),
+    /** Per-exercise get-ready countdown before each timed set (seconds); 0 = none. */
+    val timedPrepSecondsByExerciseId: Map<String, Int> = emptyMap(),
 )
+
+/** Get-ready seconds before a timed set; falls back to [DEFAULT_TIMED_PREP_SECONDS] for time-only exercises. */
+fun WeightWorkoutDraft.timedPrepSecondsFor(
+    exerciseId: String,
+    loggingStyle: WeightSetLoggingStyle,
+): Int {
+    if (exerciseId in timedPrepSecondsByExerciseId) {
+        return timedPrepSecondsByExerciseId[exerciseId] ?: 0
+    }
+    if (loggingStyle == WeightSetLoggingStyle.TIME_ONLY) return DEFAULT_TIMED_PREP_SECONDS
+    return 0
+}
 
 private fun WeightWorkoutDraft.entryForOrderedExercise(id: String): WeightWorkoutEntry? {
     val hiit = hiitBlocksByExerciseId[id]

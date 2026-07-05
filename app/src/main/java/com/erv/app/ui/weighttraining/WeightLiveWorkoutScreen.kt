@@ -74,17 +74,20 @@ import com.erv.app.weighttraining.WeightHiitBlockLog
 import com.erv.app.weighttraining.WeightHiitIntervalPlan
 import com.erv.app.weighttraining.WeightLibraryState
 import com.erv.app.weighttraining.WeightSet
+import com.erv.app.weighttraining.WeightWorkoutDraft
 import com.erv.app.weighttraining.displayLabel
 import com.erv.app.weighttraining.formatHiitBlockSummaryLine
 import com.erv.app.weighttraining.formatSetValueLine
+import com.erv.app.weighttraining.isLogged
+import com.erv.app.weighttraining.setLoggingStyle
+import com.erv.app.weighttraining.timedPrepSecondsFor
 import com.erv.app.weighttraining.useTimedSetLogging
 import com.erv.app.weighttraining.usesTimedHoldCountdownBeeps
-import com.erv.app.weighttraining.isLogged
 import com.erv.app.weighttraining.weightLoadUnitSuffix
-import com.erv.app.weighttraining.WeightWorkoutDraft
+import com.erv.app.weighttraining.weightNowEpochSeconds
+import com.erv.app.weighttraining.weightSetLoggingTriggersRest
 import com.erv.app.workouts.currentSlot
 import com.erv.app.workouts.isCurrentSlotLogged
-import com.erv.app.weighttraining.weightNowEpochSeconds
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -152,8 +155,10 @@ fun WeightLiveWorkoutScreen(
     }
     var mediaControlsEnabled by rememberSaveable { mutableStateOf(false) }
     var hiitTimerTarget by remember { mutableStateOf<Pair<String, WeightHiitIntervalPlan>?>(null) }
+    var timedSetTimerTarget by remember { mutableStateOf<WeightTimedSetTimerTarget?>(null) }
     var restEndAtEpochSeconds by remember(draft.startedAtEpochSeconds) { mutableStateOf<Long?>(null) }
     var restManualPending by remember(draft.startedAtEpochSeconds) { mutableStateOf(false) }
+    var activeRestExerciseId by remember(draft.startedAtEpochSeconds) { mutableStateOf<String?>(null) }
     var showRestTimerSettings by remember { mutableStateOf(false) }
 
     val restTimerMode by userPreferences.weightLiveRestTimerMode.collectAsState(
@@ -242,19 +247,47 @@ fun WeightLiveWorkoutScreen(
         previousRestRemainingSec = current
     }
 
-    fun onAddSetPressedForRest() {
-        clearRestTimerUi()
+    fun restDurationFor(exerciseId: String?): Int {
+        val planned = exerciseId
+            ?.let { draft.restBetweenSetsSecondsByExerciseId[it] }
+            ?.takeIf { it > 0 }
+        return planned ?: restTimerDurationSec
+    }
+
+    fun triggerRestAfterSet(exerciseId: String) {
         if (hiitTimerTarget != null) return
+        if (timedSetTimerTarget != null) return
         val mode = restTimerMode
-        val duration = restTimerDurationSec
+        val duration = restDurationFor(exerciseId)
         if (mode == WeightLiveRestTimerMode.OFF || duration <= 0) return
+        activeRestExerciseId = exerciseId
+        restEndAtEpochSeconds = null
         when (mode) {
             WeightLiveRestTimerMode.OFF -> Unit
-            WeightLiveRestTimerMode.AUTO ->
+            WeightLiveRestTimerMode.AUTO -> {
+                restManualPending = false
                 restEndAtEpochSeconds = weightNowEpochSeconds() + duration
-            WeightLiveRestTimerMode.MANUAL ->
+            }
+            WeightLiveRestTimerMode.MANUAL -> {
                 restManualPending = true
+            }
         }
+    }
+
+    fun openTimedSetTimer(exerciseId: String, storageSetIndex: Int) {
+        val exercise = library.exerciseById(exerciseId) ?: return
+        val sets = weightSetsInDraft(draft, exerciseId)
+        val set = sets.getOrNull(storageSetIndex) ?: return
+        val goalSeconds = set.targetDurationSeconds?.takeIf { it > 0 } ?: return
+        onRecordExerciseActivity(exerciseId)
+        clearRestTimerUi()
+        timedSetTimerTarget = WeightTimedSetTimerTarget(
+            exerciseId = exerciseId,
+            setIndex = storageSetIndex,
+            goalSeconds = goalSeconds,
+            prepSeconds = draft.timedPrepSecondsFor(exerciseId, exercise.setLoggingStyle()),
+            countdownBeeps = exercise.usesTimedHoldCountdownBeeps(),
+        )
     }
 
     val darkTheme = isSystemInDarkTheme()
@@ -357,6 +390,35 @@ fun WeightLiveWorkoutScreen(
                 if (circuitRun != null) onAfterCircuitSetLogged()
             },
             onDismiss = { hiitTimerTarget = null }
+        )
+    }
+
+    timedSetTimerTarget?.let { target ->
+        val exName = library.exerciseById(target.exerciseId)?.name ?: target.exerciseId
+        WeightTimedSetTimerOverlay(
+            exerciseName = exName,
+            goalSeconds = target.goalSeconds,
+            prepSeconds = target.prepSeconds,
+            countdownBeeps = target.countdownBeeps,
+            onFinished = { durationSeconds ->
+                val exerciseId = target.exerciseId
+                val setIndex = target.setIndex
+                onRecordExerciseActivity(exerciseId)
+                val allSets = weightSetsInDraft(draft, exerciseId)
+                val previousSets = allSets
+                val updatedSets = allSets.toMutableList()
+                if (setIndex in updatedSets.indices) {
+                    updatedSets[setIndex] = updatedSets[setIndex].copy(durationSeconds = durationSeconds)
+                    onSaveSets(exerciseId, updatedSets)
+                    if (weightSetLoggingTriggersRest(previousSets, updatedSets)) {
+                        triggerRestAfterSet(exerciseId)
+                    }
+                }
+                timedSetTimerTarget = null
+                setsCollapsedIds = setsCollapsedIds - exerciseId
+                if (circuitRun != null) onAfterCircuitSetLogged()
+            },
+            onDismiss = { timedSetTimerTarget = null },
         )
     }
 
@@ -547,7 +609,8 @@ fun WeightLiveWorkoutScreen(
                 restManualPending = restManualPending && restEndAtEpochSeconds == null,
                 onStartManualRest = {
                     restManualPending = false
-                    restEndAtEpochSeconds = weightNowEpochSeconds() + restTimerDurationSec
+                    val exerciseId = activeRestExerciseId ?: editingExerciseId
+                    restEndAtEpochSeconds = weightNowEpochSeconds() + restDurationFor(exerciseId)
                 },
                 onSkipRest = { clearRestTimerUi() },
                 onRestZoneLongPress = { showRestTimerSettings = true },
@@ -611,14 +674,20 @@ fun WeightLiveWorkoutScreen(
                             equipment = ex?.equipment,
                             sets = sets,
                             loadUnit = loadUnit,
-                            onSetsChange = {
+                            onSetsChange = { changedSets ->
+                                val previousSets = allSets
                                 onRecordExerciseActivity(editingId)
-                                if (circuitRoundSetIndex != null) {
+                                val updatedSets = if (circuitRoundSetIndex != null) {
                                     val updated = allSets.toMutableList()
-                                    updated[circuitRoundSetIndex] = it.firstOrNull() ?: updated[circuitRoundSetIndex]
-                                    onSaveSets(editingId, updated)
+                                    updated[circuitRoundSetIndex] =
+                                        changedSets.firstOrNull() ?: updated[circuitRoundSetIndex]
+                                    updated
                                 } else {
-                                    onSaveSets(editingId, it)
+                                    changedSets
+                                }
+                                onSaveSets(editingId, updatedSets)
+                                if (weightSetLoggingTriggersRest(previousSets, updatedSets)) {
+                                    triggerRestAfterSet(editingId)
                                 }
                             },
                             canMoveUp = false,
@@ -656,9 +725,13 @@ fun WeightLiveWorkoutScreen(
                                 if (circuitRun != null) {
                                     onAfterCircuitSetLogged()
                                 } else {
-                                    onAddSetPressedForRest()
+                                    triggerRestAfterSet(editingId)
                                 }
-                            }
+                            },
+                            onStartTimedSetTimer = { setIndex ->
+                                val storageIndex = circuitRoundSetIndex ?: setIndex
+                                openTimedSetTimer(editingId, storageIndex)
+                            },
                         )
                     }
                     if (circuitRun != null && editingActiveSlot) {
@@ -749,9 +822,13 @@ fun WeightLiveWorkoutScreen(
                                 equipment = ex?.equipment,
                                 sets = sets,
                                 loadUnit = loadUnit,
-                                onSetsChange = {
+                                onSetsChange = { newSets ->
+                                    val previousSets = weightSetsInDraft(draft, exerciseId)
                                     onRecordExerciseActivity(exerciseId)
-                                    onSaveSets(exerciseId, it)
+                                    onSaveSets(exerciseId, newSets)
+                                    if (weightSetLoggingTriggersRest(previousSets, newSets)) {
+                                        triggerRestAfterSet(exerciseId)
+                                    }
                                 },
                                 canMoveUp = index > 0,
                                 canMoveDown = index < draft.exerciseOrder.lastIndex,
@@ -782,7 +859,10 @@ fun WeightLiveWorkoutScreen(
                                     clearRestTimerUi()
                                     hiitTimerTarget = exerciseId to plan
                                 },
-                                onAfterAddSet = { onAddSetPressedForRest() }
+                                onAfterAddSet = { triggerRestAfterSet(exerciseId) },
+                                onStartTimedSetTimer = { setIndex ->
+                                    openTimedSetTimer(exerciseId, setIndex)
+                                },
                             )
                         }
                     }

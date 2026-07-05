@@ -13,14 +13,17 @@ import com.erv.app.weighttraining.WeightSet
 import com.erv.app.workouts.WorkoutItem
 import com.erv.app.workouts.WorkoutSegment
 import com.erv.app.workouts.WorkoutWeightPrescription
+import com.erv.app.workouts.effectiveTimedPrepSeconds
 import com.erv.app.workouts.advanceAfterSlot
 import com.erv.app.workouts.buildCircuitSetsSeed
 import com.erv.app.workouts.buildWorkoutCircuitRun
 import com.erv.app.workouts.circuitSlotKey
 import com.erv.app.workouts.currentSlot
+import com.erv.app.workouts.effectiveTimedPrepSeconds
 import com.erv.app.workouts.isCurrentSlotLogged
 import com.erv.app.workouts.pendingRestBeforeAdvance
 import com.erv.app.workouts.resolvedSets
+import com.erv.app.workouts.toCircuitSlots
 import com.erv.app.workouts.toWorkoutRunPosition
 import com.erv.app.weighttraining.WeightWorkoutCircuitRun
 import com.erv.app.weighttraining.WeightExerciseFocusMark
@@ -155,6 +158,8 @@ class WeightLiveWorkoutViewModel(application: Application) : AndroidViewModel(ap
         val exercise = library.exerciseById(exerciseId) ?: return false
         val sets = prescription.resolvedSets(loggingStyle = exercise.setLoggingStyle())
         val started = weightNowEpochSeconds()
+        val restSeconds = prescription.restBetweenSetsSeconds?.takeIf { it > 0 }
+        val prepSeconds = prescription.effectiveTimedPrepSeconds()
         val draft = WeightWorkoutDraft(
             startedAtEpochSeconds = started,
             exerciseOrder = listOf(exerciseId),
@@ -162,6 +167,16 @@ class WeightLiveWorkoutViewModel(application: Application) : AndroidViewModel(ap
             hiitBlocksByExerciseId = emptyMap(),
             routineName = sessionLabel,
             exerciseFocusMarks = listOf(WeightExerciseFocusMark(exerciseId, started)),
+            restBetweenSetsSecondsByExerciseId = if (restSeconds != null) {
+                mapOf(exerciseId to restSeconds)
+            } else {
+                emptyMap()
+            },
+            timedPrepSecondsByExerciseId = if (prepSeconds > 0) {
+                mapOf(exerciseId to prepSeconds)
+            } else {
+                emptyMap()
+            },
         )
         _activeDraft.value = draft
         _liveWorkoutUiExpanded.value = true
@@ -189,12 +204,20 @@ class WeightLiveWorkoutViewModel(application: Application) : AndroidViewModel(ap
         val started = weightNowEpochSeconds()
         val order = mutableListOf<String>()
         val setsByExerciseId = mutableMapOf<String, List<WeightSet>>()
+        val restByExerciseId = mutableMapOf<String, Int>()
+        val prepByExerciseId = mutableMapOf<String, Int>()
         items.forEach { item ->
             val exercise = library.exerciseById(item.exerciseId) ?: return@forEach
             if (setsByExerciseId.containsKey(item.exerciseId)) return@forEach
             order.add(item.exerciseId)
             setsByExerciseId[item.exerciseId] =
                 item.prescription.resolvedSets(loggingStyle = exercise.setLoggingStyle())
+            item.prescription.restBetweenSetsSeconds?.takeIf { it > 0 }?.let { seconds ->
+                restByExerciseId[item.exerciseId] = seconds
+            }
+            item.prescription.effectiveTimedPrepSeconds().takeIf { it > 0 }?.let { seconds ->
+                prepByExerciseId[item.exerciseId] = seconds
+            }
         }
         if (order.isEmpty()) return false
         val draft = WeightWorkoutDraft(
@@ -204,6 +227,8 @@ class WeightLiveWorkoutViewModel(application: Application) : AndroidViewModel(ap
             hiitBlocksByExerciseId = emptyMap(),
             routineName = sessionLabel,
             exerciseFocusMarks = listOf(WeightExerciseFocusMark(order.first(), started)),
+            restBetweenSetsSecondsByExerciseId = restByExerciseId,
+            timedPrepSecondsByExerciseId = prepByExerciseId,
         )
         _activeDraft.value = draft
         _liveWorkoutUiExpanded.value = true
@@ -237,6 +262,11 @@ class WeightLiveWorkoutViewModel(application: Application) : AndroidViewModel(ap
         ) ?: return false
         val exerciseIds = circuit.slots.map { it.exerciseId }
         val setsSeed = segment.buildCircuitSetsSeed(library)
+        val prepByExerciseId = segment.toCircuitSlots().mapNotNull { slot ->
+            slot.prescription.effectiveTimedPrepSeconds().takeIf { it > 0 }?.let { prep ->
+                slot.exerciseId to prep
+            }
+        }.toMap()
         val started = weightNowEpochSeconds()
         val firstExerciseId = circuit.currentSlot()?.exerciseId
         val draft = WeightWorkoutDraft(
@@ -254,6 +284,7 @@ class WeightLiveWorkoutViewModel(application: Application) : AndroidViewModel(ap
                 listOf(WeightExerciseFocusMark(it, started))
             } ?: emptyList(),
             circuitRun = circuit,
+            timedPrepSecondsByExerciseId = prepByExerciseId,
         )
         _activeDraft.value = draft
         _liveWorkoutUiExpanded.value = true

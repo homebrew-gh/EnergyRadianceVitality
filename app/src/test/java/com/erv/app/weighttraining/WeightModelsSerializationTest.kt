@@ -1,5 +1,7 @@
 package com.erv.app.weighttraining
 
+import com.erv.app.workouts.DEFAULT_TIMED_PREP_SECONDS
+import com.erv.app.weighttraining.WeightSet
 import com.erv.app.weighttraining.WeightSetLoggingStyle
 import com.erv.app.weighttraining.setLoggingStyle
 import kotlinx.serialization.json.Json
@@ -514,5 +516,46 @@ class WeightModelsSerializationTest {
         assertEquals(105.0, h[0].entry.sets.first().weightKg!!, 0.001)
         assertEquals(LocalDate.parse("2026-03-18"), h[1].logDate)
         assertEquals(1, state.historyForExercise(squat).size)
+    }
+
+    @Test
+    fun weightSetLoggingTriggersRest_detects_first_logged_set() {
+        val previous = listOf(WeightSet(reps = 0), WeightSet(reps = 0))
+        val updated = listOf(WeightSet(reps = 5), WeightSet(reps = 0))
+        assertTrue(weightSetLoggingTriggersRest(previous, updated))
+    }
+
+    @Test
+    fun weightSetLoggingTriggersRest_ignores_edits_to_logged_set() {
+        val previous = listOf(WeightSet(reps = 5))
+        val updated = listOf(WeightSet(reps = 6))
+        assertFalse(weightSetLoggingTriggersRest(previous, updated))
+    }
+
+    @Test
+    fun weightWorkoutDraft_roundTrips_restBetweenSetsMap() {
+        val draft = WeightWorkoutDraft(
+            startedAtEpochSeconds = 1_700_000_000L,
+            exerciseOrder = listOf("deadlift"),
+            restBetweenSetsSecondsByExerciseId = mapOf("deadlift" to 180),
+            timedPrepSecondsByExerciseId = mapOf("carry" to 10),
+        )
+        val encoded = json.encodeToString(WeightWorkoutDraft.serializer(), draft)
+        val decoded = json.decodeFromString(WeightWorkoutDraft.serializer(), encoded)
+        assertEquals(180, decoded.restBetweenSetsSecondsByExerciseId["deadlift"])
+        assertEquals(10, decoded.timedPrepSecondsByExerciseId["carry"])
+    }
+
+    @Test
+    fun timedPrepSecondsFor_falls_back_for_time_only_exercises() {
+        val draft = WeightWorkoutDraft(
+            startedAtEpochSeconds = 1L,
+            exerciseOrder = listOf("carry"),
+        )
+        assertEquals(
+            DEFAULT_TIMED_PREP_SECONDS,
+            draft.timedPrepSecondsFor("carry", WeightSetLoggingStyle.TIME_ONLY),
+        )
+        assertEquals(0, draft.timedPrepSecondsFor("carry", WeightSetLoggingStyle.REPS))
     }
 }

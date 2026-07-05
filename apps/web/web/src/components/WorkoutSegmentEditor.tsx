@@ -18,6 +18,7 @@ import { exerciseLabel, type WeightExercise } from "../lib/weightTraining";
 import { ReorderableList } from "./ReorderableList";
 import {
   defaultRestPolicy,
+  DEFAULT_TIMED_PREP_SECONDS,
   ensurePrescriptionSets,
   exerciseSetLoggingStyle,
   mobilityItemSummary,
@@ -231,6 +232,7 @@ function WeightPrescriptionFields({
                   repRangeMin: null,
                   repRangeMax: null,
                   durationSeconds: prescription.durationSeconds ?? 45,
+                  timedPrepSeconds: prescription.timedPrepSeconds ?? DEFAULT_TIMED_PREP_SECONDS,
                 })
               }
             >
@@ -255,6 +257,19 @@ function WeightPrescriptionFields({
                   mode: "time_based",
                 }),
               { positive: true },
+            )
+          : null}
+        {timedPrescription
+          ? field(
+              "Start countdown (s)",
+              prescription.timedPrepSeconds ?? null,
+              (timedPrepSeconds) =>
+                onChange({
+                  ...prescription,
+                  timedPrepSeconds,
+                  mode: "time_based",
+                }),
+              { min: 0 },
             )
           : null}
         {!timedPrescription && !isMaxReps && !perSide && !showPerSetEditor

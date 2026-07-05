@@ -74,7 +74,7 @@
     <string name="weight_exercise_sets_save">Save</string>
     <string name="weight_exercise_card_expand_cd">Tap to edit sets</string>
     <string name="weight_live_rest_timer_dialog_title">Rest between sets</string>
-    <string name="weight_live_rest_timer_dialog_body">In Auto or Manual mode, rest is offered when you tap Add set on an exercise. Auto starts the countdown immediately; Manual shows Start below the rest time. Expanding an exercise again clears an active rest timer. Long press the Rest column next to the workout timer to change these settings.</string>
+    <string name="weight_live_rest_timer_dialog_body">In Auto or Manual mode, rest is offered when you log a set (reps or hold time) or tap Add set. Auto starts the countdown immediately; Manual shows a play button on the Rest column — tap it to start. When your planned workout specifies rest between sets, that duration is used instead of the default below. Expanding an exercise again clears an active rest timer. Long press the Rest column next to the workout timer to change these settings.</string>
     <string name="weight_live_rest_timer_long_press_cd">Rest timer. Long press for settings.</string>
     <string name="weight_live_rest_timer_display_label">Rest</string>
     <string name="weight_live_workout_timer_display_label">Workout</string>

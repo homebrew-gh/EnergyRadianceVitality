@@ -87,6 +87,7 @@ import com.erv.app.workouts.WorkoutSegment
 import com.erv.app.workouts.WorkoutSegmentKind
 import com.erv.app.workouts.WorkoutWeightPrescription
 import com.erv.app.workouts.WorkoutWeightPrescriptionMode
+import com.erv.app.workouts.DEFAULT_TIMED_PREP_SECONDS
 import com.erv.app.workouts.displaySummary
 import com.erv.app.workouts.moveItemDown
 import com.erv.app.workouts.moveItemUp
@@ -853,6 +854,7 @@ private fun WeightPrescriptionFields(
                                 repRangeMin = null,
                                 repRangeMax = null,
                                 durationSeconds = prescription.durationSeconds ?: 45,
+                                timedPrepSeconds = prescription.timedPrepSeconds ?: DEFAULT_TIMED_PREP_SECONDS,
                             ),
                         )
                     },
@@ -887,6 +889,7 @@ private fun WeightPrescriptionFields(
                             repRangeMin = null,
                             repRangeMax = null,
                             durationSeconds = prescription.durationSeconds ?: 45,
+                            timedPrepSeconds = prescription.timedPrepSeconds ?: DEFAULT_TIMED_PREP_SECONDS,
                         ),
                     )
                 },
@@ -933,6 +936,21 @@ private fun WeightPrescriptionFields(
                         },
                     )
                 },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+            )
+            OutlinedTextField(
+                value = prescription.timedPrepSeconds?.toString().orEmpty(),
+                onValueChange = { raw ->
+                    val trimmed = raw.trim()
+                    val seconds = when {
+                        trimmed.isEmpty() -> null
+                        else -> trimmed.toIntOrNull()?.coerceIn(0, 120)
+                    }
+                    onUpdate(prescription.copy(timedPrepSeconds = seconds))
+                },
+                label = { FieldLabel("Start countdown (s)") },
+                supportingText = { Text("Get-ready time before each timed set starts. 0 = none.") },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
             )

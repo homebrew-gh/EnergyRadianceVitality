@@ -3,6 +3,7 @@ package com.erv.app.workouts
 import com.erv.app.cardio.CardioHrScaffolding
 import com.erv.app.weighttraining.WeightSet
 import com.erv.app.weighttraining.WeightSetLoggingStyle
+import com.erv.app.weighttraining.repsShadowText
 import com.erv.app.weighttraining.setLoggingStyle
 import java.util.UUID
 import kotlinx.serialization.SerialName
@@ -51,8 +52,13 @@ data class WorkoutWeightPrescription(
     val restAfterExerciseSeconds: Int? = null,
     /** Hold duration target (seconds) for timed exercises. */
     val durationSeconds: Int? = null,
+    /** Get-ready countdown before each timed set starts. Null/0 = start immediately on tap. */
+    val timedPrepSeconds: Int? = null,
     val sets: List<WeightSet> = emptyList(),
 )
+
+/** Default get-ready countdown for new time-based prescriptions (builder + live fallback). */
+const val DEFAULT_TIMED_PREP_SECONDS = 10
 
 @Serializable
 enum class WorkoutCardioLogField {
@@ -360,6 +366,14 @@ fun WorkoutWeightPrescription.effectiveTargetReps(): Int? =
         ?: repRangeMin?.takeIf { it > 0 }?.takeIf { repRangeMax == null || repRangeMax == repRangeMin }
         ?: repRangeMax?.takeIf { it > 0 }?.takeIf { repRangeMin == null || repRangeMax == repRangeMin }
 
+/** Live-workout ghost label when prescription uses a min–max rep range (e.g. "5-8"). */
+fun WorkoutWeightPrescription.repRangeLabel(): String? {
+    val min = repRangeMin?.takeIf { it > 0 } ?: return null
+    val max = repRangeMax?.takeIf { it > 0 } ?: return null
+    if (min == max) return null
+    return "$min-$max"
+}
+
 fun WorkoutWeightPrescription.effectiveTargetWeightKg(): Double? =
     targetWeightKg?.takeIf { it > 0 }
         ?: sets.firstNotNullOfOrNull { set ->
@@ -383,10 +397,24 @@ fun WeightSet.seedForLiveWorkout(): WeightSet {
 fun WorkoutWeightPrescription.effectiveTargetDurationSeconds(): Int? =
     durationSeconds?.takeIf { it > 0 }
 
+fun WorkoutWeightPrescription.effectiveTimedPrepSeconds(): Int =
+    timedPrepSeconds?.takeIf { it > 0 } ?: 0
+
 fun WorkoutWeightPrescription.resolvedSets(loggingStyle: WeightSetLoggingStyle = WeightSetLoggingStyle.REPS): List<WeightSet> {
-    if (sets.isNotEmpty()) return sets.map { it.seedForLiveWorkout() }
+    val repRangeLabel = repRangeLabel()
+    if (sets.isNotEmpty()) {
+        return sets.map { set ->
+            val seeded = set.seedForLiveWorkout()
+            if (seeded.repsShadowText() == null && repRangeLabel != null) {
+                seeded.copy(targetRepsRangeLabel = repRangeLabel)
+            } else {
+                seeded
+            }
+        }
+    }
     val count = setCount?.coerceAtLeast(1) ?: 1
     val repTarget = effectiveTargetReps()
+    val repRangeGhost = if (repTarget == null) repRangeLabel else null
     val weightTarget = effectiveTargetWeightKg()
     val durationTarget = effectiveTargetDurationSeconds()
     val timed = when (loggingStyle) {
@@ -403,6 +431,7 @@ fun WorkoutWeightPrescription.resolvedSets(loggingStyle: WeightSetLoggingStyle =
             rpe = null,
             durationSeconds = null,
             targetReps = if (!timed && !maxReps) repTarget else null,
+            targetRepsRangeLabel = if (!timed && !maxReps) repRangeGhost else null,
             targetWeightKg = weightTarget,
             targetDurationSeconds = if (timed) durationTarget else null,
         )
@@ -456,6 +485,7 @@ fun WorkoutWeightPrescription.displaySummary(): String {
         effectiveTargetWeightKg()?.let { append(" · ${it.toInt()} kg") }
         targetRir?.let { append(" · $it RIR") }
         restBetweenSetsSeconds?.takeIf { it > 0 }?.let { append(" · ${it}s between sets") }
+        effectiveTimedPrepSeconds().takeIf { it > 0 }?.let { append(" · ${it}s get-ready") }
     }
 }
 
@@ -512,6 +542,7 @@ fun defaultWorkoutPrescriptionForExercise(
             setCount = setCount,
             mode = WorkoutWeightPrescriptionMode.TIME_BASED,
             durationSeconds = 45,
+            timedPrepSeconds = DEFAULT_TIMED_PREP_SECONDS,
         )
         WeightSetLoggingStyle.REPS_OR_TIME -> WorkoutWeightPrescription(
             setCount = setCount,

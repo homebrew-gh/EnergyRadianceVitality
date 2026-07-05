@@ -29,6 +29,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -61,12 +62,14 @@ import com.erv.app.weighttraining.WeightHiitBlockLog
 import com.erv.app.weighttraining.WeightHiitIntervalPlan
 import com.erv.app.weighttraining.WeightSet
 import com.erv.app.weighttraining.WeightWorkoutDraft
+import com.erv.app.weighttraining.isLogged
 import com.erv.app.weighttraining.formatHiitBlockSummaryLine
 import com.erv.app.weighttraining.formatHoldDuration
 import com.erv.app.weighttraining.formatRpeFieldForSets
 import com.erv.app.weighttraining.formatSetSummaryLine
 import com.erv.app.weighttraining.formatWeightLoadNumber
 import com.erv.app.weighttraining.parseWeightInputToKg
+import com.erv.app.weighttraining.repsShadowText
 import com.erv.app.weighttraining.weightLoadUnitSuffix
 
 fun weightSetsDisplayedForExercise(stored: List<WeightSet>?): List<WeightSet> =
@@ -173,6 +176,8 @@ fun WeightExerciseInlineSetsCard(
     onStartHiitTimer: ((WeightHiitIntervalPlan) -> Unit)? = null,
     /** Live workout: optional hook when the user adds another set row (e.g. rest timer). */
     onAfterAddSet: (() -> Unit)? = null,
+    /** When set, opens the full-screen timed-set timer for rows with a target duration. */
+    onStartTimedSetTimer: ((setIndex: Int) -> Unit)? = null,
 ) {
     val loadSuffix = weightLoadUnitSuffix(loadUnit)
     val weightIsAddedLoad = equipment == WeightEquipment.OTHER
@@ -432,11 +437,17 @@ fun WeightExerciseInlineSetsCard(
                             weightIsAddedLoad = weightIsAddedLoad,
                             canRemove = sets.size > 1,
                             timedHoldCountdownBeeps = timedHoldCountdownBeeps,
+                            useFullscreenTimer = onStartTimedSetTimer != null &&
+                                (set.targetDurationSeconds ?: 0) > 0 &&
+                                !set.isLogged(),
                             onChange = { onSetsChange(sets.replaceAt(idx, it)) },
                             onRemove = {
                                 if (sets.size > 1) onSetsChange(sets.filterIndexed { i, _ -> i != idx })
                             },
                             onShowAddedLoadInfo = { showAddedLoadInfo = true },
+                            onStartFullscreenTimer = onStartTimedSetTimer?.let { start ->
+                                { start(idx) }
+                            },
                         )
                     } else {
                         Row(
@@ -457,7 +468,7 @@ fun WeightExerciseInlineSetsCard(
                                         val r = t.trim().toIntOrNull() ?: 0
                                         onSetsChange(sets.replaceAt(idx, set.copy(reps = r)))
                                     },
-                                    shadowText = set.targetReps?.takeIf { it > 0 }?.toString(),
+                                    shadowText = set.repsShadowText(),
                                     label = "",
                                 )
                             }
@@ -540,6 +551,7 @@ fun WeightExerciseInlineSetsCard(
                                     weightKg = null,
                                     rpe = null,
                                     targetReps = sets.lastOrNull()?.targetReps,
+                                    targetRepsRangeLabel = sets.lastOrNull()?.targetRepsRangeLabel,
                                     targetWeightKg = sets.lastOrNull()?.targetWeightKg,
                                     targetDurationSeconds = sets.lastOrNull()?.targetDurationSeconds,
                                 )
@@ -582,9 +594,11 @@ private fun WeightTimePerSetRow(
     weightIsAddedLoad: Boolean,
     canRemove: Boolean,
     timedHoldCountdownBeeps: Boolean = false,
+    useFullscreenTimer: Boolean = false,
     onChange: (WeightSet) -> Unit,
     onRemove: () -> Unit,
     onShowAddedLoadInfo: () -> Unit,
+    onStartFullscreenTimer: (() -> Unit)? = null,
 ) {
     var running by remember { mutableStateOf(false) }
     var countdownRemaining by remember { mutableStateOf<Int?>(null) }
@@ -595,8 +609,9 @@ private fun WeightTimePerSetRow(
             ?: set.targetDurationSeconds?.takeIf { it > 0 }
             ?: if (timedHoldCountdownBeeps) DEFAULT_PLANK_HOLD_SECONDS else DEFAULT_TIMED_HOLD_SECONDS
     }
-    LaunchedEffect(running, countdownRemaining) {
-        if (!running) return@LaunchedEffect
+    val inlineTimerEnabled = !useFullscreenTimer
+    LaunchedEffect(running, countdownRemaining, inlineTimerEnabled) {
+        if (!inlineTimerEnabled || !running) return@LaunchedEffect
         val remaining = countdownRemaining
         if (remaining != null) {
             if (timedHoldCountdownBeeps && remaining in 1..5) {
@@ -623,6 +638,10 @@ private fun WeightTimePerSetRow(
     val loggedSeconds = set.durationSeconds ?: 0
     val displaySeconds = countdownRemaining ?: loggedSeconds
     val holdShadow = set.targetDurationSeconds?.takeIf { it > 0 }?.toString()
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -644,34 +663,38 @@ private fun WeightTimePerSetRow(
                 },
                 shadowText = if (countdownRemaining == null) holdShadow else null,
                 label = "Hold (s)",
-                trailingIcon = {
-                    IconButton(
-                        onClick = {
+                trailingIcon = if (inlineTimerEnabled) {
+                    {
+                        IconButton(
+                            onClick = {
+                                if (running) {
+                                    running = false
+                                    val remaining = countdownRemaining
+                                    countdownRemaining = null
+                                    if (remaining != null) {
+                                        onChange(
+                                            set.copy(
+                                                durationSeconds = (goalSeconds - remaining).coerceAtLeast(1),
+                                            ),
+                                        )
+                                    }
+                                } else {
+                                    if (timedHoldCountdownBeeps || (set.durationSeconds ?: 0) <= 0) {
+                                        countdownRemaining = goalSeconds
+                                    }
+                                    running = true
+                                }
+                            }
+                        ) {
                             if (running) {
-                                running = false
-                                val remaining = countdownRemaining
-                                countdownRemaining = null
-                                if (remaining != null) {
-                                    onChange(
-                                        set.copy(
-                                            durationSeconds = (goalSeconds - remaining).coerceAtLeast(1),
-                                        ),
-                                    )
-                                }
+                                Icon(Icons.Default.Stop, contentDescription = "Stop timer")
                             } else {
-                                if (timedHoldCountdownBeeps || (set.durationSeconds ?: 0) <= 0) {
-                                    countdownRemaining = goalSeconds
-                                }
-                                running = true
+                                Icon(Icons.Default.PlayArrow, contentDescription = "Start timer")
                             }
                         }
-                    ) {
-                        if (running) {
-                            Icon(Icons.Default.Stop, contentDescription = "Stop timer")
-                        } else {
-                            Icon(Icons.Default.PlayArrow, contentDescription = "Start timer")
-                        }
                     }
+                } else {
+                    null
                 },
                 supportingText = if (displaySeconds >= 60) {
                     { Text(formatHoldDuration(displaySeconds)) }
@@ -724,6 +747,15 @@ private fun WeightTimePerSetRow(
         }
         IconButton(onClick = onRemove, enabled = canRemove) {
             Icon(Icons.Default.Close, contentDescription = "Remove set")
+        }
+    }
+        if (useFullscreenTimer && onStartFullscreenTimer != null) {
+            OutlinedButton(
+                onClick = onStartFullscreenTimer,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Start set")
+            }
         }
     }
 }

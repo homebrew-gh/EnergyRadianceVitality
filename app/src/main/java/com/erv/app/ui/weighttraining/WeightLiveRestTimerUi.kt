@@ -4,12 +4,18 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -218,35 +224,52 @@ fun WeightLiveRestTimerHeaderRow(
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                when {
-                    restSecondsRemaining != null -> {
-                        Text(
-                            text = formatWeightRestCountdown(restSecondsRemaining),
-                            style = MaterialTheme.typography.displaySmall
-                        )
+                Box(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    when {
+                        restSecondsRemaining != null -> {
+                            Text(
+                                text = formatWeightRestCountdown(restSecondsRemaining),
+                                style = MaterialTheme.typography.displaySmall
+                            )
+                        }
+                        restManualPending && restMode == WeightLiveRestTimerMode.MANUAL -> {
+                            Text(
+                                text = stringResource(R.string.weight_live_rest_timer_manual_prompt),
+                                style = MaterialTheme.typography.bodyMedium,
+                                textAlign = TextAlign.Center,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp)
+                            )
+                        }
+                        restMode == WeightLiveRestTimerMode.OFF -> {
+                            Text(
+                                text = stringResource(R.string.weight_live_rest_timer_mode_off_display),
+                                style = MaterialTheme.typography.displaySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        else -> {
+                            Text(
+                                text = stringResource(R.string.weight_live_rest_timer_idle),
+                                style = MaterialTheme.typography.displaySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
-                    restManualPending && restMode == WeightLiveRestTimerMode.MANUAL -> {
-                        Text(
-                            text = stringResource(R.string.weight_live_rest_timer_manual_prompt),
-                            style = MaterialTheme.typography.bodyMedium,
-                            textAlign = TextAlign.Center,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp)
-                        )
-                    }
-                    restMode == WeightLiveRestTimerMode.OFF -> {
-                        Text(
-                            text = stringResource(R.string.weight_live_rest_timer_mode_off_display),
-                            style = MaterialTheme.typography.displaySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    else -> {
-                        Text(
-                            text = stringResource(R.string.weight_live_rest_timer_idle),
-                            style = MaterialTheme.typography.displaySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                    if (restMode == WeightLiveRestTimerMode.MANUAL && restSecondsRemaining == null) {
+                        IconButton(
+                            onClick = onStartManualRest,
+                            modifier = Modifier.size(56.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.PlayArrow,
+                                contentDescription = stringResource(R.string.weight_live_rest_timer_start),
+                                modifier = Modifier.size(36.dp),
+                            )
+                        }
                     }
                 }
             }
@@ -257,13 +280,8 @@ fun WeightLiveRestTimerHeaderRow(
                     }
                 }
                 restManualPending && restMode == WeightLiveRestTimerMode.MANUAL -> {
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        TextButton(onClick = onStartManualRest) {
-                            Text(stringResource(R.string.weight_live_rest_timer_start))
-                        }
-                        TextButton(onClick = onSkipRest) {
-                            Text(stringResource(R.string.weight_live_rest_timer_dismiss))
-                        }
+                    TextButton(onClick = onSkipRest) {
+                        Text(stringResource(R.string.weight_live_rest_timer_dismiss))
                     }
                 }
             }

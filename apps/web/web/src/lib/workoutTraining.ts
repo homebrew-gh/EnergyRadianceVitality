@@ -88,6 +88,8 @@ export type WorkoutWeightPrescription = {
   restBetweenSetsSeconds?: number | null;
   restAfterExerciseSeconds?: number | null;
   durationSeconds?: number | null;
+  /** Get-ready countdown before each timed set starts. Null/0 = start immediately on tap. */
+  timedPrepSeconds?: number | null;
   sets?: WorkoutPrescriptionSet[];
 };
 
@@ -420,6 +422,8 @@ export function upsertWorkout(workouts: Workout[], workout: Workout): Workout[] 
   return [...workouts, workout];
 }
 
+export const DEFAULT_TIMED_PREP_SECONDS = 10;
+
 export function defaultWeightPrescription(
   segmentKind?: WorkoutSegmentKind,
   exercise?: WeightCatalogExercise | null,
@@ -432,6 +436,7 @@ export function defaultWeightPrescription(
       mode: "time_based",
       setCount,
       durationSeconds: 45,
+      timedPrepSeconds: DEFAULT_TIMED_PREP_SECONDS,
     };
   }
   if (style === "reps_or_time") {
@@ -793,6 +798,9 @@ export function prescriptionSummary(
   }
   if (p?.restAfterExerciseSeconds != null && p.restAfterExerciseSeconds > 0) {
     parts.push(`${p.restAfterExerciseSeconds}s after exercise`);
+  }
+  if (p?.timedPrepSeconds != null && p.timedPrepSeconds > 0) {
+    parts.push(`${p.timedPrepSeconds}s get-ready`);
   }
   return parts.join(" · ");
 }

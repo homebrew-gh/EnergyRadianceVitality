@@ -7,6 +7,34 @@ import org.junit.Test
 class WorkoutModelsSerializationTest {
 
     @Test
+    fun roundTrip_timed_prep_seconds_on_prescription() {
+        val workout = Workout(
+            name = "Carries",
+            segments = listOf(
+                WorkoutSegment(
+                    kind = WorkoutSegmentKind.STRAIGHT_SETS,
+                    items = listOf(
+                        WorkoutItem.Weight(
+                            exerciseId = "erv-weight-exercise-db-farmers-carry-v1",
+                            prescription = WorkoutWeightPrescription(
+                                mode = WorkoutWeightPrescriptionMode.TIME_BASED,
+                                setCount = 3,
+                                durationSeconds = 45,
+                                timedPrepSeconds = 10,
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        val encoded = encodeWorkoutImportEnvelope(WorkoutImportEnvelope(workouts = listOf(workout)))
+        val decoded = decodeWorkoutImportEnvelope(encoded).getOrThrow()
+        val prescription = decoded.workouts.first().segments.first().weightItems().single().prescription
+        assertEquals(10, prescription.timedPrepSeconds)
+        assertEquals(45, prescription.durationSeconds)
+    }
+
+    @Test
     fun roundTrip_circuit_segment_with_weight_items() {
         val workout = Workout(
             name = "Push + core",
