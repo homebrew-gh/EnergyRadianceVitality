@@ -2,14 +2,19 @@ package com.erv.app.workouts
 
 import com.erv.app.cardio.CardioHrScaffolding
 import com.erv.app.cardio.CardioRepository
+import com.erv.app.cardio.CardioSession
+import com.erv.app.hr.HeartRateChartSectionMarker
 import com.erv.app.nostr.EventSigner
 import com.erv.app.nostr.RelayPool
 import com.erv.app.nostr.UnsignedEvent
 import com.erv.app.nostr.buildWorkoutShareHashtagContentLineFromTopics
 import com.erv.app.nostr.parseWorkoutShareTopics
 import com.erv.app.nostr.workoutShareKind1TopicTagsFromTopics
+import com.erv.app.stretching.StretchSession
 import com.erv.app.stretching.StretchingRepository
 import com.erv.app.weighttraining.WeightRepository
+import com.erv.app.weighttraining.WeightWorkoutSession
+import com.erv.app.weighttraining.totalSetCount
 import java.time.LocalDate
 
 /**
@@ -124,11 +129,16 @@ fun WorkoutActiveRun.sectionProgressLabel(): String {
     return "Section $current of $total"
 }
 
-/** One section of a finished composed workout, with its own per-section HR snapshot if any. */
+/** One section of a finished composed workout, with linked silo log data when available. */
 data class ComposedWorkoutHrSection(
     val title: String,
     val kind: WorkoutLoggedItemKind,
     val heartRate: CardioHrScaffolding?,
+    val startedAtEpochSeconds: Long? = null,
+    val finishedAtEpochSeconds: Long? = null,
+    val weightSession: WeightWorkoutSession? = null,
+    val cardioSession: CardioSession? = null,
+    val stretchSession: StretchSession? = null,
 )
 
 /** Heart-rate recap for a finished composed workout: the continuous whole-run trace plus per section. */
@@ -141,6 +151,13 @@ data class ComposedWorkoutHrSummary(
 ) {
     val hasAnyHeartRate: Boolean
         get() = wholeRun != null || sections.any { it.heartRate != null }
+
+    fun sectionChartMarkers(): List<HeartRateChartSectionMarker> =
+        sections.mapNotNull { section ->
+            section.startedAtEpochSeconds?.let { started ->
+                HeartRateChartSectionMarker(epochSeconds = started, label = section.title)
+            }
+        }
 }
 
 /**
@@ -154,6 +171,10 @@ suspend fun buildComposedWorkoutHrSummary(
     weightRepository: WeightRepository,
     stretchingRepository: StretchingRepository,
 ): ComposedWorkoutHrSummary {
+    val weightState = weightRepository.currentState()
+    val cardioState = cardioRepository.currentState()
+    val stretchState = stretchingRepository.currentState()
+    var sectionStart = run.startedAtEpochSeconds
     val sections = run.itemRecaps
         .distinctBy { it.linkedEntryId ?: (it.segmentId + it.itemId) }
         .map { recap ->
@@ -166,17 +187,43 @@ suspend fun buildComposedWorkoutHrSummary(
             val heartRate = if (logDate != null && entryId != null) {
                 when (recap.kind) {
                     WorkoutLoggedItemKind.CARDIO ->
-                        cardioRepository.currentState().logFor(logDate)
+                        cardioState.logFor(logDate)
                             ?.sessions?.firstOrNull { it.id == entryId }?.heartRate
                     WorkoutLoggedItemKind.WEIGHT ->
-                        weightRepository.currentState().logFor(logDate)
+                        weightState.logFor(logDate)
                             ?.workouts?.firstOrNull { it.id == entryId }?.heartRate
                     WorkoutLoggedItemKind.MOBILITY -> null
                 }
             } else {
                 null
             }
-            ComposedWorkoutHrSection(title = title, kind = recap.kind, heartRate = heartRate)
+            val weightSession = if (recap.kind == WorkoutLoggedItemKind.WEIGHT && logDate != null && entryId != null) {
+                weightState.logFor(logDate)?.workouts?.firstOrNull { it.id == entryId }
+            } else {
+                null
+            }
+            val cardioSession = if (recap.kind == WorkoutLoggedItemKind.CARDIO && logDate != null && entryId != null) {
+                cardioState.logFor(logDate)?.sessions?.firstOrNull { it.id == entryId }
+            } else {
+                null
+            }
+            val stretchSession = if (recap.kind == WorkoutLoggedItemKind.MOBILITY && logDate != null && entryId != null) {
+                stretchState.logFor(logDate)?.sessions?.firstOrNull { it.id == entryId }
+            } else {
+                null
+            }
+            val section = ComposedWorkoutHrSection(
+                title = title,
+                kind = recap.kind,
+                heartRate = heartRate,
+                startedAtEpochSeconds = sectionStart,
+                finishedAtEpochSeconds = recap.finishedAtEpochSeconds,
+                weightSession = weightSession,
+                cardioSession = cardioSession,
+                stretchSession = stretchSession,
+            )
+            sectionStart = recap.finishedAtEpochSeconds ?: sectionStart
+            section
         }
     val totalElapsedSeconds = run.startedAtEpochSeconds?.let { start ->
         val end = run.itemRecaps.mapNotNull { it.finishedAtEpochSeconds }.maxOrNull()
@@ -224,6 +271,15 @@ fun buildComposedWorkoutNoteContent(
         summary.sections.forEach { section ->
             append("• ${section.title} (${section.kind.summaryLabel()})")
             section.heartRate?.let { hr -> append(" — avg ${hr.avgBpm} bpm") }
+            section.weightSession?.let { session ->
+                append(" — ${session.entries.size} exercise(s), ${session.totalSetCount()} sets")
+            }
+            section.cardioSession?.let { cardio ->
+                append(" — ${cardio.activity.displayLabel}, ${cardio.durationMinutes} min")
+            }
+            section.stretchSession?.let { stretch ->
+                append(" — ${stretch.totalMinutes} min mobility")
+            }
             append("\n")
         }
     }

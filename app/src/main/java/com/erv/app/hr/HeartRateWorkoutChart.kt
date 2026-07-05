@@ -8,10 +8,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
 import com.erv.app.cardio.CardioHrSample
+
+/** Vertical guide on a workout HR chart marking when a storyboard section started. */
+data class HeartRateChartSectionMarker(
+    val epochSeconds: Long,
+    val label: String,
+)
 
 @Composable
 fun HeartRateWorkoutChart(
@@ -19,7 +26,9 @@ fun HeartRateWorkoutChart(
     lineColor: Color,
     gridColor: Color,
     modifier: Modifier = Modifier,
-    heightDp: Int = 168
+    heightDp: Int = 168,
+    sectionMarkers: List<HeartRateChartSectionMarker> = emptyList(),
+    sectionMarkerColor: Color = gridColor,
 ) {
     if (samples.size < 2) return
     Canvas(
@@ -65,5 +74,20 @@ fun HeartRateWorkoutChart(
             color = lineColor,
             style = Stroke(width = 3f, cap = StrokeCap.Round)
         )
+
+        if (sectionMarkers.isNotEmpty()) {
+            val dash = PathEffect.dashPathEffect(floatArrayOf(10f, 8f), 0f)
+            sectionMarkers.forEach { marker ->
+                if (marker.epochSeconds < t0 || marker.epochSeconds > t1) return@forEach
+                val x = padL + (marker.epochSeconds - t0).toFloat() / tSpan * chartW
+                drawLine(
+                    color = sectionMarkerColor,
+                    start = Offset(x, padT),
+                    end = Offset(x, padT + chartH),
+                    strokeWidth = 2f,
+                    pathEffect = dash,
+                )
+            }
+        }
     }
 }

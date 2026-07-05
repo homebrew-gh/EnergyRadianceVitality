@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Share
+import com.erv.app.ui.components.FormSectionLabel
 import com.erv.app.ui.components.FormSectionLabelSmall
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -64,10 +65,14 @@ import com.erv.app.workouts.isStarted
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import com.erv.app.cardio.CardioBuiltinActivity
+import com.erv.app.cardio.CardioDistanceUnit
 import com.erv.app.cardio.CardioLibraryState
 import com.erv.app.cardio.CardioRepository
+import com.erv.app.cardio.formatCardioAveragePaceForSession
+import com.erv.app.cardio.formatCardioDistanceFromMeters
 import com.erv.app.cardio.isCyclingActivity
 import com.erv.app.cardio.resolveSnapshot
+import com.erv.app.data.BodyWeightUnit
 import com.erv.app.data.UserPreferences
 import com.erv.app.programs.encodeStretchLaunch
 import com.erv.app.hr.HeartRateSessionAnalyticsSection
@@ -76,15 +81,23 @@ import com.erv.app.stretching.StretchingRepository
 import com.erv.app.ui.cardio.CardioBikeErgConnectInlineSection
 import com.erv.app.ui.cardio.CardioLiveWorkoutViewModel
 import com.erv.app.ui.cardio.supportsBikeErgSensorConnect
+import com.erv.app.weighttraining.WeightEquipment
 import com.erv.app.weighttraining.WeightRepository
+import com.erv.app.weighttraining.formatHiitBlockSummaryLine
+import com.erv.app.weighttraining.formatSetSummaryLine
+import com.erv.app.weighttraining.totalSetCount
+import com.erv.app.weighttraining.totalVolumeLoadTimesReps
+import com.erv.app.weighttraining.weightLoadUnitSuffix
 import com.erv.app.nostr.EventSigner
 import com.erv.app.nostr.RelayPool
 import com.erv.app.nostr.buildWorkoutShareHashtagContentLineFromTopics
 import com.erv.app.nostr.workoutShareBaseTopicTags
+import com.erv.app.workouts.ComposedWorkoutHrSection
 import com.erv.app.workouts.ComposedWorkoutHrSummary
+import com.erv.app.workouts.summaryLabel
 import com.erv.app.workouts.attachComposedWorkoutHeartRateToLinkedLogs
-import com.erv.app.workouts.publishComposedWorkoutNote
 import com.erv.app.workouts.buildComposedWorkoutHrSummary
+import com.erv.app.workouts.publishComposedWorkoutNote
 import com.erv.app.workouts.resolveCardioLaunch
 import com.erv.app.workouts.resolveStretchLaunch
 import com.erv.app.workouts.weightItems
@@ -136,6 +149,8 @@ fun WorkoutLiveRunScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val fgsDisclosureSeen by userPreferences.weightLiveWorkoutFgsDisclosureSeen.collectAsState(initial = false)
     val heartRateZoneInputs by userPreferences.heartRateZoneInputs.collectAsState(initial = HeartRateZoneInputs())
+    val loadUnit by userPreferences.weightTrainingLoadUnit.collectAsState(initial = BodyWeightUnit.LB)
+    val distanceUnit by userPreferences.cardioDistanceUnit.collectAsState(initial = CardioDistanceUnit.MILES)
     var composedSummary by remember { mutableStateOf<ComposedWorkoutHrSummary?>(null) }
     var runFinalized by remember { mutableStateOf(false) }
     var finishingRun by remember { mutableStateOf(false) }
@@ -489,6 +504,9 @@ fun WorkoutLiveRunScreen(
     if (summary != null) {
         ComposedWorkoutSummaryScreen(
             summary = summary,
+            weightState = weightState,
+            loadUnit = loadUnit,
+            distanceUnit = distanceUnit,
             zoneInputs = heartRateZoneInputs,
             relayPool = relayPool,
             signer = signer,
@@ -1039,6 +1057,9 @@ fun WorkoutLiveRunScreen(
 @Composable
 private fun ComposedWorkoutSummaryScreen(
     summary: ComposedWorkoutHrSummary,
+    weightState: WeightLibraryState,
+    loadUnit: BodyWeightUnit,
+    distanceUnit: CardioDistanceUnit,
     zoneInputs: HeartRateZoneInputs,
     relayPool: RelayPool?,
     signer: EventSigner?,
@@ -1052,6 +1073,10 @@ private fun ComposedWorkoutSummaryScreen(
     var shareHashtags by remember {
         mutableStateOf(buildWorkoutShareHashtagContentLineFromTopics(workoutShareBaseTopicTags))
     }
+    val loadSuffix = weightLoadUnitSuffix(loadUnit)
+    val weightSessions = summary.sections.mapNotNull { it.weightSession }
+    val totalSets = weightSessions.sumOf { it.totalSetCount() }
+    val totalVolume = weightSessions.sumOf { it.totalVolumeLoadTimesReps(loadUnit) }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -1093,6 +1118,18 @@ private fun ComposedWorkoutSummaryScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
+                        if (weightSessions.isNotEmpty()) {
+                            Text(
+                                text = buildString {
+                                    append("${weightSessions.sumOf { it.entries.size }} exercises • $totalSets sets")
+                                    if (totalVolume > 0.5) {
+                                        append(" • Volume ~${totalVolume.toInt()} ${loadSuffix}×reps")
+                                    }
+                                },
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                         summary.wholeRun?.let { hr ->
                             Text(
                                 text = "Heart rate  avg ${hr.avgBpm} · max ${hr.maxBpm} bpm",
@@ -1110,16 +1147,17 @@ private fun ComposedWorkoutSummaryScreen(
                             modifier = Modifier.padding(16.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            Text("Whole workout", style = MaterialTheme.typography.titleMedium)
+                            Text("Heart rate", style = MaterialTheme.typography.titleMedium)
                             HeartRateSessionAnalyticsSection(
                                 heartRate = summary.wholeRun,
                                 zoneInputs = zoneInputs,
                                 useLightOnDarkBackground = false,
+                                sectionMarkers = summary.sectionChartMarkers(),
                             )
                         }
                     }
                 }
-            } else {
+            } else if (!summary.hasAnyHeartRate) {
                 item {
                     Text(
                         "No heart rate was recorded for this workout. Connect a heart rate monitor " +
@@ -1129,26 +1167,19 @@ private fun ComposedWorkoutSummaryScreen(
                     )
                 }
             }
-            val sectionsWithHr = summary.sections.filter { it.heartRate != null }
-            if (sectionsWithHr.isNotEmpty()) {
+            if (summary.sections.isNotEmpty()) {
                 item {
-                    Text("By section", style = MaterialTheme.typography.titleMedium)
+                    FormSectionLabel("Workout log")
                 }
-                sectionsWithHr.forEach { section ->
-                    item {
-                        Card(modifier = Modifier.fillMaxWidth()) {
-                            Column(
-                                modifier = Modifier.padding(16.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                Text(section.title, style = MaterialTheme.typography.titleSmall)
-                                HeartRateSessionAnalyticsSection(
-                                    heartRate = section.heartRate,
-                                    zoneInputs = zoneInputs,
-                                    useLightOnDarkBackground = false,
-                                )
-                            }
-                        }
+                summary.sections.forEach { section ->
+                    item(key = "section_log_${section.title}_${section.kind}") {
+                        ComposedWorkoutSectionLogCard(
+                            section = section,
+                            weightState = weightState,
+                            loadUnit = loadUnit,
+                            loadSuffix = loadSuffix,
+                            distanceUnit = distanceUnit,
+                        )
                     }
                 }
             }
@@ -1213,6 +1244,107 @@ private fun ComposedWorkoutSummaryScreen(
             item {
                 Button(onClick = onDone, modifier = Modifier.fillMaxWidth()) {
                     Text("Done")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ComposedWorkoutSectionLogCard(
+    section: ComposedWorkoutHrSection,
+    weightState: WeightLibraryState,
+    loadUnit: BodyWeightUnit,
+    loadSuffix: String,
+    distanceUnit: CardioDistanceUnit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(section.title, style = MaterialTheme.typography.titleMedium)
+            Text(
+                section.kind.summaryLabel(),
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            when {
+                section.weightSession != null -> {
+                    section.weightSession.entries.forEach { entry ->
+                        val exercise = weightState.exerciseById(entry.exerciseId)
+                        val addedLoad = exercise?.equipment == WeightEquipment.OTHER
+                        Text(
+                            "• ${exercise?.name ?: entry.exerciseId}",
+                            style = MaterialTheme.typography.titleSmall,
+                        )
+                        entry.hiitBlock?.let { block ->
+                            Text(
+                                formatHiitBlockSummaryLine(block, loadUnit, loadSuffix, addedLoad),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(start = 16.dp),
+                            )
+                        } ?: entry.sets.forEachIndexed { idx, set ->
+                            Text(
+                                formatSetSummaryLine(
+                                    set = set,
+                                    setNumber = idx + 1,
+                                    loadUnit = loadUnit,
+                                    loadSuffix = loadSuffix,
+                                    weightIsAddedLoad = addedLoad,
+                                ),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(start = 16.dp),
+                            )
+                        }
+                    }
+                }
+                section.cardioSession != null -> {
+                    val session = section.cardioSession
+                    Text(
+                        session.activity.displayLabel,
+                        style = MaterialTheme.typography.titleSmall,
+                    )
+                    Text(
+                        buildString {
+                            append("${session.durationMinutes} min")
+                            session.distanceMeters?.takeIf { it > 1.0 }?.let { meters ->
+                                append(" • ${formatCardioDistanceFromMeters(meters, distanceUnit)}")
+                            }
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    formatCardioAveragePaceForSession(session, distanceUnit, null)?.let { pace ->
+                        Text(
+                            "Avg pace: $pace",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                section.stretchSession != null -> {
+                    val session = section.stretchSession
+                    Text(
+                        buildString {
+                            append("${session.totalMinutes} min")
+                            session.routineName?.takeIf { it.isNotBlank() }?.let { append(" • $it") }
+                            if (session.routineName.isNullOrBlank() && session.stretchIds.isNotEmpty()) {
+                                append(" • ${session.stretchIds.size} stretches")
+                            }
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                else -> {
+                    Text(
+                        "No logged details for this section.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
         }

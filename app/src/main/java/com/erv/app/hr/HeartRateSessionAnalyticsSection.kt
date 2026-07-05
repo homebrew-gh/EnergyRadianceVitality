@@ -27,6 +27,7 @@ fun HeartRateSessionAnalyticsSection(
     useLightOnDarkBackground: Boolean,
     modifier: Modifier = Modifier,
     exerciseCorrelationLines: List<Pair<String, String>>? = null,
+    sectionMarkers: List<HeartRateChartSectionMarker> = emptyList(),
 ) {
     val samples = heartRate?.samples.orEmpty()
     val hasScalars =
@@ -97,10 +98,29 @@ fun HeartRateSessionAnalyticsSection(
                     samples = samples,
                     lineColor = lineColor,
                     gridColor = gridColor,
+                    sectionMarkers = sectionMarkers,
+                    sectionMarkerColor = if (useLightOnDarkBackground) {
+                        Color.White.copy(alpha = 0.55f)
+                    } else {
+                        MaterialTheme.colorScheme.outline.copy(alpha = 0.85f)
+                    },
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(8.dp),
                 )
+            }
+            if (sectionMarkers.size > 1) {
+                val chartStart = samples.first().epochSeconds
+                FormSectionLabel("Sections", color = textMain)
+                sectionMarkers.forEach { marker ->
+                    val offsetSec = (marker.epochSeconds - chartStart).coerceAtLeast(0).toInt()
+                    Text(
+                        "• ${marker.label} — ${formatDurationSeconds(offsetSec)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = textSub,
+                        modifier = Modifier.padding(start = 4.dp, top = 2.dp),
+                    )
+                }
             }
         }
 
