@@ -2,7 +2,6 @@ import { FieldLabel } from "./FieldLabel";
 import { useState } from "react";
 import { ApiError } from "../lib/api";
 import { useAuth } from "../lib/auth";
-import { SecretInput } from "./SecretInput";
 
 type RemoveAccountFormProps = {
   onRemoved: () => void;
@@ -11,7 +10,6 @@ type RemoveAccountFormProps = {
 
 export function RemoveAccountForm({ onRemoved, compact }: RemoveAccountFormProps) {
   const { wipe } = useAuth();
-  const [passphrase, setPassphrase] = useState("");
   const [confirmation, setConfirmation] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -21,7 +19,7 @@ export function RemoveAccountForm({ onRemoved, compact }: RemoveAccountFormProps
     setError(null);
     setSubmitting(true);
     try {
-      await wipe({ passphrase, confirmation });
+      await wipe({ confirmation });
       onRemoved();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not remove account.");
@@ -34,21 +32,16 @@ export function RemoveAccountForm({ onRemoved, compact }: RemoveAccountFormProps
     <form className={compact ? "space-y-3" : "space-y-4"} onSubmit={onSubmit}>
       {!compact ? (
         <p className="text-sm text-muted">
-          Removes the encrypted nsec from this StartOS server so you can set up a
-          different key. Your Nostr relay data is unchanged.
+          Removes the nsec from this StartOS server so you can set up a
+          different key. Your Nostr relay data is unchanged. Type DELETE — the
+          forgotten passphrase is not required.
         </p>
-      ) : null}
-      <div>
-        <label className="label" htmlFor="remove-pass">
-          <FieldLabel>Passphrase</FieldLabel>
-        </label>
-        <SecretInput
-          id="remove-pass"
-          autoComplete="current-password"
-          value={passphrase}
-          onChange={(e) => setPassphrase(e.target.value)}
-        />
-      </div>
+      ) : (
+        <p className="text-sm text-muted">
+          Type DELETE to remove the key from this server. The forgotten
+          passphrase is not required.
+        </p>
+      )}
       <div>
         <label className="label" htmlFor="remove-confirm">
           <FieldLabel>Type DELETE to confirm</FieldLabel>
@@ -69,7 +62,7 @@ export function RemoveAccountForm({ onRemoved, compact }: RemoveAccountFormProps
       <button
         type="submit"
         className="btn-ghost border-[var(--erv-error)] text-[var(--erv-error)] w-full sm:w-auto"
-        disabled={submitting || confirmation !== "DELETE" || !passphrase}
+        disabled={submitting || confirmation !== "DELETE"}
       >
         {submitting ? "Removing…" : "Log out and remove key"}
       </button>

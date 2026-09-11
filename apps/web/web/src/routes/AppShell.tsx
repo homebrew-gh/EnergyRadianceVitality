@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "../lib/auth";
+import { passphraseIsSet } from "../lib/passphrase";
 import { CatalogEditorProvider } from "../lib/catalogEditorData";
 import { EquipmentProvider } from "../lib/equipmentData";
 import { TrainingHistoryProvider } from "../lib/trainingHistoryData";
@@ -58,6 +59,7 @@ export function AppShell() {
               >
                 Settings
               </NavLink>
+              {passphraseIsSet(status) ? (
               <button
                 type="button"
                 className="btn-ghost text-sm !text-white !border-white/40"
@@ -66,6 +68,7 @@ export function AppShell() {
               >
                 {locking ? "Locking…" : "Lock"}
               </button>
+              ) : null}
               </div>
             </div>
           </header>
