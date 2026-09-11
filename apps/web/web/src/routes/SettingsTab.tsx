@@ -1,13 +1,15 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { BlossomMediaStatus } from "../components/BlossomMediaStatus";
-import { FieldLabel } from "../components/FieldLabel";
+import { FieldLabel, SectionHeader } from "../components/FieldLabel";
+import { PassphraseFields } from "../components/PassphraseFields";
 import { RemoveAccountForm } from "../components/RemoveAccountForm";
 import { SyncHealthDashboard } from "../components/SyncHealthDashboard";
 import { LocalRelayPicker } from "../components/LocalRelayPicker";
 import { ApiError, api, relayHost, type AuthStatus } from "../lib/api";
 import { invalidateAppDataCache } from "../lib/appDataCache";
 import { useAuth } from "../lib/auth";
+import { MIN_PASSPHRASE_LENGTH, passphraseIsSet } from "../lib/passphrase";
 import { detectedRelaysFromStatus, isAllowedRelayUrl, RELAY_URL_POLICY } from "../lib/relayUrl";
 import { useWeightLoadUnit } from "../lib/weightLoadUnit";
 
@@ -34,6 +36,12 @@ export function SettingsTab() {
   const [savingRelays, setSavingRelays] = useState(false);
   const [relayError, setRelayError] = useState<string | null>(null);
   const [relayMessage, setRelayMessage] = useState<string | null>(null);
+  const [passphrase, setPassphrase] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [passError, setPassError] = useState<string | null>(null);
+  const [passMessage, setPassMessage] = useState<string | null>(null);
+  const [savingPassphrase, setSavingPassphrase] = useState(false);
+  const hasPassphrase = passphraseIsSet(status);
 
   const relays = relayUrlsFromStatus(status);
 
@@ -105,6 +113,37 @@ export function SettingsTab() {
       setRelayError(err instanceof ApiError ? err.message : "Could not save relay settings.");
     } finally {
       setSavingRelays(false);
+    }
+  };
+
+  const savePassphrase = async (next: string | undefined) => {
+    setPassError(null);
+    setPassMessage(null);
+    if (next !== undefined) {
+      if (next.length < MIN_PASSPHRASE_LENGTH) {
+        setPassError(`Passphrase must be at least ${MIN_PASSPHRASE_LENGTH} characters.`);
+        return;
+      }
+      if (next !== confirm) {
+        setPassError("Passphrases do not match.");
+        return;
+      }
+    }
+    setSavingPassphrase(true);
+    try {
+      await api.authPassphrase({ passphrase: next });
+      await refresh();
+      setPassphrase("");
+      setConfirm("");
+      setPassMessage(
+        next
+          ? "Passphrase saved. Lock and idle timeout will require it."
+          : "Passphrase removed. The nsec is stored unencrypted on this server.",
+      );
+    } catch (err) {
+      setPassError(err instanceof ApiError ? err.message : "Could not update passphrase.");
+    } finally {
+      setSavingPassphrase(false);
     }
   };
 
@@ -264,21 +303,81 @@ export function SettingsTab() {
         </div>
       </section>
 
-      <section className="card p-5 space-y-3">
-        <h3 className="font-semibold text-heading">Session</h3>
-        <p className="text-sm text-muted">
-          Lock clears the unlocked session on this browser. Your encrypted key
-          stays on the server — unlock again with your passphrase.
-        </p>
-        <button
-          type="button"
-          className="btn-ghost"
-          onClick={() => void onLock()}
-          disabled={locking}
+      <section className="card p-5 space-y-4">
+        <div>
+          <h3 className="font-semibold text-heading">Passphrase</h3>
+          <p className="text-sm text-muted mt-1">
+            {hasPassphrase
+              ? "A passphrase encrypts the nsec on this server and is required after Lock, idle, or restart."
+              : "No passphrase is set. The nsec is stored unencrypted on this server and the Web UI stays unlocked while the service is running."}
+          </p>
+        </div>
+        <SectionHeader>
+          {hasPassphrase ? "Change passphrase" : "Set passphrase"}
+        </SectionHeader>
+        <form
+          className="space-y-3"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void savePassphrase(passphrase);
+          }}
         >
-          {locking ? "Locking…" : "Lock"}
-        </button>
+          <PassphraseFields
+            idPrefix="settings"
+            passphrase={passphrase}
+            confirm={confirm}
+            onPassphrase={setPassphrase}
+            onConfirm={setConfirm}
+          />
+          {passError ? (
+            <p className="text-sm text-error" role="alert">
+              {passError}
+            </p>
+          ) : null}
+          {passMessage ? (
+            <p className="text-sm text-[var(--erv-success)]" role="status">
+              {passMessage}
+            </p>
+          ) : null}
+          <div className="flex flex-wrap gap-2">
+            <button type="submit" className="btn-primary" disabled={savingPassphrase}>
+              {savingPassphrase
+                ? "Saving…"
+                : hasPassphrase
+                  ? "Change passphrase"
+                  : "Set passphrase"}
+            </button>
+            {hasPassphrase ? (
+              <button
+                type="button"
+                className="btn-ghost"
+                disabled={savingPassphrase}
+                onClick={() => void savePassphrase(undefined)}
+              >
+                Remove passphrase
+              </button>
+            ) : null}
+          </div>
+        </form>
       </section>
+
+      {hasPassphrase ? (
+        <section className="card p-5 space-y-3">
+          <h3 className="font-semibold text-heading">Session</h3>
+          <p className="text-sm text-muted">
+            Lock clears the unlocked session on this browser. Your encrypted key
+            stays on the server — unlock again with your passphrase.
+          </p>
+          <button
+            type="button"
+            className="btn-ghost"
+            onClick={() => void onLock()}
+            disabled={locking}
+          >
+            {locking ? "Locking…" : "Lock"}
+          </button>
+        </section>
+      ) : null}
 
       <section className="card p-5 space-y-3 border-[var(--erv-error)]/40">
         <h3 className="font-semibold text-[var(--erv-error)]">Log out</h3>

@@ -14,10 +14,14 @@ If **Haven** is installed on this server, ERV detects it and pre-fills the corre
 
 1. Optionally install **Haven** on the same StartOS server (recommended for local relay sync and future media backup).
 2. Open the **Web UI** interface from this service page.
-3. On first launch, complete **Setup** with the same **nsec** and **relay URL** you use in the Android ERV app.
-4. Unlock the session when prompted — your key stays encrypted in the browser; the server never stores your nsec.
+3. On first launch, complete **Setup** with the same **nsec** and **relay URL** you use in the Android ERV app. A **passphrase is optional**: skip to store the nsec unencrypted on this server (the Web UI stays unlocked while the service is running), or set one to encrypt the key and require unlock after idle, Lock, or restart.
+4. If you set a passphrase, unlock when prompted. Existing installs that already sealed a key stay locked until you unlock, recover with the same nsec, or wipe.
 
-![ERV setup — enter your nsec, passphrase, and relay URL](assets/screenshot-setup.svg)
+If you forget the passphrase, open **Unlock** and choose **I forgot — paste nsec**, then set a new passphrase or none. As a coarser fallback, type **DELETE** in the Web UI to remove the key, or stop the service and run the **Reset companion key** action.
+
+The server stores a sealed nsec when a passphrase is set, or a plaintext nsec if you skipped one. It does not store the passphrase.
+
+![ERV setup — enter your nsec, optional passphrase, and relay URL](assets/screenshot-setup.svg)
 
 ## Using ERV
 
@@ -32,7 +36,7 @@ The Web UI opens to setup or unlock, then the main shell with tabs for **Catalog
 | **Catalog** | Browse and edit weight exercises, stretches, and cardio activities (`erv/catalog/*` on your relay). |
 | **Routines** | Create, edit, and publish weight, stretch, or cardio routines. |
 | **Workouts** | Compose circuit and superset sessions; publish to `erv/workouts/library`. |
-| **Settings** | Relay connection, session lock, and import/export helpers. |
+| **Settings** | Relays, optional passphrase, session lock, and remove key. |
 
 After publishing, open **ERV on your phone → sync**, then check the matching silo (for example **Weight Training → Routines** or **Training → Workouts**).
 

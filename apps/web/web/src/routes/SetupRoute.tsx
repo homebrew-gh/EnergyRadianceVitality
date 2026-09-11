@@ -1,4 +1,5 @@
-import { FieldLabel } from "../components/FieldLabel";
+import { FieldLabel, SectionHeader } from "../components/FieldLabel";
+import { PassphraseFields } from "../components/PassphraseFields";
 import { useEffect, useRef, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import { AuthCard } from "../components/AuthCard";
@@ -7,6 +8,7 @@ import { LocalRelayPicker } from "../components/LocalRelayPicker";
 import { SecretInput } from "../components/SecretInput";
 import { ApiError, api } from "../lib/api";
 import { useAuth } from "../lib/auth";
+import { MIN_PASSPHRASE_LENGTH } from "../lib/passphrase";
 import {
   detectedRelaysFromStatus,
   isAllowedRelayUrl,
@@ -40,29 +42,41 @@ export function SetupRoute() {
     return <Navigate to={status.unlocked ? "/app" : "/unlock"} replace />;
   }
 
-  const onSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
+  const validateCommon = (): string | null => {
     if (!nsec.startsWith("nsec1")) {
-      setError("Secret key must be an nsec1… string (same key as your Android app).");
-      return;
-    }
-    if (passphrase.length < 8) {
-      setError("Passphrase must be at least 8 characters.");
-      return;
-    }
-    if (passphrase !== confirm) {
-      setError("Passphrases do not match.");
-      return;
+      return "Secret key must be an nsec1… string (same key as your Android app).";
     }
     if (!isAllowedRelayUrl(relayUrl)) {
-      setError(RELAY_URL_POLICY);
+      return RELAY_URL_POLICY;
+    }
+    return null;
+  };
+
+  const save = async (nextPassphrase: string | undefined) => {
+    setError(null);
+    const commonError = validateCommon();
+    if (commonError) {
+      setError(commonError);
       return;
+    }
+    if (nextPassphrase !== undefined) {
+      if (nextPassphrase.length < MIN_PASSPHRASE_LENGTH) {
+        setError(`Passphrase must be at least ${MIN_PASSPHRASE_LENGTH} characters.`);
+        return;
+      }
+      if (nextPassphrase !== confirm) {
+        setError("Passphrases do not match.");
+        return;
+      }
     }
 
     setSubmitting(true);
     try {
-      await api.authSetup({ nsec, passphrase, relay_url: relayUrl });
+      await api.authSetup({
+        nsec,
+        passphrase: nextPassphrase,
+        relay_url: relayUrl,
+      });
       await refresh();
       navigate("/app", { replace: true });
     } catch (err) {
@@ -72,10 +86,15 @@ export function SetupRoute() {
     }
   };
 
+  const onSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await save(passphrase);
+  };
+
   return (
     <AuthCard
       title="Set up ERV"
-      subtitle="Use the same nsec and relay as your Android app. Your passphrase encrypts the key on this server only."
+      subtitle="Use the same nsec and relay as your Android app. A passphrase is optional — it encrypts the key on this server and is required after idle or restart."
     >
       <form className="space-y-4" onSubmit={onSubmit}>
         {status ? <DetectedRelayNotice status={status} /> : null}
@@ -113,38 +132,38 @@ export function SetupRoute() {
           />
           <p className="text-xs text-muted mt-1">{RELAY_URL_POLICY}</p>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div>
-            <label className="label" htmlFor="pass">
-              <FieldLabel>Passphrase</FieldLabel>
-            </label>
-            <SecretInput
-              id="pass"
-              autoComplete="new-password"
-              value={passphrase}
-              onChange={(e) => setPassphrase(e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="label" htmlFor="confirm">
-              <FieldLabel>Confirm</FieldLabel>
-            </label>
-            <SecretInput
-              id="confirm"
-              autoComplete="new-password"
-              value={confirm}
-              onChange={(e) => setConfirm(e.target.value)}
-            />
-          </div>
+        <div className="space-y-2">
+          <SectionHeader>Passphrase (optional)</SectionHeader>
+          <p className="text-xs text-muted">
+            Skip to store the nsec unencrypted on this server. The Web UI then
+            stays unlocked while the service is running.
+          </p>
+          <PassphraseFields
+            idPrefix="setup"
+            passphrase={passphrase}
+            confirm={confirm}
+            onPassphrase={setPassphrase}
+            onConfirm={setConfirm}
+          />
         </div>
         {error ? (
           <p className="text-sm text-error" role="alert">
             {error}
           </p>
         ) : null}
-        <button type="submit" className="btn-primary w-full" disabled={submitting}>
-          {submitting ? "Saving…" : "Save and unlock"}
-        </button>
+        <div className="flex flex-col gap-2">
+          <button type="submit" className="btn-primary w-full" disabled={submitting}>
+            {submitting ? "Saving…" : "Save and unlock"}
+          </button>
+          <button
+            type="button"
+            className="btn-ghost w-full"
+            disabled={submitting}
+            onClick={() => void save(undefined)}
+          >
+            Skip passphrase
+          </button>
+        </div>
       </form>
     </AuthCard>
   );

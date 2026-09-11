@@ -1,10 +1,10 @@
 import { IMPOSSIBLE, VersionInfo } from '@start9labs/start-sdk'
 
 export const v_0_1_2_0 = VersionInfo.of({
-  version: '0.1.2:25',
+  version: '0.1.2:27',
   releaseNotes: {
     en_US:
-      'Workout Builder uses a 3-column layout so the compose editor aligns with saved workouts and the publish panel sits in its own column.',
+      'Sideload of optional companion passphrase: skip at setup, add/change/remove in Settings, recover with nsec, DELETE wipe, and Reset companion key when stopped.',
   },
   migrations: {
     up: async () => {},

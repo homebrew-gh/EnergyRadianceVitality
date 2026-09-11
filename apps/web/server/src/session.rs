@@ -71,10 +71,7 @@ impl SessionStore {
         true
     }
 
-    pub async fn keys_for(
-        &self,
-        sid: &str,
-    ) -> anyhow::Result<Option<(nostr::Keys, KeyIdentity)>> {
+    pub async fn keys_for(&self, sid: &str) -> anyhow::Result<Option<(nostr::Keys, KeyIdentity)>> {
         let mut inner = self.inner.lock().await;
         let now = Instant::now();
         let expired = match inner.sessions.get(sid) {
@@ -101,6 +98,27 @@ impl SessionStore {
     pub async fn close_all(&self) {
         let mut inner = self.inner.lock().await;
         inner.sessions.clear();
+    }
+
+    pub async fn nsec_for(&self, sid: &str) -> Option<(zeroize::Zeroizing<Vec<u8>>, KeyIdentity)> {
+        let mut inner = self.inner.lock().await;
+        let now = Instant::now();
+        let expired = match inner.sessions.get(sid) {
+            Some(s) => now.duration_since(s.last_seen) > self.idle,
+            None => return None,
+        };
+        if expired {
+            inner.sessions.remove(sid);
+            return None;
+        }
+        let Some(entry) = inner.sessions.get_mut(sid) else {
+            return None;
+        };
+        entry.last_seen = now;
+        Some((
+            Zeroizing::new(entry.secret.to_vec()),
+            entry.identity.clone(),
+        ))
     }
 }
 

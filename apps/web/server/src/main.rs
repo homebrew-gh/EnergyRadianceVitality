@@ -1,7 +1,8 @@
 //! ERV web backend for StartOS.
 //!
-//! The user's nsec is sealed at rest (`$ERV_DATA_DIR/state.json`). After unlock
-//! the key lives in memory only. The server connects to the user's Nostr relay
+//! The user's nsec is stored in `$ERV_DATA_DIR/state.json`: sealed with a user
+//! passphrase when one is set, or plaintext if the operator skipped encryption.
+//! After unlock the key also lives in memory. The server connects to the user's Nostr relay
 //! (same as the Android app), fetches kind-30078 ERV events, and serves the SPA.
 
 mod blossom;
@@ -11,6 +12,7 @@ mod error;
 mod erv_tags;
 mod nostr_support;
 mod outbox;
+mod rate_limit;
 mod relay_raw;
 mod routes;
 mod session;
