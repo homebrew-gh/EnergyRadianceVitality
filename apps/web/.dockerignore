@@ -1,0 +1,2 @@
+# Local session-cookie signing key. Never send it into an image build.
+server/data/cookie.key

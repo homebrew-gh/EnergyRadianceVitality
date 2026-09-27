@@ -16,6 +16,9 @@
 # .pack/ is start9 build staging (binary, dist, Dockerfile) — all generated
 apps/web/.pack/
 apps/web/server/target/
+# Local session-cookie signing key. Generated on this machine only.
+# Do not commit or push to GitHub. The StartOS package creates its own key in /data.
+apps/web/server/data/cookie.key
 apps/web/web/node_modules/
 apps/web/web/dist/
 *.tsbuildinfo
