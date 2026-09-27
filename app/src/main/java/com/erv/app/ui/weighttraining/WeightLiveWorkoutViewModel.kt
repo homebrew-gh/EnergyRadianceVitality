@@ -83,17 +83,19 @@ class WeightLiveWorkoutViewModel(application: Application) : AndroidViewModel(ap
 
     val hasLiveSession: Boolean get() = _activeDraft.value != null
 
+    /**
+     * Bumped on every persist and on [clearDraft]. A save that started before Finish must not
+     * write the draft back after the session has ended.
+     */
+    private var draftWriteGeneration = 0
+
     private fun persistDraft() {
         val d = _activeDraft.value ?: return
+        val generation = ++draftWriteGeneration
         viewModelScope.launch {
             val json = withContext(Dispatchers.Default) { draftJson.encodeToString(d) }
+            if (generation != draftWriteGeneration) return@launch
             userPreferences.setLiveWeightWorkoutDraftJson(json)
-        }
-    }
-
-    private fun clearPersistedDraft() {
-        viewModelScope.launch {
-            userPreferences.setLiveWeightWorkoutDraftJson(null)
         }
     }
 
@@ -330,6 +332,52 @@ class WeightLiveWorkoutViewModel(application: Application) : AndroidViewModel(ap
         )
     }
 
+    /**
+     * Skip the current circuit slot without logging it (short on time / not feeling well).
+     * Advances exactly like [tryAdvanceCircuitAfterSlotComplete] but does not require a logged set
+     * and skips the between-slot rest. Returns null when no circuit is running or it is complete.
+     */
+    fun skipCurrentCircuitSlot(): CircuitAdvanceResult? {
+        val draft = _activeDraft.value ?: return null
+        val circuit = draft.circuitRun ?: return null
+        if (circuit.isComplete) return null
+        val slotKey = circuitSlotKey(circuit.currentRound, circuit.currentSlotIndex)
+        val advanced = circuit.advanceAfterSlot().copy(
+            pendingRestSeconds = null,
+            skippedSlotKeys = (circuit.skippedSlotKeys + slotKey).distinct(),
+        )
+        _activeDraft.value = draft.copy(circuitRun = advanced)
+        persistDraft()
+        return CircuitAdvanceResult(
+            restSeconds = null,
+            isSegmentComplete = advanced.isComplete,
+            segmentIndex = advanced.segmentIndex,
+            workoutRunPosition = if (!advanced.isComplete) {
+                advanced.toWorkoutRunPosition(advanced.segmentIndex)
+            } else {
+                null
+            },
+        )
+    }
+
+    /**
+     * Skip an exercise in a plain (non-circuit) live session: drop it from the list and remember it
+     * so a composed-workout section can mark the matching storyboard item as skipped.
+     */
+    fun skipExercise(exerciseId: String) {
+        val d = _activeDraft.value ?: return
+        if (d.circuitRun != null) return
+        val index = d.exerciseOrder.indexOf(exerciseId)
+        if (index < 0) return
+        _activeDraft.value = d.copy(
+            exerciseOrder = d.exerciseOrder.toMutableList().also { it.removeAt(index) },
+            setsByExerciseId = d.setsByExerciseId - exerciseId,
+            hiitBlocksByExerciseId = d.hiitBlocksByExerciseId - exerciseId,
+            skippedExerciseIds = (d.skippedExerciseIds + exerciseId).distinct(),
+        )
+        persistDraft()
+    }
+
     fun clearCircuitPendingRest() {
         val draft = _activeDraft.value ?: return
         val circuit = draft.circuitRun ?: return
@@ -344,9 +392,11 @@ class WeightLiveWorkoutViewModel(application: Application) : AndroidViewModel(ap
         }
         _activeDraft.value = null
         _liveWorkoutUiExpanded.value = true
+        val generation = ++draftWriteGeneration
         viewModelScope.launch {
             userPreferences.setLiveWeightWorkoutNotificationSuppressed(false)
-            clearPersistedDraft()
+            if (generation != draftWriteGeneration) return@launch
+            userPreferences.setLiveWeightWorkoutDraftJson(null)
         }
     }
 
@@ -356,7 +406,8 @@ class WeightLiveWorkoutViewModel(application: Application) : AndroidViewModel(ap
         val blankRow = listOf(WeightSet(reps = 0, weightKg = null, rpe = null))
         _activeDraft.value = d.copy(
             exerciseOrder = d.exerciseOrder + exerciseId,
-            setsByExerciseId = d.setsByExerciseId + (exerciseId to blankRow)
+            setsByExerciseId = d.setsByExerciseId + (exerciseId to blankRow),
+            skippedExerciseIds = d.skippedExerciseIds - exerciseId,
         )
         persistDraft()
     }

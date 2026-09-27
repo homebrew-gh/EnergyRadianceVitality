@@ -175,6 +175,8 @@ class WorkoutRepository(context: Context) {
         logDate: String,
         entryId: String,
         kind: WorkoutLoggedItemKind,
+        /** Weight exercises the athlete skipped inside the batched silo session; their storyboard items are recapped as skipped. */
+        skippedExerciseIds: Collection<String> = emptyList(),
     ): WorkoutItemCompletionResult? {
         var result: WorkoutItemCompletionResult? = null
         updateState { state ->
@@ -207,53 +209,60 @@ class WorkoutRepository(context: Context) {
                 linkedEntryId = entryId,
                 finishedAtEpochSeconds = now,
             )
-            val itemRecaps = run.itemRecaps
-                .filterNot { it.segmentId == segmentId && it.itemId == itemId } + recap
-            val beforeSegmentIndex = position.segmentIndex
+            val segment = workout.segments.firstOrNull { it.id == segmentId }
+            val skippedRecaps = if (skippedExerciseIds.isEmpty() || segment == null) {
+                emptyList()
+            } else {
+                val batchIds = run.lastLaunchedItemIds.toSet()
+                segment.items
+                    .filterIsInstance<WorkoutItem.Weight>()
+                    .filter { it.id != itemId && (batchIds.isEmpty() || it.id in batchIds) && it.exerciseId in skippedExerciseIds }
+                    .map {
+                        WorkoutItemRecap(
+                            segmentId = segmentId,
+                            itemId = it.id,
+                            kind = WorkoutLoggedItemKind.WEIGHT,
+                            finishedAtEpochSeconds = now,
+                            skipped = true,
+                        )
+                    }
+            }
             val batchSize = run.lastLaunchedItemIds.size.takeIf { it > 0 }
                 ?: WorkoutRunEngine.consecutiveWeightItemRun(workout, position).size.coerceAtLeast(1)
             val nextPosition = WorkoutRunEngine.advanceBy(workout, position, batchSize)
-            val segmentJustCompleted = nextPosition.segmentIndex > beforeSegmentIndex
-            val completedSegmentId = if (segmentJustCompleted) {
-                workout.segments.getOrNull(beforeSegmentIndex)?.id
-            } else {
-                null
-            }
-            val completedSegmentIds = if (completedSegmentId != null) {
-                (run.completedSegmentIds + completedSegmentId).distinct()
-            } else {
-                run.completedSegmentIds
-            }
-            val workoutComplete = WorkoutRunEngine.isWorkoutComplete(workout, nextPosition)
-            val nextSegmentTitle = if (segmentJustCompleted && !workoutComplete) {
-                workout.segments.getOrNull(nextPosition.segmentIndex)?.displayTitle()
-            } else {
-                null
-            }
-            val completedSegmentTitle = if (segmentJustCompleted && !workoutComplete) {
-                workout.segments.getOrNull(beforeSegmentIndex)?.displayTitle()
-            } else {
-                null
-            }
-            result = WorkoutItemCompletionResult(
-                segmentJustCompleted = segmentJustCompleted,
-                completedSegmentId = completedSegmentId,
-                workoutComplete = workoutComplete,
-                nextSegmentTitle = nextSegmentTitle,
-            )
-            val autoAdvance = !workoutComplete && workout.stepIsSiloBacked(nextPosition)
-            val updatedRun = run.copy(
-                position = nextPosition,
-                itemRecaps = itemRecaps,
-                completedSegmentIds = completedSegmentIds,
-                lastLaunchedSegmentId = null,
-                lastLaunchedItemId = null,
-                lastLaunchedItemIds = emptyList(),
-                pendingNextSegmentTitle = nextSegmentTitle,
-                pendingCompletedSegmentTitle = completedSegmentTitle,
-                autoAdvanceRequested = autoAdvance,
-            )
-            state.copy(activeRun = updatedRun)
+            val outcome = run.advancedTo(nextPosition, listOf(recap) + skippedRecaps)
+            result = outcome.result
+            state.copy(activeRun = outcome.run)
+        }
+        return result
+    }
+
+    /**
+     * Skip the current storyboard step (whole circuit for circuit/superset segments) without
+     * logging anything. Returns null when there is no active run or it is already complete.
+     */
+    suspend fun skipCurrentStep(): WorkoutItemCompletionResult? {
+        var result: WorkoutItemCompletionResult? = null
+        updateState { state ->
+            val run = state.activeRun ?: return@updateState state
+            val outcome = run.skippingCurrentStep() ?: return@updateState state
+            result = outcome.result
+            state.copy(activeRun = outcome.run)
+        }
+        return result
+    }
+
+    /**
+     * Skip the launched (batched) section — the silo session ended with nothing logged.
+     * Returns null when there is no active run or it is already complete.
+     */
+    suspend fun skipLaunchedSection(): WorkoutItemCompletionResult? {
+        var result: WorkoutItemCompletionResult? = null
+        updateState { state ->
+            val run = state.activeRun ?: return@updateState state
+            val outcome = run.skippingLaunchedSection() ?: return@updateState state
+            result = outcome.result
+            state.copy(activeRun = outcome.run)
         }
         return result
     }

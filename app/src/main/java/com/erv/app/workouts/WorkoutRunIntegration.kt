@@ -1,12 +1,17 @@
 package com.erv.app.workouts
 
+import android.content.Context
 import com.erv.app.cardio.CardioHrScaffolding
 import com.erv.app.cardio.CardioRepository
 import com.erv.app.cardio.CardioSession
+import com.erv.app.nostr.SessionMediaBackupRuntime
 import com.erv.app.hr.HeartRateChartSectionMarker
 import com.erv.app.nostr.EventSigner
 import com.erv.app.nostr.RelayPool
-import com.erv.app.nostr.UnsignedEvent
+import com.erv.app.nostr.Kind1PublishResult
+import com.erv.app.nostr.Kind1ShareDraft
+import com.erv.app.nostr.Kind1SocialShare
+import com.erv.app.nostr.KeyManager
 import com.erv.app.nostr.buildWorkoutShareHashtagContentLineFromTopics
 import com.erv.app.nostr.parseWorkoutShareTopics
 import com.erv.app.nostr.workoutShareKind1TopicTagsFromTopics
@@ -122,6 +127,122 @@ fun WorkoutActiveRun.isFinalLoggableStep(): Boolean {
     return !workoutSnapshot.hasSiloStepAtOrAfter(next)
 }
 
+/** Updated run plus the completion result for one storyboard advance. */
+data class WorkoutRunAdvanceOutcome(
+    val run: WorkoutActiveRun,
+    val result: WorkoutItemCompletionResult,
+)
+
+/**
+ * Pure bookkeeping shared by "item logged" and "item skipped": merge [newRecaps] (replacing any
+ * earlier recap for the same step), move to [nextPosition], and derive the segment-transition /
+ * auto-advance flags the storyboard reads. Clears the launch pointers.
+ */
+fun WorkoutActiveRun.advancedTo(
+    nextPosition: WorkoutRunPosition,
+    newRecaps: List<WorkoutItemRecap>,
+): WorkoutRunAdvanceOutcome {
+    val workout = workoutSnapshot
+    val replacedKeys = newRecaps.map { it.segmentId to it.itemId }.toSet()
+    val mergedRecaps = itemRecaps.filterNot { (it.segmentId to it.itemId) in replacedKeys } + newRecaps
+    val beforeSegmentIndex = position.segmentIndex
+    val segmentJustCompleted = nextPosition.segmentIndex > beforeSegmentIndex
+    val completedSegmentId = if (segmentJustCompleted) workout.segments.getOrNull(beforeSegmentIndex)?.id else null
+    val workoutComplete = WorkoutRunEngine.isWorkoutComplete(workout, nextPosition)
+    val nextSegmentTitle = if (segmentJustCompleted && !workoutComplete) {
+        workout.segments.getOrNull(nextPosition.segmentIndex)?.displayTitle()
+    } else {
+        null
+    }
+    val completedSegmentTitle = if (segmentJustCompleted && !workoutComplete) {
+        workout.segments.getOrNull(beforeSegmentIndex)?.displayTitle()
+    } else {
+        null
+    }
+    val updated = copy(
+        position = nextPosition,
+        itemRecaps = mergedRecaps,
+        completedSegmentIds = if (completedSegmentId != null) (completedSegmentIds + completedSegmentId).distinct() else completedSegmentIds,
+        lastLaunchedSegmentId = null,
+        lastLaunchedItemId = null,
+        lastLaunchedItemIds = emptyList(),
+        pendingNextSegmentTitle = nextSegmentTitle,
+        pendingCompletedSegmentTitle = completedSegmentTitle,
+        autoAdvanceRequested = !workoutComplete && workout.stepIsSiloBacked(nextPosition),
+    )
+    return WorkoutRunAdvanceOutcome(
+        run = updated,
+        result = WorkoutItemCompletionResult(
+            segmentJustCompleted = segmentJustCompleted,
+            completedSegmentId = completedSegmentId,
+            workoutComplete = workoutComplete,
+            nextSegmentTitle = nextSegmentTitle,
+        ),
+    )
+}
+
+private fun WorkoutItem.loggedKind(): WorkoutLoggedItemKind = when (this) {
+    is WorkoutItem.Cardio -> WorkoutLoggedItemKind.CARDIO
+    is WorkoutItem.Mobility -> WorkoutLoggedItemKind.MOBILITY
+    else -> WorkoutLoggedItemKind.WEIGHT
+}
+
+private fun skippedRecap(segmentId: String, item: WorkoutItem, now: Long): WorkoutItemRecap =
+    WorkoutItemRecap(
+        segmentId = segmentId,
+        itemId = item.id,
+        kind = item.loggedKind(),
+        finishedAtEpochSeconds = now,
+        skipped = true,
+    )
+
+/**
+ * Skip the step at the current position without logging anything. Circuit / superset segments are
+ * skipped as a whole (rounds are not partially skippable from the storyboard). Returns null when
+ * the run is already complete or the position is invalid.
+ */
+fun WorkoutActiveRun.skippingCurrentStep(
+    nowEpochSeconds: Long = nowWorkoutEpochSeconds(),
+): WorkoutRunAdvanceOutcome? {
+    val workout = workoutSnapshot
+    if (WorkoutRunEngine.isWorkoutComplete(workout, position)) return null
+    val segment = workout.segments.getOrNull(position.segmentIndex) ?: return null
+    val isCircuit = segment.kind == WorkoutSegmentKind.CIRCUIT || segment.kind == WorkoutSegmentKind.SUPERSET
+    if (isCircuit) {
+        val recaps = segment.weightItems().map { skippedRecap(segment.id, it, nowEpochSeconds) }
+        val next = WorkoutRunPosition(segmentIndex = position.segmentIndex + 1)
+        return advancedTo(next, recaps)
+    }
+    val item = segment.items.getOrNull(position.itemIndex) ?: return null
+    val next = WorkoutRunEngine.advance(workout, position)
+    return advancedTo(next, listOf(skippedRecap(segment.id, item, nowEpochSeconds)))
+}
+
+/**
+ * Skip every item in the launched (batched) section — used when the athlete ends a silo session
+ * that belongs to a composed run without logging anything. Falls back to the consecutive weight
+ * batch at the current position when no launch pointer was persisted.
+ */
+fun WorkoutActiveRun.skippingLaunchedSection(
+    nowEpochSeconds: Long = nowWorkoutEpochSeconds(),
+): WorkoutRunAdvanceOutcome? {
+    val workout = workoutSnapshot
+    if (WorkoutRunEngine.isWorkoutComplete(workout, position)) return null
+    val segment = workout.segments.getOrNull(position.segmentIndex) ?: return null
+    val isCircuit = segment.kind == WorkoutSegmentKind.CIRCUIT || segment.kind == WorkoutSegmentKind.SUPERSET
+    if (isCircuit) return skippingCurrentStep(nowEpochSeconds)
+    val launchedIds = lastLaunchedItemIds.toSet()
+    val batch = if (launchedIds.isNotEmpty()) {
+        segment.items.filter { it.id in launchedIds }
+    } else {
+        WorkoutRunEngine.consecutiveWeightItemRun(workout, position)
+            .ifEmpty { listOfNotNull(segment.items.getOrNull(position.itemIndex)) }
+    }
+    if (batch.isEmpty()) return null
+    val next = WorkoutRunEngine.advanceBy(workout, position, batch.size)
+    return advancedTo(next, batch.map { skippedRecap(segment.id, it, nowEpochSeconds) })
+}
+
 /** Section progress label like "Section 2 of 5". */
 fun WorkoutActiveRun.sectionProgressLabel(): String {
     val total = workoutSnapshot.segments.size.coerceAtLeast(1)
@@ -148,6 +269,8 @@ data class ComposedWorkoutHrSummary(
     val sections: List<ComposedWorkoutHrSection>,
     val totalElapsedSeconds: Int? = null,
     val sectionCount: Int = 0,
+    /** Human-readable labels ("Main work · Bench press") for steps the athlete skipped. */
+    val skippedItems: List<String> = emptyList(),
 ) {
     val hasAnyHeartRate: Boolean
         get() = wholeRun != null || sections.any { it.heartRate != null }
@@ -176,6 +299,7 @@ suspend fun buildComposedWorkoutHrSummary(
     val stretchState = stretchingRepository.currentState()
     var sectionStart = run.startedAtEpochSeconds
     val sections = run.itemRecaps
+        .filterNot { it.skipped }
         .distinctBy { it.linkedEntryId ?: (it.segmentId + it.itemId) }
         .map { recap ->
             val title = run.workoutSnapshot.segments
@@ -236,7 +360,28 @@ suspend fun buildComposedWorkoutHrSummary(
         sections = sections,
         totalElapsedSeconds = totalElapsedSeconds,
         sectionCount = run.workoutSnapshot.segments.size,
+        skippedItems = run.skippedItemLabels { exerciseId -> weightState.exerciseById(exerciseId)?.name },
     )
+}
+
+/** "Section · step" labels for every recap marked skipped, in storyboard order. */
+fun WorkoutActiveRun.skippedItemLabels(exerciseNameFor: (String) -> String?): List<String> {
+    val skippedKeys = itemRecaps.filter { it.skipped }.map { it.segmentId to it.itemId }.toSet()
+    if (skippedKeys.isEmpty()) return emptyList()
+    return workoutSnapshot.segments.flatMap { segment ->
+        segment.items
+            .filter { (segment.id to it.id) in skippedKeys }
+            .map { item ->
+                val stepLabel = when (item) {
+                    is WorkoutItem.Weight -> item.displayExerciseName(exerciseNameFor(item.exerciseId))
+                    is WorkoutItem.Cardio -> item.title?.takeIf { it.isNotBlank() } ?: item.displaySummary()
+                    is WorkoutItem.Mobility -> item.title?.takeIf { it.isNotBlank() } ?: item.displaySummary()
+                    is WorkoutItem.Rest -> "Rest ${item.durationSeconds}s"
+                    is WorkoutItem.Note -> "Note"
+                }
+                "${segment.displayTitle()} · $stepLabel"
+            }
+    }
 }
 
 /** Human-readable kind label for a logged section, used in summary + share text. */
@@ -289,29 +434,50 @@ fun buildComposedWorkoutNoteContent(
     }
 }
 
-/** Publish a finished composed workout as a Nostr kind-1 note to the athlete's relays. */
+/** Build the kind-1 draft for preview before publishing a composed workout share. */
+fun buildComposedWorkoutKind1Draft(
+    summary: ComposedWorkoutHrSummary,
+    personalMessage: String = "",
+    hashtagsInput: String = "",
+): Kind1ShareDraft {
+    val topics = parseWorkoutShareTopics(hashtagsInput)
+    return Kind1ShareDraft(
+        content = buildComposedWorkoutNoteContent(
+            summary = summary,
+            personalMessage = personalMessage,
+            hashtagLine = buildWorkoutShareHashtagContentLineFromTopics(topics),
+        ),
+        tags = workoutShareKind1TopicTagsFromTopics(topics),
+    )
+}
+
+/** Publish a finished composed workout as a Nostr kind-1 note to social relays only. */
 suspend fun publishComposedWorkoutNote(
     relayPool: RelayPool,
+    keyManager: KeyManager,
     signer: EventSigner,
     summary: ComposedWorkoutHrSummary,
     personalMessage: String = "",
     hashtagsInput: String = "",
-): Boolean {
-    val topics = parseWorkoutShareTopics(hashtagsInput)
-    val content = buildComposedWorkoutNoteContent(
+    successMessage: String = "Shared to your social relays.",
+    noSocialRelaysMessage: String =
+        "No social relays configured. Open Settings → Relays and enable Social on at least one relay.",
+    failureMessage: String = "Failed to share — check social relay connections.",
+): Kind1PublishResult {
+    val draft = buildComposedWorkoutKind1Draft(
         summary = summary,
         personalMessage = personalMessage,
-        hashtagLine = buildWorkoutShareHashtagContentLineFromTopics(topics),
+        hashtagsInput = hashtagsInput,
     )
-    val unsigned = UnsignedEvent(
-        pubkey = signer.publicKey,
-        createdAt = System.currentTimeMillis() / 1000,
-        kind = 1,
-        tags = workoutShareKind1TopicTagsFromTopics(topics),
-        content = content,
+    return Kind1SocialShare.publish(
+        relayPool = relayPool,
+        keyManager = keyManager,
+        signer = signer,
+        draft = draft,
+        successMessage = successMessage,
+        noSocialRelaysMessage = noSocialRelaysMessage,
+        failureMessage = failureMessage,
     )
-    val signed = signer.sign(unsigned)
-    return relayPool.publish(signed)
 }
 
 /** Stamp the full-workout HR summary onto every silo log entry linked to this run. */
@@ -347,6 +513,34 @@ suspend fun attachComposedWorkoutHeartRateToLinkedLogs(
                     session.copy(workoutLink = link.copy(sessionHeartRate = heartRate))
                 }
             }
+        }
+    }
+}
+
+/** Re-backup linked cardio and weight logs after the continuous heart-rate trace is attached. */
+suspend fun backupComposedWorkoutSessionMedia(
+    appContext: Context,
+    run: WorkoutActiveRun,
+    cardioRepository: CardioRepository,
+    weightRepository: WeightRepository,
+) {
+    val cardioState = cardioRepository.currentState()
+    val weightState = weightRepository.currentState()
+    for (recap in run.itemRecaps) {
+        if (recap.skipped) continue
+        val dateIso = recap.linkedLogDate ?: continue
+        val entryId = recap.linkedEntryId ?: continue
+        val logDate = runCatching { LocalDate.parse(dateIso) }.getOrNull() ?: continue
+        when (recap.kind) {
+            WorkoutLoggedItemKind.CARDIO -> {
+                val session = cardioState.logFor(logDate)?.sessions?.firstOrNull { it.id == entryId } ?: continue
+                SessionMediaBackupRuntime.scheduleCardioBackup(appContext, session, dateIso)
+            }
+            WorkoutLoggedItemKind.WEIGHT -> {
+                val session = weightState.logFor(logDate)?.workouts?.firstOrNull { it.id == entryId } ?: continue
+                SessionMediaBackupRuntime.scheduleWeightBackup(appContext, session, dateIso)
+            }
+            WorkoutLoggedItemKind.MOBILITY -> Unit
         }
     }
 }

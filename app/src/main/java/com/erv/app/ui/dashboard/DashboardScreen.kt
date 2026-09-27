@@ -15,6 +15,7 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -80,6 +81,8 @@ import com.erv.app.ui.layout.ErvAdaptiveGrid
 import com.erv.app.R
 import com.erv.app.cycling.LocalConcept2Pm
 import com.erv.app.cycling.LocalCyclingCsc
+import com.erv.app.hr.HeartRatePill
+import com.erv.app.hr.HeartRateZoneInputs
 import com.erv.app.hr.LocalHeartRateBle
 import com.erv.app.nostr.EventSigner
 import com.erv.app.nostr.LocalKeyManager
@@ -188,7 +191,9 @@ import com.erv.app.ui.theme.ErvDarkCategoryMenuDivider
 import com.erv.app.ui.theme.ErvDarkCategoryMenuHandleAccent
 import com.erv.app.ui.theme.ErvDarkCategoryMenuMutedGold
 import com.erv.app.ui.theme.ErvDarkCategoryMenuOnSurface
-import com.erv.app.ui.theme.ErvHeaderRed
+import com.erv.app.ui.theme.ervCategoryAccent
+import com.erv.app.ui.theme.ervLogoSunColor
+import com.erv.app.ui.theme.ervTopAppBarColors
 import com.erv.app.ui.theme.ErvLightTherapyRedMid
 import com.erv.app.supplements.SupplementSync
 import com.erv.app.supplements.SupplementTimeOfDay
@@ -288,7 +293,7 @@ fun DashboardScreen(
     val cardioGpsPreferred by userPreferences.cardioGpsRecordingPreferred.collectAsState(initial = true)
     val weightTrainingLoadUnit by userPreferences.weightTrainingLoadUnit.collectAsState(initial = BodyWeightUnit.LB)
     val goals by userPreferences.goals.collectAsState(initial = emptyList())
-    val heartRateBannerExpanded by userPreferences.heartRateBannerExpanded.collectAsState(initial = true)
+    val heartRateZoneInputs by userPreferences.heartRateZoneInputs.collectAsState(initial = HeartRateZoneInputs())
     val goalsAsOfDate = LocalDate.now()
     val weeklyGoalRows = remember(
         goalsAsOfDate,
@@ -758,39 +763,23 @@ fun DashboardScreen(
                         Icon(
                             painter = painterResource(R.drawable.ic_sun),
                             contentDescription = null,
-                            tint = Color(0xFFFFD600),
+                            tint = ervLogoSunColor(),
                             modifier = Modifier.size(28.dp)
                         )
                         Spacer(Modifier.width(8.dp))
                         Text(
                             "ERV",
                             style = MaterialTheme.typography.headlineSmall,
-                            color = Color.White
                         )
                     }
                 },
                 actions = {
-                    RelayDataSyncTopBarIcon(contentColor = Color.White)
-                    if (heartRateBle.bleHardwareAvailable) {
-                        IconButton(
-                            onClick = {
-                                scope.launch {
-                                    val showHeartRateBanner = !heartRateBannerExpanded
-                                    userPreferences.setHeartRateBannerExpanded(showHeartRateBanner)
-                                    if (showHeartRateBanner) {
-                                        heartRateBle.tryPreferredDeviceReconnectOnce()
-                                    }
-                                }
-                            },
-                        ) {
-                            Icon(
-                                imageVector = if (heartRateBannerExpanded) Icons.Filled.Favorite
-                                else Icons.Filled.FavoriteBorder,
-                                contentDescription = stringResource(R.string.dashboard_hr_banner_toggle_cd),
-                                tint = if (heartRateBannerExpanded) Color(0xFFFF8A80) else Color.White,
-                            )
-                        }
-                    }
+                    RelayDataSyncTopBarIcon()
+                    HeartRatePill(
+                        viewModel = heartRateBle,
+                        zoneInputs = heartRateZoneInputs,
+                        contentColor = MaterialTheme.colorScheme.onSurface,
+                    )
                     Box(modifier = Modifier.size(48.dp)) {
                         IconButton(
                             onClick = { showGoalsSheet = true },
@@ -799,7 +788,6 @@ fun DashboardScreen(
                             Icon(
                                 Icons.Filled.EmojiEvents,
                                 contentDescription = "Goals",
-                                tint = Color.White,
                             )
                         }
                         if (showGoalReachedIndicator) {
@@ -807,8 +795,8 @@ fun DashboardScreen(
                                 modifier = Modifier
                                     .align(Alignment.TopEnd)
                                     .padding(end = 2.dp, top = 2.dp),
-                                containerColor = Color(0xFFFFC107),
-                                contentColor = Color(0xFF1B1B1B),
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary,
                             )
                         }
                     }
@@ -816,13 +804,10 @@ fun DashboardScreen(
                         Icon(
                             Icons.Default.Settings,
                             contentDescription = "Settings",
-                            tint = Color.White
                         )
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = ErvHeaderRed
-                )
+                colors = ervTopAppBarColors()
             )
         },
         modifier = Modifier.fillMaxSize()
@@ -888,7 +873,10 @@ fun DashboardScreen(
 
                 val isSelectedDateToday = selectedDate == LocalDate.now()
                 if (isSelectedDateToday) {
-                    TabRow(selectedTabIndex = dashboardPagerState.currentPage) {
+                    TabRow(
+                        selectedTabIndex = dashboardPagerState.currentPage,
+                        containerColor = MaterialTheme.colorScheme.background,
+                    ) {
                         Tab(
                             selected = dashboardPagerState.currentPage == 0,
                             onClick = {
@@ -2126,6 +2114,7 @@ private fun QuickLogTilesLayout(
                 ) {
                     RoutineTile(
                         icon = tile.icon,
+                        accent = ervCategoryAccent(tile.id.accentCategoryId()),
                         label = tile.label,
                         subtitle = tile.subtitle,
                         modifier = Modifier.fillMaxWidth(),
@@ -2148,7 +2137,7 @@ private fun cardioRoutineShortcutsSubtitle(
     routines.isEmpty() && quickLaunches.isEmpty() -> "Single sessions & timers"
     else -> buildString {
         val parts = mutableListOf<String>()
-        if (routines.isNotEmpty()) parts.add("${routines.size} routines")
+        if (routines.isNotEmpty()) parts.add(if (routines.size == 1) "1 routine" else "${routines.size} routines")
         if (quickLaunches.isNotEmpty()) {
             val n = quickLaunches.size
             parts.add(if (n == 1) "1 quick start" else "$n quick starts")
@@ -2412,7 +2401,11 @@ private fun RoutinesSection(
                             id = LaunchPadTileId.WEIGHT_TRAINING,
                             icon = Icons.Default.FitnessCenter,
                             label = "Weight Training",
-                            subtitle = if (weightRoutines.isEmpty()) "New workout" else "${weightRoutines.size} routines",
+                            subtitle = when (weightRoutines.size) {
+                                0 -> "New workout"
+                                1 -> "1 routine"
+                                else -> "${weightRoutines.size} routines"
+                            },
                             onClick = { showWeightPicker = true },
                         )
                     )
@@ -3984,6 +3977,7 @@ private fun SupplementTimeOfDay.label(): String = when (this) {
 @Composable
 private fun RoutineTile(
     icon: ImageVector,
+    accent: Color,
     label: String,
     subtitle: String,
     modifier: Modifier = Modifier,
@@ -4014,20 +4008,35 @@ private fun RoutineTile(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 if (secondaryIcon != null) {
-                    HotColdDualIcons(
-                        iconSize = 26.dp,
-                        heatIcon = icon,
-                        coldIcon = secondaryIcon
-                    )
+                    Box(
+                        modifier = Modifier
+                            .height(52.dp)
+                            .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.07f), CircleShape)
+                            .padding(horizontal = 12.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        HotColdDualIcons(
+                            iconSize = 26.dp,
+                            heatIcon = icon,
+                            coldIcon = secondaryIcon
+                        )
+                    }
                 } else {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = label,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(32.dp)
-                    )
+                    Box(
+                        modifier = Modifier
+                            .size(52.dp)
+                            .background(accent.copy(alpha = 0.16f), CircleShape),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = icon,
+                            contentDescription = label,
+                            tint = accent,
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
                 }
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(10.dp))
                 Text(
                     text = label,
                     style = MaterialTheme.typography.labelMedium,
@@ -4096,6 +4105,18 @@ private fun RoutineTile(
             }
         }
     }
+}
+
+private fun LaunchPadTileId.accentCategoryId(): String = when (this) {
+    LaunchPadTileId.TRAINING, LaunchPadTileId.PROGRAMS, LaunchPadTileId.WORKOUT_LAUNCHER -> "training"
+    LaunchPadTileId.STRETCHING -> "stretching"
+    LaunchPadTileId.CARDIO -> "cardio"
+    LaunchPadTileId.WEIGHT_TRAINING -> "weight_training"
+    LaunchPadTileId.HOT_COLD -> "heat_cold"
+    LaunchPadTileId.FASTING -> "fasting"
+    LaunchPadTileId.BODY_TRACKER -> "body_tracker"
+    LaunchPadTileId.SUPPLEMENTS -> "supplements"
+    LaunchPadTileId.LIGHT_THERAPY -> "light_therapy"
 }
 
 private fun routineIconFor(index: Int) = when (index % 7) {

@@ -1,5 +1,6 @@
 package com.erv.app.hr
 
+import com.erv.app.ui.theme.ervTopAppBarColors
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -61,6 +62,7 @@ fun HeartRateProgressScreen(
     Scaffold(
         topBar = {
             TopAppBar(
+                colors = ervTopAppBarColors(),
                 title = { Text("Heart rate progress") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {

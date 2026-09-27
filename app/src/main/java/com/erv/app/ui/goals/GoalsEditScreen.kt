@@ -1,5 +1,6 @@
 package com.erv.app.ui.goals
 
+import com.erv.app.ui.theme.ervTopAppBarColors
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -69,6 +70,7 @@ fun GoalsEditScreen(
     Scaffold(
         topBar = {
             TopAppBar(
+                colors = ervTopAppBarColors(),
                 title = { Text("Edit goals") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {

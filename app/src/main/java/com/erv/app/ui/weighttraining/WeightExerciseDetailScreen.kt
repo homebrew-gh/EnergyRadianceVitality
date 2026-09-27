@@ -1,5 +1,6 @@
 package com.erv.app.ui.weighttraining
 
+import com.erv.app.ui.theme.ervTopAppBarColors
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
@@ -55,7 +56,6 @@ import com.erv.app.data.BodyWeightUnit
 import com.erv.app.nostr.EventSigner
 import com.erv.app.nostr.LocalKeyManager
 import com.erv.app.nostr.RelayPool
-import com.erv.app.ui.theme.ErvHeaderRed
 import com.erv.app.weighttraining.WeightExerciseHistoryRow
 import com.erv.app.weighttraining.WeightLibraryState
 import com.erv.app.weighttraining.WeightRepository
@@ -101,7 +101,6 @@ fun WeightExerciseDetailScreen(
 ) {
     val exercise = library.exerciseById(exerciseId)
     val history = remember(exerciseId, library.logs) { library.historyForExercise(exerciseId) }
-    val headerMid = ErvHeaderRed
     val loadSuffix = weightLoadUnitSuffix(loadUnit)
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -143,12 +142,7 @@ fun WeightExerciseDetailScreen(
                         }
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = headerMid,
-                    titleContentColor = Color.White,
-                    navigationIconContentColor = Color.White,
-                    actionIconContentColor = Color.White
-                )
+                colors = ervTopAppBarColors()
             )
         }
     ) { padding ->

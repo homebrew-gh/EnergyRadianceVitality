@@ -1,5 +1,6 @@
 package com.erv.app.ui.workouts
 
+import com.erv.app.ui.theme.ervTopAppBarColors
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -66,7 +67,6 @@ import com.erv.app.nostr.RelayPool
 import com.erv.app.cardio.CardioLibraryState
 import com.erv.app.stretching.StretchCatalogEntry
 import com.erv.app.ui.stretching.StretchPickStretchDialog
-import com.erv.app.ui.theme.ErvHeaderRed
 import com.erv.app.ui.weighttraining.WeightPickExerciseDialog
 import com.erv.app.weighttraining.WeightLibraryState
 import com.erv.app.weighttraining.WeightSet
@@ -262,14 +262,10 @@ fun WorkoutComposerScreen(
                         onClick = { persist() },
                         enabled = canSave,
                     ) {
-                        Text("Save", color = Color.White)
+                        Text("Save")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = ErvHeaderRed,
-                    titleContentColor = Color.White,
-                    navigationIconContentColor = Color.White,
-                ),
+                colors = ervTopAppBarColors(),
             )
         },
     ) { padding ->

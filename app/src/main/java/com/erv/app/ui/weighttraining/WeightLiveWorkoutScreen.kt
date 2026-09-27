@@ -66,7 +66,10 @@ import com.erv.app.ui.media.WorkoutMediaControlPanel
 import com.erv.app.ui.media.playHiitWorkCountdownTickCue
 import com.erv.app.ui.media.playHiitWorkSegmentEndCue
 import com.erv.app.ui.theme.ErvDarkTherapyRedDark
-import com.erv.app.ui.theme.ErvHeaderRed
+import com.erv.app.ui.theme.ErvSessionRed
+import com.erv.app.ui.theme.ervSessionTopAppBarColors
+import com.erv.app.hr.HeartRatePill
+import com.erv.app.hr.HeartRateZoneInputs
 import com.erv.app.ui.theme.ErvLightTherapyRedDark
 import com.erv.app.weighttraining.WeightEquipment
 import com.erv.app.weighttraining.WeightExercise
@@ -110,6 +113,15 @@ fun WeightLiveWorkoutScreen(
     onRecordExerciseActivity: (String) -> Unit = {},
     /** After a set is logged during a composed-workout circuit — parent may advance the circuit. */
     onAfterCircuitSetLogged: () -> Unit = {},
+    /** Athlete skips the active circuit slot without logging it — parent advances the circuit. */
+    onSkipCircuitSlot: () -> Unit = {},
+    /** Athlete skips a whole exercise in a plain live session (removed; remembered as skipped). */
+    onSkipExercise: (String) -> Unit = {},
+    /**
+     * Allow Finish with nothing logged (composed-workout section: the parent records the section
+     * as skipped and moves the storyboard on). Stand-alone sessions keep the "nothing to save" guard.
+     */
+    allowFinishWithNothingLogged: Boolean = false,
     /** Circuit finished all rounds — parent should save and return to the workout storyboard. */
     onCircuitSegmentComplete: () -> Unit = {},
     /** Back arrow: leave this screen; workout keeps running (notification). Parent may clear an empty draft. */
@@ -134,6 +146,7 @@ fun WeightLiveWorkoutScreen(
     var showExerciseCreator by remember { mutableStateOf(false) }
     var showDiscardConfirm by remember { mutableStateOf(false) }
     var showFinishBlocked by remember { mutableStateOf(false) }
+    var pendingSkipExerciseId by remember { mutableStateOf<String?>(null) }
     // Start every exercise collapsed (e.g. routine load) so the list is compact until the user expands.
     var setsCollapsedIds by remember(draft.startedAtEpochSeconds) {
         mutableStateOf(draft.exerciseOrder.toSet())
@@ -167,7 +180,7 @@ fun WeightLiveWorkoutScreen(
     val restTimerDurationSec by userPreferences.weightLiveRestTimerSeconds.collectAsState(initial = 90)
     val restTimerCountdownSoundEnabled by userPreferences.weightLiveRestTimerCountdownSoundEnabled.collectAsState(initial = true)
     val restTimerEndSoundEnabled by userPreferences.weightLiveRestTimerEndSoundEnabled.collectAsState(initial = true)
-    val heartRateBannerExpanded by userPreferences.heartRateBannerExpanded.collectAsState(initial = true)
+    val heartRateZoneInputs by userPreferences.heartRateZoneInputs.collectAsState(initial = HeartRateZoneInputs())
     val heartRateBle = LocalHeartRateBle.current
     val scope = rememberCoroutineScope()
     val latestCountdownSoundEnabled by rememberUpdatedState(restTimerCountdownSoundEnabled)
@@ -291,7 +304,7 @@ fun WeightLiveWorkoutScreen(
     }
 
     val darkTheme = isSystemInDarkTheme()
-    val headerMid = ErvHeaderRed
+    val headerMid = ErvSessionRed
     val headerDark = if (darkTheme) ErvDarkTherapyRedDark else ErvLightTherapyRedDark
     // When this weight session is part of a larger workout (composed run or unified routine),
     // default to showing the total workout clock so it keeps counting across sections instead
@@ -440,6 +453,40 @@ fun WeightLiveWorkoutScreen(
         )
     }
 
+    pendingSkipExerciseId?.let { skipId ->
+        val skipName = library.exerciseById(skipId)?.name ?: skipId
+        val loggedSets = weightSetsInDraft(draft, skipId).count { it.isLogged() }
+        AlertDialog(
+            onDismissRequest = { pendingSkipExerciseId = null },
+            title = { Text("Skip $skipName?") },
+            text = {
+                Text(
+                    if (loggedSets > 0) {
+                        "This removes the exercise from today's session, including the $loggedSets logged set(s). It will be marked as skipped."
+                    } else {
+                        "This removes the exercise from today's session and marks it as skipped. You can add it back with Add exercise."
+                    }
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pendingSkipExerciseId = null
+                        setsCollapsedIds = setsCollapsedIds - skipId
+                        if (editingExerciseId == skipId) editingExerciseId = null
+                        clearRestTimerUi()
+                        onSkipExercise(skipId)
+                    },
+                ) {
+                    Text("Skip")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingSkipExerciseId = null }) { Text("Keep") }
+            },
+        )
+    }
+
     if (showFinishBlocked) {
         AlertDialog(
             onDismissRequest = { showFinishBlocked = false },
@@ -508,23 +555,11 @@ fun WeightLiveWorkoutScreen(
             },
             actions = {
                 val isEditingExercise = editingId != null
-                IconButton(
-                    onClick = {
-                        scope.launch {
-                            val showHeartRateBanner = !heartRateBannerExpanded
-                            userPreferences.setHeartRateBannerExpanded(showHeartRateBanner)
-                            if (showHeartRateBanner) {
-                                heartRateBle.tryPreferredDeviceReconnectOnce()
-                            }
-                        }
-                    }
-                ) {
-                    Icon(
-                        imageVector = if (heartRateBannerExpanded) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
-                        contentDescription = "Heart rate monitor",
-                        tint = if (heartRateBannerExpanded) Color(0xFFFF8A80) else Color.White.copy(alpha = 0.88f)
-                    )
-                }
+                HeartRatePill(
+                    viewModel = heartRateBle,
+                    zoneInputs = heartRateZoneInputs,
+                    contentColor = Color.White,
+                )
                 IconButton(
                     onClick = { mediaControlsEnabled = !mediaControlsEnabled },
                     modifier = Modifier.padding(end = 4.dp)
@@ -548,7 +583,7 @@ fun WeightLiveWorkoutScreen(
                                 draft.hiitBlocksByExerciseId[id] != null ||
                                     draft.setsByExerciseId[id].orEmpty().any { it.isLogged() }
                             }
-                            if (!hasLogged) {
+                            if (!hasLogged && !allowFinishWithNothingLogged) {
                                 onCannotFinishNothingLogged()
                                 showFinishBlocked = true
                             } else {
@@ -561,12 +596,7 @@ fun WeightLiveWorkoutScreen(
                     }
                 }
             },
-            colors = TopAppBarDefaults.topAppBarColors(
-                containerColor = headerMid,
-                titleContentColor = Color.White,
-                navigationIconContentColor = Color.White,
-                actionIconContentColor = Color.White
-            )
+            colors = ervSessionTopAppBarColors(headerMid)
         )
     }
 
@@ -734,6 +764,19 @@ fun WeightLiveWorkoutScreen(
                             },
                         )
                     }
+                    if (circuitRun == null) {
+                        item(key = "skip_exercise_${editingId}") {
+                            TextButton(
+                                onClick = { pendingSkipExerciseId = editingId },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text(
+                                    "Skip this exercise",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
                     if (circuitRun != null && editingActiveSlot) {
                         item(key = "circuit_advance_${editingId}") {
                             val slotLogged = circuitRun.isCurrentSlotLogged(
@@ -746,6 +789,20 @@ fun WeightLiveWorkoutScreen(
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Text("Log set & continue")
+                            }
+                            if (!slotLogged) {
+                                TextButton(
+                                    onClick = {
+                                        clearRestTimerUi()
+                                        onSkipCircuitSlot()
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Text(
+                                        "Skip this set",
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
                             }
                         }
                     }

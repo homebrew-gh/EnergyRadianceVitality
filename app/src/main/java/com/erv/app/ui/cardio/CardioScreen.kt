@@ -3,6 +3,7 @@
 
 package com.erv.app.ui.cardio
 
+import com.erv.app.ui.theme.ervTopAppBarColors
 import android.Manifest
 import com.erv.app.ui.components.FormSectionLabel
 import com.erv.app.ui.components.FormSectionLabelMedium
@@ -143,6 +144,7 @@ import com.erv.app.cardio.CardioRepository
 import com.erv.app.cardio.CardioSync
 import com.erv.app.nostr.LibraryStateMerge
 import com.erv.app.ui.components.SectionLogRelayResyncIconButton
+import com.erv.app.ui.components.WorkoutKind1SharePreviewDialog
 import com.erv.app.cardio.CardioQuickLaunch
 import com.erv.app.cardio.CardioRoutine
 import com.erv.app.cardio.CardioRoutineStep
@@ -194,6 +196,9 @@ import com.erv.app.data.UserPreferences
 import com.erv.app.data.WorkoutMediaUploadBackend
 import com.erv.app.nostr.BlossomUploader
 import com.erv.app.nostr.EventSigner
+import com.erv.app.nostr.KeyManager
+import com.erv.app.nostr.Kind1ShareDraft
+import com.erv.app.nostr.Kind1SocialShare
 import com.erv.app.nostr.Nip96Uploader
 import com.erv.app.nostr.UnsignedEvent
 import com.erv.app.nostr.buildWorkoutShareHashtagContentLine
@@ -219,7 +224,8 @@ import com.erv.app.cycling.LocalConcept2Pm
 import com.erv.app.cycling.LocalCyclingCsc
 import com.erv.app.data.SavedBluetoothDevice
 import com.erv.app.data.displayName
-import com.erv.app.hr.HeartRateTopBar
+import com.erv.app.hr.HeartRatePill
+import com.erv.app.ui.theme.ErvStatusBarColor
 import com.erv.app.hr.HeartRateSessionAnalyticsSection
 import com.erv.app.hr.LocalHeartRateBle
 import com.erv.app.hr.requiredBlePermissionsForHeartRate
@@ -228,7 +234,6 @@ import com.erv.app.ui.weighttraining.WeightLiveWorkoutViewModel
 import com.erv.app.ui.theme.ErvDarkTherapyRedDark
 import com.erv.app.ui.theme.ErvDarkTherapyRedGlow
 import com.erv.app.ui.theme.ErvDarkTherapyRedMid
-import com.erv.app.ui.theme.ErvHeaderRed
 import com.erv.app.ui.theme.ErvLightTherapyRedDark
 import com.erv.app.ui.theme.ErvLightTherapyRedGlow
 import com.erv.app.ui.theme.ErvLightTherapyRedMid
@@ -632,12 +637,7 @@ fun CardioCategoryScreen(
                         Icon(Icons.Default.DateRange, contentDescription = "Open log")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = ErvHeaderRed,
-                    titleContentColor = Color.White,
-                    actionIconContentColor = Color.White,
-                    navigationIconContentColor = Color.White
-                )
+                colors = ervTopAppBarColors()
             )
         }
     ) { padding ->
@@ -655,8 +655,7 @@ fun CardioCategoryScreen(
             }
             TabRow(
                 selectedTabIndex = activeTab,
-                containerColor = therapyRedDark,
-                contentColor = Color.White
+                containerColor = MaterialTheme.colorScheme.background,
             ) {
                 CardioTab.entries.forEachIndexed { index, tab ->
                     Tab(
@@ -2672,12 +2671,7 @@ fun CardioLogScreen(
                         Icon(Icons.Filled.BarChart, contentDescription = "Stats and graphs")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = ErvHeaderRed,
-                    titleContentColor = Color.White,
-                    actionIconContentColor = Color.White,
-                    navigationIconContentColor = Color.White
-                )
+                colors = ervTopAppBarColors()
             )
         },
         floatingActionButton = {
@@ -3118,7 +3112,6 @@ fun CardioElapsedTimerFullScreen(
     // Erg = Concept2-pairable (BikeErg / RowErg / SkiErg); stroke ergs use spm + /500m pace.
     val isErgWorkout = draft.activity.isErgMonitorActivity()
     val isStrokeErgWorkout = draft.activity.isStrokeErgActivity()
-    val heartRateBannerExpanded by userPreferences.heartRateBannerExpanded.collectAsState(initial = true)
     val heartRateZoneInputs by userPreferences.heartRateZoneInputs.collectAsState(
         initial = com.erv.app.hr.HeartRateZoneInputs(),
     )
@@ -3180,10 +3173,6 @@ fun CardioElapsedTimerFullScreen(
             }
         }
     }
-    val requestHeartRateBlePermissions = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) { }
-
     fun openCyclingSensorScan() {
         pendingCyclingConnectDevice = null
         pendingCyclingScan = true
@@ -3370,11 +3359,7 @@ fun CardioElapsedTimerFullScreen(
             cyclingCscBle.tryPreferredDeviceReconnectOnce()
         }
     }
-    LaunchedEffect(tickKey, heartRateBannerExpanded) {
-        if (heartRateBannerExpanded) {
-            heartRateBle.tryPreferredDeviceReconnectOnce()
-        }
-    }
+    ErvStatusBarColor(dark)
 
     Box(
         modifier = Modifier
@@ -3407,23 +3392,11 @@ fun CardioElapsedTimerFullScreen(
                             color = Color.White.copy(alpha = 0.9f),
                             modifier = Modifier.weight(1f)
                         )
-                        IconButton(
-                            onClick = {
-                                scope.launch {
-                                    val showHeartRateBanner = !heartRateBannerExpanded
-                                    userPreferences.setHeartRateBannerExpanded(showHeartRateBanner)
-                                    if (showHeartRateBanner) {
-                                        heartRateBle.tryPreferredDeviceReconnectOnce()
-                                    }
-                                }
-                            }
-                        ) {
-                            Icon(
-                                imageVector = if (heartRateBannerExpanded) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
-                                contentDescription = "Heart rate monitor",
-                                tint = if (heartRateBannerExpanded) Color(0xFFFF8A80) else Color.White.copy(alpha = 0.88f)
-                            )
-                        }
+                        HeartRatePill(
+                            viewModel = heartRateBle,
+                            zoneInputs = heartRateZoneInputs,
+                            contentColor = Color.White,
+                        )
                         if (isErgWorkout) {
                             with(bikeErgHandle) {
                                 CardioBikeErgSensorToolbarActions(handle = this, lightOnDark = true)
@@ -3451,11 +3424,18 @@ fun CardioElapsedTimerFullScreen(
                         }
                     }
                 } else {
-                    Text(
-                        if (awaitingStart) "Ready to start" else "Session in progress",
-                        style = MaterialTheme.typography.titleLarge,
-                        color = Color.White.copy(alpha = 0.9f)
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            if (awaitingStart) "Ready to start" else "Session in progress",
+                            style = MaterialTheme.typography.titleLarge,
+                            color = Color.White.copy(alpha = 0.9f)
+                        )
+                        HeartRatePill(
+                            viewModel = heartRateBle,
+                            zoneInputs = heartRateZoneInputs,
+                            contentColor = Color.White,
+                        )
+                    }
                 }
                 if (showGpsPermissionHint) {
                     Spacer(Modifier.height(8.dp))
@@ -3466,16 +3446,6 @@ fun CardioElapsedTimerFullScreen(
                     ) {
                         Text(stringResource(R.string.cardio_timer_gps_allow_location))
                     }
-                }
-                if (heartRateBannerExpanded) {
-                    Spacer(Modifier.height(8.dp))
-                    HeartRateTopBar(
-                        viewModel = heartRateBle,
-                        onRequestBlePermissions = {
-                            requestHeartRateBlePermissions.launch(requiredBlePermissionsForHeartRate())
-                        },
-                        zoneInputs = heartRateZoneInputs,
-                    )
                 }
             }
             Column(
@@ -4173,6 +4143,7 @@ fun CardioWorkoutSummaryFullScreen(
     var shared by remember { mutableStateOf(false) }
     var backingUpRoute by remember { mutableStateOf(false) }
     var shareExtraHashtags by remember { mutableStateOf("") }
+    var showSharePreview by remember { mutableStateOf(false) }
     val summaryContext = LocalContext.current
     val nip96Origin by userPreferences.nip96MediaServerOrigin.collectAsState(initial = "")
     val blossomPublicOrigin by userPreferences.blossomPublicServerOrigin.collectAsState(initial = "")
@@ -4181,7 +4152,7 @@ fun CardioWorkoutSummaryFullScreen(
     val workoutMediaBackend by userPreferences.workoutMediaUploadBackend.collectAsState(
         initial = WorkoutMediaUploadBackend.NIP96
     )
-    val attachRouteImage by userPreferences.attachRouteImageToWorkoutNostrShare.collectAsState(initial = true)
+    val attachRouteImage by userPreferences.attachRouteImageToWorkoutNostrShare.collectAsState(initial = false)
     val heartRateZoneInputs by userPreferences.heartRateZoneInputs.collectAsState(
         initial = com.erv.app.hr.HeartRateZoneInputs(),
     )
@@ -4193,6 +4164,18 @@ fun CardioWorkoutSummaryFullScreen(
     }
     val hasGpsForShare = session.gpsTrack?.points?.isNotEmpty() == true
     val keyManager = LocalKeyManager.current
+    val sharePreviewContent = remember(session, distanceUnit, shareExtraHashtags) {
+        val extraTopics = parseExtraWorkoutHashtagTopics(shareExtraHashtags)
+        buildWorkoutNoteContent(session, distanceUnit, routeImageUrl = null, extraTopics = extraTopics)
+    }
+    val shareRouteImageNote = when {
+        attachRouteImage && hasGpsForShare && normalizedShareMediaOrigin.isNotEmpty() ->
+            stringResource(R.string.kind1_share_preview_route_image)
+        else -> null
+    }
+    val kind1ShareSuccessMsg = stringResource(R.string.kind1_share_success)
+    val kind1NoSocialMsg = stringResource(R.string.kind1_share_no_social_relays)
+    val kind1FailureMsg = stringResource(R.string.kind1_share_failed)
 
     Box(
         modifier = Modifier
@@ -4508,8 +4491,6 @@ fun CardioWorkoutSummaryFullScreen(
             )
             Spacer(Modifier.height(16.dp))
             if (logged && relayPool != null && signer != null) {
-                val shareRelayPool = relayPool
-                val shareSigner = signer
                 if (attachRouteImage && hasGpsForShare && normalizedShareMediaOrigin.isEmpty()) {
                     Text(
                         stringResource(R.string.cardio_share_route_image_need_server),
@@ -4553,40 +4534,7 @@ fun CardioWorkoutSummaryFullScreen(
                 OutlinedButton(
                     onClick = {
                         if (sharing || shared) return@OutlinedButton
-                        sharing = true
-                        scope.launch {
-                            val outcome = publishWorkoutNote(
-                                summaryContext,
-                                shareRelayPool,
-                                shareSigner,
-                                session,
-                                distanceUnit,
-                                nip96Origin,
-                                blossomPublicOrigin,
-                                workoutMediaBackend,
-                                attachRouteImage,
-                                dark,
-                                mid,
-                                glow,
-                                shareExtraHashtags
-                            )
-                            sharing = false
-                            shared = outcome.relayOk
-                            if (outcome.uploadedRouteImageUrl != null) {
-                                val url = outcome.uploadedRouteImageUrl
-                                repository.updateSession(logDate, session.id) { it.copy(routeImageUrl = url) }
-                                repository.currentState().logFor(logDate)?.let { log ->
-                                    CardioSync.publishDailyLog(
-                                        summaryContext.applicationContext,
-                                        shareRelayPool,
-                                        shareSigner,
-                                        log,
-                                        keyManager.relayUrlsForKind30078Publish(),
-                                    )
-                                }
-                            }
-                            snackbarHostState.showSnackbar(outcome.message)
-                        }
+                        showSharePreview = true
                     },
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !sharing && !shared,
@@ -4635,6 +4583,56 @@ fun CardioWorkoutSummaryFullScreen(
             hostState = snackbarHostState,
             modifier = Modifier.align(Alignment.BottomCenter)
         )
+        if (showSharePreview && relayPool != null && signer != null) {
+            WorkoutKind1SharePreviewDialog(
+                content = sharePreviewContent,
+                socialRelayUrls = keyManager.relayUrlsForKind1Publish(),
+                routeImageNote = shareRouteImageNote,
+                confirming = sharing,
+                onDismiss = { if (!sharing) showSharePreview = false },
+                onConfirm = {
+                    sharing = true
+                    scope.launch {
+                        val outcome = publishWorkoutNote(
+                            context = summaryContext,
+                            relayPool = relayPool,
+                            keyManager = keyManager,
+                            signer = signer,
+                            session = session,
+                            distanceUnit = distanceUnit,
+                            nip96OriginRaw = nip96Origin,
+                            blossomPublicOriginRaw = blossomPublicOrigin,
+                            mediaBackend = workoutMediaBackend,
+                            attachRouteImage = attachRouteImage,
+                            dark = dark,
+                            mid = mid,
+                            glow = glow,
+                            extraHashtagInput = shareExtraHashtags,
+                            successMessage = kind1ShareSuccessMsg,
+                            noSocialRelaysMessage = kind1NoSocialMsg,
+                            failureMessage = kind1FailureMsg,
+                        )
+                        sharing = false
+                        shared = outcome.relayOk
+                        if (outcome.relayOk) showSharePreview = false
+                        if (outcome.uploadedRouteImageUrl != null) {
+                            val url = outcome.uploadedRouteImageUrl
+                            repository.updateSession(logDate, session.id) { it.copy(routeImageUrl = url) }
+                            repository.currentState().logFor(logDate)?.let { log ->
+                                CardioSync.publishDailyLog(
+                                    summaryContext.applicationContext,
+                                    relayPool,
+                                    signer,
+                                    log,
+                                    keyManager.relayUrlsForKind30078Publish(),
+                                )
+                            }
+                        }
+                        snackbarHostState.showSnackbar(outcome.message)
+                    }
+                },
+            )
+        }
     }
 }
 
@@ -4695,9 +4693,27 @@ private data class WorkoutPublishOutcome(
     val uploadedRouteImageUrl: String?
 )
 
+private fun buildCardioWorkoutKind1Draft(
+    session: CardioSession,
+    distanceUnit: CardioDistanceUnit,
+    routeImageUrl: String? = null,
+    extraHashtagInput: String = "",
+): Kind1ShareDraft {
+    val extraTopics = parseExtraWorkoutHashtagTopics(extraHashtagInput)
+    val tags = workoutShareKind1TopicTags(extraTopics).toMutableList()
+    if (routeImageUrl != null) {
+        tags.add(listOf("imeta", "url $routeImageUrl", "m image/png", "dim 1080x1440"))
+    }
+    return Kind1ShareDraft(
+        content = buildWorkoutNoteContent(session, distanceUnit, routeImageUrl, extraTopics),
+        tags = tags,
+    )
+}
+
 private suspend fun publishWorkoutNote(
     context: Context,
     relayPool: RelayPool,
+    keyManager: KeyManager,
     signer: EventSigner,
     session: CardioSession,
     distanceUnit: CardioDistanceUnit,
@@ -4708,9 +4724,12 @@ private suspend fun publishWorkoutNote(
     dark: Color,
     mid: Color,
     glow: Color,
-    extraHashtagInput: String = ""
+    extraHashtagInput: String = "",
+    successMessage: String = "Shared to your social relays.",
+    noSocialRelaysMessage: String =
+        "No social relays configured. Open Settings → Relays and enable Social on at least one relay.",
+    failureMessage: String = "Failed to share — check social relay connections.",
 ): WorkoutPublishOutcome {
-    val extraTopics = parseExtraWorkoutHashtagTopics(extraHashtagInput)
     val normalizedOrigin = when (mediaBackend) {
         WorkoutMediaUploadBackend.NIP96 ->
             Nip96Uploader.normalizeMediaServerOrigin(nip96OriginRaw)
@@ -4742,28 +4761,29 @@ private suspend fun publishWorkoutNote(
             uploadOk = routeImageUrl != null
         }
     }
-    val tags = workoutShareKind1TopicTags(extraTopics).toMutableList()
-    if (routeImageUrl != null) {
-        tags.add(listOf("imeta", "url $routeImageUrl", "m image/png", "dim 1080x1440"))
-    }
-    val content = buildWorkoutNoteContent(session, distanceUnit, routeImageUrl, extraTopics)
-    val unsigned = UnsignedEvent(
-        pubkey = signer.publicKey,
-        createdAt = System.currentTimeMillis() / 1000,
-        kind = 1,
-        tags = tags,
-        content = content
+    val draft = buildCardioWorkoutKind1Draft(
+        session = session,
+        distanceUnit = distanceUnit,
+        routeImageUrl = routeImageUrl,
+        extraHashtagInput = extraHashtagInput,
     )
-    val signed = signer.sign(unsigned)
-    val ok = relayPool.publish(signed)
+    val result = Kind1SocialShare.publish(
+        relayPool = relayPool,
+        keyManager = keyManager,
+        signer = signer,
+        draft = draft,
+        successMessage = successMessage,
+        noSocialRelaysMessage = noSocialRelaysMessage,
+        failureMessage = failureMessage,
+    )
     val message = when {
-        !ok -> "Failed to share — check relay connection"
+        !result.ok -> result.userMessage
         uploadAttempted && !uploadOk ->
             "Shared! Route image was not included (upload failed)."
-        else -> "Shared to your relays!"
+        else -> result.userMessage
     }
     val uploadedRouteImageUrl = routeImageUrl?.takeIf { uploadOk }
-    return WorkoutPublishOutcome(ok, message, uploadedRouteImageUrl)
+    return WorkoutPublishOutcome(result.ok, message, uploadedRouteImageUrl)
 }
 
 /** Prep countdown at the start of a guided multi-leg interval workout (before leg 1). */
@@ -4858,15 +4878,11 @@ fun CardioMultiLegTimerFullScreen(
         val heartRateBle = LocalHeartRateBle.current
         val cyclingCscBle = LocalCyclingCsc.current
         val concept2Ble = LocalConcept2Pm.current
-        val heartRateBannerExpanded by userPreferences.heartRateBannerExpanded.collectAsState(initial = true)
         val heartRateZoneInputs by userPreferences.heartRateZoneInputs.collectAsState(
             initial = com.erv.app.hr.HeartRateZoneInputs(),
         )
         val distanceUnit by userPreferences.cardioDistanceUnit.collectAsState(initial = CardioDistanceUnit.MILES)
         val scope = rememberCoroutineScope()
-        val requestHeartRateBlePermissions = rememberLauncherForActivityResult(
-            ActivityResultContracts.RequestMultiplePermissions()
-        ) { }
         // Live erg/sensor stats for the current leg (Concept2 erg preferred over a CSC speed sensor).
         val currentLegIsCycling = state.currentLeg.activity.isCyclingActivity()
         val currentLegIsErg = state.currentLeg.activity.isErgMonitorActivity()
@@ -4914,12 +4930,6 @@ fun CardioMultiLegTimerFullScreen(
         }
         var guidedInPrep by remember(stateKey) { mutableStateOf(initialPrep) }
 
-        LaunchedEffect(stateKey, heartRateBannerExpanded) {
-            if (heartRateBannerExpanded) {
-                heartRateBle.tryPreferredDeviceReconnectOnce()
-            }
-        }
-
         if (guided) {
             LaunchedEffect(stateKey) {
                 if (state.isPendingStart()) return@LaunchedEffect
@@ -4965,6 +4975,7 @@ fun CardioMultiLegTimerFullScreen(
             if (awaitingStart) 0 else (nowEpochSeconds() - state.legStartedEpoch).coerceAtLeast(0).toInt()
         }
         val isLast = state.currentLegIndex >= state.legs.lastIndex
+        ErvStatusBarColor(dark)
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -4997,23 +5008,11 @@ fun CardioMultiLegTimerFullScreen(
                                     color = Color.White.copy(alpha = 0.9f)
                                 )
                             }
-                            IconButton(
-                                onClick = {
-                                    scope.launch {
-                                        val showHeartRateBanner = !heartRateBannerExpanded
-                                        userPreferences.setHeartRateBannerExpanded(showHeartRateBanner)
-                                        if (showHeartRateBanner) {
-                                            heartRateBle.tryPreferredDeviceReconnectOnce()
-                                        }
-                                    }
-                                }
-                            ) {
-                                Icon(
-                                    imageVector = if (heartRateBannerExpanded) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
-                                    contentDescription = "Heart rate monitor",
-                                    tint = if (heartRateBannerExpanded) Color(0xFFFF8A80) else Color.White.copy(alpha = 0.88f)
-                                )
-                            }
+                            HeartRatePill(
+                                viewModel = heartRateBle,
+                                zoneInputs = heartRateZoneInputs,
+                                contentColor = Color.White,
+                            )
                             if (bikeErgEnabled) {
                                 with(bikeErgHandle) {
                                     CardioBikeErgSensorToolbarActions(handle = this, lightOnDark = true)
@@ -5028,21 +5027,18 @@ fun CardioMultiLegTimerFullScreen(
                             }
                         }
                     } else {
-                        Text(
-                            "Multi-activity workout",
-                            style = MaterialTheme.typography.titleLarge,
-                            color = Color.White.copy(alpha = 0.9f)
-                        )
-                    }
-                    if (heartRateBannerExpanded) {
-                        Spacer(Modifier.height(8.dp))
-                        HeartRateTopBar(
-                            viewModel = heartRateBle,
-                            onRequestBlePermissions = {
-                                requestHeartRateBlePermissions.launch(requiredBlePermissionsForHeartRate())
-                            },
-                            zoneInputs = heartRateZoneInputs,
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                "Multi-activity workout",
+                                style = MaterialTheme.typography.titleLarge,
+                                color = Color.White.copy(alpha = 0.9f)
+                            )
+                            HeartRatePill(
+                                viewModel = heartRateBle,
+                                zoneInputs = heartRateZoneInputs,
+                                contentColor = Color.White,
+                            )
+                        }
                     }
                     Spacer(Modifier.height(8.dp))
                     Text(

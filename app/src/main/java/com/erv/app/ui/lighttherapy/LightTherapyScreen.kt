@@ -1,6 +1,7 @@
 @file:OptIn(ExperimentalMaterial3Api::class)
 package com.erv.app.ui.lighttherapy
 
+import com.erv.app.ui.theme.ervTopAppBarColors
 import android.media.ToneGenerator
 import android.media.AudioManager
 import androidx.compose.foundation.Canvas
@@ -46,7 +47,6 @@ import com.erv.app.nostr.RelayPayloadDigestStore
 import com.erv.app.ui.theme.ErvDarkTherapyRedDark
 import com.erv.app.ui.theme.ErvDarkTherapyRedGlow
 import com.erv.app.ui.theme.ErvDarkTherapyRedMid
-import com.erv.app.ui.theme.ErvHeaderRed
 import com.erv.app.ui.theme.ErvLightTherapyRedDark
 import com.erv.app.ui.theme.ErvLightTherapyRedGlow
 import com.erv.app.ui.theme.ErvLightTherapyRedMid
@@ -178,12 +178,7 @@ fun LightTherapyCategoryScreen(
                         Icon(Icons.Default.DateRange, contentDescription = "Open log")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = ErvHeaderRed,
-                    titleContentColor = Color.White,
-                    actionIconContentColor = Color.White,
-                    navigationIconContentColor = Color.White
-                )
+                colors = ervTopAppBarColors()
             )
         }
     ) { padding ->
@@ -194,8 +189,7 @@ fun LightTherapyCategoryScreen(
         ) {
             TabRow(
                 selectedTabIndex = activeTab,
-                containerColor = therapyRedDark,
-                contentColor = Color.White
+                containerColor = MaterialTheme.colorScheme.background,
             ) {
                 LightTab.entries.forEachIndexed { index, tab ->
                     Tab(
@@ -624,7 +618,6 @@ fun LightLogScreen(
     val datesWithActivity = remember(state) { datesWithLightActivity(state) }
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
-    val headerMid = ErvHeaderRed
     val keyManager = LocalKeyManager.current
     val logAppContext = LocalContext.current.applicationContext
 
@@ -684,11 +677,7 @@ fun LightLogScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = headerMid,
-                    titleContentColor = Color.White,
-                    navigationIconContentColor = Color.White
-                )
+                colors = ervTopAppBarColors()
             )
         }
     ) { padding ->

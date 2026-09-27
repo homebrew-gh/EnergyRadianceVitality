@@ -1,5 +1,6 @@
 package com.erv.app.ui.workouts
 
+import com.erv.app.ui.theme.ervTopAppBarColors
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -43,7 +44,6 @@ import androidx.compose.ui.unit.dp
 import com.erv.app.nostr.EventSigner
 import com.erv.app.nostr.KeyManager
 import com.erv.app.nostr.RelayPool
-import com.erv.app.ui.theme.ErvHeaderRed
 import com.erv.app.workouts.Workout
 import com.erv.app.workouts.WorkoutLibraryState
 import com.erv.app.workouts.WorkoutRepository
@@ -143,12 +143,7 @@ fun WorkoutLibraryScreen(
                         Icon(Icons.Default.Sync, contentDescription = "Sync from relay")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = ErvHeaderRed,
-                    titleContentColor = Color.White,
-                    navigationIconContentColor = Color.White,
-                    actionIconContentColor = Color.White,
-                ),
+                colors = ervTopAppBarColors(),
             )
         },
     ) { padding ->

@@ -1,5 +1,6 @@
 package com.erv.app.ui.cardio
 
+import com.erv.app.ui.theme.ervTopAppBarColors
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -65,7 +66,6 @@ import com.erv.app.cardio.label
 import com.erv.app.data.UserPreferences
 import com.erv.app.hr.HeartRateSessionAnalyticsSection
 import com.erv.app.hr.HeartRateZoneInputs
-import com.erv.app.ui.theme.ErvHeaderRed
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -92,7 +92,6 @@ fun CardioSessionDetailScreen(
     val heartRateZoneInputs by userPreferences.heartRateZoneInputs.collectAsState(
         initial = HeartRateZoneInputs(),
     )
-    val headerMid = ErvHeaderRed
 
     Scaffold(
         modifier = modifier,
@@ -104,11 +103,7 @@ fun CardioSessionDetailScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = headerMid,
-                    titleContentColor = Color.White,
-                    navigationIconContentColor = Color.White
-                )
+                colors = ervTopAppBarColors()
             )
         }
     ) { padding ->

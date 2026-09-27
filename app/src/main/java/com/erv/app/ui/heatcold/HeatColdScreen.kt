@@ -2,6 +2,8 @@
 
 package com.erv.app.ui.heatcold
 
+import com.erv.app.ui.theme.ervSessionTopAppBarColors
+import com.erv.app.ui.theme.ervTopAppBarColors
 import android.media.AudioManager
 import android.media.ToneGenerator
 import androidx.compose.animation.core.Animatable
@@ -106,7 +108,7 @@ import com.erv.app.ui.theme.ErvColdMid
 import com.erv.app.ui.theme.ErvDarkColdDark
 import com.erv.app.ui.theme.ErvDarkColdGlow
 import com.erv.app.ui.theme.ErvDarkColdMid
-import com.erv.app.ui.theme.ErvHeaderRed
+import com.erv.app.ui.theme.ErvSessionRed
 import com.erv.app.ui.theme.ErvDarkTherapyRedDark
 import com.erv.app.ui.theme.ErvDarkTherapyRedGlow
 import com.erv.app.ui.theme.ErvDarkTherapyRedMid
@@ -307,12 +309,7 @@ fun HeatColdCategoryScreen(
                         Icon(Icons.Default.DateRange, contentDescription = "Open log")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = if (mode == HeatColdMode.SAUNA) ErvHeaderRed else coldMid,
-                    titleContentColor = Color.White,
-                    actionIconContentColor = Color.White,
-                    navigationIconContentColor = Color.White
-                )
+                colors = ervSessionTopAppBarColors(if (mode == HeatColdMode.SAUNA) ErvSessionRed else coldMid)
             )
         }
     ) { padding ->
@@ -671,7 +668,7 @@ fun HeatColdLogScreen(
     val datesWithActivity = remember(state) { datesWithHeatColdActivity(state) }
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
-    val headerMid = ErvHeaderRed
+    val headerMid = ErvSessionRed
     val keyManager = LocalKeyManager.current
     val logAppContext = LocalContext.current.applicationContext
 
@@ -731,11 +728,7 @@ fun HeatColdLogScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = headerMid,
-                    titleContentColor = Color.White,
-                    navigationIconContentColor = Color.White
-                )
+                colors = ervTopAppBarColors()
             )
         }
     ) { padding ->

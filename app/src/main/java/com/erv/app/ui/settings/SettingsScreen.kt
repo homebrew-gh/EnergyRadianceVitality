@@ -1,6 +1,7 @@
 @file:OptIn(ExperimentalMaterial3Api::class)
 package com.erv.app.ui.settings
 
+import com.erv.app.ui.theme.ervTopAppBarColors
 import android.content.Intent
 import android.net.Uri
 import android.graphics.BitmapFactory
@@ -64,6 +65,9 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.erv.app.ui.components.FieldLabel
 import com.erv.app.ui.components.FormSectionLabel
+import com.erv.app.ui.components.RelayDataSocialExplainerCard
+import com.erv.app.ui.components.RelayMetadataDisclosureCard
+import com.erv.app.ui.components.RelaySelfHostedRecommendation
 import com.erv.app.ui.components.SectionHeader
 import com.erv.app.ui.components.titleCaseWords
 import com.erv.app.R
@@ -99,6 +103,8 @@ import com.erv.app.nostr.Nip65
 import com.erv.app.nostr.Nip96Uploader
 import com.erv.app.nostr.NipB7
 import com.erv.app.nostr.ProfileMetadata
+import com.erv.app.nostr.RelayConfigImport
+import com.erv.app.nostr.RelayConfigImportResult
 import com.erv.app.nostr.RelayPool
 import com.erv.app.nostr.RelayOutboxStatus
 import com.erv.app.nostr.RelayOutboxItemFailure
@@ -242,7 +248,7 @@ fun SettingsScreen(
     val workoutMediaBackend by userPreferences.workoutMediaUploadBackend.collectAsState(
         initial = WorkoutMediaUploadBackend.NIP96
     )
-    val attachRouteToNostr by userPreferences.attachRouteImageToWorkoutNostrShare.collectAsState(initial = true)
+    val attachRouteToNostr by userPreferences.attachRouteImageToWorkoutNostrShare.collectAsState(initial = false)
     val neverPublishNip65RelayList by userPreferences.neverPublishNip65RelayList.collectAsState(initial = true)
     val trustSelfSignedLanTls by userPreferences.trustSelfSignedLanTls.collectAsState(initial = false)
     var nip96Draft by remember { mutableStateOf("") }
@@ -279,6 +285,7 @@ fun SettingsScreen(
     var newRelaySuffix by remember { mutableStateOf("") }
     var hasUnsavedChanges by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
+    var relayImporting by remember { mutableStateOf(false) }
 
     val snackbarHostState = remember { SnackbarHostState() }
     LaunchedEffect(snackbarMessage) {
@@ -611,12 +618,9 @@ fun SettingsScreen(
                     title = "Relays",
                     onBack = { nestedNav.popBackStack() }
                 ) {
-                    Text(
-                        "Tap Data (encrypted health activity) or Social (public posts) to set what each relay carries.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(bottom = 12.dp)
-                    )
+                    RelayDataSocialExplainerCard(modifier = Modifier.padding(bottom = 12.dp))
+                    RelaySelfHostedRecommendation(modifier = Modifier.padding(bottom = 12.dp))
+                    RelayMetadataDisclosureCard(modifier = Modifier.padding(bottom = 12.dp))
                     allRelays.forEach { url ->
                         RelayRow(
                             url = url,
@@ -645,7 +649,7 @@ fun SettingsScreen(
                     }
                     if (allRelays.isEmpty()) {
                         Text(
-                            "No relays configured. Add one below or fetch from network.",
+                            stringResource(R.string.settings_relays_empty_helper),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(vertical = 8.dp)
@@ -665,9 +669,49 @@ fun SettingsScreen(
                             }
                         }
                     )
+                    OutlinedButton(
+                        onClick = {
+                            if (relayPool == null || signer == null) return@OutlinedButton
+                            scope.launch {
+                                relayImporting = true
+                                try {
+                                    val result = RelayConfigImport.fetchAndApply(
+                                        keyManager = keyManager,
+                                        signer = signer,
+                                        userPreferences = userPreferences,
+                                        pool = relayPool,
+                                    )
+                                    relayRevision++
+                                    onRelaysChanged()
+                                    snackbarMessage = when (result) {
+                                        RelayConfigImportResult.NOT_CONNECTED ->
+                                            context.getString(R.string.settings_relays_import_not_connected)
+                                        RelayConfigImportResult.SETTINGS_APPLIED ->
+                                            context.getString(R.string.settings_relays_import_settings_ok)
+                                        RelayConfigImportResult.NOTHING_FOUND ->
+                                            context.getString(R.string.settings_relays_import_none)
+                                    }
+                                } finally {
+                                    relayImporting = false
+                                }
+                            }
+                        },
+                        enabled = !relayImporting && !saving && signer != null && relayPool != null && allRelays.isNotEmpty(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp),
+                    ) {
+                        Text(
+                            if (relayImporting) {
+                                stringResource(R.string.settings_relays_import_loading)
+                            } else {
+                                stringResource(R.string.settings_relays_import_from_network)
+                            },
+                        )
+                    }
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        "Social relays are imported automatically during relay setup.",
+                        stringResource(R.string.settings_relays_social_import_note),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -742,6 +786,14 @@ fun SettingsScreen(
                             onCheckedChange = { v ->
                                 scope.launch { userPreferences.setNeverPublishNip65RelayList(v) }
                             }
+                        )
+                    }
+                    if (!neverPublishNip65RelayList) {
+                        Text(
+                            text = stringResource(R.string.settings_relays_publish_nip65_warning),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(bottom = 12.dp),
                         )
                     }
                     com.erv.app.ui.onboarding.RelaySelfSignedTlsRow(
@@ -894,7 +946,7 @@ fun SettingsScreen(
                         onSaveBlossomServers = {
                             scope.launch {
                                 val pub = Nip96Uploader.normalizeMediaServerOrigin(blossomPublicDraft)
-                                val priv = Nip96Uploader.normalizeMediaServerOrigin(blossomPrivateDraft)
+                                val priv = BlossomEndpoints.normalizePrivateOrigin(blossomPrivateDraft)
                                 userPreferences.setBlossomPublicServerOrigin(pub)
                                 userPreferences.setBlossomPrivateServerOrigin(priv)
                                 blossomPublicDraft = pub
@@ -1079,6 +1131,7 @@ private fun SettingsHomeScreen(
     Scaffold(
         topBar = {
             TopAppBar(
+                colors = ervTopAppBarColors(),
                 title = { Text("Settings") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -1320,6 +1373,7 @@ private fun SettingsSubScreenScaffold(
     Scaffold(
         topBar = {
             TopAppBar(
+                colors = ervTopAppBarColors(),
                 title = { Text(title) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {

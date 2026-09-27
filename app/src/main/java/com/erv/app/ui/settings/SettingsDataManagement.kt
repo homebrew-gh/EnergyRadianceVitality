@@ -1,5 +1,6 @@
 package com.erv.app.ui.settings
 
+import com.erv.app.ui.theme.ervTopAppBarColors
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -114,6 +115,7 @@ fun SettingsDataManagementScreen(
     Scaffold(
         topBar = {
             TopAppBar(
+                colors = ervTopAppBarColors(),
                 title = { Text("Data Management") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {

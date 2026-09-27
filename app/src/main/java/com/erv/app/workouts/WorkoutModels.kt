@@ -218,6 +218,8 @@ data class WorkoutItemRecap(
     val linkedLogDate: String? = null,
     val linkedEntryId: String? = null,
     val finishedAtEpochSeconds: Long? = null,
+    /** Athlete skipped this step during the live run (short on time, not feeling well); nothing was logged. */
+    val skipped: Boolean = false,
 )
 
 @Serializable

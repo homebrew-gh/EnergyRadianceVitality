@@ -1,5 +1,6 @@
 package com.erv.app.ui.training
 
+import com.erv.app.ui.theme.ervTopAppBarColors
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -59,9 +60,6 @@ import com.erv.app.programs.ProgramsLibraryState
 import com.erv.app.programs.isoDayOfWeekLabel
 import com.erv.app.programs.programBlocksForDate
 import com.erv.app.stretching.StretchCatalogEntry
-import com.erv.app.ui.theme.ErvDarkTherapyRedDark
-import com.erv.app.ui.theme.ErvHeaderRed
-import com.erv.app.ui.theme.ErvLightTherapyRedDark
 import com.erv.app.ui.workouts.WorkoutLibraryListContent
 import com.erv.app.weighttraining.WeightLibraryState
 import com.erv.app.workouts.Workout
@@ -145,8 +143,6 @@ fun TrainingCategoryScreen(
         )
     }
 
-    val darkTheme = isSystemInDarkTheme()
-    val headerDark = if (darkTheme) ErvDarkTherapyRedDark else ErvLightTherapyRedDark
 
     if (deletingWorkout != null) {
         AlertDialog(
@@ -213,12 +209,7 @@ fun TrainingCategoryScreen(
                             }
                         }
                     },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = ErvHeaderRed,
-                        titleContentColor = Color.White,
-                        navigationIconContentColor = Color.White,
-                        actionIconContentColor = Color.White,
-                    ),
+                    colors = ervTopAppBarColors(),
                 )
             },
         ) { padding ->
@@ -229,8 +220,7 @@ fun TrainingCategoryScreen(
             ) {
                 TabRow(
                     selectedTabIndex = tabEnum.ordinal,
-                    containerColor = headerDark,
-                    contentColor = Color.White,
+                    containerColor = MaterialTheme.colorScheme.background,
                 ) {
                     TrainingTab.entries.forEach { tab ->
                         Tab(

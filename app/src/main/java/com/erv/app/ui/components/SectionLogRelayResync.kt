@@ -7,6 +7,7 @@ import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -33,7 +34,7 @@ fun SectionLogRelayResyncIconButton(
     dayLogEntries: List<Pair<String, String>>,
     snackbarHostState: SnackbarHostState,
     scope: CoroutineScope,
-    contentColor: Color = Color.White,
+    contentColor: Color = LocalContentColor.current,
     modifier: Modifier = Modifier,
 ) {
     var syncing by remember { mutableStateOf(false) }

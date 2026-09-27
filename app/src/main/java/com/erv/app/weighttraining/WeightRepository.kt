@@ -12,6 +12,10 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import com.erv.app.nostr.LibraryStateMerge
 import com.erv.app.nostr.SessionMediaBackupRuntime
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import com.erv.app.weighttraining.WeightSync
@@ -22,6 +26,9 @@ private val Context.weightTrainingDataStore: DataStore<Preferences> by preferenc
 class WeightRepository(context: Context) {
 
     private val appContext = context.applicationContext
+
+    /** Relay upload must not block leaving a live workout for the summary screen. */
+    private val relaySyncScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private object Keys {
         val STATE = stringPreferencesKey("weight_training_state")
@@ -110,9 +117,18 @@ class WeightRepository(context: Context) {
         syncDayLogToRelay(date)
     }
 
-    private suspend fun syncDayLogToRelay(date: LocalDate) {
-        currentState().logFor(date)?.let { log ->
-            WeightSync.queueDayLogForRelay(appContext, log)
+    /**
+     * Queues the day log after the local save has returned. Network drain stays off the caller
+     * so Finish can close the live session and show the summary immediately.
+     */
+    private fun syncDayLogToRelay(date: LocalDate) {
+        val dateIso = date.toString()
+        relaySyncScope.launch {
+            runCatching {
+                currentState().logFor(LocalDate.parse(dateIso))?.let { log ->
+                    WeightSync.queueDayLogForRelay(appContext, log)
+                }
+            }
         }
     }
 

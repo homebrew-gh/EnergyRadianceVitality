@@ -2,6 +2,7 @@
 
 package com.erv.app.ui.stretching
 
+import com.erv.app.ui.theme.ervTopAppBarColors
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
@@ -137,6 +138,7 @@ import com.erv.app.stretching.datedStretchSessionsForSectionLog
 import com.erv.app.ui.dashboard.SectionLogCalendarSheet
 import com.erv.app.ui.dashboard.SectionLogFilterBar
 import com.erv.app.ui.dashboard.datesWithStretchActivity
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -240,7 +242,9 @@ private fun ttsSpeakParams(): Bundle = Bundle().apply {
 
 /**
  * Only call when [engineReady] (init status was [TextToSpeech.SUCCESS]); otherwise speak/stop log "not bound".
- * Retries simpler [speak] shapes if needed.
+ * Retries simpler [speak] shapes if needed. Uses [TextToSpeech.QUEUE_FLUSH] to replace any current
+ * utterance — do not call [TextToSpeech.stop] right before [TextToSpeech.speak]: on several engines the
+ * asynchronous stop lands after the new utterance is queued and silently drops it.
  */
 @Suppress("DEPRECATION")
 private fun runStretchTtsSpeak(
@@ -250,10 +254,6 @@ private fun runStretchTtsSpeak(
     engineReady: Boolean
 ): Int {
     if (!engineReady) return TextToSpeech.ERROR
-    try {
-        tts.stop()
-    } catch (_: Exception) {
-    }
     var code = tts.speak(text, TextToSpeech.QUEUE_FLUSH, ttsSpeakParams(), utteranceId)
     if (code == TextToSpeech.ERROR) {
         code = tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
@@ -291,60 +291,71 @@ private fun transitionSecondsBetweenSteps(prev: GuidedStretchStep, next: GuidedS
     return if (bilateralSideChange) TRANSITION_SECONDS_BILATERAL_SIDE else TRANSITION_SECONDS_NEW_STRETCH
 }
 
-private fun speakNextGuidedStep(
-    context: Context,
-    tts: TextToSpeech?,
-    step: GuidedStretchStep,
-    enabled: Boolean,
-    engineReady: Boolean
-) {
-    if (!enabled || tts == null || !engineReady) return
-    val name = titleCaseStretchLabel(step.entry.name)
-    val label = when (step.side) {
-        null -> name
-        StretchSide.RIGHT -> "$name, right side"
-        StretchSide.LEFT -> "$name, left side"
-    }
-    requestTtsAudioFocusForPlayback(context)
-    runStretchTtsSpeak(tts, "Next: $label", "stretchNext", engineReady)
-}
-
 private fun guidedSideLabel(side: StretchSide?): String? = when (side) {
     null -> null
     StretchSide.RIGHT -> "Right side"
     StretchSide.LEFT -> "Left side"
 }
 
+/** Spoken form of the procedure: trimmed, single sentence-ending punctuation, or empty when the catalog has none. */
+private fun spokenProcedure(entry: StretchCatalogEntry): String {
+    val p = entry.procedure.trim()
+    if (p.isEmpty()) return ""
+    return if (p.last() in ".!?") p else "$p."
+}
+
 private fun buildFirstStretchIntroSpeech(entry: StretchCatalogEntry): String {
     val name = entry.name.trim().ifBlank { "this stretch" }
+    val procedure = spokenProcedure(entry).let { if (it.isEmpty()) "" else " $it" }
     val bilateralNote = if (entry.requiresBothSides) {
         " We will do the right side first, then the left."
     } else {
         ""
     }
-    return "Welcome to your routine. Your first stretch is the $name.$bilateralNote The hold begins after this countdown."
+    return "Welcome to your routine. Your first stretch is the $name.$procedure$bilateralNote The hold begins after this countdown."
+}
+
+/**
+ * Spoken cue during the transition into [next]. Reads the procedure when the stretch changes;
+ * when only the side changes (right → left of the same stretch) just announces the side.
+ */
+private fun buildNextStepSpeech(prev: GuidedStretchStep, next: GuidedStretchStep): String {
+    val name = titleCaseStretchLabel(next.entry.name).ifBlank { "the next stretch" }
+    val label = when (next.side) {
+        null -> name
+        StretchSide.RIGHT -> "$name, right side"
+        StretchSide.LEFT -> "$name, left side"
+    }
+    val sameStretchOtherSide = prev.entry.id == next.entry.id && next.side == StretchSide.LEFT
+    val procedure = if (sameStretchOtherSide) "" else spokenProcedure(next.entry)
+    return if (procedure.isEmpty()) "Next: $label." else "Next: $label. $procedure"
 }
 
 private const val FIRST_INTRO_UTTERANCE_ID = "stretchFirst"
-private const val FIRST_INTRO_SPEAK_WAIT_MS = 120_000L
+private const val FIRST_INTRO_SPEAK_WAIT_MS = 60_000L
+
+private const val NEXT_STEP_UTTERANCE_ID = "stretchNext"
+private const val NEXT_STEP_SPEAK_WAIT_MS = 30_000L
 
 private const val COMPLETE_UTTERANCE_ID = "stretchComplete"
-private const val COMPLETE_SPEAK_WAIT_MS = 60_000L
+private const val COMPLETE_SPEAK_WAIT_MS = 15_000L
 
 /**
- * Plays the first-stretch intro and suspends until the engine reports the utterance finished
- * (or failure / timeout), so the countdown can start after speech.
+ * Speaks [text] and suspends until the engine reports the utterance done, errored, or stopped
+ * (e.g. the user tapped mute), or until [timeoutMs]. Never throws; returns promptly when the
+ * engine is not ready or [speak] fails so the session timer is never blocked on audio.
  */
-private suspend fun awaitFirstStretchIntroUtterance(
+private suspend fun speakAndAwaitUtterance(
     context: Context,
     tts: TextToSpeech,
-    entry: StretchCatalogEntry,
-    engineReady: Boolean
+    text: String,
+    utteranceId: String,
+    engineReady: Boolean,
+    timeoutMs: Long
 ) {
-    if (!engineReady) return
-    val text = buildFirstStretchIntroSpeech(entry)
-    if (text.isBlank()) return
-    withTimeoutOrNull(FIRST_INTRO_SPEAK_WAIT_MS) {
+    if (!engineReady || text.isBlank()) return
+    val expectedId = utteranceId
+    withTimeoutOrNull(timeoutMs) {
         suspendCancellableCoroutine { cont ->
             val finished = AtomicBoolean(false)
             fun finishOnce() {
@@ -359,66 +370,23 @@ private suspend fun awaitFirstStretchIntroUtterance(
             val listener = object : UtteranceProgressListener() {
                 override fun onStart(utteranceId: String?) {}
                 override fun onDone(utteranceId: String?) {
-                    if (utteranceId == FIRST_INTRO_UTTERANCE_ID) finishOnce()
+                    if (utteranceId == expectedId) finishOnce()
                 }
                 @Deprecated("Deprecated in Android UtteranceProgressListener; kept for older API levels.")
                 override fun onError(utteranceId: String?) {
-                    if (utteranceId == FIRST_INTRO_UTTERANCE_ID) finishOnce()
+                    if (utteranceId == expectedId) finishOnce()
                 }
                 override fun onError(utteranceId: String?, errorCode: Int) {
-                    if (utteranceId == FIRST_INTRO_UTTERANCE_ID) finishOnce()
+                    Log.w(TTS_LOG_TAG, "utterance $utteranceId error=$errorCode")
+                    if (utteranceId == expectedId) finishOnce()
+                }
+                override fun onStop(utteranceId: String?, interrupted: Boolean) {
+                    if (utteranceId == expectedId) finishOnce()
                 }
             }
             tts.setOnUtteranceProgressListener(listener)
             requestTtsAudioFocusForPlayback(context)
-            val code = runStretchTtsSpeak(tts, text, FIRST_INTRO_UTTERANCE_ID, engineReady)
-            if (code == TextToSpeech.ERROR) {
-                finishOnce()
-            }
-            cont.invokeOnCancellation {
-                try {
-                    tts.setOnUtteranceProgressListener(null)
-                } catch (_: Exception) {
-                }
-            }
-        }
-    }
-}
-
-private suspend fun awaitStretchingCompleteUtterance(
-    context: Context,
-    tts: TextToSpeech,
-    engineReady: Boolean
-) {
-    if (!engineReady) return
-    withTimeoutOrNull(COMPLETE_SPEAK_WAIT_MS) {
-        suspendCancellableCoroutine { cont ->
-            val finished = AtomicBoolean(false)
-            fun finishOnce() {
-                if (finished.compareAndSet(false, true)) {
-                    try {
-                        tts.setOnUtteranceProgressListener(null)
-                    } catch (_: Exception) {
-                    }
-                    cont.resume(Unit)
-                }
-            }
-            val listener = object : UtteranceProgressListener() {
-                override fun onStart(utteranceId: String?) {}
-                override fun onDone(utteranceId: String?) {
-                    if (utteranceId == COMPLETE_UTTERANCE_ID) finishOnce()
-                }
-                @Deprecated("Deprecated in Android UtteranceProgressListener; kept for older API levels.")
-                override fun onError(utteranceId: String?) {
-                    if (utteranceId == COMPLETE_UTTERANCE_ID) finishOnce()
-                }
-                override fun onError(utteranceId: String?, errorCode: Int) {
-                    if (utteranceId == COMPLETE_UTTERANCE_ID) finishOnce()
-                }
-            }
-            tts.setOnUtteranceProgressListener(listener)
-            requestTtsAudioFocusForPlayback(context)
-            val code = runStretchTtsSpeak(tts, "Stretching complete.", COMPLETE_UTTERANCE_ID, engineReady)
+            val code = runStretchTtsSpeak(tts, text, utteranceId, engineReady)
             if (code == TextToSpeech.ERROR) {
                 finishOnce()
             }
@@ -557,14 +525,6 @@ fun StretchingCategoryScreen(
         }
     }
 
-    val darkTheme = isSystemInDarkTheme()
-    val headerColor =
-        if (darkTheme) MaterialTheme.colorScheme.primaryContainer
-        else MaterialTheme.colorScheme.primary
-    val onHeader =
-        if (darkTheme) MaterialTheme.colorScheme.onPrimaryContainer
-        else MaterialTheme.colorScheme.onPrimary
-
     LaunchedEffect(guidedRoutine) {
         val r = guidedRoutine ?: return@LaunchedEffect
         if (r.stretchIds.isEmpty()) {
@@ -574,7 +534,9 @@ fun StretchingCategoryScreen(
     }
 
     guidedRoutine?.takeIf { it.stretchIds.isNotEmpty() }?.let { routine ->
-        val entries = remember(routine.id, routine.stretchIds, repository.catalog) {
+        // Resolve once per launched routine. Keying on the live catalog would rebuild this list when a
+        // relay catalog sync lands mid-session, which restarts the guided session from the intro.
+        val entries = remember(routine.id, routine.stretchIds) {
             resolveStretchEntries(routine.stretchIds, repository)
         }
         val holdSec = routine.holdSecondsPerStretch.coerceIn(5, 300)
@@ -682,12 +644,7 @@ fun StretchingCategoryScreen(
                         Icon(Icons.Default.DateRange, contentDescription = "Open log")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = headerColor,
-                    titleContentColor = onHeader,
-                    actionIconContentColor = onHeader,
-                    navigationIconContentColor = onHeader
-                )
+                colors = ervTopAppBarColors()
             )
         }
     ) { padding ->
@@ -696,7 +653,10 @@ fun StretchingCategoryScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            TabRow(selectedTabIndex = activeTab) {
+            TabRow(
+                selectedTabIndex = activeTab,
+                containerColor = MaterialTheme.colorScheme.background,
+            ) {
                 StretchTab.entries.forEachIndexed { index, tab ->
                     Tab(
                         selected = activeTab == index,
@@ -1081,11 +1041,13 @@ private fun StretchGuidedSessionOverlay(
         index = 0
         secondsLeft = -1
         if (voiceEnabledState.value && ttsEngineOkState.value) {
-            awaitFirstStretchIntroUtterance(
+            speakAndAwaitUtterance(
                 context,
                 tts,
-                stretchEntries[0],
-                ttsEngineOkState.value
+                buildFirstStretchIntroSpeech(stretchEntries[0]),
+                FIRST_INTRO_UTTERANCE_ID,
+                ttsEngineOkState.value,
+                FIRST_INTRO_SPEAK_WAIT_MS
             )
         }
         secondsLeft = FIRST_STRETCH_PREP_SECONDS
@@ -1112,22 +1074,40 @@ private fun StretchGuidedSessionOverlay(
             if (i == sessionSteps.lastIndex) break
             phaseHold = false
             secondsLeft = transitionSecondsBetweenSteps(sessionSteps[i], sessionSteps[i + 1])
-            speakNextGuidedStep(
-                context,
-                tts,
-                sessionSteps[i + 1],
-                voiceEnabledState.value,
-                ttsEngineOkState.value
-            )
+            // Announce the next stretch (name, side, and how to do it) while the transition counts down.
+            // If the description outlasts the countdown, the next hold waits for speech to finish so
+            // the instructions are never cut off by the start tone.
+            val announce = if (voiceEnabledState.value && ttsEngineOkState.value) {
+                async {
+                    speakAndAwaitUtterance(
+                        context,
+                        tts,
+                        buildNextStepSpeech(sessionSteps[i], sessionSteps[i + 1]),
+                        NEXT_STEP_UTTERANCE_ID,
+                        ttsEngineOkState.value,
+                        NEXT_STEP_SPEAK_WAIT_MS
+                    )
+                }
+            } else {
+                null
+            }
             while (secondsLeft > 0) {
                 delay(1000)
                 secondsLeft--
             }
+            announce?.await()
             i++
             index = i
         }
         if (voiceEnabledState.value && ttsEngineOkState.value) {
-            awaitStretchingCompleteUtterance(context, tts, ttsEngineOkState.value)
+            speakAndAwaitUtterance(
+                context,
+                tts,
+                "Stretching complete.",
+                COMPLETE_UTTERANCE_ID,
+                ttsEngineOkState.value,
+                COMPLETE_SPEAK_WAIT_MS
+            )
         }
         onFinished(guidedSessionTotalMinutes(sessionSteps, holdSeconds))
     }
@@ -1587,13 +1567,6 @@ fun StretchingLogScreen(
     val datesWithActivity = remember(state) { datesWithStretchActivity(state) }
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
-    val darkTheme = isSystemInDarkTheme()
-    val headerColor =
-        if (darkTheme) MaterialTheme.colorScheme.primaryContainer
-        else MaterialTheme.colorScheme.primary
-    val onHeader =
-        if (darkTheme) MaterialTheme.colorScheme.onPrimaryContainer
-        else MaterialTheme.colorScheme.onPrimary
     val keyManager = LocalKeyManager.current
     val logAppContext = LocalContext.current.applicationContext
 
@@ -1653,11 +1626,7 @@ fun StretchingLogScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = headerColor,
-                    titleContentColor = onHeader,
-                    navigationIconContentColor = onHeader
-                )
+                colors = ervTopAppBarColors()
             )
         }
     ) { padding ->

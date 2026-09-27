@@ -22,6 +22,7 @@ fun CategoryTile(
     secondaryIcon: ImageVector? = null,
     /** False = Coming-soon tile: muted card and glyphs (still tappable). */
     implemented: Boolean = true,
+    accent: Color = MaterialTheme.colorScheme.primary,
 ) {
     val scheme = MaterialTheme.colorScheme
     val cardColors = if (implemented) {
@@ -32,7 +33,7 @@ fun CategoryTile(
             contentColor = scheme.onSurfaceVariant.copy(alpha = 0.72f),
         )
     }
-    val iconTint = if (implemented) scheme.primary else scheme.onSurfaceVariant.copy(alpha = 0.55f)
+    val iconTint = if (implemented) accent else scheme.onSurfaceVariant.copy(alpha = 0.55f)
     val labelColor = if (implemented) Color.Unspecified else scheme.onSurfaceVariant.copy(alpha = 0.65f)
 
     ElevatedCard(
