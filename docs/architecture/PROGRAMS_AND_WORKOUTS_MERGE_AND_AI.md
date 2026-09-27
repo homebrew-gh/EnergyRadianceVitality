@@ -183,6 +183,11 @@ Optional parallel track (not blocking merge): **weekly coaching digest** on Dash
 
 ## 6. AI integration (Phase C + D)
 
+> **Implementation plan:** the concrete web/Start9 design (server relay `/api/ai/*`, Maple Proxy
+> detection, sealed key handling, model selection, output contracts, milestones M0–M6) lives in
+> [AI_COACH_MAPLE_INTEGRATION.md](AI_COACH_MAPLE_INTEGRATION.md). This section keeps the
+> product principles; when the two disagree, the integration spec wins.
+
 AI is **optional**, **off by default**, and lives **inside the merged Plans & workouts section** — not a separate Settings-only workflow.
 
 ### 6.1 Provider selector
@@ -207,7 +212,7 @@ Store per-provider settings in the Start9 web companion/server config (encrypted
 **Maple-specific notes:**
 
 - Run [maple-proxy-startos](https://github.com/islandbitcoin/maple-proxy-startos) on Start9; API on port **8080**, optional Web UI on port **80**.
-- Web companion targets `{baseUrl}/v1/chat/completions` with **streaming SSE** (Maple supports streaming only).
+- Web companion targets `{baseUrl}/v1/chat/completions`. Maple Proxy supports **both** streaming (SSE) and non-streaming responses — use SSE for narrative analysis, non-streaming for structured JSON drafts (see integration spec §2).
 - Usage bills against Maple Pro/Team/Max credits; health prompts leave the device encrypted to Maple’s enclave — still disclose in UI.
 
 **Custom backend notes:**
@@ -261,7 +266,7 @@ Do **not** invent a second schema. Generation targets:
 Post-generation path reuses:
 
 - `ProgramImport.parse()` + `ProgramImportPreviewDialog`
-- New workout import preview mirroring the same validate → merge pattern
+- Web workout import preview (Workouts → Import) validates this envelope and merges by id. AI suggest-changes extends that side-by-side view into an exercise picker: remove chosen current exercises and add chosen suggested ones ([AI_COACH_MAPLE_INTEGRATION.md](AI_COACH_MAPLE_INTEGRATION.md) §7.3).
 
 Update the AI guide bundle (`shareProgramsReferenceBundle`) to include **workout schema** once Phase A lands.
 
@@ -298,7 +303,7 @@ Longer term: [USER_AGENT_NOSTR_AUTHORIZATION.md](../archive/planning/USER_AGENT_
 | Migration corrupts legacy programs | Lazy on-read + golden-file tests + keep deserializing old kinds until migration runs |
 | Dashboard launch regressions | Explicit tests for `programBlocksForDate` / workout ref resolution |
 | Completion semantics across devices | Unified session-based completion + existing `completionState` merge rules |
-| Maple/streaming-only API | Client must use SSE; no non-streaming code path |
+| Maple streaming vs non-streaming | One client supports both; SSE for analysis, single JSON for drafts |
 | Health data in prompts | Opt-in toggle; show what context is sent; prefer Maple/local over generic cloud |
 | 14B/local model invalid JSON | Grammar + validator + preview before merge |
 | Two tiles removed confuse existing users | Short in-app notice; onboarding copy update |
@@ -327,13 +332,9 @@ Longer term: [USER_AGENT_NOSTR_AUTHORIZATION.md](../archive/planning/USER_AGENT_
 - [ ] `DashboardScreen.kt` — today card (Phase 4); single tile after nav merge
 - [ ] `LaunchPadTileOrder.kt`, `ErvNavHost.kt` — Planner replaces two tiles (Phase 3)
 
-**AI**
-
-- [ ] Web/server AI package for provider client, queue, context builder, and draft validation
-- [ ] Web companion settings — AI + Maple settings
-- [ ] Web merged section: provider selector + generate/edit entry points
-- [ ] Web workout import envelope + preview dialog
-- [ ] Extend web context bundle for workouts
+**AI** — checklist owner is [AI_COACH_MAPLE_INTEGRATION.md](AI_COACH_MAPLE_INTEGRATION.md) §9
+(M0 import envelope + preview, M1 settings, M2 server relay, M3 analysis, M4 workout drafts,
+M5 planner). Not mirrored here.
 
 **Docs**
 
@@ -356,7 +357,8 @@ Longer term: [USER_AGENT_NOSTR_AUTHORIZATION.md](../archive/planning/USER_AGENT_
 | Workout & plan editor UX | [WORKOUT_PLAN_EDITOR_SPEC.md](WORKOUT_PLAN_EDITOR_SPEC.md) |
 | Maple Proxy on StartOS | [islandbitcoin/maple-proxy-startos](https://github.com/islandbitcoin/maple-proxy-startos) |
 | Start9 plan editor (planned) | `erv-plan-editor-startos` — same JSON as Android composer |
-| Maple Proxy upstream | [OpenSecretCloud/maple-proxy](https://github.com/OpenSecretCloud/maple-proxy) |
+| Maple Proxy upstream | [OpenSecretCloud/maple-proxy](https://github.com/OpenSecretCloud/maple-proxy) (development moved to `MaplePrivacyLabs/Maple` `proxy/`) |
+| AI coach integration plan | [AI_COACH_MAPLE_INTEGRATION.md](AI_COACH_MAPLE_INTEGRATION.md) |
 
 ---
 

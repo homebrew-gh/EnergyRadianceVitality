@@ -2,6 +2,10 @@
 
 Track implementation of the relay-synced desktop companion. Goal: **create a weight routine on StartOS → publish → see it on Android**.
 
+**Checklist owner for Phases A–C and roadmap Phases 1–3.** Other initiatives (W1–W6, AI coach,
+privacy) keep their own checklists in their spec; this file links to them instead of mirroring.
+Status summaries live in [PHASES.md](../PHASES.md).
+
 ## Phase A — Scaffold (this PR)
 
 - [x] `apps/web/server/` — Rust Axum backend (FiatLife pattern, `ERV_*` env vars)
@@ -170,39 +174,17 @@ These shipped while building the composer and are documented in [WORKOUT_PLAN_ED
 - [ ] Dashboard: surface planned workout for today (read-only)
 - [ ] Web-only AI plan/workout generation (Maple / optional)
 
+The AI coach (Maple Proxy on Start9) checklist lives in
+[AI_COACH_MAPLE_INTEGRATION.md](AI_COACH_MAPLE_INTEGRATION.md) §9 (milestones M0–M6). Not mirrored here.
+
 ### Pre-AI athlete context (web-first)
 
-Full spec: [ATHLETE_CONTEXT_WEB_PREP.md](ATHLETE_CONTEXT_WEB_PREP.md). Web = planning desk and AI generation; Android = live logging and synced workout execution.
-
-#### W1 — Training profile (`erv/training-profile`)
-
-- [x] JSON schema (Android + web)
-- [x] Nostr sync + server publish allowlist
-- [x] Web **Profile** tab (edit + publish)
-- [x] Android read-only Settings summary
-- [ ] Include profile in reference export bundle
-
-#### W2 — History on web
-
-- [x] Fetch weight/cardio day logs from relay
-- [x] **Progress** tab — session timeline + per-exercise history
-- [x] Basic volume/frequency charts
-
-#### W3 — Training snapshot
-
-- [x] Compute baseline from logs (working weights, muscle recency, cardio load)
-- [x] **Progress** tab — “Your training baseline” panel + staleness hint
-- [ ] Optional relay publish `erv/training-snapshot` (deferred)
-
-#### W4–W6
-
-- [x] Prescription polish (equipment filter, load suggestions) — W4
-- [ ] Planner (Phase 3) — W5
-- [x] “Copy training context” export (AI dry run) — W6
+Checklist owner: [ATHLETE_CONTEXT_WEB_PREP.md](ATHLETE_CONTEXT_WEB_PREP.md) §5 (W1–W6). Status
+summary in [PHASES.md](../PHASES.md). Not mirrored here.
 
 ### Other
 
-- [ ] Read-only analytics (day logs, route images via Blossom) — superseded by W2/W3 above
+- [—] Read-only analytics (day logs, route images via Blossom) — superseded by W2/W3 in [ATHLETE_CONTEXT_WEB_PREP.md](ATHLETE_CONTEXT_WEB_PREP.md)
 
 ## Test plan (routine publish)
 
@@ -244,4 +226,4 @@ Android (ERV)  ←—— kind 30078 / NIP-44 ——→  Nostr relay  ←——�
 
 ---
 
-*Last updated: June 2026 — Phase 2 workout composer in progress; see WORKOUT_PLAN_EDITOR_SPEC.md §9.3, §14–§15.*
+*Last updated: September 2026 — de-duplicated W1–W6 and AI checklists (linked to owners); Phase 2 tail + Phase 3 planner in progress.*
