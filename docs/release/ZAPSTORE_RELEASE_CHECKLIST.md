@@ -41,7 +41,7 @@ This checklist is for getting ERV ready for an open-source app store release. It
 The remaining items in this section are intentionally deferred until after the first Zapstore release unless release testing uncovers a blocker.
 
 - [x] Add **per-silo delete** actions so users can remove one category without wiping everything.
-- [ ] Add **selective sync** so some categories can stay device-only.
+- [x] ~~Add **selective sync** so some categories can stay device-only.~~ **Declined** — friction without benefit when health backup already targets user-chosen private data relays; use local-only mode or per-silo delete/export instead.
 - [ ] Add **per-relay controls** and clearer relay role explanations.
 - [ ] Add a **backup before delete/import** confirmation path.
 - [ ] Add **account/key migration guidance**:

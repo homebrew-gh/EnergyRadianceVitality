@@ -30,7 +30,6 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.erv.app.ui.components.FieldLabel
 import com.erv.app.data.ThemeMode
@@ -75,12 +74,9 @@ import com.erv.app.ui.cardio.CardioLiveWorkoutViewModel
 import com.erv.app.cycling.Concept2Pm5BleViewModel
 import com.erv.app.cycling.CyclingCscBleViewModel
 import com.erv.app.hr.HeartRateBleViewModel
-import com.erv.app.hr.HeartRateTopBar
-import com.erv.app.hr.HeartRateZoneInputs
 import com.erv.app.cycling.LocalConcept2Pm
 import com.erv.app.cycling.LocalCyclingCsc
 import com.erv.app.hr.LocalHeartRateBle
-import com.erv.app.hr.requiredBlePermissionsForHeartRate
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.erv.app.ui.onboarding.FirstRunSetupScreen
 import com.erv.app.ui.onboarding.RelaySetupScreen
@@ -314,8 +310,13 @@ private fun ErvApp(
                         scope.launch {
                             onboardingPool?.let { pool ->
                                 pool.setRelays(keyManager.relayUrlsForPool())
-                                delay(1500)
                                 resolveSigner()?.let { currentSigner ->
+                                    RelayConfigImport.fetchAndApply(
+                                        keyManager,
+                                        currentSigner,
+                                        userPreferences,
+                                        pool,
+                                    )
                                     SettingsSync.saveToNetwork(
                                         context.applicationContext,
                                         pool,
@@ -372,59 +373,26 @@ private fun ErvApp(
 }
 
 /**
- * After login: connect (bootstrap relays only if none saved), fetch NIP-65 relay list and NIP-B7 Blossom
- * servers (kind 10063) in parallel, then fetch erv/settings from the network. If nothing yields stored relays,
- * applies [KeyManager.DEFAULT_RELAYS].
- * Returns true if settings were found (skip onboarding), false otherwise.
+ * After login: when the user already has relays saved, connect and try to import NIP-65,
+ * Blossom servers (kind 10063), and encrypted `erv/settings`. Returns true when settings
+ * were found (skip relay onboarding), false when the user must add a relay first.
  */
 private suspend fun runPostLoginSetup(
     keyManager: KeyManager,
     signer: EventSigner,
     userPreferences: UserPreferences
 ): Boolean {
+    if (keyManager.relayUrlsForPool().isEmpty()) return false
+
     val trustTls = userPreferences.peekTrustSelfSignedLanTls()
     val pool = RelayPool(signer, RelayOkHttpClient.create(trustTls), trustTls)
     try {
         pool.setRelays(keyManager.relayUrlsForPool())
-        pool.awaitAtLeastOneConnected(timeoutMs = 15_000)
-
-        val pubkey = keyManager.publicKeyHex ?: return false
-        val (nip65Urls, blossomUrls) = coroutineScope {
-            val nip65 = async { Nip65.fetchRelayListFromNetwork(pool, pubkey, timeoutMs = 8000) }
-            val nipB7 = async { NipB7.fetchBlossomServersFromNetwork(pool, pubkey, timeoutMs = 8000) }
-            nip65.await() to nipB7.await()
-        }
-        nip65Urls.forEach { keyManager.addSocialRelay(it) }
-        applyImportedBlossomServersFromProfile(userPreferences, blossomUrls)
-
-        pool.setRelays(keyManager.relayUrlsForPool())
-        delay(1500)
-
-        val config = SettingsSync.fetchFromNetwork(pool, signer, pubkey, timeoutMs = 5000)
-        if (config != null) {
-            SettingsSync.applyToKeyManager(config, keyManager)
-        }
-        keyManager.populateDefaultRelaysIfStillEmpty()
-        return config != null
+        return RelayConfigImport.fetchAndApply(keyManager, signer, userPreferences, pool) ==
+            RelayConfigImportResult.SETTINGS_APPLIED
     } finally {
         pool.disconnect()
     }
-}
-
-/**
- * If the user has not set a **public** Blossom URL yet, copies the first entry from their kind 10063 list
- * (same source as “Load from my Nostr profile” in Settings) and switches upload type to Blossom.
- */
-private suspend fun applyImportedBlossomServersFromProfile(
-    userPreferences: UserPreferences,
-    blossomUrls: List<String>
-) {
-    if (userPreferences.peekBlossomPublicServerOrigin().isNotBlank()) return
-    val first = blossomUrls.firstOrNull() ?: return
-    val normalized = Nip96Uploader.normalizeMediaServerOrigin(first)
-    if (normalized.isEmpty()) return
-    userPreferences.setBlossomPublicServerOrigin(normalized)
-    userPreferences.setWorkoutMediaUploadBackend(WorkoutMediaUploadBackend.BLOSSOM)
 }
 
 // ---------------------------------------------------------------------------
@@ -448,14 +416,6 @@ private fun MainAppShell(
 ) {
     val context = LocalContext.current
     val navController = rememberNavController()
-    val navBackStackEntry by navController.currentBackStackEntryAsState()
-    val currentNavRoute = navBackStackEntry?.destination?.route
-    val heartRateBannerExpanded by userPreferences.heartRateBannerExpanded.collectAsState(initial = true)
-    val heartRateZoneInputs by userPreferences.heartRateZoneInputs.collectAsState(
-        initial = HeartRateZoneInputs(),
-    )
-    val showGlobalHeartRateBar =
-        heartRateBannerExpanded && !Routes.isCardioDestination(currentNavRoute)
     val supplementRepository = remember(context) { SupplementRepository(context) }
     val lightTherapyRepository = remember(context) { LightTherapyRepository(context) }
     val cardioRepository = remember(context, userPreferences) { CardioRepository(context, userPreferences) }
@@ -510,7 +470,7 @@ private fun MainAppShell(
         try {
             val pubkey = sig.publicKey
             val appCtx = context.applicationContext
-            val latestByTag = withContext(Dispatchers.IO) {
+            val (snapshot, anyRelayConnected) = withContext(Dispatchers.IO) {
                 val connected = pool.awaitAtLeastOneConnected(timeoutMs = 12_000)
                 android.util.Log.i(
                     "ErvRelaySync",
@@ -518,19 +478,25 @@ private fun MainAppShell(
                         "relayUrls=${keyManager.relayUrlsForKind30078Publish()} " +
                         "relayStates=${pool.relayStates.value}",
                 )
-                fetchLatestKind30078ByDTag(pool, pubkey, timeoutMs = 12_000, signer = sig)
+                fetchLatestKind30078Snapshot(pool, pubkey, timeoutMs = 12_000, signer = sig) to connected
             }
+            val latestByTag = snapshot.latestByTag
             android.util.Log.i(
                 "ErvRelaySync",
-                "runRelayDataSync: latestByTag=${latestByTag.size} tags=${latestByTag.keys}",
+                "runRelayDataSync: latestByTag=${latestByTag.size} tags=${latestByTag.keys} " +
+                    "mastersComplete=${snapshot.mastersFetchComplete} broadComplete=${snapshot.broadFetchComplete}",
             )
             withContext(Dispatchers.IO) {
+                // Only treat "catalog missing" as authoritative when a relay was connected and
+                // finished answering the targeted catalog query; otherwise keep the cached copy
+                // and do not re-bootstrap the relay.
                 CatalogSync.syncCatalogs(
                     appCtx,
                     pool,
                     sig,
                     latestByTag,
                     keyManager.relayUrlsForKind30078Publish(),
+                    fetchComplete = anyRelayConnected && snapshot.mastersFetchComplete,
                 )
             }
             // Decryption (NIP-44), payload merges, and repository writes are CPU-heavy. Keep them off
@@ -784,9 +750,6 @@ private fun MainAppShell(
                 windowContentView.keepScreenOn = false
             }
         }
-        val blePermissionLauncher = rememberLauncherForActivityResult(
-            ActivityResultContracts.RequestMultiplePermissions()
-        ) { }
         CompositionLocalProvider(
             LocalRelayDataSyncInProgress provides relayDataSyncInProgress,
             LocalHeartRateBle provides heartRateBleViewModel,
@@ -795,15 +758,6 @@ private fun MainAppShell(
             LocalKeyManager provides keyManager,
         ) {
             Column(Modifier.fillMaxSize()) {
-                if (showGlobalHeartRateBar) {
-                    HeartRateTopBar(
-                        viewModel = heartRateBleViewModel,
-                        onRequestBlePermissions = {
-                            blePermissionLauncher.launch(requiredBlePermissionsForHeartRate())
-                        },
-                        zoneInputs = heartRateZoneInputs,
-                    )
-                }
                 ErvNavHost(
                     modifier = Modifier.weight(1f),
                     navController = navController,

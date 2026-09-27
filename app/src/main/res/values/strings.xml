@@ -150,7 +150,7 @@
     <!-- Cardio: Nostr workout share + NIP-96 route image -->
     <string name="settings_cardio_nostr_route_title">Workout share on social relays</string>
     <string name="settings_cardio_nostr_route_switch">Include route image in “Share Workout”</string>
-    <string name="settings_cardio_nostr_route_switch_helper">On by default: when GPS was recorded and your media server URL is set, uploads the watermarked route PNG and adds the link plus imeta to your kind 1 note. Turn off to post text only. NIP-96 uses one host; Blossom uses the public host below (private host is not used in notes).</string>
+    <string name="settings_cardio_nostr_route_switch_helper">Off by default. When on, GPS was recorded, and your media server URL is set, uploads the watermarked route PNG and adds the link plus imeta to your kind 1 note. Turn off to post text only. NIP-96 uses one host; Blossom uses the public host below (private host is not used in notes).</string>
     <string name="cardio_share_route_image_need_server">Route image needs a media server: set Blossom public or NIP-96 URL in Settings → Relays under “Workout share on social relays” (upload type must match).</string>
     <string name="workout_share_dialog_title">Share workout</string>
     <string name="workout_share_extra_hashtags_label">Extra hashtags</string>
@@ -162,6 +162,16 @@
     <string name="weight_workout_share_hashtags_label">Hashtags</string>
     <string name="weight_workout_share_hashtags_placeholder">#erv #workout #fitness #pushday</string>
     <string name="weight_workout_share_hashtags_helper">Edit the full hashtag line for this post. Only #word tags are included, up to 20.</string>
+    <string name="kind1_share_preview_title">Confirm public post</string>
+    <string name="kind1_share_preview_relays_label">Social relays</string>
+    <string name="kind1_share_preview_note_label">Note text</string>
+    <string name="kind1_share_preview_route_image">A route image link will be added when you post (the image is an abstract line — no map tiles or GPS coordinates in the note).</string>
+    <string name="kind1_share_no_social_relays">No social relays configured. Open Settings → Relays and enable Social on at least one relay.</string>
+    <string name="kind1_share_confirm">Post</string>
+    <string name="kind1_share_publishing">Posting…</string>
+    <string name="kind1_share_cancel">Cancel</string>
+    <string name="kind1_share_success">Shared to your social relays.</string>
+    <string name="kind1_share_failed">Failed to share — check social relay connections.</string>
     <string name="settings_cardio_nostr_upload_type">Upload type</string>
     <string name="settings_cardio_nostr_upload_nip96">NIP-96</string>
     <string name="settings_cardio_nostr_upload_blossom">Blossom</string>
@@ -210,6 +220,26 @@
     <string name="settings_relays_trust_self_signed_switch">Self-signed LAN certificate</string>
     <string name="settings_relays_trust_self_signed_helper">Enable for Start9 or other self-hosted relays on your LAN or WireGuard VPN. Only use for relays you control.</string>
     <string name="settings_relays_save_nip65_failed">Relay settings saved, but NIP-65 relay list could not be published.</string>
+    <string name="settings_relays_empty_helper">No relays configured. Add a relay you trust (for example your Start9 or Haven box). ERV does not ship public relay defaults.</string>
+    <string name="settings_relays_social_import_note">Returning users: after you add a relay and save, encrypted relay settings can sync from your other devices. Use Import from network when you are already connected.</string>
+    <string name="settings_relays_import_from_network">Import from network</string>
+    <string name="settings_relays_import_loading">Importing…</string>
+    <string name="settings_relays_import_not_connected">No relay connected — wait for a green indicator or check your URL.</string>
+    <string name="settings_relays_import_settings_ok">Imported relay roles from encrypted sync.</string>
+    <string name="settings_relays_import_none">No encrypted relay settings found on this network (NIP-65 may still have merged).</string>
+    <string name="settings_relays_publish_nip65_warning">Your relay URLs will be published as a public kind 10002 list so other Nostr clients can discover them.</string>
+    <string name="relay_data_social_explainer_data">Data — encrypted activity backup (kind 30078, NIP-44). Only you can read the payload; relay operators still see metadata.</string>
+    <string name="relay_data_social_explainer_social">Social — public workout posts (kind 1, plain text). Anyone who reads those relays can see what you share.</string>
+    <string name="relay_data_social_explainer_backup_example">Example backup: your weight log syncs to data relays only — not a public post.</string>
+    <string name="relay_data_social_explainer_share_example">Example share: “Finished 5 km run” posts to social relays only — not your encrypted health backup.</string>
+    <string name="relay_self_hosted_recommendation">When you can, use a relay you control (Start9, Haven, or your own host) instead of a public relay farm.</string>
+    <string name="relay_metadata_disclosure_title">What relays can see</string>
+    <string name="relay_metadata_disclosure_body">Even with NIP-44 encryption, relay operators can usually see your public key, event kinds, d-tags, timestamps, payload sizes, and connection patterns (often including IP-derived data). They cannot read encrypted health content without your keys. Public kind 1 posts are fully readable.</string>
+    <string name="kind1_share_preview_footer">Encrypted health backups use data relays only. This post goes to social relays as plain text.</string>
+
+    <!-- Onboarding: relay setup -->
+    <string name="relay_setup_no_relays_hint">Add at least one relay before continuing. Use a relay you control when possible — ERV does not connect to public relays until you choose them.</string>
+    <string name="relay_setup_import_note">After you add a relay, Continue will try to import your saved relay roles from encrypted sync.</string>
 
     <!-- Live workout: system media session (track info + transport) -->
     <string name="media_notification_listener_name">ERV media controls</string>
@@ -238,16 +268,18 @@
     <string name="settings_stretch_guided_voice_male">Male</string>
 
     <!-- BLE heart rate (standard GATT Heart Rate service) -->
-    <string name="hr_top_bar_tap_to_connect">Heart rate: tap to connect a sensor</string>
-    <string name="hr_top_bar_scanning">Heart rate: scanning…</string>
-    <string name="hr_top_bar_connecting">Heart rate: connecting…</string>
-    <string name="hr_top_bar_connected_waiting">Heart rate: connected (waiting for data)</string>
-    <string name="hr_top_bar_bpm">Heart rate: %1$d bpm</string>
-    <string name="hr_top_bar_battery_percent">%1$d%%</string>
-    <string name="hr_top_bar_battery_content_description">Sensor battery %1$d percent</string>
-    <string name="hr_top_bar_error">Heart rate: connection issue</string>
-    <string name="dashboard_hr_banner_toggle_cd">Show or hide heart rate sensor bar</string>
-    <string name="hr_dialog_title">Bluetooth heart rate</string>
+    <string name="hr_pill_cd_connect">Heart rate sensor: not connected. Tap to connect.</string>
+    <string name="hr_pill_cd_bpm">Heart rate %1$d beats per minute. Tap for sensor details.</string>
+    <string name="hr_pill_cd_waiting">Heart rate sensor connected, waiting for data. Tap for sensor details.</string>
+    <string name="hr_sheet_bpm_unit">bpm</string>
+    <string name="hr_sheet_battery">Battery %1$d%%</string>
+    <string name="hr_sheet_zone_hint">Add your age or max heart rate in Settings → Cardio to see training zones.</string>
+    <string name="hr_sheet_not_connected">No sensor connected</string>
+    <string name="hr_sheet_scanning">Looking for sensors…</string>
+    <string name="hr_sheet_connecting">Connecting…</string>
+    <string name="hr_sheet_error">Connection issue</string>
+    <string name="hr_sheet_saved_sensors">Saved sensors</string>
+    <string name="hr_dialog_title">Heart Rate Sensor</string>
     <string name="hr_dialog_body">Use a standard BLE heart rate monitor (e.g. Polar Verity Sense, chest strap). HR is shown live here; averages and min/max are saved only when you finish a live cardio timer or live weight workout.</string>
     <string name="hr_dialog_scan">Scan for sensor</string>
     <string name="hr_dialog_disconnect">Disconnect</string>

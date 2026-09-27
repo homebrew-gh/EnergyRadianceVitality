@@ -19,6 +19,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.erv.app.ui.components.FieldLabel
+import com.erv.app.ui.components.RelayDataSocialExplainerCard
+import com.erv.app.ui.components.RelayMetadataDisclosureCard
+import com.erv.app.ui.components.RelaySelfHostedRecommendation
 import com.erv.app.R
 import com.erv.app.nostr.ConnectionState
 import com.erv.app.nostr.KeyManager
@@ -44,7 +47,6 @@ fun RelaySetupScreen(
     LaunchedEffect(urlsForPool, relayPool) {
         relayPool?.setRelays(urlsForPool)
     }
-    // Relays (including NIP-65 social) are already populated in runPostLoginSetup before this screen loads.
 
     val relayStates by (relayPool?.relayStates ?: snapshotFlow { emptyMap<String, ConnectionState>() })
         .collectAsState(initial = emptyMap())
@@ -67,30 +69,30 @@ fun RelaySetupScreen(
             Text(
                 "Relays store and deliver your data. " +
                     "Toggle Data for encrypted activity storage, " +
-                    "and Social for public posts like workout summaries.",
+                    "and Social for public posts like workout summaries. " +
+                    "ERV does not add public relays for you.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center
             )
-            Spacer(Modifier.height(8.dp))
-            ElevatedCard(
-                modifier = Modifier.fillMaxWidth(),
-                elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
-            ) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    Text(
-                        text = "Data — your activity is NIP-44 encrypted. Only you can read it, even on public relays.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        text = "Social — workout summaries are posted as plain text so friends and followers can see them.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+            if (allRelays.isEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    stringResource(R.string.relay_setup_no_relays_hint),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                )
             }
+            Spacer(Modifier.height(8.dp))
+            RelayDataSocialExplainerCard(modifier = Modifier.fillMaxWidth())
+            Spacer(Modifier.height(8.dp))
+            RelaySelfHostedRecommendation(
+                modifier = Modifier.fillMaxWidth(),
+                textAlign = TextAlign.Center,
+            )
+            Spacer(Modifier.height(8.dp))
+            RelayMetadataDisclosureCard(modifier = Modifier.fillMaxWidth())
 
             Spacer(Modifier.height(16.dp))
 
@@ -159,6 +161,14 @@ fun RelaySetupScreen(
             }
 
             Spacer(Modifier.height(24.dp))
+
+            Text(
+                stringResource(R.string.relay_setup_import_note),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(bottom = 8.dp),
+            )
 
             Button(
                 onClick = onContinue,

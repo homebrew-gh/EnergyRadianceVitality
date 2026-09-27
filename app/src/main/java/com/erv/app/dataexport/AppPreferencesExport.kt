@@ -36,7 +36,7 @@ data class AppPreferencesExportV1(
     val blossomPublicServerOrigin: String = "",
     val blossomPrivateServerOrigin: String = "",
     val mediaKeysSplitV1: Boolean = false,
-    val attachRouteImageToWorkoutNostrShare: Boolean = true,
+    val attachRouteImageToWorkoutNostrShare: Boolean = false,
     val workoutMediaUploadBackend: String = WorkoutMediaUploadBackend.NIP96.name,
     val enabledWeightExercisePackIds: List<String> = emptyList(),
     @EncodeDefault(EncodeDefault.Mode.NEVER)

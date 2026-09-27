@@ -491,11 +491,11 @@ class UserPreferences(private val context: Context) {
         context.dataStore.data.map { prefs -> prefs[Keys.BLOSSOM_PUBLIC_SERVER_ORIGIN].orEmpty() }.first()
 
     /**
-     * When true (default), “Share Workout” uploads the watermarked route PNG (if GPS was recorded) and adds
-     * [imeta] + URL to the kind 1 note. Set false in Settings for text-only shares.
+     * When true, “Share Workout” uploads the watermarked route PNG (if GPS was recorded) and adds
+     * [imeta] + URL to the kind 1 note. Default off — enable in Settings when you want image links.
      */
     val attachRouteImageToWorkoutNostrShare: Flow<Boolean> = context.dataStore.data.map { prefs ->
-        prefs[Keys.ATTACH_ROUTE_IMAGE_WORKOUT_NOSTR] ?: true
+        prefs[Keys.ATTACH_ROUTE_IMAGE_WORKOUT_NOSTR] ?: false
     }
 
     suspend fun setAttachRouteImageToWorkoutNostrShare(enabled: Boolean) {
