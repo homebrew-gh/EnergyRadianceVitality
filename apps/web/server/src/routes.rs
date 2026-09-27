@@ -17,19 +17,23 @@ use tower_http::services::ServeDir;
 use tower_http::set_header::SetResponseHeaderLayer;
 use tower_http::trace::TraceLayer;
 
+use crate::ai_queue::AiQueue;
+use crate::ai_relay::{ai_status, cancel_ai, complete_ai, stream_ai};
+use crate::ai_routes::{get_ai_models, get_ai_settings, put_ai_settings, test_ai_connection};
 use crate::blossom::{
     allowed_blossom_origins, blossom_origin_from_relay_url, check_blossom_status,
-    fetch_blossom_blob, is_allowed_blossom_blob_url,
+    fetch_blossom_blob, resolve_blossom_blob_fetch_url,
 };
 use crate::config::{
-    detected_relay_label, detected_relay_url, detected_relays, normalize_relay_url, relay_prefill_url,
-    suggested_relay_url, Config, DetectedRelay, DETECTED_RELAY_LABEL,
+    detected_relay_label, detected_relay_url, detected_relays, normalize_relay_url,
+    relay_prefill_url, suggested_relay_url, Config, DetectedRelay, DETECTED_RELAY_LABEL,
 };
 use crate::crypto::{open as crypto_open, seal};
 use crate::error::{AppError, AppResult};
 use crate::erv_tags::{is_erv_d_tag, is_erv_publishable_d_tag};
 use crate::nostr_support::{
-    build_app_data_event, decrypt_from_self, encrypt_to_self, fetch_decrypted_app_data, parse_nsec,
+    build_app_data_event, decrypt_from_self, encrypt_to_self, fetch_decrypted_app_data,
+    nsec_belongs_to_npub, parse_nsec,
 };
 use crate::outbox::{Outbox, OutboxStatus};
 use crate::session::{SessionStore, SESSION_COOKIE};
@@ -42,6 +46,9 @@ pub struct AppState {
     pub persistent: Arc<Mutex<PersistentState>>,
     pub cookie_key: Key,
     pub outbox: Outbox,
+    pub http: reqwest::Client,
+    pub ai_queue: AiQueue,
+    pub model_cache: Arc<Mutex<Vec<String>>>,
 }
 
 pub async fn build_router(cfg: Config) -> anyhow::Result<Router> {
@@ -49,12 +56,20 @@ pub async fn build_router(cfg: Config) -> anyhow::Result<Router> {
     let cookie_key = Key::from(&cfg.cookie_signing_key);
     let sessions = SessionStore::new(cfg.session_idle);
 
+    let http = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(180))
+        .redirect(reqwest::redirect::Policy::limited(2))
+        .build()
+        .map_err(|err| anyhow::anyhow!("build ai http client: {err}"))?;
     let state = AppState {
         cfg: cfg.clone(),
         sessions,
         persistent: Arc::new(Mutex::new(persistent)),
         cookie_key,
         outbox: Outbox::new(),
+        http,
+        ai_queue: AiQueue::new(),
+        model_cache: Arc::new(Mutex::new(Vec::new())),
     };
 
     let assets_service = ServeDir::new(cfg.static_dir.join("assets"));
@@ -64,9 +79,17 @@ pub async fn build_router(cfg: Config) -> anyhow::Result<Router> {
         .route("/auth/status", get(auth_status))
         .route("/auth/setup", post(auth_setup))
         .route("/auth/unlock", post(auth_unlock))
+        .route("/auth/recover", post(auth_recover))
         .route("/auth/lock", post(auth_lock))
         .route("/auth/wipe", post(auth_wipe))
         .route("/settings/relay", get(get_relay).put(put_relay))
+        .route("/ai/settings", get(get_ai_settings).put(put_ai_settings))
+        .route("/ai/test", post(test_ai_connection))
+        .route("/ai/models", get(get_ai_models))
+        .route("/ai/complete", post(complete_ai))
+        .route("/ai/stream", post(stream_ai))
+        .route("/ai/cancel", post(cancel_ai))
+        .route("/ai/status", get(ai_status))
         .route("/crypto/nip44/encrypt-self", post(nip44_encrypt_self))
         .route("/crypto/nip44/decrypt-self", post(nip44_decrypt_self))
         .route("/nostr/app-data", get(list_app_data).post(publish_app_data))
@@ -226,6 +249,61 @@ async fn auth_unlock(
     Ok((jar, Json(auth_status_from(&p, true))))
 }
 
+#[derive(Deserialize)]
+pub struct RecoverBody {
+    nsec: String,
+    new_passphrase: String,
+}
+
+/// Unlock by proving possession of the stored nsec, then reseal with a new passphrase.
+async fn auth_recover(
+    State(s): State<AppState>,
+    jar: SignedCookieJar,
+    Json(body): Json<RecoverBody>,
+) -> AppResult<(SignedCookieJar, Json<AuthStatus>)> {
+    let (_, identity) = parse_nsec(&body.nsec).map_err(|e| AppError::BadRequest(e.to_string()))?;
+    if body.new_passphrase.len() < 8 {
+        return Err(AppError::BadRequest(
+            "passphrase must be at least 8 characters".into(),
+        ));
+    }
+
+    let mut p = s.persistent.lock().await;
+    if p.sealed.is_none() {
+        return Err(AppError::BadRequest(
+            "no state to recover; run setup first".into(),
+        ));
+    }
+    let stored_npub = p.npub.clone().ok_or_else(|| {
+        AppError::BadRequest(
+            "this companion has no stored public key to match; wipe and set up again".into(),
+        )
+    })?;
+    let matches = nsec_belongs_to_npub(&body.nsec, &stored_npub)
+        .map_err(|e| AppError::BadRequest(e.to_string()))?;
+    if !matches {
+        return Err(AppError::BadRequest(
+            "this key does not match the account on this server".into(),
+        ));
+    }
+
+    let blob = seal(&body.new_passphrase, body.nsec.as_bytes()).map_err(AppError::Internal)?;
+    p.sealed = Some(SealedRecord::from_blob(&blob));
+    p.save(&s.cfg.state_path()).map_err(AppError::Internal)?;
+    drop(p);
+
+    if let Some(c) = jar.get(SESSION_COOKIE) {
+        s.sessions.close(c.value()).await;
+    }
+    s.sessions.close_all().await;
+    let secret = zeroize::Zeroizing::new(body.nsec.clone().into_bytes());
+    let sid = s.sessions.open(secret, identity).await;
+    let jar = jar.add(session_cookie(sid, s.cfg.cookie_secure));
+
+    let p = s.persistent.lock().await;
+    Ok((jar, Json(auth_status_from(&p, true))))
+}
+
 #[derive(Serialize)]
 struct OkBody {
     ok: bool,
@@ -369,6 +447,8 @@ struct BlossomStatusResponse {
 #[derive(Deserialize)]
 struct BlossomBlobQuery {
     url: String,
+    #[serde(default)]
+    sha256: Option<String>,
 }
 
 async fn relay_connection(
@@ -378,11 +458,9 @@ async fn relay_connection(
     let (keys, _) = require_keys(&s, &jar).await?;
     let relay_urls = configured_relay_urls(&s).await?;
     let cfg = s.cfg.clone();
-    match crate::nostr_support::probe_relay_connection(
-        &keys,
-        &relay_urls,
-        |url| cfg.relay_connect_options(url),
-    )
+    match crate::nostr_support::probe_relay_connection(&keys, &relay_urls, |url| {
+        cfg.relay_connect_options(url)
+    })
     .await
     {
         Ok(_) => Ok(Json(RelayConnectionResponse {
@@ -448,23 +526,14 @@ async fn blossom_blob(
     require_unlocked(&s, &jar).await?;
     let relay_urls = configured_relay_urls(&s).await?;
     let allowed = allowed_blossom_origins(&relay_urls);
-    if allowed.is_empty() {
-        return Err(AppError::BadRequest(
-            "No Blossom origin can be derived from the configured relay.".into(),
-        ));
-    }
-    if !is_allowed_blossom_blob_url(&query.url, &allowed) {
-        return Err(AppError::BadRequest(
-            "Blob URL is not under the configured Blossom origin.".into(),
-        ));
-    }
-
-    let blob_url = query.url.clone();
-    let accept_invalid_tls = s.cfg.insecure_relay_tls.unwrap_or(false);
-    let fetched = tokio::task::spawn_blocking(move || fetch_blossom_blob(&blob_url, accept_invalid_tls))
-        .await
-        .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?
+    let blob_url = resolve_blossom_blob_fetch_url(&query.url, query.sha256.as_deref(), &allowed)
         .map_err(AppError::BadRequest)?;
+    let accept_invalid_tls = s.cfg.insecure_relay_tls.unwrap_or(false);
+    let fetched =
+        tokio::task::spawn_blocking(move || fetch_blossom_blob(&blob_url, accept_invalid_tls))
+            .await
+            .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?
+            .map_err(AppError::BadRequest)?;
 
     let (body, content_type) = fetched;
     let mut response = Response::builder().status(StatusCode::OK);
@@ -485,11 +554,10 @@ async fn list_app_data(
     let (keys, _) = require_keys(&s, &jar).await?;
     let relay_urls = configured_relay_urls(&s).await?;
     let cfg = s.cfg.clone();
-    let fetched = fetch_decrypted_app_data(&keys, &relay_urls, |url| {
-        cfg.relay_connect_options(url)
-    })
-    .await
-    .map_err(|e| AppError::BadRequest(format!("relay fetch failed: {e}")))?;
+    let fetched =
+        fetch_decrypted_app_data(&keys, &relay_urls, |url| cfg.relay_connect_options(url))
+            .await
+            .map_err(|e| AppError::BadRequest(format!("relay fetch failed: {e}")))?;
 
     let records: Vec<_> = fetched
         .records
@@ -630,8 +698,7 @@ fn resolve_setup_relay_url(user_url: &str) -> AppResult<String> {
         }
         return Ok(normalize_relay_url(trimmed));
     }
-    detected_relay_url()
-        .ok_or_else(|| AppError::BadRequest(relay_url_policy_message()))
+    detected_relay_url().ok_or_else(|| AppError::BadRequest(relay_url_policy_message()))
 }
 
 fn normalize_relay_urls_from_body(body: &RelayBody) -> AppResult<Vec<String>> {
@@ -647,7 +714,9 @@ fn normalize_relay_urls_from_body(body: &RelayBody) -> AppResult<Vec<String>> {
         if let Some(detected) = detected_relay_url() {
             return Ok(vec![detected]);
         }
-        return Err(AppError::BadRequest("at least one relay url is required".into()));
+        return Err(AppError::BadRequest(
+            "at least one relay url is required".into(),
+        ));
     }
     for url in &urls {
         if !is_allowed_relay_url(url) {

@@ -40,5 +40,15 @@ export const manifest = setupManifest({
         icon: '../assets/haven.svg',
       },
     },
+    'maple-proxy': {
+      description:
+        'Optional Maple Proxy on this StartOS server. ERV uses it for the AI coach. Prompts leave this server for the Maple enclave and are billed to your Maple account.',
+      optional: true,
+      s9pk: null,
+      metadata: {
+        title: 'Maple Proxy',
+        icon: '../assets/maple-proxy.svg',
+      },
+    },
   },
 })

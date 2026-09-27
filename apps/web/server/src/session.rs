@@ -71,10 +71,7 @@ impl SessionStore {
         true
     }
 
-    pub async fn keys_for(
-        &self,
-        sid: &str,
-    ) -> anyhow::Result<Option<(nostr::Keys, KeyIdentity)>> {
+    pub async fn keys_for(&self, sid: &str) -> anyhow::Result<Option<(nostr::Keys, KeyIdentity)>> {
         let mut inner = self.inner.lock().await;
         let now = Instant::now();
         let expired = match inner.sessions.get(sid) {
@@ -91,6 +88,23 @@ impl SessionStore {
         entry.last_seen = now;
         let keys = keys_from_nsec_bytes(entry.secret.as_slice())?;
         Ok(Some((keys, entry.identity.clone())))
+    }
+
+    /// Run `f` with the unlocked nsec bytes. The secret is not cloned.
+    pub async fn with_secret<T>(&self, sid: &str, f: impl FnOnce(&[u8]) -> T) -> Option<T> {
+        let mut inner = self.inner.lock().await;
+        let now = Instant::now();
+        let expired = match inner.sessions.get(sid) {
+            Some(s) => now.duration_since(s.last_seen) > self.idle,
+            None => return None,
+        };
+        if expired {
+            inner.sessions.remove(sid);
+            return None;
+        }
+        let entry = inner.sessions.get_mut(sid)?;
+        entry.last_seen = now;
+        Some(f(entry.secret.as_slice()))
     }
 
     pub async fn close(&self, sid: &str) {

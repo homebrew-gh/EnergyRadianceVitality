@@ -12,7 +12,7 @@ use anyhow::{anyhow, Context};
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 use serde::{Deserialize, Serialize};
 
-use crate::crypto::SealedBlob;
+use crate::crypto::{decode_ai_key_seal, encode_ai_key_seal, AiKeySeal, SealedBlob};
 
 const STATE_VERSION: u32 = 1;
 
@@ -29,6 +29,9 @@ pub struct PersistentState {
     /// without holding the secret key. The npub is public, so persisting
     /// it in plaintext is fine.
     pub npub: Option<String>,
+    /// AI coach settings. Absent on older files; defaults to off.
+    #[serde(default)]
+    pub ai: AiSettings,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -46,6 +49,91 @@ impl Default for PersistentState {
             relay_url: None,
             relay_urls: Vec::new(),
             npub: None,
+            ai: AiSettings::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SealedAiKey {
+    pub nonce_b64: String,
+    pub ciphertext_b64: String,
+}
+
+impl SealedAiKey {
+    pub fn from_seal(seal: &AiKeySeal) -> Self {
+        let (nonce_b64, ciphertext_b64) = encode_ai_key_seal(seal);
+        Self {
+            nonce_b64,
+            ciphertext_b64,
+        }
+    }
+
+    pub fn to_seal(&self) -> anyhow::Result<AiKeySeal> {
+        decode_ai_key_seal(&self.nonce_b64, &self.ciphertext_b64)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AiSettings {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_ai_provider")]
+    pub provider: String,
+    #[serde(default)]
+    pub base_url: String,
+    #[serde(default = "default_key_mode")]
+    pub key_mode: String,
+    #[serde(default)]
+    pub sealed_api_key: Option<SealedAiKey>,
+    #[serde(default)]
+    pub analysis_model_id: String,
+    #[serde(default)]
+    pub generation_model_id: String,
+    #[serde(default = "default_context_level")]
+    pub context_level: String,
+    #[serde(default = "default_show_context_preview")]
+    pub always_show_context_preview: bool,
+    #[serde(default = "default_ai_timeout")]
+    pub timeout_seconds: u64,
+    #[serde(default)]
+    pub last_models_refresh_epoch_seconds: u64,
+}
+
+fn default_ai_provider() -> String {
+    "OFF".to_string()
+}
+
+fn default_key_mode() -> String {
+    "PROXY_HELD".to_string()
+}
+
+fn default_context_level() -> String {
+    "STANDARD".to_string()
+}
+
+fn default_show_context_preview() -> bool {
+    true
+}
+
+fn default_ai_timeout() -> u64 {
+    120
+}
+
+impl Default for AiSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            provider: default_ai_provider(),
+            base_url: String::new(),
+            key_mode: default_key_mode(),
+            sealed_api_key: None,
+            analysis_model_id: String::new(),
+            generation_model_id: String::new(),
+            context_level: default_context_level(),
+            always_show_context_preview: true,
+            timeout_seconds: default_ai_timeout(),
+            last_models_refresh_epoch_seconds: 0,
         }
     }
 }

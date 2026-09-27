@@ -14,7 +14,9 @@ use nostr_sdk::Client;
 use serde::Serialize;
 
 use crate::config::resolve_relay_url;
-use crate::erv_tags::{cardio_day_log_date, is_training_day_log_d_tag, weight_day_log_date};
+use crate::erv_tags::{
+    cardio_day_log_date, is_training_day_log_d_tag, weight_day_log_date, MEDIA_LIBRARY_D_TAG,
+};
 use crate::relay_raw::{self, RelayConnectOptions};
 
 pub const KIND_APP_DATA: u16 = 30078;
@@ -73,6 +75,12 @@ pub fn parse_nsec(nsec: &str) -> anyhow::Result<(Keys, KeyIdentity)> {
         public_key_hex: public_key.to_string(),
     };
     Ok((keys, identity))
+}
+
+/// True when `nsec` is the secret for `stored_npub` (same account on this companion).
+pub fn nsec_belongs_to_npub(nsec: &str, stored_npub: &str) -> anyhow::Result<bool> {
+    let (_, identity) = parse_nsec(nsec)?;
+    Ok(identity.npub == stored_npub)
 }
 
 pub fn keys_from_nsec_bytes(secret: &[u8]) -> anyhow::Result<Keys> {
@@ -134,23 +142,36 @@ pub async fn fetch_kind_events(
     kind: u16,
     opts: RelayConnectOptions,
 ) -> anyhow::Result<Vec<Event>> {
-    let relay_url = resolve_relay_url(relay_url);
-    if opts.insecure_tls && relay_url.starts_with("wss://") {
-        let filter = Filter::new()
-            .author(keys.public_key())
-            .kind(Kind::Custom(kind))
-            .since(fetch_since_timestamp())
-            .limit(KIND_APP_DATA_FETCH_LIMIT);
-        return relay_raw::fetch_events(keys, &relay_url, filter, opts).await;
-    }
-
-    let client = prepare_relay_client(keys, &relay_url).await?;
-
     let filter = Filter::new()
         .author(keys.public_key())
         .kind(Kind::Custom(kind))
         .since(fetch_since_timestamp())
         .limit(KIND_APP_DATA_FETCH_LIMIT);
+    fetch_filtered_events(keys, relay_url, filter, opts).await
+}
+
+/// Latest `erv/media/library` event. A broad kind-30078 query can drop this replaceable
+/// row once day logs fill the relay limit window.
+fn media_library_filter(keys: &Keys) -> Filter {
+    Filter::new()
+        .author(keys.public_key())
+        .kind(Kind::Custom(KIND_APP_DATA))
+        .identifier(MEDIA_LIBRARY_D_TAG)
+        .limit(5)
+}
+
+async fn fetch_filtered_events(
+    keys: &Keys,
+    relay_url: &str,
+    filter: Filter,
+    opts: RelayConnectOptions,
+) -> anyhow::Result<Vec<Event>> {
+    let relay_url = resolve_relay_url(relay_url);
+    if opts.insecure_tls && relay_url.starts_with("wss://") {
+        return relay_raw::fetch_events(keys, &relay_url, filter, opts).await;
+    }
+
+    let client = prepare_relay_client(keys, &relay_url).await?;
 
     let sub_output = client.subscribe_to([&relay_url], filter, None).await?;
     let sub_id = sub_output.val;
@@ -301,6 +322,24 @@ pub async fn fetch_raw_app_data_events_from_relays(
                     );
                 }
                 all_events.extend(events);
+                match fetch_filtered_events(keys, relay_url, media_library_filter(keys), opts).await
+                {
+                    Ok(media_events) => {
+                        tracing::debug!(
+                            %connect_url,
+                            count = media_events.len(),
+                            "fetched erv/media/library"
+                        );
+                        all_events.extend(media_events);
+                    }
+                    Err(err) => {
+                        tracing::warn!(
+                            %connect_url,
+                            ?err,
+                            "erv/media/library fetch failed"
+                        );
+                    }
+                }
             }
             Err(err) => {
                 tracing::warn!(configured = %relay_url, resolved = %connect_url, ?err, "relay fetch failed");
@@ -430,7 +469,8 @@ fn best_app_data_record_for_events(keys: &Keys, mut events: Vec<Event>) -> AppDa
                     decrypt_error: None,
                     tags: event.tags.iter().map(|t| t.clone().to_vec()).collect(),
                 };
-                if is_training_day_log_d_tag(d_tag) && !training_day_log_has_content(d_tag, &plain) {
+                if is_training_day_log_d_tag(d_tag) && !training_day_log_has_content(d_tag, &plain)
+                {
                     if last_empty_day_log.is_none() {
                         last_empty_day_log = Some(record);
                     }
@@ -520,26 +560,20 @@ pub async fn fetch_decrypted_app_data(
     meta.training_weight_day_logs_on_relay = records
         .iter()
         .filter(|r| {
-            r.d_tag
-                .as_deref()
-                .and_then(weight_day_log_date)
-                .is_some()
-                && r.plaintext
-                    .as_deref()
-                    .is_some_and(|plain| training_day_log_has_content(r.d_tag.as_deref().unwrap_or(""), plain))
+            r.d_tag.as_deref().and_then(weight_day_log_date).is_some()
+                && r.plaintext.as_deref().is_some_and(|plain| {
+                    training_day_log_has_content(r.d_tag.as_deref().unwrap_or(""), plain)
+                })
                 && r.decrypt_error.is_none()
         })
         .count();
     meta.training_cardio_day_logs_on_relay = records
         .iter()
         .filter(|r| {
-            r.d_tag
-                .as_deref()
-                .and_then(cardio_day_log_date)
-                .is_some()
-                && r.plaintext
-                    .as_deref()
-                    .is_some_and(|plain| training_day_log_has_content(r.d_tag.as_deref().unwrap_or(""), plain))
+            r.d_tag.as_deref().and_then(cardio_day_log_date).is_some()
+                && r.plaintext.as_deref().is_some_and(|plain| {
+                    training_day_log_has_content(r.d_tag.as_deref().unwrap_or(""), plain)
+                })
                 && r.decrypt_error.is_none()
         })
         .count();
@@ -547,11 +581,7 @@ pub async fn fetch_decrypted_app_data(
 }
 
 /// Sign (and encrypt) a kind-30078 app-data event without sending it.
-pub fn build_app_data_event(
-    keys: &Keys,
-    d_tag: &str,
-    plaintext: &str,
-) -> anyhow::Result<Event> {
+pub fn build_app_data_event(keys: &Keys, d_tag: &str, plaintext: &str) -> anyhow::Result<Event> {
     if d_tag.trim().is_empty() {
         return Err(anyhow!("d_tag cannot be empty"));
     }
@@ -618,6 +648,27 @@ mod tests {
     fn parse_nsec_rejects_non_nsec_input() {
         let err = parse_nsec("not-a-secret").expect_err("invalid secret");
         assert!(err.to_string().contains("nsec1"));
+    }
+
+    fn nsec_bech32(keys: &Keys) -> String {
+        keys.secret_key().to_bech32().expect("encode nsec")
+    }
+
+    #[test]
+    fn nsec_belongs_to_npub_accepts_matching_key() {
+        let keys = Keys::generate();
+        let nsec = nsec_bech32(&keys);
+        let npub = keys.public_key().to_bech32().expect("encode npub");
+        assert!(nsec_belongs_to_npub(&nsec, &npub).expect("parse"));
+    }
+
+    #[test]
+    fn nsec_belongs_to_npub_rejects_other_account() {
+        let mine = Keys::generate();
+        let other = Keys::generate();
+        let nsec = nsec_bech32(&mine);
+        let other_npub = other.public_key().to_bech32().expect("encode npub");
+        assert!(!nsec_belongs_to_npub(&nsec, &other_npub).expect("parse"));
     }
 
     #[test]

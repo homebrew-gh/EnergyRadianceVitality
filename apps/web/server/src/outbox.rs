@@ -180,7 +180,14 @@ impl Outbox {
                 inner.pending += 1;
                 item.id
             };
-            self.spawn_send(id, item.cfg, item.keys, item.event, item.relay_urls, item.label);
+            self.spawn_send(
+                id,
+                item.cfg,
+                item.keys,
+                item.event,
+                item.relay_urls,
+                item.label,
+            );
         }
         count
     }

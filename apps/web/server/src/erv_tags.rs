@@ -24,9 +24,7 @@ pub fn is_erv_d_tag(d_tag: &str) -> bool {
 /// Built-in catalogs published by Android; read-only on the web companion.
 pub fn is_erv_catalog_d_tag(d_tag: &str) -> bool {
     let d_tag = d_tag.trim();
-    d_tag == WEIGHT_CATALOG_D_TAG
-        || d_tag == STRETCH_CATALOG_D_TAG
-        || d_tag == CARDIO_CATALOG_D_TAG
+    d_tag == WEIGHT_CATALOG_D_TAG || d_tag == STRETCH_CATALOG_D_TAG || d_tag == CARDIO_CATALOG_D_TAG
 }
 
 fn is_iso_date(date: &str) -> bool {
@@ -144,7 +142,9 @@ mod tests {
     #[test]
     fn publishable_v1_tags() {
         assert!(is_erv_publishable_d_tag(WORKOUTS_LIBRARY_D_TAG));
-        assert!(is_erv_publishable_d_tag("erv/workouts/library/workout/abc-123"));
+        assert!(is_erv_publishable_d_tag(
+            "erv/workouts/library/workout/abc-123"
+        ));
         assert!(is_erv_publishable_d_tag(
             "erv/workouts/library/workout/abc-123/segment/seg-1"
         ));
