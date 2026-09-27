@@ -7,12 +7,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import {
-  api,
-  setUnauthorizedHandler,
-  type AuthStatus,
-  type WipeBody,
-} from "./api";
+import { api, type AuthStatus, type WipeBody } from "./api";
 
 type AuthContextValue = {
   status: AuthStatus | null;
@@ -59,13 +54,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     void refresh();
-  }, [refresh]);
-
-  useEffect(() => {
-    setUnauthorizedHandler(() => {
-      void refresh();
-    });
-    return () => setUnauthorizedHandler(null);
   }, [refresh]);
 
   const value = useMemo<AuthContextValue>(
