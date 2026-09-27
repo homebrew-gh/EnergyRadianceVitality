@@ -78,7 +78,7 @@ If the user has not added light devices yet, the composer can offer **“add dev
 
 Unknown top-level keys should be omitted.
 
-**Merge:** keyed by `workout.id`; same id replaces existing library entry. **Implemented** in `WorkoutImport.kt` / `WorkoutRepository.kt` (Android) and web workout library publish.
+**Merge:** keyed by `workout.id`; same id replaces existing library entry. **Implemented** in `WorkoutImport.kt` / `WorkoutRepository.kt` (Android) and on web: Workouts → Import parses this envelope, shows a segment and exercise diff, then publishes the merged library.
 
 ---
 

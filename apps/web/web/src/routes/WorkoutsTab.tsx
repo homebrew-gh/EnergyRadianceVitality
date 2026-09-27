@@ -6,6 +6,8 @@ import { RoutineFormAlerts } from "../components/RoutineFormAlerts";
 import { ReorderableList } from "../components/ReorderableList";
 import { SavedRoutinesPanel } from "../components/SavedRoutinesPanel";
 import { FieldLabel, SectionHeader } from "../components/FieldLabel";
+import { WorkoutImportPreviewDialog } from "../components/WorkoutImportPreviewDialog";
+import { mergeImportedWorkouts } from "../lib/workoutImport";
 import { WorkoutPreviewCard } from "../components/WorkoutPreviewCard";
 import { WorkoutComposerDock } from "../components/WorkoutComposerDock";
 import { WorkoutSegmentEditor } from "../components/WorkoutSegmentEditor";
@@ -112,6 +114,7 @@ export function WorkoutsTab() {
   const [name, setName] = useState("");
   const [segments, setSegments] = useState<WorkoutSegment[]>([]);
   const [activeSegmentIndex, setActiveSegmentIndex] = useState<number | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [weightPickerFilter, setWeightPickerFilter] =
@@ -488,6 +491,16 @@ export function WorkoutsTab() {
             .map((s) => `${segmentKindLabel(s.kind)} (${segmentItems(s).length})`)
             .join(" · ")
         }
+        headerActions={
+          <button
+            type="button"
+            className="btn-ghost text-sm"
+            onClick={() => setImportOpen(true)}
+            disabled={saving}
+          >
+            Import
+          </button>
+        }
         onEdit={startEdit}
         onDelete={(w) => void onDelete(w)}
         onDuplicate={(w) => void onDuplicate(w)}
@@ -497,6 +510,38 @@ export function WorkoutsTab() {
             : undefined
         }
       />
+
+      {importOpen ? (
+        <WorkoutImportPreviewDialog
+          current={workouts}
+          exercises={catalogExercises}
+          stretchCatalog={catalogs.stretch}
+          cardioCatalog={catalogs.cardio}
+          weightLoadUnit={weightLoadUnit}
+          saving={saving}
+          onClose={() => setImportOpen(false)}
+          onPublish={async (imported) => {
+            await saveWorkouts(mergeImportedWorkouts(workouts, imported));
+            const updated = imported.find((workout) => workout.id === editingId);
+            if (updated) {
+              setName(updated.name);
+              setSegments(
+                updated.segments.map((segment) => ({
+                  ...segment,
+                  items: [...(segment.items ?? [])],
+                })),
+              );
+            }
+            setFormError(null);
+            setSuccess(
+              imported.length === 1
+                ? `Published imported workout "${imported[0]?.name ?? "workout"}".`
+                : `Published ${imported.length} imported workouts.`,
+            );
+            setImportOpen(false);
+          }}
+        />
+      ) : null}
 
       <RoutineBuilderLayout
         sidebarKinds={libraryKinds}
