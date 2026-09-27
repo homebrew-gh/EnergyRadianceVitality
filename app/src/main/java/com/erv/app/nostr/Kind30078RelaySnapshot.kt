@@ -21,7 +21,12 @@ private const val KIND_30078_TAG_FETCH_LIMIT = 20
 private const val KIND_30078_FILTER_BATCH_SIZE = 6
 private const val KIND_30078_LOOKBACK_SECONDS = 400L * 86_400
 
-/** Single-tag masters that must not be dropped when day-log events fill the relay window. */
+/**
+ * Single-tag masters that must not be dropped when day-log events fill the relay window.
+ * Includes the shared exercise catalogs: if an `erv/catalog/…` tag is missing from a fetch the phone
+ * falls back to the bundled catalog and may re-bootstrap the relay copy, so they need the same
+ * targeted `#d` query as the routine/planner masters.
+ */
 private val PRIORITY_KIND_30078_MASTER_D_TAGS = listOf(
     WORKOUTS_LIBRARY_D_TAG,
     PROGRAMS_MASTER_D_TAG,
@@ -30,7 +35,35 @@ private val PRIORITY_KIND_30078_MASTER_D_TAGS = listOf(
     "erv/cardio/routines",
     "erv/equipment",
     "erv/training-profile",
+    MEDIA_LIBRARY_D_TAG,
+    WEIGHT_CATALOG_D_TAG,
+    STRETCH_CATALOG_D_TAG,
+    CARDIO_CATALOG_D_TAG,
 )
+
+/**
+ * Result of one relay pull.
+ *
+ * [mastersFetchComplete] is true when every relay that was connected while the targeted
+ * master/catalog `#d` query ran answered it with `EOSE`. Only then can "tag absent from
+ * [latestByTag]" be read as "the relays do not have it" rather than "the fetch timed out".
+ */
+data class Kind30078Snapshot(
+    val latestByTag: Map<String, NostrEvent>,
+    val broadFetchComplete: Boolean,
+    val mastersFetchComplete: Boolean,
+)
+
+private class CollectedEvents(
+    val events: List<NostrEvent>,
+    /** Relay URLs that sent `EOSE` for this subscription before the timeout. */
+    val eoseRelays: Set<String>,
+    /** Relay URLs connected when the subscription was sent. */
+    val connectedRelays: Set<String>,
+) {
+    val complete: Boolean
+        get() = connectedRelays.isNotEmpty() && eoseRelays.containsAll(connectedRelays)
+}
 
 /**
  * Fetches the latest kind-30078 event per d-tag for one author.
@@ -44,9 +77,19 @@ suspend fun fetchLatestKind30078ByDTag(
     timeoutMs: Long = 8000,
     limit: Int = KIND_30078_FETCH_LIMIT,
     signer: EventSigner? = null,
-): Map<String, NostrEvent> = coroutineScope {
+): Map<String, NostrEvent> =
+    fetchLatestKind30078Snapshot(relayPool, pubkeyHex, timeoutMs, limit, signer).latestByTag
+
+/** Same as [fetchLatestKind30078ByDTag] but also reports whether the relays finished answering. */
+suspend fun fetchLatestKind30078Snapshot(
+    relayPool: RelayPool,
+    pubkeyHex: String,
+    timeoutMs: Long = 8000,
+    limit: Int = KIND_30078_FETCH_LIMIT,
+    signer: EventSigner? = null,
+): Kind30078Snapshot = coroutineScope {
     val since = fetchSinceEpochSeconds()
-    val broadEvents = collectKind30078Events(
+    val broad = collectKind30078Events(
         relayPool = relayPool,
         pubkeyHex = pubkeyHex,
         subscriptionId = "erv-kind30078-broad-${System.currentTimeMillis()}",
@@ -60,14 +103,16 @@ suspend fun fetchLatestKind30078ByDTag(
             ),
         ),
     )
+    val broadEvents = broad.events
     var merged = pickLatestDecryptableByDTag(broadEvents, signer)
     Log.i(
         ERV_SYNC_LOG_TAG,
         "fetch: pubkey=${pubkeyHex.take(8)}… relayStates=${relayPool.relayStates.value} " +
-            "broadEvents=${broadEvents.size} broadDecryptedTags=${merged.size} signer=${signer != null}",
+            "broadEvents=${broadEvents.size} broadDecryptedTags=${merged.size} signer=${signer != null} " +
+            "broadEose=${broad.eoseRelays.size}/${broad.connectedRelays.size}",
     )
 
-    val masterSupplement = collectKind30078Events(
+    val masters = collectKind30078Events(
         relayPool = relayPool,
         pubkeyHex = pubkeyHex,
         subscriptionId = "erv-kind30078-masters-${System.currentTimeMillis()}",
@@ -82,11 +127,13 @@ suspend fun fetchLatestKind30078ByDTag(
             )
         }.toTypedArray(),
     )
+    val masterSupplement = masters.events
     merged = mergeLatestByDTag(merged, pickLatestDecryptableByDTag(masterSupplement, signer))
     Log.i(
         ERV_SYNC_LOG_TAG,
         "fetch: masterSupplementEvents=${masterSupplement.size} afterMasterTags=${merged.size} " +
-            "hasWorkoutLibraryTag=${merged.containsKey(WORKOUTS_LIBRARY_D_TAG)}",
+            "hasWorkoutLibraryTag=${merged.containsKey(WORKOUTS_LIBRARY_D_TAG)} " +
+            "mastersEose=${masters.eoseRelays.size}/${masters.connectedRelays.size}",
     )
 
     if (signer != null) {
@@ -105,7 +152,11 @@ suspend fun fetchLatestKind30078ByDTag(
             "allErvWorkoutTags=${merged.keys.filter { it.startsWith("erv/workouts") }}",
     )
 
-    merged
+    Kind30078Snapshot(
+        latestByTag = merged,
+        broadFetchComplete = broad.complete,
+        mastersFetchComplete = masters.complete,
+    )
 }
 
 private suspend fun fetchWorkoutLibraryShardTags(
@@ -199,7 +250,7 @@ private suspend fun collectKind30078EventsForDTags(
                     limit = KIND_30078_TAG_FETCH_LIMIT,
                 )
             }.toTypedArray(),
-        )
+        ).events
     }
 }
 
@@ -209,13 +260,15 @@ private suspend fun collectKind30078Events(
     subscriptionId: String,
     timeoutMs: Long,
     filters: Array<NostrFilter>,
-): List<NostrEvent> = coroutineScope {
+): CollectedEvents = coroutineScope {
     val events = mutableListOf<NostrEvent>()
+    val eoseRelays = mutableSetOf<String>()
     // relayPool.events is a hot SharedFlow with replay = 0. Start collecting and wait until this
     // collector is actually registered (onSubscription) BEFORE sending the REQ, otherwise events
     // that stream back immediately — common for small targeted #d fetches like workout shards —
     // are emitted into the void and lost.
     val collecting = CompletableDeferred<Unit>()
+    val eoseCollecting = CompletableDeferred<Unit>()
     val job = launch {
         relayPool.events
             .onSubscription { collecting.complete(Unit) }
@@ -223,12 +276,24 @@ private suspend fun collectKind30078Events(
                 if (id == subscriptionId && ev.kind == 30078) events.add(ev)
             }
     }
+    val eoseJob = launch {
+        relayPool.endOfStoredEvents
+            .onSubscription { eoseCollecting.complete(Unit) }
+            .collect { (relayUrl, id) ->
+                if (id == subscriptionId) eoseRelays.add(relayUrl)
+            }
+    }
     collecting.await()
+    eoseCollecting.await()
+    val connectedRelays = relayPool.connectedRelayUrls()
     relayPool.subscribe(subscriptionId, *filters)
+    // Keep the full window even after EOSE: slower relays may still be streaming stored events
+    // for the broad query, and existing sync behaviour depends on that grace period.
     delay(timeoutMs)
     job.cancel()
+    eoseJob.cancel()
     relayPool.unsubscribe(subscriptionId)
-    events
+    CollectedEvents(events, eoseRelays.toSet(), connectedRelays)
 }
 
 private fun fetchSinceEpochSeconds(): Long {

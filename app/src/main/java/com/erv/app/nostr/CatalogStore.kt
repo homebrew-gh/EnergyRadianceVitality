@@ -52,16 +52,42 @@ class CatalogStore private constructor(context: Context) {
         cache = decodeStored(raw)
     }
 
+    /** Replaces the whole cache, including clearing catalogs passed as null. Use for explicit resets. */
     suspend fun applyRelayCatalogs(
         weight: WeightCatalogPayload?,
         stretch: StretchCatalogPayload?,
         cardio: CardioCatalogPayload?,
     ) {
-        cache = StoredRelayCatalogs(
-            weight = weight,
-            stretch = stretch,
-            cardio = cardio,
+        persist(
+            StoredRelayCatalogs(
+                weight = weight,
+                stretch = stretch,
+                cardio = cardio,
+            ),
         )
+    }
+
+    /**
+     * Applies only the catalogs that were actually received from the relay. A null here means
+     * "not in this fetch" (offline, timeout, crowded window) — not "deleted" — so the previously
+     * cached copy is kept instead of silently falling back to the bundled APK catalog.
+     */
+    suspend fun mergeReceivedRelayCatalogs(
+        weight: WeightCatalogPayload?,
+        stretch: StretchCatalogPayload?,
+        cardio: CardioCatalogPayload?,
+    ) {
+        persist(
+            StoredRelayCatalogs(
+                weight = weight ?: cache.weight,
+                stretch = stretch ?: cache.stretch,
+                cardio = cardio ?: cache.cardio,
+            ),
+        )
+    }
+
+    private suspend fun persist(next: StoredRelayCatalogs) {
+        cache = next
         appContext.catalogStoreDataStore.edit { prefs ->
             prefs[Keys.RELAY_CATALOGS] = json.encodeToString(StoredRelayCatalogs.serializer(), cache)
         }

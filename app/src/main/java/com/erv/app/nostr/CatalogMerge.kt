@@ -14,11 +14,24 @@ object CatalogMerge {
         mergeById(defaultCatalogExercises(), relay?.exercises.orEmpty()) { it.id }
             .map { it.copy(sessionSummaries = emptyList()) }
 
+    /**
+     * Relay entries win by id, but a relay copy of a bundled stretch that has a blank name or
+     * procedure inherits the bundled text so the guided player never shows/speaks an empty stretch.
+     */
     fun effectiveStretchCatalog(
         bundled: List<StretchCatalogEntry>,
         relay: StretchCatalogPayload?,
-    ): List<StretchCatalogEntry> =
-        mergeById(bundled, relay?.stretches.orEmpty()) { it.id }
+    ): List<StretchCatalogEntry> {
+        val bundledById = bundled.associateBy { it.id }
+        val relayFilled = relay?.stretches.orEmpty().map { entry ->
+            val base = bundledById[entry.id] ?: return@map entry
+            entry.copy(
+                name = entry.name.ifBlank { base.name },
+                procedure = entry.procedure.ifBlank { base.procedure },
+            )
+        }
+        return mergeById(bundled, relayFilled) { it.id }
+    }
 
     fun effectiveCardioCatalog(
         bundled: CardioCatalogPayload,

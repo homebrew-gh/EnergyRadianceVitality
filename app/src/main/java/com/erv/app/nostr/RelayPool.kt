@@ -31,6 +31,10 @@ class RelayPool(
     private val _notices = MutableSharedFlow<Pair<String, String>>(extraBufferCapacity = 16)
     val notices: SharedFlow<Pair<String, String>> = _notices.asSharedFlow()
 
+    /** `(relayUrl, subscriptionId)` each time a relay reports end of stored events for a REQ. */
+    private val _endOfStoredEvents = MutableSharedFlow<Pair<String, String>>(extraBufferCapacity = 32)
+    val endOfStoredEvents: SharedFlow<Pair<String, String>> = _endOfStoredEvents.asSharedFlow()
+
     private val collectorJobs = mutableMapOf<String, Job>()
 
     /**
@@ -61,8 +65,17 @@ class RelayPool(
             launch {
                 client.notices.collect { _notices.emit(url to it) }
             }
+            launch {
+                client.endOfStoredEvents.collect { _endOfStoredEvents.emit(url to it) }
+            }
         }
     }
+
+    /** URLs of relays currently connected (socket open or NIP-42 authenticated). */
+    fun connectedRelayUrls(): Set<String> =
+        relayStates.value.filterValues {
+            it is ConnectionState.Connected || it is ConnectionState.Authenticated
+        }.keys
 
     private fun removeClient(url: String) {
         collectorJobs.remove(url)?.cancel()

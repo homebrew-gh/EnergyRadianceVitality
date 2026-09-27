@@ -161,7 +161,12 @@ object CatalogSync {
      * Applies relay catalogs locally, then bootstraps or upgrades relay copies when appropriate.
      *
      * - **Offline / no Nostr:** callers skip this; APK bundled catalogs are used via [CatalogStore].
-     * - **Relay missing catalog:** publish bundled bootstrap copy.
+     * - **Catalog absent from the fetch, fetch incomplete** (`fetchComplete == false`: no relay
+     *   connected, or a relay timed out before `EOSE`): keep the cached relay copy and publish
+     *   nothing. Treating a partial fetch as "relay has no catalog" used to overwrite web-authored
+     *   custom entries with the bundled catalog.
+     * - **Catalog absent, fetch complete:** publish a bootstrap copy — the cached relay copy merged
+     *   with bundled rows when one exists, otherwise the bundled catalog.
      * - **Relay newer than APK (`catalogVersion` > [ERV_BUILTIN_CATALOG_VERSION]):** adopt relay;
      *   do not overwrite (web or another device owns the catalog).
      * - **APK newer than relay:** merge bundled rows into relay and publish upgrade.
@@ -172,6 +177,7 @@ object CatalogSync {
         signer: EventSigner,
         latestByTag: Map<String, NostrEvent>,
         dataRelayUrls: List<String>,
+        fetchComplete: Boolean = true,
     ) {
         if (dataRelayUrls.isEmpty()) return
 
@@ -182,7 +188,13 @@ object CatalogSync {
         val remoteStretch = decodeRelayCatalog(latestByTag[STRETCH_CATALOG_D_TAG], signer, ::decodeStretchCatalog)
         val remoteCardio = decodeRelayCatalog(latestByTag[CARDIO_CATALOG_D_TAG], signer, ::decodeCardioCatalog)
 
-        store.applyRelayCatalogs(
+        // Snapshot the previously cached relay copies before applying this fetch, so a bootstrap
+        // after a genuine relay wipe can restore custom rows instead of only the bundled catalog.
+        val cachedWeight = store.relayWeightCatalog()
+        val cachedStretch = store.relayStretchCatalog()
+        val cachedCardio = store.relayCardioCatalog()
+
+        store.mergeReceivedRelayCatalogs(
             weight = remoteWeight,
             stretch = remoteStretch,
             cardio = remoteCardio,
@@ -192,9 +204,11 @@ object CatalogSync {
         val bundledStretch = bundledStretchCatalogPayload(appContext)
         val bundledCardio = bundledCardioCatalogPayload()
 
-        when (catalogPublishAction(remoteWeight?.catalogVersion)) {
-            CatalogPublishAction.Bootstrap ->
-                publishCatalog(appContext, relayPool, signer, dataRelayUrls, WEIGHT_CATALOG_D_TAG, encodeWeightCatalog(bundledWeight))
+        when (catalogPublishAction(remoteWeight?.catalogVersion, fetchComplete)) {
+            CatalogPublishAction.Bootstrap -> {
+                val payload = cachedWeight?.let { CatalogMerge.upgradeWeightCatalog(bundledWeight, it) } ?: bundledWeight
+                publishCatalog(appContext, relayPool, signer, dataRelayUrls, WEIGHT_CATALOG_D_TAG, encodeWeightCatalog(payload))
+            }
             CatalogPublishAction.Upgrade ->
                 publishCatalog(
                     appContext,
@@ -207,9 +221,11 @@ object CatalogSync {
             CatalogPublishAction.None -> Unit
         }
 
-        when (catalogPublishAction(remoteStretch?.catalogVersion)) {
-            CatalogPublishAction.Bootstrap ->
-                publishCatalog(appContext, relayPool, signer, dataRelayUrls, STRETCH_CATALOG_D_TAG, encodeStretchCatalog(bundledStretch))
+        when (catalogPublishAction(remoteStretch?.catalogVersion, fetchComplete)) {
+            CatalogPublishAction.Bootstrap -> {
+                val payload = cachedStretch?.let { CatalogMerge.upgradeStretchCatalog(bundledStretch, it) } ?: bundledStretch
+                publishCatalog(appContext, relayPool, signer, dataRelayUrls, STRETCH_CATALOG_D_TAG, encodeStretchCatalog(payload))
+            }
             CatalogPublishAction.Upgrade ->
                 publishCatalog(
                     appContext,
@@ -222,9 +238,11 @@ object CatalogSync {
             CatalogPublishAction.None -> Unit
         }
 
-        when (catalogPublishAction(remoteCardio?.catalogVersion)) {
-            CatalogPublishAction.Bootstrap ->
-                publishCatalog(appContext, relayPool, signer, dataRelayUrls, CARDIO_CATALOG_D_TAG, encodeCardioCatalog(bundledCardio))
+        when (catalogPublishAction(remoteCardio?.catalogVersion, fetchComplete)) {
+            CatalogPublishAction.Bootstrap -> {
+                val payload = cachedCardio?.let { CatalogMerge.upgradeCardioCatalog(bundledCardio, it) } ?: bundledCardio
+                publishCatalog(appContext, relayPool, signer, dataRelayUrls, CARDIO_CATALOG_D_TAG, encodeCardioCatalog(payload))
+            }
             CatalogPublishAction.Upgrade ->
                 publishCatalog(
                     appContext,
@@ -253,11 +271,14 @@ object CatalogSync {
         None,
     }
 
-    internal fun catalogPublishActionForTest(remoteVersion: Int?): String =
-        catalogPublishAction(remoteVersion).name
+    internal fun catalogPublishActionForTest(remoteVersion: Int?, fetchComplete: Boolean = true): String =
+        catalogPublishAction(remoteVersion, fetchComplete).name
 
-    private fun catalogPublishAction(remoteVersion: Int?): CatalogPublishAction {
-        if (remoteVersion == null) return CatalogPublishAction.Bootstrap
+    private fun catalogPublishAction(remoteVersion: Int?, fetchComplete: Boolean): CatalogPublishAction {
+        if (remoteVersion == null) {
+            // Absent from a partial fetch is not evidence the relay lacks it; never bootstrap over it.
+            return if (fetchComplete) CatalogPublishAction.Bootstrap else CatalogPublishAction.None
+        }
         return when {
             remoteVersion > ERV_BUILTIN_CATALOG_VERSION -> CatalogPublishAction.None
             remoteVersion < ERV_BUILTIN_CATALOG_VERSION -> CatalogPublishAction.Upgrade

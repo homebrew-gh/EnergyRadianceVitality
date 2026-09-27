@@ -61,4 +61,25 @@ class CatalogMergeTest {
         assertTrue(effective.any { it.id == "custom_c" })
         assertTrue(effective.any { it.id == "builtin_b" })
     }
+
+    @Test
+    fun effectiveStretchCatalog_fillsBlankRelayTextFromBundled() {
+        val bundled = listOf(
+            StretchCatalogEntry(id = "builtin_a", name = "Hamstring stretch", procedure = "Reach for your toes."),
+        )
+        val relay = StretchCatalogPayload(
+            catalogVersion = 2,
+            stretches = listOf(
+                StretchCatalogEntry(id = "builtin_a", name = "", procedure = "  ", requiresBothSides = true),
+                StretchCatalogEntry(id = "custom_c", name = "", procedure = ""),
+            ),
+        )
+        val effective = CatalogMerge.effectiveStretchCatalog(bundled, relay)
+        val a = effective.first { it.id == "builtin_a" }
+        assertEquals("Hamstring stretch", a.name)
+        assertEquals("Reach for your toes.", a.procedure)
+        assertTrue(a.requiresBothSides)
+        // Relay-only entries have no bundled fallback and are passed through unchanged.
+        assertEquals("", effective.first { it.id == "custom_c" }.name)
+    }
 }

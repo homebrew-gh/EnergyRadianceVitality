@@ -77,6 +77,10 @@ class NostrClient(
     private val _notices = MutableSharedFlow<String>(extraBufferCapacity = 16)
     val notices: SharedFlow<String> = _notices.asSharedFlow()
 
+    /** Subscription ids for which this relay sent `EOSE` (end of stored events). */
+    private val _endOfStoredEvents = MutableSharedFlow<String>(extraBufferCapacity = 32)
+    val endOfStoredEvents: SharedFlow<String> = _endOfStoredEvents.asSharedFlow()
+
     private val pendingPublishes = mutableMapOf<String, PendingPublish>()
     private var authEventId: String? = null
     private var pendingChallenge: String? = null
@@ -270,7 +274,9 @@ class NostrClient(
                     val message = if (json.size > 3) json[3].jsonPrimitive.content else ""
                     handleOk(eventId, success, message)
                 }
-                "EOSE" -> { /* End of stored events for subscription */ }
+                "EOSE" -> {
+                    if (json.size > 1) _endOfStoredEvents.emit(json[1].jsonPrimitive.content)
+                }
                 "CLOSED" -> {
                     val message = if (json.size > 2) json[2].jsonPrimitive.content else ""
                     if (message.startsWith("auth-required")) {
