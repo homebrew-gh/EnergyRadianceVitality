@@ -58,7 +58,7 @@ export async function fetchAndDecryptMediaItem(
   if (item.encryption.algorithm !== "AES-256-GCM") {
     throw new Error(`Unsupported encryption: ${item.encryption.algorithm}`);
   }
-  const encrypted = await fetchMediaBlob(item.blobUrl);
+  const encrypted = await fetchMediaBlob(item);
   const keyBytes = base64ToArrayBuffer(item.encryption.keyBase64);
   const nonceBytes = base64ToArrayBuffer(item.encryption.nonceBase64);
   const key = await crypto.subtle.importKey(
@@ -76,8 +76,13 @@ export async function fetchAndDecryptMediaItem(
   return new Blob([plaintext], { type: item.contentType || "image/jpeg" });
 }
 
-async function fetchMediaBlob(blobUrl: string): Promise<ArrayBuffer> {
-  const proxyUrl = `/api/media/blob?url=${encodeURIComponent(blobUrl)}`;
+async function fetchMediaBlob(item: MediaLibraryItem): Promise<ArrayBuffer> {
+  const params = new URLSearchParams();
+  params.set("url", item.blobUrl);
+  if (item.encryptedSha256) {
+    params.set("sha256", item.encryptedSha256);
+  }
+  const proxyUrl = `/api/media/blob?${params.toString()}`;
   const response = await fetch(proxyUrl, {
     credentials: "same-origin",
     cache: "no-store",

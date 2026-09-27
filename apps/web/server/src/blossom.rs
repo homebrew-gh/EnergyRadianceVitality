@@ -65,6 +65,35 @@ pub fn is_allowed_blossom_blob_url(blob_url: &str, allowed_origins: &[String]) -
     })
 }
 
+/// Resolve a fetch URL that stays on a relay-derived Blossom origin.
+///
+/// Android/Haven often store a LAN, Tor, or public blob URL whose host differs
+/// from the companion's configured relay (`ws://haven.startos:…` vs the phone's
+/// `wss://192.168.x.x:…`). The status probe can still succeed against the local
+/// origin while `/media/blob` would reject the advertised URL. When the stored
+/// URL is not allowlisted, rewrite `/{sha256}` onto the first allowed origin.
+pub fn resolve_blossom_blob_fetch_url(
+    blob_url: &str,
+    sha256_hex: Option<&str>,
+    allowed_origins: &[String],
+) -> Result<String, String> {
+    if allowed_origins.is_empty() {
+        return Err("No Blossom origin can be derived from the configured relay.".into());
+    }
+    if is_allowed_blossom_blob_url(blob_url, allowed_origins) {
+        return Ok(blob_url.trim().to_string());
+    }
+    let hash = sha256_hex
+        .map(str::trim)
+        .filter(|value| is_sha256_hex(value))
+        .map(|value| value.to_ascii_lowercase())
+        .or_else(|| blossom_sha256_from_url(blob_url));
+    let Some(hash) = hash else {
+        return Err("Blob URL is not under the configured Blossom origin.".into());
+    };
+    Ok(blob_url_on_origin(&allowed_origins[0], &hash))
+}
+
 pub fn check_blossom_status(
     origin: &str,
     accept_invalid_tls: bool,
@@ -81,14 +110,7 @@ pub fn check_blossom_status(
         }
     };
 
-    let unauth = match http_request(
-        &parsed,
-        "HEAD",
-        "/upload",
-        &[],
-        None,
-        accept_invalid_tls,
-    ) {
+    let unauth = match http_request(&parsed, "HEAD", "/upload", &[], None, accept_invalid_tls) {
         Ok(response) => response,
         Err(message) => {
             return BlossomCheckResult {
@@ -226,16 +248,14 @@ struct HttpResponse {
 
 impl HttpResponse {
     fn content_type(&self) -> Option<String> {
-        self.header_lines
-            .iter()
-            .find_map(|line| {
-                let (name, value) = line.split_once(':')?;
-                if name.trim().eq_ignore_ascii_case("content-type") {
-                    Some(value.trim().to_string())
-                } else {
-                    None
-                }
-            })
+        self.header_lines.iter().find_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            if name.trim().eq_ignore_ascii_case("content-type") {
+                Some(value.trim().to_string())
+            } else {
+                None
+            }
+        })
     }
 }
 
@@ -255,7 +275,10 @@ fn http_request(
     for (name, value) in extra_headers {
         header_block.push_str(&format!("{name}: {value}\r\n"));
     }
-    if body.is_some() && !extra_headers.iter().any(|(k, _)| k.eq_ignore_ascii_case("content-length"))
+    if body.is_some()
+        && !extra_headers
+            .iter()
+            .any(|(k, _)| k.eq_ignore_ascii_case("content-length"))
     {
         header_block.push_str(&format!("Content-Length: {}\r\n", body.unwrap().len()));
     }
@@ -425,12 +448,7 @@ fn parse_http_url(url: &str) -> Option<ParsedHttpUrl> {
 fn parse_host_port(authority: &str) -> Option<(String, Option<u16>)> {
     let (host, port) = authority
         .rsplit_once(':')
-        .and_then(|(host, raw_port)| {
-            raw_port
-                .parse::<u16>()
-                .ok()
-                .map(|port| (host, Some(port)))
-        })
+        .and_then(|(host, raw_port)| raw_port.parse::<u16>().ok().map(|port| (host, Some(port))))
         .unwrap_or((authority, None));
     if host.is_empty() {
         return None;
@@ -441,7 +459,34 @@ fn parse_host_port(authority: &str) -> Option<(String, Option<u16>)> {
 fn origins_match(origin: &ParsedHttpOrigin, url: &ParsedHttpUrl) -> bool {
     origin.https == url.https
         && origin.host.eq_ignore_ascii_case(&url.host)
-        && origin.port == url.port
+        && normalized_port(origin.https, origin.port) == normalized_port(url.https, url.port)
+}
+
+fn normalized_port(https: bool, port: Option<u16>) -> u16 {
+    port.unwrap_or(if https { 443 } else { 80 })
+}
+
+fn is_sha256_hex(value: &str) -> bool {
+    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+fn blossom_sha256_from_url(blob_url: &str) -> Option<String> {
+    let parsed = parse_http_url(blob_url)?;
+    let path = parsed.path.as_deref()?;
+    for segment in path.split('/') {
+        if segment.is_empty() {
+            continue;
+        }
+        let stem = segment.split('.').next().unwrap_or(segment);
+        if is_sha256_hex(stem) {
+            return Some(stem.to_ascii_lowercase());
+        }
+    }
+    None
+}
+
+fn blob_url_on_origin(origin: &str, sha256_hex: &str) -> String {
+    format!("{}/{}", origin.trim().trim_end_matches('/'), sha256_hex)
 }
 
 #[cfg(test)]
@@ -471,6 +516,56 @@ mod tests {
             "https://evil.example/abc123",
             &allowed
         ));
+    }
+
+    #[test]
+    fn allowlist_treats_default_https_port_as_443() {
+        let allowed = vec!["https://haven.local".into()];
+        assert!(is_allowed_blossom_blob_url(
+            "https://haven.local:443/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            &allowed
+        ));
+    }
+
+    #[test]
+    fn rewrites_advertised_blob_url_onto_local_blossom_origin() {
+        let allowed = vec!["http://haven.startos:3355".into()];
+        let hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let fetch_url = resolve_blossom_blob_fetch_url(
+            &format!("https://192.168.1.47:49748/{hash}"),
+            None,
+            &allowed,
+        )
+        .expect("rewrite");
+        assert_eq!(fetch_url, format!("http://haven.startos:3355/{hash}"));
+    }
+
+    #[test]
+    fn rewrites_using_encrypted_sha256_when_url_host_differs() {
+        let allowed = vec!["https://10.0.0.47:49748".into()];
+        let hash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        let fetch_url =
+            resolve_blossom_blob_fetch_url("https://haven.onion/not-a-hash", Some(hash), &allowed)
+                .expect("rewrite from sha256");
+        assert_eq!(fetch_url, format!("https://10.0.0.47:49748/{hash}"));
+    }
+
+    #[test]
+    fn keeps_blob_url_when_it_already_matches_allowed_origin() {
+        let allowed = vec!["https://10.0.0.47:49748".into()];
+        let url = "https://10.0.0.47:49748/cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
+        assert_eq!(
+            resolve_blossom_blob_fetch_url(url, None, &allowed).expect("keep"),
+            url
+        );
+    }
+
+    #[test]
+    fn rejects_foreign_blob_url_without_sha256() {
+        let allowed = vec!["https://10.0.0.47:49748".into()];
+        let err = resolve_blossom_blob_fetch_url("https://evil.example/admin", None, &allowed)
+            .expect_err("reject");
+        assert!(err.contains("not under the configured Blossom origin"));
     }
 
     #[test]
