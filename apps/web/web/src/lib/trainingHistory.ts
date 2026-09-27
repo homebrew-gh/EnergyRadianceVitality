@@ -112,9 +112,36 @@ export type HistoryTimelineItem =
   | { kind: "weight"; date: string; session: WeightWorkoutSession }
   | { kind: "cardio"; date: string; session: CardioSession };
 
-export type RecentWorkoutItem = HistoryTimelineItem & {
+export type RecentWorkoutSingle = HistoryTimelineItem & {
+  groupKind: "single";
   contextKey: string;
 };
+
+export type RecentWorkoutComposed = {
+  groupKind: "composed";
+  contextKey: string;
+  date: string;
+  sessionId: string;
+  workoutId: string;
+  displayRef: string;
+  /** Sections in performed order (oldest first). */
+  sections: HistoryTimelineItem[];
+  sessionHeartRate?: CardioHeartRateSummary | null;
+};
+
+export type RecentWorkoutItem = RecentWorkoutSingle | RecentWorkoutComposed;
+
+export function isRecentWorkoutSingle(
+  item: RecentWorkoutItem,
+): item is RecentWorkoutSingle {
+  return item.groupKind === "single";
+}
+
+export function isRecentWorkoutComposed(
+  item: RecentWorkoutItem,
+): item is RecentWorkoutComposed {
+  return item.groupKind === "composed";
+}
 
 export type WeeklyCountBucket = {
   weekStart: string;
@@ -739,17 +766,71 @@ export function isMasterTrainingTag(dTag: string): boolean {
   );
 }
 
-function sessionEpoch(session: WeightWorkoutSession): number {
+export function sessionEpoch(session: WeightWorkoutSession): number {
   return session.startedAtEpochSeconds ?? session.finishedAtEpochSeconds ?? 0;
 }
 
-function cardioSessionEpoch(session: CardioSession): number {
+export function cardioSessionEpoch(session: CardioSession): number {
   return (
     session.startEpochSeconds ??
     session.endEpochSeconds ??
     session.loggedAtEpochSeconds ??
     0
   );
+}
+
+export function timelineItemEpoch(item: HistoryTimelineItem): number {
+  return item.kind === "weight"
+    ? sessionEpoch(item.session)
+    : cardioSessionEpoch(item.session);
+}
+
+function workoutLinkForItem(item: HistoryTimelineItem): WorkoutSessionLink | null {
+  return item.session.workoutLink ?? null;
+}
+
+function singleRecentContextKey(item: HistoryTimelineItem): string {
+  return `${item.kind}:${item.date}:${item.session.id}`;
+}
+
+export function composedBlockElapsedSeconds(block: RecentWorkoutComposed): number | null {
+  const starts = block.sections
+    .map((section) =>
+      section.kind === "weight"
+        ? section.session.startedAtEpochSeconds
+        : section.session.startEpochSeconds,
+    )
+    .filter((value): value is number => value != null);
+  const ends = block.sections
+    .map((section) =>
+      section.kind === "weight"
+        ? section.session.finishedAtEpochSeconds
+        : section.session.endEpochSeconds,
+    )
+    .filter((value): value is number => value != null);
+  if (starts.length === 0 || ends.length === 0) return null;
+  const elapsed = Math.max(...ends) - Math.min(...starts);
+  return elapsed > 0 ? elapsed : null;
+}
+
+export function composedBlockTotalKcal(block: RecentWorkoutComposed): number | null {
+  let total = 0;
+  let found = false;
+  for (const section of block.sections) {
+    const kcal =
+      section.kind === "weight"
+        ? section.session.estimatedKcal
+        : section.session.estimatedKcal;
+    if (kcal != null && kcal > 0) {
+      total += kcal;
+      found = true;
+    }
+  }
+  return found ? total : null;
+}
+
+export function sectionKindLabel(kind: HistoryTimelineItem["kind"]): string {
+  return kind === "weight" ? "Strength" : "Cardio";
 }
 
 export function buildTimeline(
@@ -783,12 +864,72 @@ export function buildRecentWorkouts(
   cardioLogs: CardioDayLog[],
   limit = 5,
 ): RecentWorkoutItem[] {
-  return buildTimeline(weightLogs, cardioLogs)
+  const timeline = buildTimeline(weightLogs, cardioLogs);
+  const sectionsBySessionId = new Map<string, HistoryTimelineItem[]>();
+
+  for (const item of timeline) {
+    const link = workoutLinkForItem(item);
+    if (!link?.sessionId) continue;
+    const group = sectionsBySessionId.get(link.sessionId) ?? [];
+    group.push(item);
+    sectionsBySessionId.set(link.sessionId, group);
+  }
+
+  const composedSessionIds = new Set(
+    [...sectionsBySessionId.entries()]
+      .filter(([, sections]) => sections.length >= 2)
+      .map(([sessionId]) => sessionId),
+  );
+
+  const entries: { sortEpoch: number; item: RecentWorkoutItem }[] = [];
+
+  for (const sessionId of composedSessionIds) {
+    const sections = sectionsBySessionId.get(sessionId);
+    if (!sections?.length) continue;
+    const ordered = [...sections].sort(
+      (a, b) => timelineItemEpoch(a) - timelineItemEpoch(b),
+    );
+    const link = workoutLinkForItem(ordered[0]);
+    if (!link) continue;
+    entries.push({
+      sortEpoch: Math.max(...ordered.map(timelineItemEpoch)),
+      item: {
+        groupKind: "composed",
+        contextKey: `composed:${sessionId}`,
+        date: ordered[0].date,
+        sessionId,
+        workoutId: link.workoutId,
+        displayRef: link.displayRef,
+        sections: ordered,
+        sessionHeartRate:
+          ordered
+            .map((section) => section.session.workoutLink?.sessionHeartRate)
+            .find((heartRate) => heartRate != null) ?? null,
+      },
+    });
+  }
+
+  for (const item of timeline) {
+    const link = workoutLinkForItem(item);
+    if (link && composedSessionIds.has(link.sessionId)) continue;
+    entries.push({
+      sortEpoch: timelineItemEpoch(item),
+      item: {
+        ...item,
+        groupKind: "single",
+        contextKey: singleRecentContextKey(item),
+      },
+    });
+  }
+
+  return entries
+    .sort((a, b) => {
+      const dateCmp = b.item.date.localeCompare(a.item.date);
+      if (dateCmp !== 0) return dateCmp;
+      return b.sortEpoch - a.sortEpoch;
+    })
     .slice(0, limit)
-    .map((item) => ({
-      ...item,
-      contextKey: `${item.kind}:${item.date}:${item.session.id}`,
-    }));
+    .map(({ item }) => item);
 }
 
 export function parseIsoDate(iso: string): Date {

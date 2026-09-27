@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { SessionMediaGallery } from "../components/SessionMediaPreview";
 import { TrainingBaselinePanel } from "../components/TrainingBaselinePanel";
 import { TrainingRelayDiagnostics } from "../components/TrainingRelayDiagnostics";
+import { CoachReviewCard } from "../components/CoachReviewCard";
 import { TrainingContextExportCard } from "../components/TrainingContextExportCard";
 import { FieldLabel, SectionHeader } from "../components/FieldLabel";
 import { useAuth } from "../lib/auth";
@@ -20,14 +21,19 @@ import {
   formatSetLine,
   formatWeightKg,
   buildRecentWorkouts,
+  composedBlockElapsedSeconds,
+  composedBlockTotalKcal,
   historyForExercise,
+  isRecentWorkoutComposed,
   maxWeightByRepBucketKg,
+  sectionKindLabel,
   summarizeCardioSession,
   summarizeWeightSession,
   volumeByMuscleGroup,
   weeklySessionCounts,
   weightSourceLabel,
   formatDistanceMeters,
+  type RecentWorkoutComposed,
   type RecentWorkoutItem,
   type HistoryTimelineItem,
 } from "../lib/trainingHistory";
@@ -36,6 +42,7 @@ import {
   useSessionMediaLibrary,
   type SessionMediaIndex,
 } from "../lib/sessionMedia";
+import type { Workout } from "../lib/workoutTraining";
 
 const PERIOD_OPTIONS: { value: HistoryPeriodWeeks; label: string }[] = [
   { value: 4, label: "4 weeks" },
@@ -168,13 +175,49 @@ function VerticalWeekChart({
   );
 }
 
+function composedWorkoutTitle(block: RecentWorkoutComposed, workouts: Workout[]): string {
+  const workout = workouts.find((entry) => entry.id === block.workoutId);
+  return workout?.name?.trim() || block.displayRef.trim() || "Workout";
+}
+
+function composedSectionTitle(
+  item: HistoryTimelineItem,
+  workouts: Workout[],
+): string {
+  const link = item.session.workoutLink;
+  if (link?.segmentId) {
+    const workout = workouts.find((entry) => entry.id === link.workoutId);
+    const segment = workout?.segments.find((entry) => entry.id === link.segmentId);
+    const segmentTitle = segment?.title?.trim();
+    if (segmentTitle) return segmentTitle;
+  }
+  return item.kind === "weight"
+    ? summarizeWeightSession(item.session).split(" · ")[0] ?? "Strength"
+    : summarizeCardioSession(item.session).split(" · ")[0] ?? "Cardio";
+}
+
+function composedBlockMedia(
+  sessionMediaIndex: SessionMediaIndex,
+  block: RecentWorkoutComposed,
+) {
+  const composed = sessionMediaForId(sessionMediaIndex, block.sessionId);
+  if (composed.length > 0) return composed;
+  for (const section of block.sections) {
+    const media = sessionMediaForId(sessionMediaIndex, section.session.id);
+    if (media.length > 0) return media;
+  }
+  return [];
+}
+
 function RecentWorkoutsPanel({
   items,
   exercises,
+  workouts,
   sessionMediaIndex,
 }: {
   items: RecentWorkoutItem[];
   exercises: ReturnType<typeof useTraining>["exercises"];
+  workouts: Workout[];
   sessionMediaIndex: SessionMediaIndex;
 }) {
   const [openKey, setOpenKey] = useState<string | null>(items[0]?.contextKey ?? null);
@@ -187,8 +230,8 @@ function RecentWorkoutsPanel({
         <div>
           <SectionHeader>Recent Workouts</SectionHeader>
           <p className="mt-1 text-sm text-muted">
-            Latest five sessions across all synced history. This is the first
-            structured slice future AI planning can reuse.
+            Latest five sessions across all synced history. Multi-section composed
+            workouts appear as one entry with per-section detail underneath.
           </p>
         </div>
         <span className="rounded-full bg-[var(--erv-input-bg)] px-3 py-1 text-xs text-muted">
@@ -199,53 +242,28 @@ function RecentWorkoutsPanel({
       <div className="space-y-3">
         {items.map((item) => {
           const open = openKey === item.contextKey;
+          if (isRecentWorkoutComposed(item)) {
+            return (
+              <ComposedRecentWorkoutCard
+                key={item.contextKey}
+                block={item}
+                open={open}
+                exercises={exercises}
+                workouts={workouts}
+                sessionMediaIndex={sessionMediaIndex}
+                onToggle={() => setOpenKey(open ? null : item.contextKey)}
+              />
+            );
+          }
           return (
-            <article
+            <SingleRecentWorkoutCard
               key={item.contextKey}
-              className="rounded-card border border-[var(--erv-outline-variant)] bg-[var(--erv-input-bg)]/70"
-            >
-              <button
-                type="button"
-                className="w-full p-4 text-left"
-                onClick={() => setOpenKey(open ? null : item.contextKey)}
-              >
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <p className="text-xs font-mono text-muted">{item.date}</p>
-                    <p className="mt-1 font-semibold text-heading">
-                      {item.kind === "weight"
-                        ? summarizeWeightSession(item.session)
-                        : summarizeCardioSession(item.session)}
-                    </p>
-                  </div>
-                  <span
-                    className={`rounded-full px-2.5 py-1 text-xs ${
-                      item.kind === "weight"
-                        ? "bg-[var(--erv-primary-container)] text-[var(--erv-on-primary-container)]"
-                        : "bg-[var(--erv-secondary-container)] text-[var(--erv-on-secondary-container)]"
-                    }`}
-                  >
-                    {item.kind === "weight" ? "Strength" : "Cardio"}
-                  </span>
-                </div>
-              </button>
-              {open ? (
-                <div className="border-t border-[var(--erv-outline-variant)] px-4 pb-4 pt-3">
-                  {item.kind === "weight" ? (
-                    <RecentStrengthDetails
-                      item={item}
-                      exercises={exercises}
-                      sessionMediaIndex={sessionMediaIndex}
-                    />
-                  ) : (
-                    <RecentCardioDetails
-                      item={item}
-                      sessionMediaIndex={sessionMediaIndex}
-                    />
-                  )}
-                </div>
-              ) : null}
-            </article>
+              item={item}
+              open={open}
+              exercises={exercises}
+              sessionMediaIndex={sessionMediaIndex}
+              onToggle={() => setOpenKey(open ? null : item.contextKey)}
+            />
           );
         })}
       </div>
@@ -253,16 +271,177 @@ function RecentWorkoutsPanel({
   );
 }
 
-function RecentStrengthDetails({
+function SingleRecentWorkoutCard({
   item,
+  open,
   exercises,
   sessionMediaIndex,
+  onToggle,
 }: {
-  item: Extract<RecentWorkoutItem, { kind: "weight" }>;
+  item: Extract<RecentWorkoutItem, { groupKind: "single" }>;
+  open: boolean;
   exercises: ReturnType<typeof useTraining>["exercises"];
   sessionMediaIndex: SessionMediaIndex;
+  onToggle: () => void;
 }) {
-  const session = item.session;
+  return (
+    <article className="rounded-card border border-[var(--erv-outline-variant)] bg-[var(--erv-input-bg)]/70">
+      <button type="button" className="w-full p-4 text-left" onClick={onToggle}>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-mono text-muted">{item.date}</p>
+            <p className="mt-1 font-semibold text-heading">
+              {item.kind === "weight"
+                ? summarizeWeightSession(item.session)
+                : summarizeCardioSession(item.session)}
+            </p>
+          </div>
+          <span
+            className={`rounded-full px-2.5 py-1 text-xs ${
+              item.kind === "weight"
+                ? "bg-[var(--erv-primary-container)] text-[var(--erv-on-primary-container)]"
+                : "bg-[var(--erv-secondary-container)] text-[var(--erv-on-secondary-container)]"
+            }`}
+          >
+            {sectionKindLabel(item.kind)}
+          </span>
+        </div>
+      </button>
+      {open ? (
+        <div className="border-t border-[var(--erv-outline-variant)] px-4 pb-4 pt-3">
+          <TimelineSessionDetails
+            item={item}
+            exercises={exercises}
+            sessionMediaIndex={sessionMediaIndex}
+          />
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
+function ComposedRecentWorkoutCard({
+  block,
+  open,
+  exercises,
+  workouts,
+  sessionMediaIndex,
+  onToggle,
+}: {
+  block: RecentWorkoutComposed;
+  open: boolean;
+  exercises: ReturnType<typeof useTraining>["exercises"];
+  workouts: Workout[];
+  sessionMediaIndex: SessionMediaIndex;
+  onToggle: () => void;
+}) {
+  const title = composedWorkoutTitle(block, workouts);
+  const elapsed = formatElapsedSeconds(composedBlockElapsedSeconds(block));
+  const totalKcal = composedBlockTotalKcal(block);
+  const overallHr = block.sessionHeartRate;
+  const overallMedia = composedBlockMedia(sessionMediaIndex, block);
+
+  return (
+    <article className="rounded-card border border-[var(--erv-outline-variant)] bg-[var(--erv-input-bg)]/70">
+      <button type="button" className="w-full p-4 text-left" onClick={onToggle}>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-mono text-muted">{block.date}</p>
+            <p className="mt-1 font-semibold text-heading">{title}</p>
+            <p className="mt-1 text-xs text-muted">
+              {block.sections.length} sections
+              {elapsed ? ` · ${elapsed}` : ""}
+              {totalKcal ? ` · ~${Math.round(totalKcal)} kcal` : ""}
+            </p>
+          </div>
+          <span className="rounded-full bg-[var(--erv-surface-variant)] px-2.5 py-1 text-xs text-heading">
+            Composed
+          </span>
+        </div>
+      </button>
+      {open ? (
+        <div className="border-t border-[var(--erv-outline-variant)] px-4 pb-4 pt-3 space-y-4">
+          {overallHr ? (
+            <div className="space-y-3">
+              <SectionHeader>Overall heart rate</SectionHeader>
+              <div className="grid gap-2 sm:grid-cols-3">
+                <MiniMetric
+                  label="Avg HR"
+                  value={overallHr.avgBpm ? `${overallHr.avgBpm} bpm` : "—"}
+                />
+                <MiniMetric
+                  label="Max HR"
+                  value={overallHr.maxBpm ? `${overallHr.maxBpm} bpm` : "—"}
+                />
+                <MiniMetric
+                  label="Min HR"
+                  value={overallHr.minBpm ? `${overallHr.minBpm} bpm` : "—"}
+                />
+              </div>
+            </div>
+          ) : null}
+          <SessionMediaGallery
+            items={overallMedia}
+            emptyMessage={
+              overallHr
+                ? "Heart rate graph appears here after Android backs it up to Blossom."
+                : undefined
+            }
+          />
+          <div className="space-y-3">
+            <SectionHeader>Sections</SectionHeader>
+            {block.sections.map((section) => (
+              <div
+                key={`${section.kind}:${section.session.id}`}
+                className="rounded-xl border border-[var(--erv-outline-variant)] bg-[var(--erv-surface)] p-3 space-y-3"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-medium text-heading">
+                      {composedSectionTitle(section, workouts)}
+                    </p>
+                    <p className="mt-1 text-xs text-muted">
+                      {section.kind === "weight"
+                        ? summarizeWeightSession(section.session)
+                        : summarizeCardioSession(section.session)}
+                    </p>
+                  </div>
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-[11px] ${
+                      section.kind === "weight"
+                        ? "bg-[var(--erv-primary-container)] text-[var(--erv-on-primary-container)]"
+                        : "bg-[var(--erv-secondary-container)] text-[var(--erv-on-secondary-container)]"
+                    }`}
+                  >
+                    {sectionKindLabel(section.kind)}
+                  </span>
+                </div>
+                <TimelineSessionDetails
+                  item={section}
+                  exercises={exercises}
+                  sessionMediaIndex={sessionMediaIndex}
+                  compactMedia
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
+function RecentStrengthDetails({
+  session,
+  exercises,
+  sessionMediaIndex,
+  compactMedia = false,
+}: {
+  session: Extract<HistoryTimelineItem, { kind: "weight" }>["session"];
+  exercises: ReturnType<typeof useTraining>["exercises"];
+  sessionMediaIndex: SessionMediaIndex;
+  compactMedia?: boolean;
+}) {
   const mediaItems = sessionMediaForId(sessionMediaIndex, session.id);
   const elapsed = formatElapsedSeconds(
     session.durationSeconds ??
@@ -292,7 +471,7 @@ function RecentStrengthDetails({
           </div>
         ))}
       </div>
-      {session.heartRate ? (
+      {session.heartRate && !compactMedia ? (
         <div className="grid gap-2 sm:grid-cols-3">
           <MiniMetric
             label="Avg HR"
@@ -308,26 +487,31 @@ function RecentStrengthDetails({
           />
         </div>
       ) : null}
-      <SessionMediaGallery
-        items={mediaItems}
-        emptyMessage={
-          session.heartRate
-            ? "Heart rate graph appears here after Android backs it up to Blossom."
-            : undefined
-        }
-      />
+      {!compactMedia ? (
+        <SessionMediaGallery
+          items={mediaItems}
+          emptyMessage={
+            session.heartRate
+              ? "Heart rate graph appears here after Android backs it up to Blossom."
+              : undefined
+          }
+        />
+      ) : mediaItems.length > 0 ? (
+        <SessionMediaGallery items={mediaItems} />
+      ) : null}
     </div>
   );
 }
 
 function RecentCardioDetails({
-  item,
+  session,
   sessionMediaIndex,
+  compactMedia = false,
 }: {
-  item: Extract<RecentWorkoutItem, { kind: "cardio" }>;
+  session: Extract<HistoryTimelineItem, { kind: "cardio" }>["session"];
   sessionMediaIndex: SessionMediaIndex;
+  compactMedia?: boolean;
 }) {
-  const session = item.session;
   const mediaItems = sessionMediaForId(sessionMediaIndex, session.id);
   const elapsed = formatElapsedSeconds(
     session.startEpochSeconds && session.endEpochSeconds
@@ -353,24 +537,28 @@ function RecentCardioDetails({
           value={session.estimatedKcal ? `~${Math.round(session.estimatedKcal)} kcal` : "Not estimated"}
         />
       </div>
-      {hr ? (
+      {hr && !compactMedia ? (
         <div className="grid gap-2 sm:grid-cols-3">
           <MiniMetric label="Avg HR" value={hr.avgBpm ? `${hr.avgBpm} bpm` : "—"} />
           <MiniMetric label="Max HR" value={hr.maxBpm ? `${hr.maxBpm} bpm` : "—"} />
           <MiniMetric label="Min HR" value={hr.minBpm ? `${hr.minBpm} bpm` : "—"} />
         </div>
-      ) : (
+      ) : !compactMedia ? (
         <p className="text-xs text-muted">Heart rate summary was not recorded for this session.</p>
-      )}
-      <SessionMediaGallery
-        items={mediaItems}
-        emptyMessage={
-          session.routeImageUrl
-            ? undefined
-            : "Route and heart rate images appear here after Android backs them up to Blossom."
-        }
-      />
-      {session.routeImageUrl && mediaItems.length === 0 ? (
+      ) : null}
+      {!compactMedia ? (
+        <SessionMediaGallery
+          items={mediaItems}
+          emptyMessage={
+            session.routeImageUrl
+              ? undefined
+              : "Route and heart rate images appear here after Android backs them up to Blossom."
+          }
+        />
+      ) : mediaItems.length > 0 ? (
+        <SessionMediaGallery items={mediaItems} />
+      ) : null}
+      {!compactMedia && session.routeImageUrl && mediaItems.length === 0 ? (
         <a
           href={session.routeImageUrl}
           target="_blank"
@@ -388,30 +576,28 @@ function TimelineSessionDetails({
   item,
   exercises,
   sessionMediaIndex,
+  compactMedia = false,
 }: {
   item: HistoryTimelineItem;
   exercises: ReturnType<typeof useTraining>["exercises"];
   sessionMediaIndex: SessionMediaIndex;
+  compactMedia?: boolean;
 }) {
   if (item.kind === "weight") {
     return (
       <RecentStrengthDetails
-        item={{
-          ...item,
-          contextKey: `${item.kind}-${item.date}-${item.session.id}`,
-        }}
+        session={item.session}
         exercises={exercises}
         sessionMediaIndex={sessionMediaIndex}
+        compactMedia={compactMedia}
       />
     );
   }
   return (
     <RecentCardioDetails
-      item={{
-        ...item,
-        contextKey: `${item.kind}-${item.date}-${item.session.id}`,
-      }}
+      session={item.session}
       sessionMediaIndex={sessionMediaIndex}
+      compactMedia={compactMedia}
     />
   );
 }
@@ -583,6 +769,21 @@ export function ProgressTab() {
       weightLogs,
       cardioLogs,
     ],
+  );
+
+  const reviewBundleInput = useMemo(
+    () => ({
+      ...contextBundleInput,
+      snapshot: buildTrainingSnapshot({
+        weightLogs: filteredWeightLogs,
+        cardioLogs: filteredCardioLogs,
+        exercises,
+        computedAtMs: lastLoadedAt ?? 0,
+      }),
+      weightLogs: filteredWeightLogs,
+      cardioLogs: filteredCardioLogs,
+    }),
+    [contextBundleInput, filteredWeightLogs, filteredCardioLogs, exercises, lastLoadedAt],
   );
 
   const [selectedExerciseId, setSelectedExerciseId] = useState<string>("");
@@ -843,6 +1044,12 @@ export function ProgressTab() {
         </div>
       </header>
 
+      <CoachReviewCard
+        bundleInput={reviewBundleInput}
+        periodWeeks={periodWeeks}
+        periodLabel={selectedPeriodLabel}
+      />
+
       <TrainingRelayDiagnostics records={relayRecords} visibleDates={visibleDates} />
 
       {showBaseline ? (
@@ -858,6 +1065,7 @@ export function ProgressTab() {
       <RecentWorkoutsPanel
         items={recentWorkouts}
         exercises={exercises}
+        workouts={workouts}
         sessionMediaIndex={sessionMediaIndex}
       />
 

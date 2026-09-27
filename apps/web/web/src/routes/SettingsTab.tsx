@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
+import { AiSettingsPanel } from "../components/AiSettingsPanel";
 import { BlossomMediaStatus } from "../components/BlossomMediaStatus";
 import { FieldLabel } from "../components/FieldLabel";
 import { RemoveAccountForm } from "../components/RemoveAccountForm";
@@ -234,6 +235,8 @@ export function SettingsTab() {
       <SyncHealthDashboard />
 
       <BlossomMediaStatus />
+
+      <AiSettingsPanel />
 
       <section className="card p-5 space-y-3">
         <h3 className="font-semibold text-heading">Units</h3>
