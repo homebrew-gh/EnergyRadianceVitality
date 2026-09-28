@@ -53,6 +53,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -141,6 +142,7 @@ fun WeightLiveWorkoutScreen(
     onClearHiitBlock: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     var tick by remember { mutableIntStateOf(0) }
     var showPickExercise by remember { mutableStateOf(false) }
     var showExerciseCreator by remember { mutableStateOf(false) }
@@ -229,7 +231,7 @@ fun WeightLiveWorkoutScreen(
         val end = restEndAtEpochSeconds ?: return@LaunchedEffect
         if (weightNowEpochSeconds() >= end) {
             if (latestEndSoundEnabled) {
-                playHiitWorkSegmentEndCue()
+                playHiitWorkSegmentEndCue(context)
             }
             restEndAtEpochSeconds = null
         }
@@ -255,7 +257,7 @@ fun WeightLiveWorkoutScreen(
             current in 1..5 &&
             current != previous
         ) {
-            playHiitWorkCountdownTickCue()
+            playHiitWorkCountdownTickCue(context)
         }
         previousRestRemainingSec = current
     }

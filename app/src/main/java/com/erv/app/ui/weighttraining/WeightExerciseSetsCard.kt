@@ -51,6 +51,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalContext
 import com.erv.app.ui.media.playHiitWorkCountdownTickCue
 import com.erv.app.ui.media.playHiitWorkSegmentEndCue
 import com.erv.app.ui.components.FieldLabel
@@ -600,6 +601,7 @@ private fun WeightTimePerSetRow(
     onShowAddedLoadInfo: () -> Unit,
     onStartFullscreenTimer: (() -> Unit)? = null,
 ) {
+    val context = LocalContext.current
     var running by remember { mutableStateOf(false) }
     var countdownRemaining by remember { mutableStateOf<Int?>(null) }
     val currentSet by rememberUpdatedState(set)
@@ -615,11 +617,11 @@ private fun WeightTimePerSetRow(
         val remaining = countdownRemaining
         if (remaining != null) {
             if (timedHoldCountdownBeeps && remaining in 1..5) {
-                playHiitWorkCountdownTickCue()
+                playHiitWorkCountdownTickCue(context)
             }
             if (remaining <= 0) {
                 if (timedHoldCountdownBeeps) {
-                    playHiitWorkSegmentEndCue()
+                    playHiitWorkSegmentEndCue(context)
                 }
                 running = false
                 countdownRemaining = null

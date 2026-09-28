@@ -102,6 +102,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.compose.foundation.isSystemInDarkTheme
 import com.erv.app.ui.components.FieldLabel
 import com.erv.app.ui.components.FormSectionLabel
+import com.erv.app.ui.media.duckOtherAudioForTimerCue
 import com.erv.app.data.StretchGuidedTtsVoice
 import com.erv.app.data.UserPreferences
 import com.erv.app.nostr.EventSigner
@@ -204,7 +205,8 @@ private const val FIRST_STRETCH_PREP_SECONDS = 10
  * Plays a short tone on the music stream (follows media volume). [ToneGenerator.release] is posted
  * after the tone duration; releasing immediately after [ToneGenerator.startTone] often cancels playback.
  */
-private fun playTone(tone: Int, durationMs: Int, volumePercent: Int) {
+private fun playTone(context: Context, tone: Int, durationMs: Int, volumePercent: Int, duckHoldMs: Long) {
+    duckOtherAudioForTimerCue(context, duckHoldMs)
     try {
         val tg = ToneGenerator(AudioManager.STREAM_MUSIC, volumePercent.coerceIn(1, 100))
         tg.startTone(tone, durationMs)
@@ -220,18 +222,18 @@ private fun playTone(tone: Int, durationMs: Int, volumePercent: Int) {
 }
 
 /** Short cue when a hold begins. */
-private fun playStretchStartTone() {
-    playTone(ToneGenerator.TONE_PROP_ACK, 140, 85)
+private fun playStretchStartTone(context: Context) {
+    playTone(context, ToneGenerator.TONE_PROP_ACK, 140, 100, duckHoldMs = 500L)
 }
 
 /** Cue when a hold ends (before transition or session end). */
-private fun playStretchEndTone() {
-    playTone(ToneGenerator.TONE_PROP_PROMPT, 220, 88)
+private fun playStretchEndTone(context: Context) {
+    playTone(context, ToneGenerator.TONE_PROP_PROMPT, 220, 100, duckHoldMs = 700L)
 }
 
 /** Soft tick for the last five seconds of a hold (one per second while 5…1 remain). */
-private fun playStretchCountdownTick() {
-    playTone(ToneGenerator.TONE_PROP_BEEP, 60, 55)
+private fun playStretchCountdownTick(context: Context) {
+    playTone(context, ToneGenerator.TONE_PROP_BEEP, 120, 100, duckHoldMs = 1_300L)
 }
 
 private const val TTS_LOG_TAG = "StretchingTts"
@@ -1062,15 +1064,15 @@ private fun StretchGuidedSessionOverlay(
             phaseHold = true
             index = i
             secondsLeft = holdSeconds
-            playStretchStartTone()
+            playStretchStartTone(context)
             while (secondsLeft > 0) {
                 if (secondsLeft in 1..minOf(5, holdSeconds)) {
-                    playStretchCountdownTick()
+                    playStretchCountdownTick(context)
                 }
                 delay(1000)
                 secondsLeft--
             }
-            playStretchEndTone()
+            playStretchEndTone(context)
             if (i == sessionSteps.lastIndex) break
             phaseHold = false
             secondsLeft = transitionSecondsBetweenSteps(sessionSteps[i], sessionSteps[i + 1])

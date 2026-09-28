@@ -4875,6 +4875,7 @@ fun CardioMultiLegTimerFullScreen(
     onCancel: () -> Unit
 ) {
     key(stateKey) {
+        val context = LocalContext.current
         val heartRateBle = LocalHeartRateBle.current
         val cyclingCscBle = LocalCyclingCsc.current
         val concept2Ble = LocalConcept2Pm.current
@@ -4938,29 +4939,29 @@ fun CardioMultiLegTimerFullScreen(
                 val prepFirst = state.currentLegIndex == 0 && state.completedSegments.isEmpty()
                 if (prepFirst) {
                     guidedInPrep = true
-                    playHiitSoftSegmentStartCue()
+                    playHiitSoftSegmentStartCue(context)
                     var p = CardioIntervalWorkoutPrepSeconds
                     while (p > 0) {
                         guidedRemainingSec = p
                         if (p in 1..min(5, CardioIntervalWorkoutPrepSeconds)) {
-                            playHiitWorkCountdownTickCue()
+                            playHiitWorkCountdownTickCue(context)
                         }
                         delay(1_000L)
                         p--
                     }
                     guidedInPrep = false
                 }
-                playHiitWorkSegmentStartCue()
+                playHiitWorkSegmentStartCue(context)
                 var s = targetSec
                 while (s > 0) {
                     guidedRemainingSec = s
                     if (s in 1..min(5, targetSec)) {
-                        playHiitWorkCountdownTickCue()
+                        playHiitWorkCountdownTickCue(context)
                     }
                     delay(1_000L)
                     s--
                 }
-                playHiitWorkSegmentEndCue()
+                playHiitWorkSegmentEndCue(context)
                 onFinishLeg(targetSec)
             }
         } else {

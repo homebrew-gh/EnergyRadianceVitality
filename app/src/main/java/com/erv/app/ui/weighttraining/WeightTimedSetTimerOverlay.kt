@@ -20,6 +20,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -74,6 +75,7 @@ private fun TimedSetTimerBody(
     onFinished: (Int) -> Unit,
     onCancel: () -> Unit,
 ) {
+    val context = LocalContext.current
     var phase by remember(goalSeconds, prepSeconds) {
         mutableStateOf(if (prepSeconds > 0) TimedSetPhase.PREP else TimedSetPhase.WORK)
     }
@@ -84,30 +86,30 @@ private fun TimedSetTimerBody(
     LaunchedEffect(goalSeconds, prepSeconds) {
         if (prepSeconds > 0) {
             phase = TimedSetPhase.PREP
-            playHiitSoftSegmentStartCue()
+            playHiitSoftSegmentStartCue(context)
             var prep = prepSeconds
             while (prep > 0) {
                 remaining = prep
                 if (countdownBeeps && prep in 1..min(5, prepSeconds)) {
-                    playHiitWorkCountdownTickCue()
+                    playHiitWorkCountdownTickCue(context)
                 }
                 delay(1_000L)
                 prep--
             }
         }
         phase = TimedSetPhase.WORK
-        playHiitWorkSegmentStartCue()
+        playHiitWorkSegmentStartCue(context)
         var work = goalSeconds
         while (work > 0) {
             remaining = work
             if (countdownBeeps && work in 1..min(5, goalSeconds)) {
-                playHiitWorkCountdownTickCue()
+                playHiitWorkCountdownTickCue(context)
             }
             delay(1_000L)
             work--
         }
         if (countdownBeeps) {
-            playHiitWorkSegmentEndCue()
+            playHiitWorkSegmentEndCue(context)
         }
         onFinished(goalSeconds)
     }
