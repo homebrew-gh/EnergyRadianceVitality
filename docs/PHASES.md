@@ -13,6 +13,7 @@ Do not mirror checklists between files — link to the owner instead.
 | Phase 1–3 (Start9 companion, composer, planner) | `architecture/START9_COMPANION_V1.md` |
 | Pre-AI web prep W1–W6 | `architecture/ATHLETE_CONTEXT_WEB_PREP.md` §5 |
 | Programs + Unified merge (Android nav, migration) | `architecture/PROGRAMS_AND_WORKOUTS_MERGE_AND_AI.md` §9 |
+| My Day health schedule + Today view | `architecture/MY_DAY_HEALTH_SCHEDULE.md` §10 |
 | Phase 4 AI coach M0–M6 | `architecture/AI_COACH_MAPLE_INTEGRATION.md` §9 |
 | Privacy hardening P0–P3 | `architecture/CYPHERPUNK_PRIVACY_CHECKLIST.md` |
 
@@ -63,6 +64,16 @@ Status per `START9_COMPANION_V1.md` (owner):
 
 **Acceptance test:** Assign two different workouts to two days on web → sync →
 Android week view matches → tap day → run live session.
+
+## Planned — My Day (health schedule + Today)
+
+Spec: **[My Day — unified health schedule](architecture/MY_DAY_HEALTH_SCHEDULE.md)** (draft for review).
+Schedules supplements, light, sauna/cold, stretching, fasting, body check-ins, and habits by
+weekday and part of day (with single-day changes); Today view checks items off from existing
+logs; any activity can be logged after the fact, planned or not, and counts toward goals;
+routine reminders migrate into it. Training stays in Training and appears as one "Today's
+training" row. Category sections later become libraries + history. Android first (M1–M7), web
+later (M8). New d-tag `erv/myday/schedule`.
 
 ## Pre-AI web prep (parallel track)
 
@@ -116,6 +127,7 @@ drafts; model chosen from `/v1/models`; off by default; never auto-publish.
 | `erv/workouts/library` | Workout storyboard library (Phase 2); index + per-workout shards |
 | `erv/workouts/library/workout/<id>` | One cohesive workout; segment shards under `.../segment/<id>` if needed |
 | `erv/programs/master` | Weekly plan (Phase 3) |
+| `erv/myday/schedule` | My Day health schedule (planned) |
 | `erv/training-profile` | Athlete profile + style presets (pre-AI web) |
 | `erv/equipment` | Home gym + exercise packs |
 | `erv/media/library` | Encrypted manifest for Blossom-backed media blobs |
