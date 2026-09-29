@@ -55,6 +55,8 @@ pub struct AppDataListResponse {
 pub struct AppDataRecord {
     pub event_id: String,
     pub d_tag: Option<String>,
+    /// Event `created_at` (unix seconds).
+    pub created_at: u64,
     pub ciphertext: String,
     pub plaintext: Option<String>,
     pub decrypt_error: Option<String>,
@@ -417,6 +419,7 @@ fn event_to_app_data_record(keys: &Keys, event: Event) -> AppDataRecord {
     AppDataRecord {
         event_id: event.id.to_string(),
         d_tag: event.tags.identifier().map(str::to_owned),
+        created_at: event.created_at.as_secs(),
         ciphertext: event.content,
         plaintext,
         decrypt_error,
@@ -464,6 +467,7 @@ fn best_app_data_record_for_events(keys: &Keys, mut events: Vec<Event>) -> AppDa
                 let record = AppDataRecord {
                     event_id: event.id.to_string(),
                     d_tag: event.tags.identifier().map(str::to_owned),
+                    created_at: event.created_at.as_secs(),
                     ciphertext: event.content.clone(),
                     plaintext: Some(plain.clone()),
                     decrypt_error: None,
@@ -532,9 +536,21 @@ async fn send_signed_event(
     }
 
     let client = prepare_relay_client(keys, &relay_url).await?;
-    client.send_event(event).await?;
+    let sent = client.send_event(event).await;
     tokio::time::sleep(Duration::from_millis(300)).await;
     client.shutdown().await;
+    // nostr-sdk returns Ok even when the relay answers OK=false (rate limit, policy); the
+    // rejection is only visible in `failed`.
+    let output = sent?;
+    if output.success.is_empty() {
+        let reasons: Vec<String> = output.failed.into_values().collect();
+        let reason = if reasons.is_empty() {
+            "no relay acknowledged the event".to_string()
+        } else {
+            reasons.join("; ")
+        };
+        return Err(anyhow!("relay rejected event: {reason}"));
+    }
     Ok(())
 }
 

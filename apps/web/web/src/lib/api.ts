@@ -34,6 +34,8 @@ export type AppDataListResponse = {
 export type AppDataRecord = {
   event_id: string;
   d_tag?: string | null;
+  /** Event `created_at` (unix seconds). */
+  created_at?: number;
   ciphertext: string;
   plaintext?: string | null;
   decrypt_error?: string | null;
