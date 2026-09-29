@@ -1,10 +1,10 @@
 import { IMPOSSIBLE, VersionInfo } from '@start9labs/start-sdk'
 
 export const v_0_1_2_0 = VersionInfo.of({
-  version: '0.1.2:27',
+  version: '0.1.2:30',
   releaseNotes: {
     en_US:
-      'Optional AI coach: detect Maple Proxy, test the connection, and stream a sectioned training review on Progress. Workout import preview compares an envelope with a saved workout before publish.',
+      'Workout Builder recovers workouts a stale relay index missed, and saves now publish only changed workouts plus the index (2 events instead of the whole library) to stay under Haven outbox rate limits.',
   },
   migrations: {
     up: async () => {},

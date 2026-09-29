@@ -131,7 +131,8 @@ assemble_rootfs() {
 
 if [[ -f "$PACK/Dockerfile" && -f "$PACK/erv-web" && -d "$PACK/dist" ]]; then
   echo ">> docker build from prebuilt .pack (no sudo/mmdebstrap)"
-  run_docker build -t "$IMAGE_TAG" "$PACK"
+  # Host networking avoids veth/bridge setup, which fails on some kernels.
+  run_docker build --network=host -t "$IMAGE_TAG" "$PACK"
   echo ">> built $IMAGE_TAG"
 else
   echo ">> assemble rootfs"
