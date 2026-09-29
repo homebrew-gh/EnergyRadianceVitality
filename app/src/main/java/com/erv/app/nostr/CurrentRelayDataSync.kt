@@ -33,7 +33,143 @@ data class CurrentRelayDataCoverage(
     val skippedEmptyLocalTags: Int = 0,
 )
 
+/** What a resync found and queued. */
+data class ResyncPlan(
+    /** Local payloads with relay-worthy content that were compared. */
+    val checkedCount: Int,
+    /** Already on the relay with identical content; nothing sent. */
+    val alreadyOnRelayCount: Int,
+    /** Missing from or different on the relay; queued for upload. */
+    val queuedCount: Int,
+    /** Absent from the relay answer but the relay did not finish answering; not queued. */
+    val unverifiedCount: Int,
+    val connectedRelayCount: Int,
+    val configuredRelayCount: Int,
+    val skippedEmptyLocalTags: Int = 0,
+)
+
+internal data class ResyncDiff(
+    val matched: List<Pair<String, String>>,
+    val toUpload: List<Pair<String, String>>,
+    val unverifiedTags: List<String>,
+)
+
+/**
+ * Compares local payloads with what the relay returned. [relayPlainByTag] holds decrypted relay
+ * plaintext for every tag the relay returned (null when it would not decrypt). A tag the relay did
+ * not return is only uploaded when [relayAbsenceVerified]: a timed-out fetch must not turn into a
+ * full re-upload against a rate-limited relay.
+ */
+internal fun diffLocalAgainstRelay(
+    local: List<Pair<String, String>>,
+    relayPlainByTag: Map<String, String?>,
+    relayAbsenceVerified: Boolean,
+): ResyncDiff {
+    val matched = mutableListOf<Pair<String, String>>()
+    val toUpload = mutableListOf<Pair<String, String>>()
+    val unverified = mutableListOf<String>()
+    for (entry in local) {
+        val (dTag, plain) = entry
+        when {
+            relayPlainByTag.containsKey(dTag) ->
+                if (relayPlainByTag[dTag] == plain) matched += entry else toUpload += entry
+            relayAbsenceVerified -> toUpload += entry
+            else -> unverified += dTag
+        }
+    }
+    return ResyncDiff(matched, toUpload, unverified)
+}
+
 object CurrentRelayDataSync {
+
+    /**
+     * Resync that only uploads what the data relays lack. Fetches the relay copy of every local
+     * payload, records a digest for identical ones (and drops their stale queued rows), and queues
+     * the rest. Does not drain; the outbox scheduler sends at whatever rate the relay allows.
+     */
+    suspend fun reconcileAndQueue(
+        appContext: Context,
+        signer: EventSigner,
+        dataRelayUrls: List<String>,
+        localEntries: List<Pair<String, String>>,
+        trustSelfSignedLanTls: Boolean = false,
+        timeoutMs: Long = 12_000,
+    ): ResyncPlan {
+        val syncable = localEntries.filter { (dTag, plain) ->
+            localKind30078PayloadHasRelayContent(dTag, plain)
+        }
+        val skipped = localEntries.size - syncable.size
+        fun plan(
+            alreadyOnRelay: Int = 0,
+            queued: Int = 0,
+            unverified: Int = 0,
+            connected: Int = 0,
+        ) = ResyncPlan(
+            checkedCount = syncable.size,
+            alreadyOnRelayCount = alreadyOnRelay,
+            queuedCount = queued,
+            unverifiedCount = unverified,
+            connectedRelayCount = connected,
+            configuredRelayCount = dataRelayUrls.size,
+            skippedEmptyLocalTags = skipped,
+        )
+        if (dataRelayUrls.isEmpty() || syncable.isEmpty()) return plan(unverified = syncable.size)
+
+        val tempPool = RelayPool(signer, RelayOkHttpClient.create(trustSelfSignedLanTls), trustSelfSignedLanTls)
+        try {
+            tempPool.setRelays(dataRelayUrls)
+            tempPool.awaitAtLeastOneConnected(timeoutMs = timeoutMs)
+            val connectedCount = tempPool.connectedRelayUrls().count { it in dataRelayUrls }
+            if (connectedCount == 0) return plan(unverified = syncable.size)
+
+            val snapshot = fetchLatestKind30078Snapshot(
+                relayPool = tempPool,
+                pubkeyHex = signer.publicKey,
+                timeoutMs = timeoutMs,
+                signer = signer,
+            )
+            val notInSnapshot = syncable.map { it.first }.filter { it !in snapshot.latestByTag }
+            val targeted = fetchLatestKind30078ForDTags(
+                relayPool = tempPool,
+                pubkeyHex = signer.publicKey,
+                dTags = notInSnapshot,
+                signer = signer,
+                timeoutMs = timeoutMs,
+            )
+            val relayLatest = snapshot.latestByTag + targeted.latestByTag
+            val relayPlainByTag = buildMap {
+                for ((dTag, _) in syncable) {
+                    val event = relayLatest[dTag] ?: continue
+                    put(dTag, event.decryptKind30078PayloadOrNull(signer))
+                }
+            }
+            val diff = diffLocalAgainstRelay(syncable, relayPlainByTag, relayAbsenceVerified = targeted.complete)
+
+            val digests = RelayPayloadDigestStore.get(appContext)
+            for ((dTag, plain) in diff.matched) {
+                digests.putDigest(dTag, sha256HexUtf8(plain))
+            }
+            val outbox = RelayPublishOutbox.get(appContext)
+            outbox.removeDTags(diff.matched.map { it.first })
+            if (diff.toUpload.isNotEmpty()) {
+                val uploadTags = diff.toUpload.map { it.first }
+                digests.clearDigests(uploadTags)
+                val staleBaseDayTags = uploadTags
+                    .filter { isTrainingDayLogDTag(it) }
+                    .map { baseTrainingDayDTag(it) }
+                    .filter { it !in uploadTags }
+                outbox.replaceMany(staleBaseDayTags, diff.toUpload)
+            }
+            return plan(
+                alreadyOnRelay = diff.matched.size,
+                queued = diff.toUpload.size,
+                unverified = diff.unverifiedTags.size,
+                connected = connectedCount,
+            )
+        } finally {
+            tempPool.destroy()
+        }
+    }
 
     suspend fun buildCurrentEntries(
         userPreferences: UserPreferences,

@@ -33,6 +33,8 @@ class RelayPool(
     data class PublishReport(
         val ok: Boolean,
         val message: String,
+        /** Set when [ok] is false. */
+        val failureKind: RelayRejectionKind? = null,
     )
 
     private val clients = mutableMapOf<String, NostrClient>()
@@ -143,14 +145,19 @@ class RelayPool(
 
     suspend fun publishToRelayUrlsDetailed(event: NostrEvent, urls: Collection<String>): PublishReport {
         if (urls.isEmpty()) {
-            return PublishReport(ok = false, message = "No data relays configured")
+            return PublishReport(
+                ok = false,
+                message = "No data relays configured",
+                failureKind = RelayRejectionKind.OFFLINE,
+            )
         }
         val targetUrls = urls.distinct()
         val targets = targetUrls.mapNotNull { url -> clients[url]?.let { url to it } }
         if (targets.isEmpty()) {
             return PublishReport(
                 ok = false,
-                message = summarizeMissingTargets(targetUrls)
+                message = summarizeMissingTargets(targetUrls),
+                failureKind = RelayRejectionKind.OFFLINE,
             )
         }
         val results = coroutineScope {
@@ -163,7 +170,8 @@ class RelayPool(
         }
         return PublishReport(
             ok = false,
-            message = summarizePublishFailure(targetUrls, results)
+            message = summarizePublishFailure(targetUrls, results),
+            failureKind = aggregateRejectionKind(results.map { it.second }),
         )
     }
 
@@ -231,6 +239,8 @@ class RelayPool(
                 "Timed out waiting for a data relay acknowledgement"
             results.any { (_, result) -> result is ClientPublishResult.NoSocket } && connectedCount == 0 ->
                 "No connected data relays"
+            firstRejected?.startsWith("rate-limited") == true ->
+                "Data relay is rate limiting uploads: $firstRejected"
             firstRejected?.startsWith("Relay requires authentication") == true ->
                 firstRejected
             firstRejected?.startsWith("auth-required") == true ->

@@ -273,6 +273,49 @@ private suspend fun fetchWorkoutLibraryShardTags(
     return mergeLatestByDTag(headByTag, pickLatestDecryptableByDTag(segmentEvents, signer))
 }
 
+/** Latest decryptable event for each requested tag; [complete] when every batch got `EOSE`. */
+data class Kind30078TagFetch(
+    val latestByTag: Map<String, NostrEvent>,
+    val complete: Boolean,
+)
+
+/**
+ * Targeted `#d` lookup with no `since` bound, so an old day log outside the broad window is found.
+ * Used to tell "relay does not have this tag" apart from "the broad fetch did not return it".
+ */
+suspend fun fetchLatestKind30078ForDTags(
+    relayPool: RelayPool,
+    pubkeyHex: String,
+    dTags: List<String>,
+    signer: EventSigner,
+    timeoutMs: Long = 8000,
+): Kind30078TagFetch {
+    if (dTags.isEmpty()) return Kind30078TagFetch(emptyMap(), complete = true)
+    val batches = dTags.distinct().chunked(KIND_30078_FILTER_BATCH_SIZE)
+    val perBatchTimeout = (timeoutMs / batches.size).coerceIn(1_500L, timeoutMs)
+    val events = mutableListOf<NostrEvent>()
+    var complete = true
+    for ((batchIndex, batch) in batches.withIndex()) {
+        val collected = collectKind30078Events(
+            relayPool = relayPool,
+            pubkeyHex = pubkeyHex,
+            subscriptionId = "erv-kind30078-verify-$batchIndex-${System.currentTimeMillis()}",
+            timeoutMs = perBatchTimeout,
+            filters = batch.map { dTag ->
+                NostrFilter(
+                    kinds = listOf(30078),
+                    authors = listOf(pubkeyHex),
+                    dTags = listOf(dTag),
+                    limit = KIND_30078_TAG_FETCH_LIMIT,
+                )
+            }.toTypedArray(),
+        )
+        events += collected.events
+        if (!collected.complete) complete = false
+    }
+    return Kind30078TagFetch(pickLatestDecryptableByDTag(events, signer), complete)
+}
+
 private suspend fun collectKind30078EventsForDTags(
     relayPool: RelayPool,
     pubkeyHex: String,

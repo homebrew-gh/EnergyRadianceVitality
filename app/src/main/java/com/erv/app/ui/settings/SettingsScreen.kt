@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.Alignment
@@ -109,8 +110,11 @@ import com.erv.app.nostr.RelayPool
 import com.erv.app.nostr.RelayOutboxStatus
 import com.erv.app.nostr.RelayOutboxItemFailure
 import com.erv.app.nostr.RelayOutboxStatusStore
+import com.erv.app.nostr.OutboxPause
 import com.erv.app.nostr.RelayPublishOutbox
 import com.erv.app.nostr.RelayPublishOutbox.PendingItemStatus
+import com.erv.app.nostr.RelayRejectionKind
+import com.erv.app.nostr.ResyncPlan
 import com.erv.app.nostr.RelayUrls
 import com.erv.app.nostr.SettingsSync
 import com.erv.app.cardio.CardioRepository
@@ -183,6 +187,8 @@ fun SettingsScreen(
     signer: EventSigner?,
     onBack: () -> Unit,
     onRelaysChanged: () -> Unit = {},
+    /** Full relay pull + merge into local state; resync runs it first so it never uploads stale data. */
+    onPullRelayData: suspend () -> Unit = {},
     showDeferNostrLoginEntry: Boolean = false,
     onRequestNostrLogin: () -> Unit = {},
     onLogout: () -> Unit,
@@ -192,6 +198,19 @@ fun SettingsScreen(
     val pendingRelayUploadCount by remember(context.applicationContext) {
         RelayPublishOutbox.get(context.applicationContext).pendingCountFlow()
     }.collectAsState(initial = 0)
+    val relayOutboxPause by remember(context.applicationContext) {
+        RelayPublishOutbox.get(context.applicationContext).pauseFlow()
+    }.collectAsState(initial = null)
+    var nowEpochMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(relayOutboxPause) {
+        while (true) {
+            nowEpochMs = System.currentTimeMillis()
+            val until = relayOutboxPause?.untilEpochMs ?: break
+            if (until <= nowEpochMs) break
+            kotlinx.coroutines.delay((until - nowEpochMs).coerceIn(1_000L, 15_000L))
+        }
+    }
+    var lastResyncQueuedCount by rememberSaveable { mutableIntStateOf(0) }
     val relayOutboxStatus by remember(context.applicationContext) {
         RelayOutboxStatusStore.get(context.applicationContext).statusFlow()
     }.collectAsState(initial = RelayOutboxStatus())
@@ -824,11 +843,22 @@ fun SettingsScreen(
                                     items = pendingRelayItems,
                                     dataRelayUrls = dataRelayUrls,
                                     relayStates = relayStates,
+                                    pause = relayOutboxPause?.takeIf { it.untilEpochMs > nowEpochMs },
                                 ),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.padding(bottom = 6.dp)
                             )
+                            if (lastResyncQueuedCount > 0) {
+                                val uploaded = lastResyncQueuedCount -
+                                    pendingRelayUploadCount.coerceAtMost(lastResyncQueuedCount)
+                                Text(
+                                    "Resync progress: $uploaded of $lastResyncQueuedCount uploaded.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(bottom = 6.dp)
+                                )
+                            }
                             relayUploadDiagnosticsText(
                                 count = pendingRelayUploadCount,
                                 status = relayOutboxStatus,
@@ -852,7 +882,9 @@ fun SettingsScreen(
                             onClick = {
                                 scope.launch {
                                     relayResyncing = true
+                                    relayCoverageLoading = true
                                     try {
+                                        onPullRelayData()
                                         val localEntries = withContext(Dispatchers.IO) {
                                             CurrentRelayDataSync.buildCurrentEntries(
                                                 userPreferences = userPreferences,
@@ -867,47 +899,25 @@ fun SettingsScreen(
                 workoutRepository = workoutRepository,
             )
                                         }
-                                        val drain = withContext(Dispatchers.IO) {
-                                            CurrentRelayDataSync.forceResync(
+                                        val plan = withContext(Dispatchers.IO) {
+                                            CurrentRelayDataSync.reconcileAndQueue(
                                                 appContext = context.applicationContext,
-                                                relayPool = relayPool,
-                                                signer = signer,
-                                                dataRelayUrls = dataRelayUrls,
-                                                localEntries = localEntries,
-                                            )
-                                        }
-                                        snackbarMessage = buildString {
-                                            append("Queued ${localEntries.size} current relay payload(s).")
-                                            if (drain.publishedOk > 0 || drain.publishedFail > 0) {
-                                                append(" Sent ${drain.publishedOk} now")
-                                                if (drain.publishedFail > 0) {
-                                                    append(", ${drain.publishedFail} failed and will retry")
-                                                }
-                                                append('.')
-                                            }
-                                            if (drain.remaining > 0) {
-                                                append(" ${drain.remaining} payload(s) remain queued.")
-                                            }
-                                        }
-                                        relayCoverageLoading = true
-                                        relayCoverage = withContext(Dispatchers.IO) {
-                                            kotlinx.coroutines.delay(2500)
-                                            var coverage = CurrentRelayDataSync.probeCoverage(
                                                 signer = signer,
                                                 dataRelayUrls = dataRelayUrls,
                                                 localEntries = localEntries,
                                                 trustSelfSignedLanTls = trustSelfSignedLanTls,
                                             )
-                                            if (coverage.missingTags.isNotEmpty()) {
-                                                kotlinx.coroutines.delay(2500)
-                                                coverage = CurrentRelayDataSync.probeCoverage(
-                                                    signer = signer,
-                                                    dataRelayUrls = dataRelayUrls,
-                                                    localEntries = localEntries,
-                                                    trustSelfSignedLanTls = trustSelfSignedLanTls,
-                                                )
-                                            }
-                                            coverage
+                                        }
+                                        lastResyncQueuedCount = plan.queuedCount
+                                        snackbarMessage = resyncPlanMessage(plan)
+                                        if (plan.connectedRelayCount > 0) {
+                                            relayCoverage = CurrentRelayDataCoverage(
+                                                foundPayloadCount = plan.alreadyOnRelayCount,
+                                                totalPayloadCount = plan.checkedCount,
+                                                connectedRelayCount = plan.connectedRelayCount,
+                                                configuredRelayCount = plan.configuredRelayCount,
+                                                skippedEmptyLocalTags = plan.skippedEmptyLocalTags,
+                                            )
                                         }
                                     } catch (e: Exception) {
                                         snackbarMessage = "Resync failed: ${e.message}"
@@ -989,15 +999,48 @@ private fun relaySettingsSubtitle(count: Int): String {
     }
 }
 
+private fun resyncPlanMessage(plan: ResyncPlan): String {
+    if (plan.configuredRelayCount == 0) return "Add a data relay to resync."
+    if (plan.connectedRelayCount == 0) {
+        return "Could not reach a data relay, so nothing was checked or queued. Try again when it is connected."
+    }
+    if (plan.checkedCount == 0) return "Nothing to resync: no local data with content yet."
+    return buildString {
+        append("Checked ${plan.checkedCount}: ${plan.alreadyOnRelayCount} already on the relay")
+        append(if (plan.queuedCount == 0) ", nothing to upload." else ", ${plan.queuedCount} queued to upload.")
+        if (plan.unverifiedCount > 0) {
+            append(" ${plan.unverifiedCount} could not be checked because the relay did not finish answering; run Resync again.")
+        }
+    }
+}
+
+private fun formatPauseTime(epochMs: Long): String =
+    java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT).format(java.util.Date(epochMs))
+
 private fun relayUploadCurrentStateText(
     count: Int,
     status: RelayOutboxStatus,
     items: List<PendingItemStatus>,
     dataRelayUrls: List<String>,
     relayStates: Map<String, ConnectionState>,
+    pause: OutboxPause? = null,
 ): String {
     if (count <= 0) {
         return "Sent: no encrypted activity updates are waiting in the relay outbox."
+    }
+    if (pause != null) {
+        val at = formatPauseTime(pause.untilEpochMs)
+        when (pause.kind) {
+            RelayRejectionKind.RATE_LIMITED ->
+                return "Paused: the data relay is rate limiting uploads. $count waiting; ERV tries again at $at."
+            RelayRejectionKind.AUTH ->
+                return "Paused: the data relay refused ERV's authentication (${pause.message}). ERV tries again at $at; check the relay URL."
+            RelayRejectionKind.RESTRICTED ->
+                return "Paused: the data relay refused uploads from this account (${pause.message}). ERV tries again at $at."
+            RelayRejectionKind.OFFLINE ->
+                return "Queued: no data relay is connected. $count waiting; ERV retries when one reconnects."
+            else -> Unit
+        }
     }
     val connectedCount = dataRelayUrls.count { url ->
         relayStates[url].let { it is ConnectionState.Connected || it is ConnectionState.Authenticated }

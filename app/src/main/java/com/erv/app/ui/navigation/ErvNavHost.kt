@@ -314,6 +314,7 @@ fun ErvNavHost(
                 signer = signer,
                 onBack = { navController.popBackStack() },
                 onRelaysChanged = onRelaysChanged,
+                onPullRelayData = onPullRelayData,
                 showDeferNostrLoginEntry = showDeferNostrLoginEntry,
                 onRequestNostrLogin = onRequestNostrLogin,
                 onLogout = onLogout,

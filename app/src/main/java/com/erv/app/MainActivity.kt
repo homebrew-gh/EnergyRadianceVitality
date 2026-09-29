@@ -95,8 +95,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -837,6 +840,32 @@ private fun MainAppShell(
                     TrainingDayLogRelaySync.drainPending(context.applicationContext)
                 }
             }
+    }
+    // Sends queued uploads at the pace the data relay allows (rate-limit pauses, backoff).
+    LaunchedEffect(relayPool, signer, relayUrlsVersion) {
+        val pool = relayPool ?: return@LaunchedEffect
+        val sig = signer ?: return@LaunchedEffect
+        val dataRelayConnected = pool.relayStates
+            .map { states ->
+                keyManager.relayUrlsForKind30078Publish().any { url ->
+                    states[url].let { it is ConnectionState.Connected || it is ConnectionState.Authenticated }
+                }
+            }
+            .distinctUntilChanged()
+            .drop(1)
+            .filter { it }
+            .map { }
+        val outbox = RelayPublishOutbox.get(context.applicationContext)
+        val queueSizeChanged = outbox.pendingCountFlow().distinctUntilChanged().drop(1).map { }
+        withContext(Dispatchers.IO) {
+            runRelayOutboxDrainLoop(
+                outbox = outbox,
+                relayPool = pool,
+                signer = sig,
+                dataRelayUrls = { keyManager.relayUrlsForKind30078Publish() },
+                wakeSignals = merge(resumeSignals, dataRelayConnected, queueSizeChanged),
+            )
+        }
     }
 
     Box(Modifier.fillMaxSize()) {
