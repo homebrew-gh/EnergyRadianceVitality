@@ -88,6 +88,28 @@ class WorkoutSyncTest {
     }
 
     @Test
+    fun fromLatestByTag_skipsSegmentShardedWorkout_untilEverySegmentArrives() {
+        val largeNote = "x".repeat(22_000)
+        val workout = Workout(
+            id = "w1",
+            name = "Heavy session",
+            segments = listOf(
+                WorkoutSegment(kind = WorkoutSegmentKind.COMPOSITE, items = listOf(WorkoutItem.Note(text = largeNote))),
+                WorkoutSegment(kind = WorkoutSegmentKind.COMPOSITE, items = listOf(WorkoutItem.Note(text = largeNote))),
+            ),
+        )
+        val entries = WorkoutSync.fullOutboxEntries(WorkoutLibraryState(workouts = listOf(workout))).toMap()
+        val segmentTags = entries.keys.filter { it.contains("/segment/") }
+        assertEquals(2, segmentTags.size)
+
+        val partial = WorkoutSync.fromLatestByTagFromPlaintextForTest(entries - segmentTags.last())
+        assertTrue(partial.workouts.isEmpty())
+
+        val complete = WorkoutSync.fromLatestByTagFromPlaintextForTest(entries)
+        assertEquals(2, complete.workoutById("w1")?.segments?.size)
+    }
+
+    @Test
     fun mergeWorkouts_prefers_newer_lastModified() {
         val local = WorkoutLibraryState(
             workouts = listOf(

@@ -227,13 +227,17 @@ class RelayPublishOutbox private constructor(private val appContext: Context) {
     /**
      * Sends due items until the queue is empty, items are waiting on backoff, or [maxPublishesThisCall] is hit.
      * Call after enqueue and when the app has a live [RelayPool].
+     *
+     * When every queued item is still inside its backoff window this returns immediately with
+     * [KickDrainResult.retryAfterMs] set. Sleeping here would hold [drainMutex] and block a new
+     * day-log publish (supplement, light, workout) behind an unrelated failed upload.
      */
     suspend fun kickDrain(
         relayPool: RelayPool,
         signer: EventSigner,
         dataRelayUrls: List<String>,
         maxPublishesThisCall: Int = 20_000,
-        interPublishDelayMs: Long = 150L,
+        interPublishDelayMs: Long = 50L,
     ): KickDrainResult = drainMutex.withLock {
         var publishedOk = 0
         var publishedFail = 0
@@ -263,7 +267,16 @@ class RelayPublishOutbox private constructor(private val appContext: Context) {
                 )
             }
             when (step) {
-                is DrainStep.Wait -> delay(step.ms)
+                is DrainStep.Wait -> {
+                    val remaining = queueMutex.withLock { loadQueueUnlocked().size }
+                    return@withLock KickDrainResult(
+                        remaining = remaining,
+                        publishedOk = publishedOk,
+                        publishedFail = publishedFail,
+                        stoppedBecauseQueueEmpty = false,
+                        retryAfterMs = step.ms,
+                    )
+                }
                 is DrainStep.Publish -> {
                     if (publishesThisCall > 0) delay(interPublishDelayMs)
                     val item = step.item
@@ -344,6 +357,8 @@ class RelayPublishOutbox private constructor(private val appContext: Context) {
         val publishedOk: Int,
         val publishedFail: Int,
         val stoppedBecauseQueueEmpty: Boolean,
+        /** Set when the drain stopped because the next item is not due yet. */
+        val retryAfterMs: Long? = null,
     )
 
     data class PendingItemStatus(

@@ -1,8 +1,23 @@
 package com.erv.app.nostr
 
 import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.*
 import okhttp3.OkHttpClient
+
+/** Ordered frames from one relay. Events that arrived before EOSE are delivered first. */
+sealed interface PoolInbound {
+    data class Event(
+        val relayUrl: String,
+        val subscriptionId: String,
+        val event: NostrEvent,
+    ) : PoolInbound
+
+    data class EndOfStoredEvents(
+        val relayUrl: String,
+        val subscriptionId: String,
+    ) : PoolInbound
+}
 
 /**
  * Manages connections to multiple Nostr relays simultaneously.
@@ -25,15 +40,31 @@ class RelayPool(
     private val _relayStates = MutableStateFlow<Map<String, ConnectionState>>(emptyMap())
     val relayStates: StateFlow<Map<String, ConnectionState>> = _relayStates.asStateFlow()
 
-    private val _events = MutableSharedFlow<Pair<String, NostrEvent>>(extraBufferCapacity = 64)
+    private val _events = MutableSharedFlow<Pair<String, NostrEvent>>(
+        extraBufferCapacity = 4096,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
     val events: SharedFlow<Pair<String, NostrEvent>> = _events.asSharedFlow()
 
     private val _notices = MutableSharedFlow<Pair<String, String>>(extraBufferCapacity = 16)
     val notices: SharedFlow<Pair<String, String>> = _notices.asSharedFlow()
 
     /** `(relayUrl, subscriptionId)` each time a relay reports end of stored events for a REQ. */
-    private val _endOfStoredEvents = MutableSharedFlow<Pair<String, String>>(extraBufferCapacity = 32)
+    private val _endOfStoredEvents = MutableSharedFlow<Pair<String, String>>(
+        extraBufferCapacity = 64,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
     val endOfStoredEvents: SharedFlow<Pair<String, String>> = _endOfStoredEvents.asSharedFlow()
+
+    /**
+     * Ordered inbound used by kind-30078 sync. [tryEmit] so a pull that nobody is collecting
+     * cannot stall publish acknowledgements.
+     */
+    private val _inbound = MutableSharedFlow<PoolInbound>(
+        extraBufferCapacity = 4096,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+    val inbound: SharedFlow<PoolInbound> = _inbound.asSharedFlow()
 
     private val collectorJobs = mutableMapOf<String, Job>()
 
@@ -60,13 +91,24 @@ class RelayPool(
                 }
             }
             launch {
-                client.events.collect { _events.emit(it) }
+                client.events.collect { _events.tryEmit(it) }
             }
             launch {
                 client.notices.collect { _notices.emit(url to it) }
             }
             launch {
-                client.endOfStoredEvents.collect { _endOfStoredEvents.emit(url to it) }
+                client.endOfStoredEvents.collect { _endOfStoredEvents.tryEmit(url to it) }
+            }
+            launch {
+                client.inboundMessages.collect { inbound ->
+                    val frame = when (inbound) {
+                        is ClientInbound.StoredEvent ->
+                            PoolInbound.Event(url, inbound.subscriptionId, inbound.event)
+                        is ClientInbound.EndOfStoredEvents ->
+                            PoolInbound.EndOfStoredEvents(url, inbound.subscriptionId)
+                    }
+                    _inbound.tryEmit(frame)
+                }
             }
         }
     }

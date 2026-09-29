@@ -290,6 +290,9 @@ object WorkoutSync {
 
         val segmentsForWorkout = segmentByWorkoutAndId[workout.id].orEmpty().toMap()
         val orderedIds = shard.segmentIds.ifEmpty { segmentsForWorkout.keys.sorted() }
+        // A recent-window or live update can carry the head before (or without) every segment.
+        // Merging that would replace the local workout with a newer but truncated copy.
+        if (orderedIds.any { it !in segmentsForWorkout }) return null
         val segments = orderedIds.mapNotNull { segmentsForWorkout[it] }
         return workout.copy(segments = segments)
     }
