@@ -85,6 +85,10 @@ A [GitHub Actions](.github/workflows/android-build.yml) workflow runs on pushes 
 
 Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 
+## Part of the homebrew suite
+
+This app is one of a set of self-hosted, Nostr-based apps that share one identity and one personal relay. The suite-level plan — end goal, architecture, how each app fits — lives in [homebrew-suite](https://github.com/homebrew-gh/homebrew-suite) (`PLAN.md`).
+
 ## License
 
 [MIT](LICENSE) — see [LICENSE](LICENSE) for details.
