@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(./keystore.properties)",
+      "Edit(./keystore.properties)",
+      "Read(./local.properties)",
+      "Read(**/*.jks)",
+      "Read(**/*.keystore)",
+      "Read(**/*.p12)",
+      "Read(./.android/**)",
+      "Read(./apps/web/server/data/cookie.key)",
+      "Edit(./apps/web/server/data/cookie.key)",
+      "Bash(cat keystore.properties)",
+      "Bash(cat apps/web/server/data/cookie.key)"
+    ]
+  }
+}
