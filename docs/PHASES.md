@@ -124,7 +124,7 @@ drafts; model chosen from `/v1/models`; off by default; never auto-publish.
 | `erv/catalog/weight` | Exercise catalog |
 | `erv/catalog/stretch` | Stretch catalog |
 | `erv/catalog/cardio` | Cardio activity catalog |
-| `erv/workouts/library` | Workout storyboard library (Phase 2); index + per-workout shards |
+| `erv/workouts/library` | Workout storyboard library (Phase 2); index + per-workout shards. The index is authoritative and carries `deletedWorkouts` (id → deleted-at epoch seconds) so deletes reach every device |
 | `erv/workouts/library/workout/<id>` | One cohesive workout; segment shards under `.../segment/<id>` if needed |
 | `erv/programs/master` | Weekly plan (Phase 3) |
 | `erv/myday/schedule` | My Day health schedule (planned) |

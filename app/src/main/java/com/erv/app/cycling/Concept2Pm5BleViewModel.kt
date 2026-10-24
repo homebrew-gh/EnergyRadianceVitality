@@ -82,6 +82,7 @@ class Concept2Pm5BleViewModel(application: Application) : AndroidViewModel(appli
     private companion object {
         private const val TAG = "Concept2Pm5Ble"
         private const val SCAN_TIMEOUT_MS = 25_000L
+        private const val SAVED_DEVICE_SCAN_TIMEOUT_MS = 15_000L
     }
 
     private val userPreferences = UserPreferences(application)
@@ -100,6 +101,15 @@ class Concept2Pm5BleViewModel(application: Application) : AndroidViewModel(appli
 
     private val scanSeen = ConcurrentHashMap<String, Concept2ScanRow>()
     private var scanJob: Job? = null
+
+    /**
+     * Saved erg we are scanning for before connecting. The PM5 advertises a random address, and
+     * Android can only open a GATT link to it once a scan has seen it this Bluetooth session;
+     * connecting straight from the stored address times out.
+     */
+    @Volatile
+    private var savedDeviceScanTarget: String? = null
+    private var savedDeviceScanJob: Job? = null
 
     private val _connectionState = MutableStateFlow(Concept2BleConnectionState.Idle)
     val connectionState: StateFlow<Concept2BleConnectionState> = _connectionState.asStateFlow()
@@ -321,6 +331,7 @@ class Concept2Pm5BleViewModel(application: Application) : AndroidViewModel(appli
     fun stopScanInternal() {
         scanJob?.cancel()
         scanJob = null
+        stopSavedDeviceScan()
         if (hasScanPermission()) {
             try {
                 scanner?.stopScan(scanCallback)
@@ -376,7 +387,7 @@ class Concept2Pm5BleViewModel(application: Application) : AndroidViewModel(appli
         disconnectGatt()
         val adapter = bluetoothAdapter ?: return
         val device = try {
-            adapter.getRemoteDevice(address)
+            adapter.getRemoteDevice(normalizeBleAddress(address))
         } catch (e: IllegalArgumentException) {
             Log.w(TAG, "Bad BLE address", e)
             return
@@ -385,6 +396,61 @@ class Concept2Pm5BleViewModel(application: Application) : AndroidViewModel(appli
         _connectionState.value = Concept2BleConnectionState.Connecting
         _statusMessage.value = null
         _connectedLabel.value = label ?: device.name ?: address
+        val le = scanner
+        if (le == null || !hasScanPermission()) {
+            connectGattTo(device)
+            return
+        }
+        startSavedDeviceScan(le, normalizeBleAddress(device.address), auto)
+    }
+
+    /** Short scan for one saved erg; connects with the scanned device so Android has its address type. */
+    @SuppressLint("MissingPermission")
+    private fun startSavedDeviceScan(le: BluetoothLeScanner, address: String, auto: Boolean) {
+        savedDeviceScanTarget = address
+        val settings = ScanSettings.Builder()
+            .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+            .build()
+        try {
+            le.startScan(null, settings, savedDeviceScanCallback)
+        } catch (t: Throwable) {
+            Log.e(TAG, "saved erg startScan failed", t)
+            savedDeviceScanTarget = null
+            connectGattTo(bluetoothAdapter?.getRemoteDevice(address) ?: return)
+            return
+        }
+        savedDeviceScanJob?.cancel()
+        savedDeviceScanJob = viewModelScope.launch {
+            delay(SAVED_DEVICE_SCAN_TIMEOUT_MS)
+            if (savedDeviceScanTarget != address) return@launch
+            stopSavedDeviceScan()
+            _activeDeviceAddress.value = null
+            _connectedLabel.value = null
+            if (auto) {
+                _connectionState.value = Concept2BleConnectionState.Idle
+            } else {
+                _connectionState.value = Concept2BleConnectionState.Error
+                _statusMessage.value = "Could not find the saved Concept2 monitor. Wake the PM5 and try again."
+            }
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun stopSavedDeviceScan() {
+        savedDeviceScanJob?.cancel()
+        savedDeviceScanJob = null
+        if (savedDeviceScanTarget == null) return
+        savedDeviceScanTarget = null
+        if (hasScanPermission()) {
+            try {
+                scanner?.stopScan(savedDeviceScanCallback)
+            } catch (_: Throwable) {
+            }
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun connectGattTo(device: BluetoothDevice) {
         try {
             gatt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 device.connectGatt(getApplication(), false, gattCallback, BluetoothDevice.TRANSPORT_LE)
@@ -441,6 +507,31 @@ class Concept2Pm5BleViewModel(application: Application) : AndroidViewModel(appli
         }
     }
 
+    private val savedDeviceScanCallback = object : ScanCallback() {
+        override fun onScanResult(callbackType: Int, result: ScanResult) {
+            val device = result.device ?: return
+            val target = savedDeviceScanTarget ?: return
+            if (normalizeBleAddress(device.address ?: return) != target) return
+            viewModelScope.launch(Dispatchers.Main) {
+                if (savedDeviceScanTarget != target) return@launch
+                stopSavedDeviceScan()
+                if (_connectedLabel.value == target) {
+                    (result.scanRecord?.deviceName ?: device.name)?.let { _connectedLabel.value = it }
+                }
+                connectGattTo(device)
+            }
+        }
+
+        override fun onScanFailed(errorCode: Int) {
+            Log.e(TAG, "saved erg onScanFailed $errorCode")
+            viewModelScope.launch(Dispatchers.Main) {
+                val target = savedDeviceScanTarget ?: return@launch
+                stopSavedDeviceScan()
+                bluetoothAdapter?.getRemoteDevice(target)?.let { connectGattTo(it) }
+            }
+        }
+    }
+
     private val gattCallback = object : BluetoothGattCallback() {
         @SuppressLint("MissingPermission")
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
@@ -454,6 +545,7 @@ class Concept2Pm5BleViewModel(application: Application) : AndroidViewModel(appli
                 BluetoothProfile.STATE_DISCONNECTED -> {
                     viewModelScope.launch(Dispatchers.Main) {
                         if (this@Concept2Pm5BleViewModel.gatt === gatt) {
+                            disconnectGatt()
                             clearConnectionUiState()
                         }
                     }

@@ -63,6 +63,7 @@ relay-safe payloads.
 4. **Entity fields** use the same names and types; prefer additive changes.
 5. **Android parses with `ignoreUnknownKeys = true`** — new web-only fields are OK; renamed/removed fields break old clients.
 6. **Merge by `lastModifiedEpochSeconds`** (and id): newer wins; new ids from remote are added when local is null.
+   Workout deletes travel as `deletedWorkouts` (id → deleted-at epoch seconds) in the `erv/workouts/library` index: a workout is dropped unless edited after its marker, both apps carry markers forward on every publish, and markers expire after a year.
 7. **Built-in catalog IDs** must match (e.g. `erv-weight-exercise-bench-v1`) — see `catalog.ts` and `WeightDefaultCatalog.kt`.
 8. **Same npub/nsec + relay** on both ends for encrypt-to-self to decrypt.
 

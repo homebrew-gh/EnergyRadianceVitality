@@ -42,7 +42,9 @@ import com.erv.app.weighttraining.WeightRoutine
 import com.erv.app.weighttraining.WeightWorkoutSession
 import com.erv.app.workouts.Workout
 import com.erv.app.workouts.WorkoutLibraryState
+import com.erv.app.workouts.mergeWorkoutDeleteMarkers
 import com.erv.app.workouts.sanitized
+import com.erv.app.workouts.withoutDeletedWorkouts
 import kotlin.math.max
 
 /**
@@ -380,7 +382,9 @@ object LibraryStateMerge {
     fun mergeWorkouts(local: WorkoutLibraryState, remote: WorkoutLibraryState): WorkoutLibraryState {
         val localState = local.sanitized()
         val remoteState = remote.sanitized()
+        val deletedWorkouts = mergeWorkoutDeleteMarkers(localState.deletedWorkouts, remoteState.deletedWorkouts)
         val mergedWorkouts = mergeWorkoutsByLastModified(remoteState.workouts, localState.workouts)
+            .withoutDeletedWorkouts(deletedWorkouts)
         return WorkoutLibraryState(
             workouts = mergedWorkouts,
             activeRun = localState.activeRun?.takeIf { run ->
@@ -390,6 +394,7 @@ object LibraryStateMerge {
                 localState.libraryUpdatedAtEpochSeconds,
                 remoteState.libraryUpdatedAtEpochSeconds,
             ),
+            deletedWorkouts = deletedWorkouts,
         ).sanitized()
     }
 

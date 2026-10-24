@@ -59,6 +59,7 @@ class WorkoutRepository(context: Context) {
             state.copy(
                 workouts = state.workouts.upsertById(stamped) { it.id },
                 libraryUpdatedAtEpochSeconds = now,
+                deletedWorkouts = state.deletedWorkouts - stamped.id,
             ).sanitized()
         }
     }
@@ -70,6 +71,7 @@ class WorkoutRepository(context: Context) {
                 workouts = state.workouts.filterNot { it.id == workoutId },
                 activeRun = state.activeRun?.takeUnless { it.workoutId == workoutId },
                 libraryUpdatedAtEpochSeconds = now,
+                deletedWorkouts = state.deletedWorkouts + (workoutId to now),
             ).sanitized()
         }
     }
