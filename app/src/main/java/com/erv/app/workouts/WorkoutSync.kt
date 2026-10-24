@@ -2,7 +2,6 @@ package com.erv.app.workouts
 
 import android.content.Context
 import com.erv.app.nostr.EventSigner
-import com.erv.app.nostr.LibraryStateMerge
 import com.erv.app.nostr.NostrEvent
 import com.erv.app.nostr.RelayPool
 import com.erv.app.nostr.RelayPublishOutbox
@@ -24,6 +23,8 @@ internal data class WorkoutLibraryPayload(
     val libraryUpdatedAtEpochSeconds: Long = 0L,
     val sharded: Boolean = false,
     val workoutIds: List<String> = emptyList(),
+    /** Workout id to the epoch second it was deleted; readers drop workouts not edited since. */
+    val deletedWorkouts: Map<String, Long> = emptyMap(),
 )
 
 @Serializable
@@ -73,11 +74,11 @@ object WorkoutSync {
 
     fun fullOutboxEntries(state: WorkoutLibraryState): List<Pair<String, String>> {
         val payload = toPayload(state)
-        // Never auto-publish an empty library master: kind 30078 is last-write-wins, so an empty
+        // Never auto-publish a blank library master: kind 30078 is last-write-wins, so an empty
         // local library (e.g. right after a reinstall, before the relay pull completes) would
-        // otherwise clobber a non-empty library published by the web companion. Intentional
-        // deletion of all workouts goes through clearOutboxEntries() instead.
-        if (payload.workouts.isEmpty()) {
+        // otherwise clobber a non-empty library published by the web companion. Deleting the last
+        // workout leaves a delete marker, so that index (no ids, markers only) still publishes.
+        if (payload.workouts.isEmpty() && payload.deletedWorkouts.isEmpty()) {
             return emptyList()
         }
 
@@ -89,6 +90,7 @@ object WorkoutSync {
                 libraryUpdatedAtEpochSeconds = payload.libraryUpdatedAtEpochSeconds,
                 sharded = true,
                 workoutIds = payload.workouts.map { it.id },
+                deletedWorkouts = payload.deletedWorkouts,
             ),
         )
         for (workout in payload.workouts) {
@@ -109,39 +111,21 @@ object WorkoutSync {
         latestByTag: Map<String, NostrEvent>,
         signer: EventSigner,
     ): WorkoutLibraryState {
-        val masterRaw = latestByTag[WORKOUTS_LIBRARY_D_TAG]?.decryptPayload(signer)
-        val master = masterRaw?.let(::decodeLibraryPayload)
-
-        val monolithic = if (master != null && !master.sharded) master.workouts else emptyList()
-        val sharded = loadShardedWorkouts(
-            latestByTag = latestByTag,
-            signer = signer,
-            orderedIds = master?.workoutIds.orEmpty(),
-        )
-        val workouts = if (monolithic.isEmpty()) {
-            sharded
-        } else if (sharded.isEmpty()) {
-            monolithic
-        } else {
-            LibraryStateMerge.mergeWorkouts(
-                WorkoutLibraryState(workouts = monolithic),
-                WorkoutLibraryState(workouts = sharded),
-            ).workouts
-        }
-
+        val records = latestByTag
+            .filterKeys { it == WORKOUTS_LIBRARY_D_TAG || it.startsWith(WORKOUTS_LIBRARY_WORKOUT_PREFIX) }
+            .mapNotNull { (dTag, event) ->
+                val raw = event.decryptPayload(signer) ?: return@mapNotNull null
+                dTag to LibraryRecord(plaintext = raw, createdAt = event.createdAt)
+            }
+            .toMap()
+        val state = assembleLibraryState(records)
         android.util.Log.i(
             "ErvRelaySync",
-            "WorkoutSync.fromLatestByTag: masterRawLen=${masterRaw?.length ?: -1} " +
-                "masterSharded=${master?.sharded} monolithic=${monolithic.size} " +
-                "sharded=${sharded.size} finalWorkouts=${workouts.size} " +
+            "WorkoutSync.fromLatestByTag: masterRawLen=${records[WORKOUTS_LIBRARY_D_TAG]?.plaintext?.length ?: -1} " +
+                "finalWorkouts=${state.workouts.size} deleteMarkers=${state.deletedWorkouts.size} " +
                 "workoutTagsInMap=${latestByTag.keys.count { it.startsWith(WORKOUTS_LIBRARY_WORKOUT_PREFIX) }}",
         )
-
-        return WorkoutLibraryState(
-            workouts = workouts,
-            activeRun = null,
-            libraryUpdatedAtEpochSeconds = master?.libraryUpdatedAtEpochSeconds ?: 0L,
-        ).sanitized()
+        return state
     }
 
     fun workoutIdsFromLibraryMasterPlaintext(raw: String): List<String> {
@@ -216,69 +200,71 @@ object WorkoutSync {
             WorkoutLibraryShardPayload(workout),
         )
 
-    private suspend fun loadShardedWorkouts(
-        latestByTag: Map<String, NostrEvent>,
-        signer: EventSigner,
-        orderedIds: List<String>,
-    ): List<Workout> {
-        val segmentRecords = latestByTag
+    /** One decrypted relay row; [createdAt] is the event's `created_at` when known. */
+    private data class LibraryRecord(val plaintext: String, val createdAt: Long? = null)
+
+    /**
+     * Rebuilds the library from decrypted rows, treating the index as authoritative like the web
+     * companion: listed ids come first, in index order. A head shard missing from the index still
+     * counts when its event is newer than the index (the index update listing it never landed);
+     * an older unlisted shard is a leftover from a delete. Delete markers then drop any workout not
+     * edited since it was deleted.
+     */
+    private fun assembleLibraryState(records: Map<String, LibraryRecord>): WorkoutLibraryState {
+        val masterRecord = records[WORKOUTS_LIBRARY_D_TAG]
+        val master = masterRecord?.plaintext?.let(::decodeLibraryPayload)
+
+        val segmentByWorkoutAndId = records
             .filterKeys { isWorkoutSegmentShardTag(it) }
-            .mapNotNull { (dTag, event) ->
-                val raw = event.decryptPayload(signer) ?: return@mapNotNull null
+            .mapNotNull { (dTag, record) ->
                 val ref = parseWorkoutSegmentShardTag(dTag) ?: return@mapNotNull null
-                val segment = decodeWorkoutSegmentShard(raw)?.segment ?: return@mapNotNull null
+                val segment = decodeWorkoutSegmentShard(record.plaintext)?.segment ?: return@mapNotNull null
                 ref to segment
             }
-
-        val segmentByWorkoutAndId = segmentRecords.groupBy({ it.first.workoutId }) { it.first.segmentId to it.second }
-
-        val shardById = latestByTag
+            .groupBy({ it.first.workoutId }) { it.first.segmentId to it.second }
+        val shardCreatedAt = mutableMapOf<String, Long?>()
+        val shardById = records
             .filterKeys { isWorkoutHeadShardTag(it) }
-            .mapNotNull { (_, event) ->
-                val raw = event.decryptPayload(signer) ?: return@mapNotNull null
-                assembleWorkoutFromShard(raw, segmentByWorkoutAndId)
+            .mapNotNull { (_, record) ->
+                assembleWorkoutFromShard(record.plaintext, segmentByWorkoutAndId)
+                    ?.also { shardCreatedAt[it.id] = record.createdAt }
             }
             .associateBy { it.id }
 
-        if (shardById.isEmpty()) return emptyList()
-
-        val ids = orderedIds.ifEmpty { shardById.keys.sorted() }
-        return ids.mapNotNull { shardById[it] }
+        val monolithic = if (master != null && !master.sharded) master.workouts else emptyList()
+        val workouts = when {
+            monolithic.isNotEmpty() -> monolithic
+            master == null -> shardById.keys.sorted().mapNotNull { shardById[it] }
+            else -> {
+                val listed = if (master.sharded) master.workoutIds else emptyList()
+                val listedSet = listed.toSet()
+                val indexCreatedAt = masterRecord.createdAt
+                val unlistedNewer = if (indexCreatedAt == null) {
+                    emptyList()
+                } else {
+                    shardById.values
+                        .filter { it.id !in listedSet && (shardCreatedAt[it.id] ?: 0L) > indexCreatedAt }
+                        .sortedBy { it.name.lowercase() }
+                }
+                listed.mapNotNull { shardById[it] } + unlistedNewer
+            }
+        }
+        val deletedWorkouts = master?.deletedWorkouts.orEmpty()
+        return WorkoutLibraryState(
+            workouts = workouts.withoutDeletedWorkouts(deletedWorkouts),
+            activeRun = null,
+            libraryUpdatedAtEpochSeconds = master?.libraryUpdatedAtEpochSeconds ?: 0L,
+            deletedWorkouts = deletedWorkouts,
+        ).sanitized()
     }
 
     internal fun fromLatestByTagFromPlaintextForTest(
         latestByTag: Map<String, String>,
-    ): WorkoutLibraryState {
-        val master = latestByTag[WORKOUTS_LIBRARY_D_TAG]?.let(::decodeLibraryPayload)
-        val monolithic = if (master != null && !master.sharded) master.workouts else emptyList()
-        val segmentByWorkoutAndId = latestByTag
-            .filterKeys { isWorkoutSegmentShardTag(it) }
-            .mapNotNull { (dTag, raw) ->
-                val ref = parseWorkoutSegmentShardTag(dTag) ?: return@mapNotNull null
-                val segment = decodeWorkoutSegmentShard(raw)?.segment ?: return@mapNotNull null
-                ref to segment
-            }
-            .groupBy({ it.first.workoutId }) { it.first.segmentId to it.second }
-        val sharded = latestByTag
-            .filterKeys { isWorkoutHeadShardTag(it) }
-            .mapNotNull { (_, raw) -> assembleWorkoutFromShard(raw, segmentByWorkoutAndId) }
-        val orderedIds = master?.workoutIds.orEmpty()
-        val shardById = sharded.associateBy { it.id }
-        val ids = orderedIds.ifEmpty { shardById.keys.sorted() }
-        val loaded = ids.mapNotNull { shardById[it] }
-        val workouts = when {
-            monolithic.isEmpty() -> loaded
-            loaded.isEmpty() -> monolithic
-            else -> LibraryStateMerge.mergeWorkouts(
-                WorkoutLibraryState(workouts = monolithic),
-                WorkoutLibraryState(workouts = loaded),
-            ).workouts
-        }
-        return WorkoutLibraryState(
-            workouts = workouts,
-            libraryUpdatedAtEpochSeconds = master?.libraryUpdatedAtEpochSeconds ?: 0L,
-        ).sanitized()
-    }
+        createdAtByTag: Map<String, Long> = emptyMap(),
+    ): WorkoutLibraryState =
+        assembleLibraryState(
+            latestByTag.mapValues { (dTag, raw) -> LibraryRecord(raw, createdAtByTag[dTag]) },
+        )
 
     private fun assembleWorkoutFromShard(
         raw: String,
@@ -325,6 +311,7 @@ object WorkoutSync {
         return WorkoutLibraryPayload(
             workouts = sanitized.workouts,
             libraryUpdatedAtEpochSeconds = sanitized.libraryUpdatedAtEpochSeconds,
+            deletedWorkouts = sanitized.deletedWorkouts,
         )
     }
 
@@ -372,6 +359,7 @@ object WorkoutSync {
             .replace("\"items\":null", "\"items\":[]")
             .replace("\"segments\":null", "\"segments\":[]")
             .replace("\"workoutIds\":null", "\"workoutIds\":[]")
+            .replace("\"deletedWorkouts\":null", "\"deletedWorkouts\":{}")
             .replace("\"sets\":null", "\"sets\":[]")
 
     private suspend fun NostrEvent.decryptPayload(signer: EventSigner): String? =

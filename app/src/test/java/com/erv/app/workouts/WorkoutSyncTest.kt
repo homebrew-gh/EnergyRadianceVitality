@@ -2,6 +2,8 @@ package com.erv.app.workouts
 
 import com.erv.app.nostr.LibraryStateMerge
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -244,5 +246,110 @@ class WorkoutSyncTest {
         assertEquals(1, decoded?.workouts?.size)
         assertEquals("Morning flow", decoded?.workouts?.first()?.name)
         assertEquals(2, decoded?.workouts?.first()?.segments?.size)
+    }
+
+    @Test
+    fun fullOutboxEntries_afterDeletingLastWorkout_publishesIndexWithDeleteMarker() {
+        val state = WorkoutLibraryState(
+            libraryUpdatedAtEpochSeconds = 300L,
+            deletedWorkouts = mapOf("w1" to 300L),
+        )
+        val entries = WorkoutSync.fullOutboxEntries(state)
+        assertEquals(listOf(WORKOUTS_LIBRARY_D_TAG), entries.map { it.first })
+        val master = WorkoutSync.decodeLibraryPayloadForTest(entries.single().second)
+        assertEquals(true, master?.sharded)
+        assertEquals(emptyList<String>(), master?.workoutIds)
+        assertEquals(mapOf("w1" to 300L), master?.deletedWorkouts)
+    }
+
+    @Test
+    fun fromLatestByTagFromPlaintext_ignoresOlderUnlistedShard_keepsNewerUnlistedShard() {
+        val deleted = Workout(id = "gone", name = "Deleted", lastModifiedEpochSeconds = 100L)
+        val pending = Workout(id = "new", name = "Index never landed", lastModifiedEpochSeconds = 400L)
+        val deletedTag = WorkoutSync.workoutShardTagForTest("gone")
+        val pendingTag = WorkoutSync.workoutShardTagForTest("new")
+        val shards = WorkoutSync.fullOutboxEntries(WorkoutLibraryState(workouts = listOf(deleted, pending)))
+            .toMap()
+            .filterKeys { it != WORKOUTS_LIBRARY_D_TAG }
+        val state = WorkoutSync.fromLatestByTagFromPlaintextForTest(
+            latestByTag = shards + (
+                WORKOUTS_LIBRARY_D_TAG to """{"sharded":true,"workoutIds":[],"libraryUpdatedAtEpochSeconds":300}"""
+                ),
+            createdAtByTag = mapOf(deletedTag to 100L, WORKOUTS_LIBRARY_D_TAG to 300L, pendingTag to 400L),
+        )
+        assertEquals(listOf("new"), state.workouts.map { it.id })
+    }
+
+    @Test
+    fun fromLatestByTagFromPlaintext_dropsWorkoutsCoveredByDeleteMarker() {
+        val stale = Workout(id = "w1", name = "Deleted elsewhere", lastModifiedEpochSeconds = 100L)
+        val entries = WorkoutSync.fullOutboxEntries(WorkoutLibraryState(workouts = listOf(stale))).toMap()
+        val state = WorkoutSync.fromLatestByTagFromPlaintextForTest(
+            entries + (
+                WORKOUTS_LIBRARY_D_TAG to
+                    """{"sharded":true,"workoutIds":["w1"],"libraryUpdatedAtEpochSeconds":200,"deletedWorkouts":{"w1":200}}"""
+                ),
+        )
+        assertTrue(state.workouts.isEmpty())
+        assertEquals(mapOf("w1" to 200L), state.deletedWorkouts)
+    }
+
+    @Test
+    fun mergeWorkouts_remoteDeleteMarker_dropsLocalCopy_unlessEditedAfterDelete() {
+        val local = WorkoutLibraryState(
+            workouts = listOf(
+                Workout(id = "w1", name = "Untouched", lastModifiedEpochSeconds = 100L),
+                Workout(id = "w2", name = "Edited after delete", lastModifiedEpochSeconds = 500L),
+            ),
+        )
+        val remote = WorkoutLibraryState(
+            libraryUpdatedAtEpochSeconds = 300L,
+            deletedWorkouts = mapOf("w1" to 300L, "w2" to 300L),
+        )
+        val merged = LibraryStateMerge.mergeWorkouts(local, remote)
+        assertNull(merged.workoutById("w1"))
+        assertEquals("Edited after delete", merged.workoutById("w2")?.name)
+        assertEquals(mapOf("w1" to 300L, "w2" to 300L), merged.deletedWorkouts)
+    }
+
+    @Test
+    fun mergeWorkouts_localDeleteMarker_keepsRemoteCopyFromComingBack() {
+        val local = WorkoutLibraryState(libraryUpdatedAtEpochSeconds = 300L, deletedWorkouts = mapOf("w1" to 300L))
+        val remote = WorkoutLibraryState(
+            workouts = listOf(Workout(id = "w1", name = "Still on relay", lastModifiedEpochSeconds = 100L)),
+        )
+        val merged = LibraryStateMerge.mergeWorkouts(local, remote)
+        assertTrue(merged.workouts.isEmpty())
+    }
+
+    @Test
+    fun deleteOnOneDevice_propagatesToAnotherDeviceThroughRelayIndex() {
+        val workout = Workout(id = "w1", name = "Push day", lastModifiedEpochSeconds = 100L)
+        val otherDevice = WorkoutLibraryState(workouts = listOf(workout), libraryUpdatedAtEpochSeconds = 100L)
+        val shardsOnRelay = WorkoutSync.fullOutboxEntries(otherDevice).toMap()
+
+        val afterDelete = WorkoutLibraryState(
+            libraryUpdatedAtEpochSeconds = 300L,
+            deletedWorkouts = mapOf("w1" to 300L),
+        ).sanitized()
+        val relay = shardsOnRelay + WorkoutSync.fullOutboxEntries(afterDelete).toMap()
+
+        val pulled = WorkoutSync.fromLatestByTagFromPlaintextForTest(relay)
+        val merged = LibraryStateMerge.mergeWorkouts(otherDevice, pulled)
+        assertTrue(merged.workouts.isEmpty())
+        assertFalse(WorkoutSync.fullOutboxEntries(merged).any { it.first.startsWith(WORKOUTS_LIBRARY_WORKOUT_PREFIX) })
+    }
+
+    @Test
+    fun sanitized_dropsDeleteMarkersPastRetention() {
+        val now = 10L * WORKOUT_DELETE_MARKER_RETENTION_SECONDS
+        val state = WorkoutLibraryState(
+            libraryUpdatedAtEpochSeconds = now,
+            deletedWorkouts = mapOf(
+                "old" to now - WORKOUT_DELETE_MARKER_RETENTION_SECONDS - 1,
+                "recent" to now - 60,
+            ),
+        ).sanitized()
+        assertEquals(setOf("recent"), state.deletedWorkouts.keys)
     }
 }

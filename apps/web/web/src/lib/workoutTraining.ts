@@ -166,7 +166,59 @@ export type WorkoutLibraryPayload = {
   /** When true, full workouts live at `erv/workouts/library/workout/<id>`. */
   sharded?: boolean;
   workoutIds?: string[];
+  /** Workout id to the epoch second it was deleted; readers drop workouts not edited since. */
+  deletedWorkouts?: Record<string, number>;
 };
+
+/** Workout id to the epoch second it was deleted. */
+export type WorkoutDeleteMarkers = Record<string, number>;
+
+/** Delete markers older than this are dropped when the index is next published. */
+export const WORKOUT_DELETE_MARKER_RETENTION_SECONDS = 365 * 24 * 60 * 60;
+
+/** A workout survives a delete marker only when it was edited after the delete. */
+export function withoutDeletedWorkouts(
+  workouts: Workout[],
+  deletedWorkouts: WorkoutDeleteMarkers,
+): Workout[] {
+  return workouts.filter((workout) => {
+    const deletedAt = deletedWorkouts[workout.id];
+    return deletedAt == null || (workout.lastModifiedEpochSeconds ?? 0) > deletedAt;
+  });
+}
+
+/**
+ * Markers to publish with the next index: ids that were in [previousIds] but are missing from
+ * [nextWorkouts] are marked deleted at [now]; ids present again lose their marker; markers past
+ * retention are pruned.
+ */
+export function nextWorkoutDeleteMarkers(
+  previous: WorkoutDeleteMarkers,
+  previousIds: Iterable<string>,
+  nextWorkouts: Workout[],
+  now: number,
+): WorkoutDeleteMarkers {
+  const nextIds = new Set(nextWorkouts.map((workout) => workout.id));
+  const markers: WorkoutDeleteMarkers = { ...previous };
+  for (const id of previousIds) {
+    if (!nextIds.has(id)) markers[id] = now;
+  }
+  for (const id of nextIds) delete markers[id];
+  const cutoff = now - WORKOUT_DELETE_MARKER_RETENTION_SECONDS;
+  for (const [id, deletedAt] of Object.entries(markers)) {
+    if (deletedAt < cutoff) delete markers[id];
+  }
+  return markers;
+}
+
+function parseDeleteMarkers(raw: unknown): WorkoutDeleteMarkers {
+  if (raw == null || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const markers: WorkoutDeleteMarkers = {};
+  for (const [id, deletedAt] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof deletedAt === "number" && Number.isFinite(deletedAt)) markers[id] = deletedAt;
+  }
+  return markers;
+}
 
 export type WorkoutLibraryShardPayload = {
   workout: Workout;
@@ -214,11 +266,13 @@ export function workoutLibraryPayload(
 function workoutLibraryIndexPayload(
   workoutIds: string[],
   libraryUpdatedAtEpochSeconds: number,
+  deletedWorkouts: WorkoutDeleteMarkers,
 ): string {
   return JSON.stringify({
     sharded: true,
     workoutIds,
     libraryUpdatedAtEpochSeconds,
+    ...(Object.keys(deletedWorkouts).length > 0 ? { deletedWorkouts } : {}),
   } satisfies WorkoutLibraryPayload);
 }
 
@@ -294,12 +348,13 @@ export function buildWorkoutLibraryPublishEntries(
   workouts: Workout[],
   libraryUpdatedAtEpochSeconds: number,
   changedWorkoutIds?: ReadonlySet<string>,
+  deletedWorkouts: WorkoutDeleteMarkers = {},
 ): WorkoutLibraryPublishEntry[] {
   if (workouts.length === 0) {
     return [
       {
         d_tag: WORKOUTS_LIBRARY_D_TAG,
-        plaintext: workoutLibraryPayload([], libraryUpdatedAtEpochSeconds),
+        plaintext: workoutLibraryIndexPayload([], libraryUpdatedAtEpochSeconds, deletedWorkouts),
       },
     ];
   }
@@ -314,6 +369,7 @@ export function buildWorkoutLibraryPublishEntries(
     plaintext: workoutLibraryIndexPayload(
       workouts.map((w) => w.id),
       libraryUpdatedAtEpochSeconds,
+      deletedWorkouts,
     ),
   });
   return entries;
@@ -375,7 +431,7 @@ function assembleWorkoutFromShardRecords(
   }
 }
 
-type AppDataRecordLike = {
+export type AppDataRecordLike = {
   d_tag?: string | null;
   plaintext?: string | null;
   created_at?: number;
@@ -391,8 +447,30 @@ function listedWorkoutIds(masterPlaintext: string): string[] | null {
   }
 }
 
+function parseDeleteMarkersFromMaster(masterPlaintext: string | null | undefined): WorkoutDeleteMarkers {
+  if (!masterPlaintext) return {};
+  try {
+    return parseDeleteMarkers((JSON.parse(masterPlaintext) as WorkoutLibraryPayload).deletedWorkouts);
+  } catch {
+    return {};
+  }
+}
+
+/** Workouts plus the index's delete markers, which a later save must carry forward. */
+export function parseWorkoutLibraryFromAppDataRecords(records: AppDataRecordLike[]): {
+  workouts: Workout[];
+  deletedWorkouts: WorkoutDeleteMarkers;
+} {
+  const master = records.find((r) => r.d_tag === WORKOUTS_LIBRARY_D_TAG);
+  const deletedWorkouts = parseDeleteMarkersFromMaster(master?.plaintext);
+  return {
+    workouts: withoutDeletedWorkouts(parseListedWorkouts(records), deletedWorkouts),
+    deletedWorkouts,
+  };
+}
+
 /**
- * Merge master + shard tags from relay app-data records into workouts.
+ * Merge master + shard tags from relay app-data records into workouts, minus deleted ones.
  *
  * Index ids come first, in index order. A head shard missing from the index is still shown when
  * its event is newer than the index: that means the index update listing it never landed
@@ -401,6 +479,10 @@ function listedWorkoutIds(masterPlaintext: string): string[] | null {
 export function parseWorkoutsFromAppDataRecords(
   records: AppDataRecordLike[],
 ): Workout[] {
+  return parseWorkoutLibraryFromAppDataRecords(records).workouts;
+}
+
+function parseListedWorkouts(records: AppDataRecordLike[]): Workout[] {
   const master = records.find((r) => r.d_tag === WORKOUTS_LIBRARY_D_TAG);
   const masterWorkouts = master?.plaintext
     ? parseWorkoutLibraryPayload(master.plaintext)
