@@ -1,5 +1,6 @@
 package com.erv.app.ui.weighttraining
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -10,10 +11,17 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.AddCircleOutline
+import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -26,6 +34,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.erv.app.ui.components.FieldLabel
@@ -66,12 +75,24 @@ fun WeightPickExerciseDialog(
         choices.filter { ex -> selectedPushPull == null || ex.pushOrPull == selectedPushPull }
     }
     val grouped = remember(filteredChoices) { groupExercisesByMuscle(filteredChoices) }
+    var query by rememberSaveable { mutableStateOf("") }
+    // Search spans every muscle group and ignores push/pull, since those chips are hidden while searching.
+    val searchResults = remember(choices, query) {
+        val q = query.trim()
+        if (q.isEmpty()) emptyList() else choices.filter { it.name.contains(q, ignoreCase = true) }
+    }
+    // Callers that keep the dialog open after a pick get feedback here; picked ids drop out via excludeIds.
+    var pickedCount by remember { mutableStateOf(0) }
+    val pick: (String) -> Unit = { id ->
+        pickedCount++
+        onPick(id)
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
             when (val key = selectedMuscleKey) {
-                null -> Text("Muscle Group", style = MaterialTheme.typography.titleLarge)
+                null -> Text("Choose Exercise", style = MaterialTheme.typography.titleLarge)
                 else -> Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.fillMaxWidth()
@@ -92,11 +113,28 @@ fun WeightPickExerciseDialog(
         text = {
             Column(
                 modifier = Modifier
-                    .heightIn(max = 400.dp)
+                    .heightIn(max = 480.dp)
                     .verticalScroll(rememberScrollState())
                     .padding(vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    placeholder = { Text("Search exercises") },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                    trailingIcon = {
+                        if (query.isNotEmpty()) {
+                            IconButton(onClick = { query = "" }) {
+                                Icon(Icons.Default.Clear, contentDescription = "Clear search")
+                            }
+                        }
+                    },
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 4.dp)
+                )
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -130,6 +168,24 @@ fun WeightPickExerciseDialog(
                             style = MaterialTheme.typography.bodyMedium
                         )
                     }
+                    query.isNotBlank() -> {
+                        if (searchResults.isEmpty()) {
+                            Text(
+                                "No exercises match “${query.trim()}”.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(vertical = 8.dp)
+                            )
+                        } else {
+                            searchResults.forEach { ex ->
+                                ExercisePickRow(
+                                    exercise = ex,
+                                    showMuscleGroup = true,
+                                    onClick = { pick(ex.id) }
+                                )
+                            }
+                        }
+                    }
                     grouped.isEmpty() -> {
                         Text(
                             if (equipmentFilter == WeightExercisePickerFilter.HOME_READY) {
@@ -141,18 +197,10 @@ fun WeightPickExerciseDialog(
                         )
                     }
                     selectedMuscleKey == null -> {
-                        Text(
-                            if (equipmentFilter == WeightExercisePickerFilter.HOME_READY) {
-                                "Choose push or pull if you want, then pick a muscle group from exercises that fit your home setup."
-                            } else {
-                                "Choose push or pull if you want, then pick a muscle group."
-                            },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(bottom = 8.dp)
-                        )
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 4.dp),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             FilterChip(
@@ -172,15 +220,17 @@ fun WeightPickExerciseDialog(
                             )
                         }
                         grouped.forEach { (muscleKey, list) ->
-                            TextButton(
-                                onClick = { selectedMuscleKey = muscleKey },
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text(
-                                    "${formatMuscleGroupHeader(muscleKey)} (${list.size})",
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                            }
+                            ListItem(
+                                headlineContent = { Text(formatMuscleGroupHeader(muscleKey)) },
+                                supportingContent = {
+                                    Text(if (list.size == 1) "1 exercise" else "${list.size} exercises")
+                                },
+                                trailingContent = {
+                                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
+                                },
+                                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                                modifier = Modifier.clickable { selectedMuscleKey = muscleKey }
+                            )
                         }
                     }
                     else -> {
@@ -192,15 +242,11 @@ fun WeightPickExerciseDialog(
                             )
                         } else {
                             inGroup.forEach { ex ->
-                                TextButton(
-                                    onClick = { onPick(ex.id) },
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Text(
-                                        "${ex.name} · ${ex.pushOrPull.displayLabel()} · ${ex.equipment.displayLabel()}",
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
-                                }
+                                ExercisePickRow(
+                                    exercise = ex,
+                                    showMuscleGroup = false,
+                                    onClick = { pick(ex.id) }
+                                )
                             }
                         }
                     }
@@ -208,12 +254,40 @@ fun WeightPickExerciseDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Close") }
+            TextButton(onClick = onDismiss) {
+                Text(if (pickedCount > 0) "Done ($pickedCount added)" else "Close")
+            }
         },
         dismissButton = {
             onCreateNew?.let { create ->
                 TextButton(onClick = create) { Text("Create new exercise") }
             }
         }
+    )
+}
+
+@Composable
+private fun ExercisePickRow(
+    exercise: WeightExercise,
+    showMuscleGroup: Boolean,
+    onClick: () -> Unit
+) {
+    val details = buildList {
+        if (showMuscleGroup) add(formatMuscleGroupHeader(exercise.muscleGroup.trim().ifBlank { "other" }))
+        add(exercise.pushOrPull.displayLabel())
+        add(exercise.equipment.displayLabel())
+    }
+    ListItem(
+        headlineContent = { Text(exercise.name) },
+        supportingContent = { Text(details.joinToString(" · ")) },
+        trailingContent = {
+            Icon(
+                Icons.Default.AddCircleOutline,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary
+            )
+        },
+        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+        modifier = Modifier.clickable(onClickLabel = "Add ${exercise.name}", onClick = onClick)
     )
 }

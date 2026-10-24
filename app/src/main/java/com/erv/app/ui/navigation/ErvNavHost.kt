@@ -615,9 +615,8 @@ fun ErvNavHost(
                 relayPool = relayPool,
                 signer = signer,
                 onBack = { navController.popBackStack() },
-                onSaved = { workoutId ->
+                onSaved = {
                     navController.popBackStack()
-                    navController.navigate(Routes.workoutLibrary) { launchSingleTop = true }
                 },
             )
         }
