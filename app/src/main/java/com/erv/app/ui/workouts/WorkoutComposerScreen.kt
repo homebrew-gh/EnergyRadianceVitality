@@ -167,9 +167,9 @@ fun WorkoutComposerScreen(
             exercises = weightState.exercises,
             excludeIds = segment.weightItems().map { it.exerciseId }.toSet(),
             onDismiss = { pickExercisesForSegmentIndex = -1 },
+            // Stays open so several exercises can be added in one pass; Done closes it.
             onPick = { exerciseId ->
                 val index = pickExercisesForSegmentIndex
-                pickExercisesForSegmentIndex = -1
                 val current = segments[index]
                 val exercise = weightState.exerciseById(exerciseId)
                 segments[index] = current.copy(
