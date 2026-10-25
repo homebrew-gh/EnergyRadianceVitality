@@ -1,6 +1,6 @@
 # ERV Privacy Policy
 
-Last updated: 2026-03-29
+Last updated: 2026-07-05
 
 Energy Radiance Vitality (ERV) is designed to help you track health and wellness data without requiring a first-party cloud account. This policy explains what ERV can promise, what it cannot promise, and where your data may go when you choose to use optional network features.
 
@@ -54,12 +54,13 @@ If you sign in with a Nostr identity and enable relay sync, ERV may send encrypt
 
 - ERV encrypts supported health payloads before sending them to configured data relays.
 - ERV is designed so your health content is not sent to an ERV server, because ERV does not operate one for this purpose.
-- You choose which relays to use.
+- You choose which relays to use. **ERV does not ship default public relay URLs on Android** — your relay list stays empty until you add one you trust.
+- Public workout shares (kind 1 notes) are sent only to relays you mark as **Social**. Encrypted health backups (kind 30078) go to **Data** relays.
 
 ### What ERV cannot guarantee
 
 - ERV cannot guarantee that every relay will retain, replicate, delete, or honor replacement of data in the same way.
-- ERV cannot guarantee that relay operators will never log metadata such as your public key, connection times, IP-address-derived information, or traffic patterns.
+- ERV cannot guarantee that relay operators will never log metadata such as your public key, event kinds, d-tags, timestamps, payload sizes, connection times, IP-address-derived information, or traffic patterns — **even when health content is NIP-44 encrypted**.
 - ERV cannot guarantee deletion of data already copied, cached, mirrored, or retained by third-party relays.
 
 ## Remote signers and third-party services

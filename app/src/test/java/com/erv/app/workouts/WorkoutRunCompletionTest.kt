@@ -248,6 +248,145 @@ class WorkoutRunCompletionTest {
         assertFalse(workout.stepIsSiloBacked(WorkoutRunPosition(itemIndex = 1)))
     }
 
+    @Test
+    fun skipping_current_step_recaps_it_as_skipped_and_advances_one_item() {
+        val workout = sampleBatchWorkout()
+        val run = WorkoutActiveRun(
+            workoutId = workout.id,
+            workoutSnapshot = workout,
+            startedAtEpochSeconds = 100L,
+            lastLaunchedSegmentId = workout.segments[0].id,
+            lastLaunchedItemId = workout.segments[0].items[0].id,
+        )
+        val outcome = run.skippingCurrentStep(nowEpochSeconds = 200L)
+        assertNotNull(outcome)
+        val updated = outcome!!.run
+        assertEquals(WorkoutRunPosition(segmentIndex = 0, itemIndex = 1), updated.position)
+        assertEquals(1, updated.itemRecaps.size)
+        val recap = updated.itemRecaps.single()
+        assertTrue(recap.skipped)
+        assertEquals(workout.segments[0].items[0].id, recap.itemId)
+        assertNull(recap.linkedEntryId)
+        assertEquals(200L, recap.finishedAtEpochSeconds)
+        assertNull(updated.lastLaunchedItemId)
+        assertFalse(outcome.result.segmentJustCompleted)
+        assertFalse(outcome.result.workoutComplete)
+        // Skipping the first lift leaves the remaining two lifts as the batch to launch next.
+        assertEquals(2, WorkoutRunEngine.consecutiveWeightItemRun(workout, updated.position).size)
+    }
+
+    @Test
+    fun skipping_launched_section_skips_the_whole_batch_and_lands_on_next_section() {
+        val workout = sampleBatchWorkout()
+        val run = WorkoutActiveRun(
+            workoutId = workout.id,
+            workoutSnapshot = workout,
+            startedAtEpochSeconds = 100L,
+            lastLaunchedSegmentId = workout.segments[0].id,
+            lastLaunchedItemId = workout.segments[0].items[0].id,
+            lastLaunchedItemIds = workout.segments[0].items.map { it.id },
+        )
+        val outcome = run.skippingLaunchedSection(nowEpochSeconds = 300L)!!
+        assertEquals(1, outcome.run.position.segmentIndex)
+        assertEquals(3, outcome.run.itemRecaps.count { it.skipped })
+        assertTrue(outcome.result.segmentJustCompleted)
+        assertEquals("Run", outcome.result.nextSegmentTitle)
+        assertEquals("Run", outcome.run.pendingNextSegmentTitle)
+        assertEquals("Warm-up", outcome.run.pendingCompletedSegmentTitle)
+        // Next step is cardio (silo-backed) so the storyboard auto-advances into it.
+        assertTrue(outcome.run.autoAdvanceRequested)
+        assertTrue(outcome.run.completedSegmentIds.contains(workout.segments[0].id))
+    }
+
+    @Test
+    fun skipping_a_circuit_skips_every_slot_and_moves_to_next_segment() {
+        val circuit = WorkoutSegment(
+            kind = WorkoutSegmentKind.CIRCUIT,
+            title = "Circuit",
+            rounds = 3,
+            items = listOf(
+                WorkoutItem.Weight(exerciseId = "pushup"),
+                WorkoutItem.Weight(exerciseId = "plank"),
+            ),
+        )
+        val workout = Workout(
+            name = "with circuit",
+            segments = listOf(circuit, sampleBatchWorkout().segments[1]),
+        )
+        val run = WorkoutActiveRun(
+            workoutId = workout.id,
+            workoutSnapshot = workout,
+            startedAtEpochSeconds = 1L,
+            position = WorkoutRunPosition(segmentIndex = 0, itemIndex = 1, round = 2),
+        )
+        val outcome = run.skippingCurrentStep(nowEpochSeconds = 5L)!!
+        assertEquals(WorkoutRunPosition(segmentIndex = 1), outcome.run.position)
+        assertEquals(2, outcome.run.itemRecaps.size)
+        assertTrue(outcome.run.itemRecaps.all { it.skipped && it.segmentId == circuit.id })
+        assertTrue(outcome.result.segmentJustCompleted)
+    }
+
+    @Test
+    fun skipping_the_final_step_completes_the_workout() {
+        val workout = sampleBatchWorkout()
+        val run = WorkoutActiveRun(
+            workoutId = workout.id,
+            workoutSnapshot = workout,
+            startedAtEpochSeconds = 1L,
+            position = WorkoutRunPosition(segmentIndex = 1),
+        )
+        val outcome = run.skippingCurrentStep()!!
+        assertTrue(outcome.result.workoutComplete)
+        assertTrue(WorkoutRunEngine.isWorkoutComplete(workout, outcome.run.position))
+        assertNull(outcome.run.pendingNextSegmentTitle)
+        assertFalse(outcome.run.autoAdvanceRequested)
+        assertNull(outcome.run.skippingCurrentStep())
+    }
+
+    @Test
+    fun skipped_item_labels_follow_storyboard_order_and_name_exercises() {
+        val workout = sampleBatchWorkout()
+        val run = WorkoutActiveRun(
+            workoutId = workout.id,
+            workoutSnapshot = workout,
+            startedAtEpochSeconds = 1L,
+        )
+        val afterFirst = run.skippingCurrentStep()!!.run
+        val afterSecond = afterFirst.skippingCurrentStep()!!.run
+        val labels = afterSecond.skippedItemLabels { id -> mapOf("a" to "Bench press", "b" to "Row")[id] }
+        assertEquals(listOf("Warm-up · Bench press", "Warm-up · Row"), labels)
+    }
+
+    @Test
+    fun logged_item_replaces_an_earlier_skipped_recap_for_the_same_step() {
+        val workout = sampleBatchWorkout()
+        val segment = workout.segments[0]
+        val run = WorkoutActiveRun(
+            workoutId = workout.id,
+            workoutSnapshot = workout,
+            startedAtEpochSeconds = 1L,
+            itemRecaps = listOf(
+                WorkoutItemRecap(
+                    segmentId = segment.id,
+                    itemId = segment.items[0].id,
+                    kind = WorkoutLoggedItemKind.WEIGHT,
+                    skipped = true,
+                ),
+            ),
+        )
+        val logged = WorkoutItemRecap(
+            segmentId = segment.id,
+            itemId = segment.items[0].id,
+            kind = WorkoutLoggedItemKind.WEIGHT,
+            linkedLogDate = "2026-09-11",
+            linkedEntryId = "entry",
+        )
+        val outcome = run.advancedTo(WorkoutRunEngine.advance(workout, run.position), listOf(logged))
+        assertEquals(1, outcome.run.itemRecaps.size)
+        assertFalse(outcome.run.itemRecaps.single().skipped)
+        assertEquals("entry", outcome.run.itemRecaps.single().linkedEntryId)
+    }
+
     private fun sampleBatchWorkout(): Workout = Workout(
         name = "Batch",
         segments = listOf(

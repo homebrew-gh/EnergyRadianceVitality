@@ -16,7 +16,7 @@ use std::time::Duration;
 
 use nostr::{Event, Keys};
 use serde::Serialize;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, Semaphore};
 
 use crate::config::Config;
 use crate::nostr_support::send_event_to_relays;
@@ -29,6 +29,9 @@ const BACKOFF_SECS: [u64; 4] = [1, 3, 8, 20];
 #[derive(Clone)]
 pub struct Outbox {
     inner: Arc<Mutex<Inner>>,
+    /// One relay send at a time. A burst of parallel sends (a workout library save is
+    /// index + one event per workout) trips relay rate limits and gets events rejected.
+    send_slot: Arc<Semaphore>,
 }
 
 struct Inner {
@@ -70,6 +73,7 @@ impl Outbox {
                 pending: 0,
                 failed: Vec::new(),
             })),
+            send_slot: Arc::new(Semaphore::new(1)),
         }
     }
 
@@ -106,10 +110,17 @@ impl Outbox {
             let mut last_error = String::new();
             for attempt in 0..MAX_ATTEMPTS {
                 let cfg_for_opts = cfg.clone();
-                let result = send_event_to_relays(&keys, &relay_urls, &event, |url| {
-                    cfg_for_opts.relay_connect_options(url)
-                })
-                .await;
+                let result = {
+                    let _slot = outbox
+                        .send_slot
+                        .acquire()
+                        .await
+                        .expect("outbox send semaphore is never closed");
+                    send_event_to_relays(&keys, &relay_urls, &event, |url| {
+                        cfg_for_opts.relay_connect_options(url)
+                    })
+                    .await
+                };
                 match result {
                     Ok(()) => {
                         let mut inner = outbox.inner.lock().await;
@@ -180,7 +191,14 @@ impl Outbox {
                 inner.pending += 1;
                 item.id
             };
-            self.spawn_send(id, item.cfg, item.keys, item.event, item.relay_urls, item.label);
+            self.spawn_send(
+                id,
+                item.cfg,
+                item.keys,
+                item.event,
+                item.relay_urls,
+                item.label,
+            );
         }
         count
     }

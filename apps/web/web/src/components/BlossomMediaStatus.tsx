@@ -100,8 +100,9 @@ export function BlossomMediaStatus() {
       {verified ? (
         <p className="text-xs text-muted">
           On Android, open Body Tracker or cardio route backup to publish encrypted
-          blobs and the `erv/media/library` manifest. Refresh the Media tab here
-          after backup completes.
+          blobs and the `erv/media/library` manifest. This companion fetches those
+          blobs from the origin above even when Android stored a LAN or Tor URL.
+          Refresh the Media tab after backup completes.
         </p>
       ) : detected ? (
         <p className="text-xs text-muted">

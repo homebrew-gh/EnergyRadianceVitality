@@ -1,5 +1,6 @@
 package com.erv.app.ui.programs
 
+import com.erv.app.ui.theme.ervTopAppBarColors
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -118,7 +119,6 @@ import com.erv.app.stretching.StretchingRepository
 import com.erv.app.stretching.StretchingSync
 import com.erv.app.stretching.stretchCategoryDisplayLabel
 import com.erv.app.ui.stretching.StretchPickStretchDialog
-import com.erv.app.ui.theme.ErvHeaderRed
 import com.erv.app.unifiedroutines.UnifiedRoutineLibraryState
 import com.erv.app.weighttraining.WeightLibraryState
 import com.erv.app.weighttraining.WeightRepository
@@ -154,8 +154,6 @@ fun ProgramsCategoryScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
     val keyManager = LocalKeyManager.current
-    val headerColor = ErvHeaderRed
-    val onHeader = Color.White
     var showCreateSheet by remember { mutableStateOf(false) }
     var showTemplatePicker by remember { mutableStateOf(false) }
     var showCustomWizard by remember { mutableStateOf(false) }
@@ -404,12 +402,7 @@ fun ProgramsCategoryScreen(
                         Icon(Icons.Default.Upload, contentDescription = "Import JSON")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = headerColor,
-                    titleContentColor = onHeader,
-                    navigationIconContentColor = onHeader,
-                    actionIconContentColor = onHeader
-                )
+                colors = ervTopAppBarColors()
             )
         },
         floatingActionButton = {
@@ -934,8 +927,6 @@ fun ProgramDetailScreen(
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
-    val headerColor = ErvHeaderRed
-    val onHeader = Color.White
     var showMenu by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf(false) }
     var addBlockForDay by remember { mutableIntStateOf(1) }
@@ -1128,12 +1119,7 @@ fun ProgramDetailScreen(
                         )
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = headerColor,
-                    titleContentColor = onHeader,
-                    navigationIconContentColor = onHeader,
-                    actionIconContentColor = onHeader
-                )
+                colors = ervTopAppBarColors()
             )
         },
         floatingActionButton = {

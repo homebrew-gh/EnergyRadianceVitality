@@ -1,8 +1,11 @@
+import type { ReactNode } from "react";
+
 type SavedRoutinesPanelProps<T> = {
   title?: string;
   loading: boolean;
   routines: T[];
   editingId?: string | null;
+  headerActions?: ReactNode;
   onReload: () => void;
   getId: (routine: T) => string;
   getName: (routine: T) => string;
@@ -18,6 +21,7 @@ export function SavedRoutinesPanel<T>({
   loading,
   routines,
   editingId,
+  headerActions,
   onReload,
   getId,
   getName,
@@ -36,14 +40,17 @@ export function SavedRoutinesPanel<T>({
             Reuse, progress, or edit a session already published to the relay.
           </p>
         </div>
-        <button
-          type="button"
-          className="btn-ghost text-sm"
-          onClick={onReload}
-          disabled={loading}
-        >
-          Refresh
-        </button>
+        <div className="flex gap-2 shrink-0">
+          {headerActions}
+          <button
+            type="button"
+            className="btn-ghost text-sm"
+            onClick={onReload}
+            disabled={loading}
+          >
+            Refresh
+          </button>
+        </div>
       </div>
       {loading ? (
         <p className="text-muted text-sm">Loading…</p>

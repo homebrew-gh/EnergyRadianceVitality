@@ -2,6 +2,7 @@ package com.erv.app.ui.weighttraining
 
 // Equipment uses FilterChips only — no MenuAnchorType / ExposedDropdownMenu (avoids Material3 API drift).
 
+import com.erv.app.ui.theme.ervTopAppBarColors
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
@@ -88,7 +89,6 @@ import com.erv.app.unifiedroutines.linkFor
 import com.erv.app.ui.theme.ErvDarkTherapyRedDark
 import com.erv.app.ui.theme.ErvDarkTherapyRedGlow
 import com.erv.app.ui.theme.ErvDarkTherapyRedMid
-import com.erv.app.ui.theme.ErvHeaderRed
 import com.erv.app.weighttraining.groupExercisesByMuscle
 import com.erv.app.weighttraining.isLogged
 import com.erv.app.ui.theme.ErvLightTherapyRedDark
@@ -116,6 +116,7 @@ import com.erv.app.weighttraining.filterWeightExercisesForPicker
 import com.erv.app.weighttraining.formatMuscleGroupHeader
 import java.time.LocalDate
 import java.util.UUID
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 private enum class WeightTrainingTab { Exercises, Routines }
@@ -303,12 +304,7 @@ fun WeightTrainingCategoryScreen(
                             Icon(Icons.Default.DateRange, contentDescription = "Open log")
                         }
                     },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = ErvHeaderRed,
-                        titleContentColor = Color.White,
-                        navigationIconContentColor = Color.White,
-                        actionIconContentColor = Color.White
-                    )
+                    colors = ervTopAppBarColors()
                 )
             },
         ) { padding ->
@@ -325,8 +321,7 @@ fun WeightTrainingCategoryScreen(
                 }
                 TabRow(
                     selectedTabIndex = tabEnum.ordinal,
-                    containerColor = headerDark,
-                    contentColor = Color.White
+                    containerColor = MaterialTheme.colorScheme.background,
                 ) {
                     WeightTrainingTab.entries.forEach { tab ->
                         Tab(
@@ -441,11 +436,27 @@ fun WeightTrainingCategoryScreen(
                     heartRateExerciseSegments = segments,
                 )
                 if (session == null) {
+                    // Nothing was logged. Under a composed workout that means the athlete skipped
+                    // the whole section (every set/slot skipped or the section ended early):
+                    // record it as skipped and move the storyboard on instead of stranding the run.
+                    // A Weight Training routine (routineId set) is not that section.
+                    if (
+                        current.routineId == null &&
+                        workoutLaunch != null &&
+                        workoutRepository.currentState().activeRun != null
+                    ) {
+                        workoutRepository.skipLaunchedSection()
+                        liveWorkoutViewModel.clearDraft()
+                        onReturnToWorkoutRun(workoutLaunch.workoutId)
+                    }
                     return
                 }
                 val estimatedKcal = WeightCalorieEstimator.estimateKcal(session, fallbackBodyWeightKg)
                 val today = LocalDate.now()
-                val workoutRun = workoutRepository.currentState().activeRun?.takeIf { workoutLaunch != null }
+                // A routine saved in Weight Training has a routine id. Those sessions always
+                // end on the heart-rate summary, even if a storyboard run is also open.
+                val linkToComposedRun = workoutLaunch != null && current.routineId == null
+                val workoutRun = workoutRepository.currentState().activeRun?.takeIf { linkToComposedRun }
                 val storedSession = when {
                     activeUnifiedSession != null && activeUnifiedWeightBlockId != null -> {
                         val recap = unifiedState.sessionById(activeUnifiedSession.sessionId)
@@ -454,7 +465,7 @@ fun WeightTrainingCategoryScreen(
                             unifiedLink = recap?.linkFor(activeUnifiedWeightBlockId),
                         )
                     }
-                    workoutLaunch != null && workoutRun != null -> {
+                    linkToComposedRun && workoutLaunch != null && workoutRun != null -> {
                         session.copy(
                             estimatedKcal = estimatedKcal,
                             workoutLink = workoutRun.linkFor(workoutLaunch.segmentId, workoutLaunch.itemId),
@@ -463,34 +474,47 @@ fun WeightTrainingCategoryScreen(
                     else -> session.copy(estimatedKcal = estimatedKcal)
                 }
                 repository.addWorkout(today, storedSession)
-                if (activeUnifiedSession != null && activeUnifiedWeightBlockId != null) {
-                    unifiedRoutineRepository.attachLoggedBlock(
-                        routineId = activeUnifiedSession.routineId,
-                        blockId = activeUnifiedWeightBlockId,
-                        logDate = today.toString(),
-                        entryId = storedSession.id,
-                    )
-                }
-                when {
-                    activeUnifiedSession != null && activeUnifiedWeightBlockId != null -> {
-                        liveWorkoutViewModel.clearDraft()
-                        onReturnToUnifiedRun(activeUnifiedSession.routineId)
-                    }
-                    workoutLaunch != null -> {
-                        workoutRepository.completeLaunchedItem(
+                val unifiedSession = activeUnifiedSession
+                val unifiedBlockId = activeUnifiedWeightBlockId
+                try {
+                    if (unifiedSession != null && unifiedBlockId != null) {
+                        unifiedRoutineRepository.attachLoggedBlock(
+                            routineId = unifiedSession.routineId,
+                            blockId = unifiedBlockId,
                             logDate = today.toString(),
                             entryId = storedSession.id,
-                            kind = WorkoutLoggedItemKind.WEIGHT,
                         )
-                        liveWorkoutViewModel.clearDraft()
-                        onReturnToWorkoutRun(workoutLaunch.workoutId)
                     }
-                    else -> {
-                        liveWorkoutViewModel.clearDraft()
+                    when {
+                        unifiedSession != null && unifiedBlockId != null -> {
+                            liveWorkoutViewModel.clearDraft()
+                            onReturnToUnifiedRun(unifiedSession.routineId)
+                        }
+                        linkToComposedRun && workoutLaunch != null -> {
+                            workoutRepository.completeLaunchedItem(
+                                logDate = today.toString(),
+                                entryId = storedSession.id,
+                                kind = WorkoutLoggedItemKind.WEIGHT,
+                                skippedExerciseIds = current.skippedExerciseIds,
+                            )
+                            liveWorkoutViewModel.clearDraft()
+                            onReturnToWorkoutRun(workoutLaunch.workoutId)
+                        }
+                        else -> {
+                            liveWorkoutViewModel.clearDraft()
+                            completedSessionForSummary = storedSession
+                        }
+                    }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    // The session is already in the log. Leave the live screen either way so
+                    // Finish cannot strand the athlete on Discard.
+                    liveWorkoutViewModel.clearDraft()
+                    if (unifiedSession == null || unifiedBlockId == null) {
                         completedSessionForSummary = storedSession
                     }
                 }
-                pushDayLog(today)
             }
             val composedRun = activeWorkoutRun?.takeIf {
                 activeWorkoutWeightLaunch != null || expandedDraft.circuitRun != null
@@ -525,6 +549,14 @@ fun WeightTrainingCategoryScreen(
                         advance.workoutRunPosition?.let { workoutRepository.updateRunPosition(it) }
                     }
                 },
+                onSkipCircuitSlot = {
+                    scope.launch {
+                        val advance = liveWorkoutViewModel.skipCurrentCircuitSlot() ?: return@launch
+                        advance.workoutRunPosition?.let { workoutRepository.updateRunPosition(it) }
+                    }
+                },
+                onSkipExercise = { exerciseId -> liveWorkoutViewModel.skipExercise(exerciseId) },
+                allowFinishWithNothingLogged = composedRun != null && !isUnifiedBlock,
                 onCircuitSegmentComplete = {
                     scope.launch { persistFinishedLiveDraft() }
                 },
@@ -595,12 +627,16 @@ fun WeightTrainingCategoryScreen(
                             )
                             return@launch
                         }
-                        if (liveWorkoutViewModel.activeDraft.value?.toFinishedLiveSession() == null) {
+                        val nothingLogged = liveWorkoutViewModel.activeDraft.value?.toFinishedLiveSession() == null
+                        val composedSection = composedRun != null && !isUnifiedBlock
+                        if (nothingLogged && !composedSection) {
                             snackbarHostState.showSnackbar(
                                 appContext.getString(R.string.weight_live_finish_snackbar_nothing_to_save)
                             )
                             return@launch
                         }
+                        // Composed section with nothing logged: persistFinishedLiveDraft records
+                        // the section as skipped and returns to the storyboard.
                         persistFinishedLiveDraft()
                     }
                 },

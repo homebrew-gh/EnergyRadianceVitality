@@ -179,16 +179,56 @@ data class WorkoutLibraryState(
     val workouts: List<Workout> = emptyList(),
     val activeRun: WorkoutActiveRun? = null,
     val libraryUpdatedAtEpochSeconds: Long = 0L,
+    /**
+     * Delete markers: workout id to the epoch second it was deleted. Synced in the library index so
+     * other devices drop the workout instead of merging it back; see [withoutDeletedWorkouts].
+     */
+    val deletedWorkouts: Map<String, Long> = emptyMap(),
 ) {
     fun workoutById(id: String): Workout? = workouts.firstOrNull { it.id == id }
 }
 
+/** Delete markers older than this (relative to the library's last update) are dropped. */
+const val WORKOUT_DELETE_MARKER_RETENTION_SECONDS = 365L * 24 * 60 * 60
+
+/** A workout survives a delete marker only when it was edited after the delete. */
+fun List<Workout>.withoutDeletedWorkouts(deletedWorkouts: Map<String, Long>): List<Workout> =
+    if (deletedWorkouts.isEmpty()) {
+        this
+    } else {
+        filter { workout ->
+            val deletedAt = deletedWorkouts[workout.id] ?: return@filter true
+            workout.lastModifiedEpochSeconds > deletedAt
+        }
+    }
+
+/** Union of two marker maps, keeping the latest delete time per id. */
+fun mergeWorkoutDeleteMarkers(a: Map<String, Long>, b: Map<String, Long>): Map<String, Long> {
+    if (a.isEmpty()) return b
+    if (b.isEmpty()) return a
+    val merged = a.toMutableMap()
+    for ((id, deletedAt) in b) {
+        merged[id] = maxOf(merged[id] ?: deletedAt, deletedAt)
+    }
+    return merged
+}
+
 fun WorkoutLibraryState.sanitized(): WorkoutLibraryState {
-    val validActiveRun = activeRun?.takeIf { run -> workouts.any { it.id == run.workoutId } }
-    val fallbackLibraryUpdated = workouts.maxOfOrNull { it.lastModifiedEpochSeconds } ?: 0L
+    val liveWorkouts = workouts.withoutDeletedWorkouts(deletedWorkouts)
+    val validActiveRun = activeRun?.takeIf { run -> liveWorkouts.any { it.id == run.workoutId } }
+    val fallbackLibraryUpdated = maxOf(
+        liveWorkouts.maxOfOrNull { it.lastModifiedEpochSeconds } ?: 0L,
+        deletedWorkouts.values.maxOrNull() ?: 0L,
+    )
+    val updatedAt = maxOf(libraryUpdatedAtEpochSeconds, fallbackLibraryUpdated)
+    val retainedMarkers = deletedWorkouts.filterValues {
+        it >= updatedAt - WORKOUT_DELETE_MARKER_RETENTION_SECONDS
+    }
     return copy(
+        workouts = liveWorkouts,
         activeRun = validActiveRun,
-        libraryUpdatedAtEpochSeconds = maxOf(libraryUpdatedAtEpochSeconds, fallbackLibraryUpdated),
+        libraryUpdatedAtEpochSeconds = updatedAt,
+        deletedWorkouts = retainedMarkers,
     )
 }
 
@@ -218,6 +258,8 @@ data class WorkoutItemRecap(
     val linkedLogDate: String? = null,
     val linkedEntryId: String? = null,
     val finishedAtEpochSeconds: Long? = null,
+    /** Athlete skipped this step during the live run (short on time, not feeling well); nothing was logged. */
+    val skipped: Boolean = false,
 )
 
 @Serializable

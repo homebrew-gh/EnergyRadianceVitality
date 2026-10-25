@@ -1,5 +1,6 @@
 package com.erv.app.ui.navigation
 
+import com.erv.app.ui.theme.ervTopAppBarColors
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -313,6 +314,7 @@ fun ErvNavHost(
                 signer = signer,
                 onBack = { navController.popBackStack() },
                 onRelaysChanged = onRelaysChanged,
+                onPullRelayData = onPullRelayData,
                 showDeferNostrLoginEntry = showDeferNostrLoginEntry,
                 onRequestNostrLogin = onRequestNostrLogin,
                 onLogout = onLogout,
@@ -613,9 +615,8 @@ fun ErvNavHost(
                 relayPool = relayPool,
                 signer = signer,
                 onBack = { navController.popBackStack() },
-                onSaved = { workoutId ->
+                onSaved = {
                     navController.popBackStack()
-                    navController.navigate(Routes.workoutLibrary) { launchSingleTop = true }
                 },
             )
         }
@@ -1008,6 +1009,7 @@ private fun ComingSoonScreen(title: String, onBack: () -> Unit) {
     Scaffold(
         topBar = {
             TopAppBar(
+                colors = ervTopAppBarColors(),
                 title = { Text(title) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {

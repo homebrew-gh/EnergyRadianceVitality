@@ -24,6 +24,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -155,6 +156,7 @@ private fun HiitTimerBody(
     onAllIntervalsComplete: () -> Unit,
     onCancel: () -> Unit,
 ) {
+    val context = LocalContext.current
     var phase by remember(plan) { mutableStateOf(HiitPhase.PREP) }
     var intervalIndex by remember(plan) { mutableIntStateOf(1) }
     var remaining by remember(plan) { mutableIntStateOf(HiitPrepSeconds) }
@@ -163,12 +165,12 @@ private fun HiitTimerBody(
     LaunchedEffect(plan) {
         phase = HiitPhase.PREP
         intervalIndex = 1
-        playHiitSoftSegmentStartCue()
+        playHiitSoftSegmentStartCue(context)
         var prep = HiitPrepSeconds
         while (prep > 0) {
             remaining = prep
             if (prep in 1..min(5, HiitPrepSeconds)) {
-                playHiitWorkCountdownTickCue()
+                playHiitWorkCountdownTickCue(context)
             }
             delay(1_000L)
             prep--
@@ -177,26 +179,26 @@ private fun HiitTimerBody(
         while (interval <= plan.intervals) {
             phase = HiitPhase.WORK
             intervalIndex = interval
-            playHiitWorkSegmentStartCue()
+            playHiitWorkSegmentStartCue(context)
             var s = plan.workSeconds
             while (s > 0) {
                 remaining = s
                 if (s in 1..min(5, plan.workSeconds)) {
-                    playHiitWorkCountdownTickCue()
+                    playHiitWorkCountdownTickCue(context)
                 }
                 delay(1_000L)
                 s--
             }
-            playHiitWorkSegmentEndCue()
+            playHiitWorkSegmentEndCue(context)
             if (interval < plan.intervals && plan.restSeconds > 0) {
                 phase = HiitPhase.REST
                 intervalIndex = interval
-                playHiitSoftSegmentStartCue()
+                playHiitSoftSegmentStartCue(context)
                 var r = plan.restSeconds
                 while (r > 0) {
                     remaining = r
                     if (r in 1..min(5, plan.restSeconds)) {
-                        playHiitWorkCountdownTickCue()
+                        playHiitWorkCountdownTickCue(context)
                     }
                     delay(1_000L)
                     if (skipRest.getAndSet(false)) break

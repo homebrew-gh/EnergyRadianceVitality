@@ -1,6 +1,7 @@
 @file:OptIn(ExperimentalMaterial3Api::class)
 package com.erv.app.ui.settings
 
+import com.erv.app.ui.theme.ervTopAppBarColors
 import android.content.Intent
 import android.net.Uri
 import android.graphics.BitmapFactory
@@ -40,6 +41,7 @@ import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.Alignment
@@ -64,6 +66,9 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.erv.app.ui.components.FieldLabel
 import com.erv.app.ui.components.FormSectionLabel
+import com.erv.app.ui.components.RelayDataSocialExplainerCard
+import com.erv.app.ui.components.RelayMetadataDisclosureCard
+import com.erv.app.ui.components.RelaySelfHostedRecommendation
 import com.erv.app.ui.components.SectionHeader
 import com.erv.app.ui.components.titleCaseWords
 import com.erv.app.R
@@ -99,12 +104,17 @@ import com.erv.app.nostr.Nip65
 import com.erv.app.nostr.Nip96Uploader
 import com.erv.app.nostr.NipB7
 import com.erv.app.nostr.ProfileMetadata
+import com.erv.app.nostr.RelayConfigImport
+import com.erv.app.nostr.RelayConfigImportResult
 import com.erv.app.nostr.RelayPool
 import com.erv.app.nostr.RelayOutboxStatus
 import com.erv.app.nostr.RelayOutboxItemFailure
 import com.erv.app.nostr.RelayOutboxStatusStore
+import com.erv.app.nostr.OutboxPause
 import com.erv.app.nostr.RelayPublishOutbox
 import com.erv.app.nostr.RelayPublishOutbox.PendingItemStatus
+import com.erv.app.nostr.RelayRejectionKind
+import com.erv.app.nostr.ResyncPlan
 import com.erv.app.nostr.RelayUrls
 import com.erv.app.nostr.SettingsSync
 import com.erv.app.cardio.CardioRepository
@@ -177,6 +187,8 @@ fun SettingsScreen(
     signer: EventSigner?,
     onBack: () -> Unit,
     onRelaysChanged: () -> Unit = {},
+    /** Full relay pull + merge into local state; resync runs it first so it never uploads stale data. */
+    onPullRelayData: suspend () -> Unit = {},
     showDeferNostrLoginEntry: Boolean = false,
     onRequestNostrLogin: () -> Unit = {},
     onLogout: () -> Unit,
@@ -186,6 +198,19 @@ fun SettingsScreen(
     val pendingRelayUploadCount by remember(context.applicationContext) {
         RelayPublishOutbox.get(context.applicationContext).pendingCountFlow()
     }.collectAsState(initial = 0)
+    val relayOutboxPause by remember(context.applicationContext) {
+        RelayPublishOutbox.get(context.applicationContext).pauseFlow()
+    }.collectAsState(initial = null)
+    var nowEpochMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(relayOutboxPause) {
+        while (true) {
+            nowEpochMs = System.currentTimeMillis()
+            val until = relayOutboxPause?.untilEpochMs ?: break
+            if (until <= nowEpochMs) break
+            kotlinx.coroutines.delay((until - nowEpochMs).coerceIn(1_000L, 15_000L))
+        }
+    }
+    var lastResyncQueuedCount by rememberSaveable { mutableIntStateOf(0) }
     val relayOutboxStatus by remember(context.applicationContext) {
         RelayOutboxStatusStore.get(context.applicationContext).statusFlow()
     }.collectAsState(initial = RelayOutboxStatus())
@@ -242,7 +267,7 @@ fun SettingsScreen(
     val workoutMediaBackend by userPreferences.workoutMediaUploadBackend.collectAsState(
         initial = WorkoutMediaUploadBackend.NIP96
     )
-    val attachRouteToNostr by userPreferences.attachRouteImageToWorkoutNostrShare.collectAsState(initial = true)
+    val attachRouteToNostr by userPreferences.attachRouteImageToWorkoutNostrShare.collectAsState(initial = false)
     val neverPublishNip65RelayList by userPreferences.neverPublishNip65RelayList.collectAsState(initial = true)
     val trustSelfSignedLanTls by userPreferences.trustSelfSignedLanTls.collectAsState(initial = false)
     var nip96Draft by remember { mutableStateOf("") }
@@ -279,6 +304,7 @@ fun SettingsScreen(
     var newRelaySuffix by remember { mutableStateOf("") }
     var hasUnsavedChanges by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
+    var relayImporting by remember { mutableStateOf(false) }
 
     val snackbarHostState = remember { SnackbarHostState() }
     LaunchedEffect(snackbarMessage) {
@@ -611,12 +637,9 @@ fun SettingsScreen(
                     title = "Relays",
                     onBack = { nestedNav.popBackStack() }
                 ) {
-                    Text(
-                        "Tap Data (encrypted health activity) or Social (public posts) to set what each relay carries.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(bottom = 12.dp)
-                    )
+                    RelayDataSocialExplainerCard(modifier = Modifier.padding(bottom = 12.dp))
+                    RelaySelfHostedRecommendation(modifier = Modifier.padding(bottom = 12.dp))
+                    RelayMetadataDisclosureCard(modifier = Modifier.padding(bottom = 12.dp))
                     allRelays.forEach { url ->
                         RelayRow(
                             url = url,
@@ -645,7 +668,7 @@ fun SettingsScreen(
                     }
                     if (allRelays.isEmpty()) {
                         Text(
-                            "No relays configured. Add one below or fetch from network.",
+                            stringResource(R.string.settings_relays_empty_helper),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(vertical = 8.dp)
@@ -665,9 +688,49 @@ fun SettingsScreen(
                             }
                         }
                     )
+                    OutlinedButton(
+                        onClick = {
+                            if (relayPool == null || signer == null) return@OutlinedButton
+                            scope.launch {
+                                relayImporting = true
+                                try {
+                                    val result = RelayConfigImport.fetchAndApply(
+                                        keyManager = keyManager,
+                                        signer = signer,
+                                        userPreferences = userPreferences,
+                                        pool = relayPool,
+                                    )
+                                    relayRevision++
+                                    onRelaysChanged()
+                                    snackbarMessage = when (result) {
+                                        RelayConfigImportResult.NOT_CONNECTED ->
+                                            context.getString(R.string.settings_relays_import_not_connected)
+                                        RelayConfigImportResult.SETTINGS_APPLIED ->
+                                            context.getString(R.string.settings_relays_import_settings_ok)
+                                        RelayConfigImportResult.NOTHING_FOUND ->
+                                            context.getString(R.string.settings_relays_import_none)
+                                    }
+                                } finally {
+                                    relayImporting = false
+                                }
+                            }
+                        },
+                        enabled = !relayImporting && !saving && signer != null && relayPool != null && allRelays.isNotEmpty(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp),
+                    ) {
+                        Text(
+                            if (relayImporting) {
+                                stringResource(R.string.settings_relays_import_loading)
+                            } else {
+                                stringResource(R.string.settings_relays_import_from_network)
+                            },
+                        )
+                    }
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        "Social relays are imported automatically during relay setup.",
+                        stringResource(R.string.settings_relays_social_import_note),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -744,6 +807,14 @@ fun SettingsScreen(
                             }
                         )
                     }
+                    if (!neverPublishNip65RelayList) {
+                        Text(
+                            text = stringResource(R.string.settings_relays_publish_nip65_warning),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(bottom = 12.dp),
+                        )
+                    }
                     com.erv.app.ui.onboarding.RelaySelfSignedTlsRow(
                         checked = trustSelfSignedLanTls,
                         onCheckedChange = { enabled ->
@@ -772,11 +843,22 @@ fun SettingsScreen(
                                     items = pendingRelayItems,
                                     dataRelayUrls = dataRelayUrls,
                                     relayStates = relayStates,
+                                    pause = relayOutboxPause?.takeIf { it.untilEpochMs > nowEpochMs },
                                 ),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.padding(bottom = 6.dp)
                             )
+                            if (lastResyncQueuedCount > 0) {
+                                val uploaded = lastResyncQueuedCount -
+                                    pendingRelayUploadCount.coerceAtMost(lastResyncQueuedCount)
+                                Text(
+                                    "Resync progress: $uploaded of $lastResyncQueuedCount uploaded.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(bottom = 6.dp)
+                                )
+                            }
                             relayUploadDiagnosticsText(
                                 count = pendingRelayUploadCount,
                                 status = relayOutboxStatus,
@@ -800,7 +882,9 @@ fun SettingsScreen(
                             onClick = {
                                 scope.launch {
                                     relayResyncing = true
+                                    relayCoverageLoading = true
                                     try {
+                                        onPullRelayData()
                                         val localEntries = withContext(Dispatchers.IO) {
                                             CurrentRelayDataSync.buildCurrentEntries(
                                                 userPreferences = userPreferences,
@@ -815,47 +899,25 @@ fun SettingsScreen(
                 workoutRepository = workoutRepository,
             )
                                         }
-                                        val drain = withContext(Dispatchers.IO) {
-                                            CurrentRelayDataSync.forceResync(
+                                        val plan = withContext(Dispatchers.IO) {
+                                            CurrentRelayDataSync.reconcileAndQueue(
                                                 appContext = context.applicationContext,
-                                                relayPool = relayPool,
-                                                signer = signer,
-                                                dataRelayUrls = dataRelayUrls,
-                                                localEntries = localEntries,
-                                            )
-                                        }
-                                        snackbarMessage = buildString {
-                                            append("Queued ${localEntries.size} current relay payload(s).")
-                                            if (drain.publishedOk > 0 || drain.publishedFail > 0) {
-                                                append(" Sent ${drain.publishedOk} now")
-                                                if (drain.publishedFail > 0) {
-                                                    append(", ${drain.publishedFail} failed and will retry")
-                                                }
-                                                append('.')
-                                            }
-                                            if (drain.remaining > 0) {
-                                                append(" ${drain.remaining} payload(s) remain queued.")
-                                            }
-                                        }
-                                        relayCoverageLoading = true
-                                        relayCoverage = withContext(Dispatchers.IO) {
-                                            kotlinx.coroutines.delay(2500)
-                                            var coverage = CurrentRelayDataSync.probeCoverage(
                                                 signer = signer,
                                                 dataRelayUrls = dataRelayUrls,
                                                 localEntries = localEntries,
                                                 trustSelfSignedLanTls = trustSelfSignedLanTls,
                                             )
-                                            if (coverage.missingTags.isNotEmpty()) {
-                                                kotlinx.coroutines.delay(2500)
-                                                coverage = CurrentRelayDataSync.probeCoverage(
-                                                    signer = signer,
-                                                    dataRelayUrls = dataRelayUrls,
-                                                    localEntries = localEntries,
-                                                    trustSelfSignedLanTls = trustSelfSignedLanTls,
-                                                )
-                                            }
-                                            coverage
+                                        }
+                                        lastResyncQueuedCount = plan.queuedCount
+                                        snackbarMessage = resyncPlanMessage(plan)
+                                        if (plan.connectedRelayCount > 0) {
+                                            relayCoverage = CurrentRelayDataCoverage(
+                                                foundPayloadCount = plan.alreadyOnRelayCount,
+                                                totalPayloadCount = plan.checkedCount,
+                                                connectedRelayCount = plan.connectedRelayCount,
+                                                configuredRelayCount = plan.configuredRelayCount,
+                                                skippedEmptyLocalTags = plan.skippedEmptyLocalTags,
+                                            )
                                         }
                                     } catch (e: Exception) {
                                         snackbarMessage = "Resync failed: ${e.message}"
@@ -894,7 +956,7 @@ fun SettingsScreen(
                         onSaveBlossomServers = {
                             scope.launch {
                                 val pub = Nip96Uploader.normalizeMediaServerOrigin(blossomPublicDraft)
-                                val priv = Nip96Uploader.normalizeMediaServerOrigin(blossomPrivateDraft)
+                                val priv = BlossomEndpoints.normalizePrivateOrigin(blossomPrivateDraft)
                                 userPreferences.setBlossomPublicServerOrigin(pub)
                                 userPreferences.setBlossomPrivateServerOrigin(priv)
                                 blossomPublicDraft = pub
@@ -937,15 +999,48 @@ private fun relaySettingsSubtitle(count: Int): String {
     }
 }
 
+private fun resyncPlanMessage(plan: ResyncPlan): String {
+    if (plan.configuredRelayCount == 0) return "Add a data relay to resync."
+    if (plan.connectedRelayCount == 0) {
+        return "Could not reach a data relay, so nothing was checked or queued. Try again when it is connected."
+    }
+    if (plan.checkedCount == 0) return "Nothing to resync: no local data with content yet."
+    return buildString {
+        append("Checked ${plan.checkedCount}: ${plan.alreadyOnRelayCount} already on the relay")
+        append(if (plan.queuedCount == 0) ", nothing to upload." else ", ${plan.queuedCount} queued to upload.")
+        if (plan.unverifiedCount > 0) {
+            append(" ${plan.unverifiedCount} could not be checked because the relay did not finish answering; run Resync again.")
+        }
+    }
+}
+
+private fun formatPauseTime(epochMs: Long): String =
+    java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT).format(java.util.Date(epochMs))
+
 private fun relayUploadCurrentStateText(
     count: Int,
     status: RelayOutboxStatus,
     items: List<PendingItemStatus>,
     dataRelayUrls: List<String>,
     relayStates: Map<String, ConnectionState>,
+    pause: OutboxPause? = null,
 ): String {
     if (count <= 0) {
         return "Sent: no encrypted activity updates are waiting in the relay outbox."
+    }
+    if (pause != null) {
+        val at = formatPauseTime(pause.untilEpochMs)
+        when (pause.kind) {
+            RelayRejectionKind.RATE_LIMITED ->
+                return "Paused: the data relay is rate limiting uploads. $count waiting; ERV tries again at $at."
+            RelayRejectionKind.AUTH ->
+                return "Paused: the data relay refused ERV's authentication (${pause.message}). ERV tries again at $at; check the relay URL."
+            RelayRejectionKind.RESTRICTED ->
+                return "Paused: the data relay refused uploads from this account (${pause.message}). ERV tries again at $at."
+            RelayRejectionKind.OFFLINE ->
+                return "Queued: no data relay is connected. $count waiting; ERV retries when one reconnects."
+            else -> Unit
+        }
     }
     val connectedCount = dataRelayUrls.count { url ->
         relayStates[url].let { it is ConnectionState.Connected || it is ConnectionState.Authenticated }
@@ -1079,6 +1174,7 @@ private fun SettingsHomeScreen(
     Scaffold(
         topBar = {
             TopAppBar(
+                colors = ervTopAppBarColors(),
                 title = { Text("Settings") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -1320,6 +1416,7 @@ private fun SettingsSubScreenScaffold(
     Scaffold(
         topBar = {
             TopAppBar(
+                colors = ervTopAppBarColors(),
                 title = { Text(title) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {

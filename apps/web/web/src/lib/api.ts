@@ -35,6 +35,8 @@ export type AppDataListResponse = {
 export type AppDataRecord = {
   event_id: string;
   d_tag?: string | null;
+  /** Event `created_at` (unix seconds). */
+  created_at?: number;
   ciphertext: string;
   plaintext?: string | null;
   decrypt_error?: string | null;
@@ -74,6 +76,63 @@ export type RelaySettingsBody = {
 export type RelaySettings = {
   relay_url: string;
   relay_urls: string[];
+};
+
+export type AiProvider = "OFF" | "MAPLE" | "OPENAI_COMPAT";
+export type AiKeyMode = "PROXY_HELD" | "ERV_SEALED";
+export type AiContextLevel = "MINIMAL" | "STANDARD" | "FULL";
+
+export type DetectedAiEndpoint = {
+  label: string;
+  provider: string;
+  base_url: string;
+};
+
+export type AiSettings = {
+  enabled: boolean;
+  provider: AiProvider;
+  base_url: string;
+  key_mode: AiKeyMode;
+  api_key_masked: string | null;
+  has_sealed_api_key: boolean;
+  analysis_model_id: string;
+  generation_model_id: string;
+  context_level: AiContextLevel;
+  always_show_context_preview: boolean;
+  timeout_seconds: number;
+  detected_endpoints: DetectedAiEndpoint[];
+};
+
+export type AiSettingsUpdate = {
+  enabled: boolean;
+  provider: AiProvider;
+  base_url: string;
+  key_mode: AiKeyMode;
+  api_key?: string;
+  clear_api_key?: boolean;
+  analysis_model_id: string;
+  generation_model_id: string;
+  context_level: AiContextLevel;
+  always_show_context_preview: boolean;
+};
+
+export type AiTestRequest = {
+  base_url: string;
+  key_mode: AiKeyMode;
+  api_key?: string;
+};
+
+export type AiTestResult = {
+  reachable: boolean;
+  health_ok: boolean;
+  auth_ok: boolean;
+  models: string[];
+  error?: string | null;
+};
+
+export type AiModelsResult = {
+  models: string[];
+  error?: string | null;
 };
 
 export type UnlockBody = {
@@ -165,6 +224,12 @@ export const api = {
       method: "PUT",
       json: body,
     }),
+  getAiSettings: () => request<AiSettings>("/api/ai/settings"),
+  updateAiSettings: (body: AiSettingsUpdate) =>
+    request<AiSettings>("/api/ai/settings", { method: "PUT", json: body }),
+  testAiConnection: (body: AiTestRequest) =>
+    request<AiTestResult>("/api/ai/test", { method: "POST", json: body }),
+  aiModels: () => request<AiModelsResult>("/api/ai/models"),
   listAppData: () => request<AppDataListResponse>("/api/nostr/app-data"),
   publishAppData: (body: { d_tag: string; plaintext: string }) =>
     request<{ event_id: string }>("/api/nostr/app-data", {

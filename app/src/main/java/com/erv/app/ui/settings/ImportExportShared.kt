@@ -1,5 +1,6 @@
 package com.erv.app.ui.settings
 
+import com.erv.app.ui.theme.ervTopAppBarColors
 import android.content.Context
 import android.content.Intent
 import androidx.compose.animation.AnimatedVisibility
@@ -264,6 +265,7 @@ fun SettingsImportDocViewerScreen(
     Scaffold(
         topBar = {
             TopAppBar(
+                colors = ervTopAppBarColors(),
                 title = { Text(ImportExportDocAssets.titleForKey(docKey)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {

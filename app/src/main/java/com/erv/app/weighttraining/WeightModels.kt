@@ -340,6 +340,8 @@ data class WeightWorkoutCircuitRun(
     val lastAcknowledgedSlotKey: String? = null,
     val pendingRestSeconds: Int? = null,
     val isComplete: Boolean = false,
+    /** `circuitSlotKey(round, slot)` entries the athlete skipped without logging. */
+    val skippedSlotKeys: List<String> = emptyList(),
 )
 
 /** Live workout draft (local only; not synced to Nostr). Persisted while a session is active. */
@@ -358,6 +360,11 @@ data class WeightWorkoutDraft(
     val restBetweenSetsSecondsByExerciseId: Map<String, Int> = emptyMap(),
     /** Per-exercise get-ready countdown before each timed set (seconds); 0 = none. */
     val timedPrepSecondsByExerciseId: Map<String, Int> = emptyMap(),
+    /**
+     * Exercises the athlete skipped during this live session (removed from [exerciseOrder]).
+     * Used so a composed-workout section can mark the matching storyboard items as skipped.
+     */
+    val skippedExerciseIds: List<String> = emptyList(),
 )
 
 /** Get-ready seconds before a timed set; falls back to [DEFAULT_TIMED_PREP_SECONDS] for time-only exercises. */

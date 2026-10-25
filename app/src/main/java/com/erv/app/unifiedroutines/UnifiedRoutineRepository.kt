@@ -1,6 +1,9 @@
 package com.erv.app.unifiedroutines
 
 import android.content.Context
+import com.erv.app.nostr.SessionMediaBackupRuntime
+import java.time.Instant
+import java.time.ZoneId
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
@@ -186,6 +189,8 @@ class UnifiedRoutineRepository(context: Context) {
     }
 
     suspend fun finishSession(routineId: String, heartRate: com.erv.app.cardio.CardioHrScaffolding?) {
+        val active = currentState().activeSession ?: return
+        if (active.routineId != routineId) return
         updateState { state ->
             val session = state.activeSession ?: return@updateState state
             if (session.routineId != routineId) return@updateState state
@@ -199,6 +204,18 @@ class UnifiedRoutineRepository(context: Context) {
                     )
                 },
                 activeSession = null
+            )
+        }
+        if (heartRate != null) {
+            val dateIso = Instant.ofEpochSecond(active.startedAtEpochSeconds)
+                .atZone(ZoneId.systemDefault())
+                .toLocalDate()
+                .toString()
+            SessionMediaBackupRuntime.scheduleHeartRateGraph(
+                appContext = appContext,
+                localId = active.sessionId,
+                dateIso = dateIso,
+                heartRate = heartRate,
             )
         }
     }

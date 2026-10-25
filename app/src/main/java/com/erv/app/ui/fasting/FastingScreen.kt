@@ -1,5 +1,6 @@
 package com.erv.app.ui.fasting
 
+import com.erv.app.ui.theme.ervTopAppBarColors
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -85,7 +86,6 @@ import com.erv.app.fasting.progress
 import com.erv.app.fasting.remainingSeconds
 import com.erv.app.ui.dashboard.SectionLogCalendarSheet
 import com.erv.app.ui.dashboard.SectionLogFilterBar
-import com.erv.app.ui.theme.ErvHeaderRed
 import java.time.LocalDate
 import java.time.Instant
 import java.time.ZoneId
@@ -137,12 +137,7 @@ fun FastingScreen(
                         Icon(Icons.Default.DateRange, contentDescription = "Open log")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = ErvHeaderRed,
-                    titleContentColor = Color.White,
-                    navigationIconContentColor = Color.White,
-                    actionIconContentColor = Color.White,
-                ),
+                colors = ervTopAppBarColors(),
             )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -460,12 +455,7 @@ fun FastingLogScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = ErvHeaderRed,
-                    titleContentColor = Color.White,
-                    navigationIconContentColor = Color.White,
-                    actionIconContentColor = Color.White,
-                ),
+                colors = ervTopAppBarColors(),
             )
         },
     ) { padding ->

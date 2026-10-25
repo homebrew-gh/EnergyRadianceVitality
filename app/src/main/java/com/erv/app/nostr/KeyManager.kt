@@ -119,50 +119,28 @@ class KeyManager(context: Context) {
     /** All relays (data + social), deduplicated. */
     fun allRelayUrls(): List<String> = savedRelayUrls
 
-    private fun activeRelayUrls(): List<String> = (relayUrls + socialRelayUrls).distinct()
-
     /**
      * Relays that receive kind **30078** (encrypted activity backup).
      * When [relayUrls] is non-empty, only those relays get the ciphertext (social-only relays do not).
-     * When [relayUrls] is empty, falls back to all saved URLs then [relayUrlsForPool] for legacy setups.
+     * When [relayUrls] is empty, falls back to any relay with an assigned role (data or social).
      */
-    fun relayUrlsForKind30078Publish(): List<String> {
-        val data = relayUrls
-        if (data.isNotEmpty()) return data
-        val active = activeRelayUrls()
-        return when {
-            active.isNotEmpty() -> active
-            allRelayUrls().isEmpty() -> relayUrlsForPool()
-            else -> emptyList()
-        }
-    }
+    fun relayUrlsForKind30078Publish(): List<String> =
+        RelayPublishTargets.relayUrlsForKind30078Publish(relayUrls, socialRelayUrls)
 
     /**
      * Public profile metadata (kind **0**) should reach both data and social relays so other clients
      * can discover it regardless of which relay set they read from.
      */
-    fun relayUrlsForKind0Publish(): List<String> {
-        val active = activeRelayUrls()
-        return when {
-            active.isNotEmpty() -> active
-            allRelayUrls().isEmpty() -> relayUrlsForPool()
-            else -> emptyList()
-        }
-    }
+    fun relayUrlsForKind0Publish(): List<String> =
+        RelayPublishTargets.activeRelayUrls(relayUrls, socialRelayUrls)
 
-    /**
-     * Relays to open on the [RelayPool]. Uses only what the user has saved when non-empty.
-     * When empty (e.g. Amber before NIP-65), returns [DEFAULT_RELAYS] for connectivity only —
-     * nothing is written to preferences.
-     */
-    fun relayUrlsForPool(): List<String> {
-        val active = activeRelayUrls()
-        return when {
-            active.isNotEmpty() -> active
-            allRelayUrls().isEmpty() -> DEFAULT_RELAYS
-            else -> emptyList()
-        }
-    }
+    /** Relays to open on the [RelayPool] — only URLs the user has configured (never a baked-in public list). */
+    fun relayUrlsForPool(): List<String> =
+        RelayPublishTargets.activeRelayUrls(relayUrls, socialRelayUrls)
+
+    /** Relays that receive kind **1** public workout shares. Data-only relays never get these notes. */
+    fun relayUrlsForKind1Publish(): List<String> =
+        RelayPublishTargets.relayUrlsForKind1Publish(socialRelayUrls)
 
     fun isDataRelay(url: String): Boolean = url in relayUrls
     fun isSocialRelay(url: String): Boolean = url in socialRelayUrls
@@ -236,11 +214,7 @@ class KeyManager(context: Context) {
         loginMethod = LOGIN_NSEC
     }
 
-    /**
-     * Generate a fresh Nostr key pair, store it, and persist [DEFAULT_RELAYS] so the user
-     * can publish encrypted data immediately. Imported nsec ([loginWithNsec]) does not do this;
-     * it relies on NIP-65 / settings, then [populateDefaultRelaysIfStillEmpty].
-     */
+    /** Generate a fresh Nostr key pair and store it. Relay setup is a separate onboarding step. */
     fun generateKeys(): String {
         val privKey = secureRandomBytes(32)
         require(Secp256k1.secKeyVerify(privKey)) { "Generated invalid key (astronomically unlikely); try again" }
@@ -251,22 +225,7 @@ class KeyManager(context: Context) {
         nsecHex = Hex.encode(privKey)
         publicKeyHex = pubHex
         loginMethod = LOGIN_NSEC
-        populateDefaultRelays()
         return Bech32.nsecEncode(privKey)
-    }
-
-    /**
-     * After NIP-65 / settings fetch during post-login: persist [DEFAULT_RELAYS] only if nothing was loaded.
-     */
-    fun populateDefaultRelaysIfStillEmpty() {
-        if (allRelayUrls().isEmpty()) populateDefaultRelays()
-    }
-
-    private fun populateDefaultRelays() {
-        DEFAULT_RELAYS.forEach { url ->
-            addRelay(url)
-            addSocialRelay(url)
-        }
     }
 
     /**
@@ -327,11 +286,5 @@ class KeyManager(context: Context) {
 
         const val LOGIN_NSEC = "nsec"
         const val LOGIN_AMBER = "amber"
-
-        val DEFAULT_RELAYS = listOf(
-            "wss://relay.damus.io",
-            "wss://nos.lol",
-            "wss://relay.nostr.band"
-        )
     }
 }

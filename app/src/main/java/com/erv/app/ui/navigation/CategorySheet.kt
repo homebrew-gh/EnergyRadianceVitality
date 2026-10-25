@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.ui.Alignment
 import com.erv.app.ui.layout.ErvAdaptiveGrid
+import com.erv.app.ui.theme.ervCategoryAccent
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.DirectionsRun
 import androidx.compose.material.icons.filled.*
@@ -114,7 +115,8 @@ fun CategorySheet(
                                     onClick = { onCategoryClick(cat) },
                                     modifier = Modifier.fillMaxSize(),
                                     secondaryIcon = cat.iconSecondary,
-                                    implemented = cat.isImplemented()
+                                    implemented = cat.isImplemented(),
+                                    accent = ervCategoryAccent(cat.id),
                                 )
                             }
                         }

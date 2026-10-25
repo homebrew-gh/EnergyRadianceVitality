@@ -18,9 +18,12 @@ use tower_http::services::ServeDir;
 use tower_http::set_header::SetResponseHeaderLayer;
 use tower_http::trace::TraceLayer;
 
+use crate::ai_queue::AiQueue;
+use crate::ai_relay::{ai_status, cancel_ai, complete_ai, stream_ai};
+use crate::ai_routes::{get_ai_models, get_ai_settings, put_ai_settings, test_ai_connection};
 use crate::blossom::{
     allowed_blossom_origins, blossom_origin_from_relay_url, check_blossom_status,
-    fetch_blossom_blob, is_allowed_blossom_blob_url,
+    fetch_blossom_blob, resolve_blossom_blob_fetch_url,
 };
 use crate::config::{
     detected_relay_label, detected_relay_url, detected_relays, normalize_relay_url,
@@ -30,8 +33,8 @@ use crate::crypto::{open as crypto_open, seal};
 use crate::error::{AppError, AppResult};
 use crate::erv_tags::{is_erv_d_tag, is_erv_publishable_d_tag};
 use crate::nostr_support::{
-    build_app_data_event, decrypt_from_self, encrypt_to_self, fetch_decrypted_app_data, parse_nsec,
-    KeyIdentity,
+    build_app_data_event, decrypt_from_self, encrypt_to_self, fetch_decrypted_app_data,
+    nsec_belongs_to_npub, parse_nsec, KeyIdentity,
 };
 use crate::outbox::{Outbox, OutboxStatus};
 use crate::rate_limit::AttemptLimiter;
@@ -46,6 +49,9 @@ pub struct AppState {
     pub cookie_key: Key,
     pub outbox: Outbox,
     pub recovery_limiter: AttemptLimiter,
+    pub http: reqwest::Client,
+    pub ai_queue: AiQueue,
+    pub model_cache: Arc<Mutex<Vec<String>>>,
 }
 
 pub async fn build_router(cfg: Config) -> anyhow::Result<Router> {
@@ -53,6 +59,11 @@ pub async fn build_router(cfg: Config) -> anyhow::Result<Router> {
     let cookie_key = Key::from(&cfg.cookie_signing_key);
     let sessions = SessionStore::new(cfg.session_idle);
 
+    let http = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(180))
+        .redirect(reqwest::redirect::Policy::limited(2))
+        .build()
+        .map_err(|err| anyhow::anyhow!("build ai http client: {err}"))?;
     let state = AppState {
         cfg: cfg.clone(),
         sessions,
@@ -60,6 +71,9 @@ pub async fn build_router(cfg: Config) -> anyhow::Result<Router> {
         cookie_key,
         outbox: Outbox::new(),
         recovery_limiter: AttemptLimiter::new(5, Duration::from_secs(15 * 60)),
+        http,
+        ai_queue: AiQueue::new(),
+        model_cache: Arc::new(Mutex::new(Vec::new())),
     };
 
     let assets_service = ServeDir::new(cfg.static_dir.join("assets"));
@@ -74,6 +88,13 @@ pub async fn build_router(cfg: Config) -> anyhow::Result<Router> {
         .route("/auth/lock", post(auth_lock))
         .route("/auth/wipe", post(auth_wipe))
         .route("/settings/relay", get(get_relay).put(put_relay))
+        .route("/ai/settings", get(get_ai_settings).put(put_ai_settings))
+        .route("/ai/test", post(test_ai_connection))
+        .route("/ai/models", get(get_ai_models))
+        .route("/ai/complete", post(complete_ai))
+        .route("/ai/stream", post(stream_ai))
+        .route("/ai/cancel", post(cancel_ai))
+        .route("/ai/status", get(ai_status))
         .route("/crypto/nip44/encrypt-self", post(nip44_encrypt_self))
         .route("/crypto/nip44/decrypt-self", post(nip44_decrypt_self))
         .route("/nostr/app-data", get(list_app_data).post(publish_app_data))
@@ -241,10 +262,14 @@ async fn auth_unlock(
 #[derive(Deserialize)]
 pub struct RecoverBody {
     nsec: String,
-    #[serde(default)]
+    /// Empty leaves the nsec stored without a passphrase. `new_passphrase` is the
+    /// name the unlock screen used before passphrases became optional.
+    #[serde(default, alias = "new_passphrase")]
     passphrase: String,
 }
 
+/// Unlock by proving possession of the stored nsec, then store it again with the
+/// given passphrase (or none) and sign out every other session.
 async fn auth_recover(
     State(s): State<AppState>,
     jar: SignedCookieJar,
@@ -277,23 +302,33 @@ async fn auth_recover(
             "no state to recover; run setup first".into(),
         ));
     }
-    if let Some(existing) = p.npub.as_deref() {
-        if existing != identity.npub {
-            s.recovery_limiter.record_failure();
-            tracing::warn!("nsec recovery failed: identity mismatch");
-            return Err(AppError::BadRequest(
-                "nsec does not match this companion".into(),
-            ));
-        }
+    let Some(existing) = p.npub.as_deref() else {
+        return Err(AppError::BadRequest(
+            "this companion has no stored public key to match; wipe and set up again".into(),
+        ));
+    };
+    if !nsec_belongs_to_npub(&body.nsec, existing).unwrap_or(false) {
+        s.recovery_limiter.record_failure();
+        tracing::warn!("nsec recovery failed: identity mismatch");
+        return Err(AppError::BadRequest(
+            "nsec does not match this companion".into(),
+        ));
     }
 
     persist_nsec(&mut p, &body.nsec, passphrase, &identity)?;
     p.save(&s.cfg.state_path()).map_err(AppError::Internal)?;
+    drop(p);
     s.recovery_limiter.reset();
 
+    if let Some(c) = jar.get(SESSION_COOKIE) {
+        s.sessions.close(c.value()).await;
+    }
+    s.sessions.close_all().await;
     let secret = zeroize::Zeroizing::new(body.nsec.clone().into_bytes());
     let sid = s.sessions.open(secret, identity).await;
     let jar = jar.add(session_cookie(sid, s.cfg.cookie_secure));
+
+    let p = s.persistent.lock().await;
     Ok((jar, Json(auth_status_from(&p, true))))
 }
 
@@ -460,6 +495,8 @@ struct BlossomStatusResponse {
 #[derive(Deserialize)]
 struct BlossomBlobQuery {
     url: String,
+    #[serde(default)]
+    sha256: Option<String>,
 }
 
 async fn relay_connection(
@@ -537,18 +574,8 @@ async fn blossom_blob(
     require_unlocked(&s, &jar).await?;
     let relay_urls = configured_relay_urls(&s).await?;
     let allowed = allowed_blossom_origins(&relay_urls);
-    if allowed.is_empty() {
-        return Err(AppError::BadRequest(
-            "No Blossom origin can be derived from the configured relay.".into(),
-        ));
-    }
-    if !is_allowed_blossom_blob_url(&query.url, &allowed) {
-        return Err(AppError::BadRequest(
-            "Blob URL is not under the configured Blossom origin.".into(),
-        ));
-    }
-
-    let blob_url = query.url.clone();
+    let blob_url = resolve_blossom_blob_fetch_url(&query.url, query.sha256.as_deref(), &allowed)
+        .map_err(AppError::BadRequest)?;
     let accept_invalid_tls = s.cfg.insecure_relay_tls.unwrap_or(false);
     let fetched =
         tokio::task::spawn_blocking(move || fetch_blossom_blob(&blob_url, accept_invalid_tls))
@@ -1114,6 +1141,9 @@ mod tests {
                 cookie_key,
                 outbox: Outbox::new(),
                 recovery_limiter: AttemptLimiter::new(2, Duration::from_secs(60)),
+                http: reqwest::Client::new(),
+                ai_queue: AiQueue::new(),
+                model_cache: Arc::new(Mutex::new(Vec::new())),
             };
             Router::new()
                 .nest(

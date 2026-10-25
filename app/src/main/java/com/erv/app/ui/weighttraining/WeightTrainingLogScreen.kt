@@ -1,5 +1,6 @@
 package com.erv.app.ui.weighttraining
 
+import com.erv.app.ui.theme.ervTopAppBarColors
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -38,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import com.erv.app.data.BodyWeightUnit
 import com.erv.app.data.UserPreferences
 import com.erv.app.nostr.EventSigner
+import com.erv.app.ui.components.WorkoutKind1SharePreviewDialog
 import com.erv.app.nostr.LibraryStateMerge
 import com.erv.app.nostr.LocalKeyManager
 import com.erv.app.ui.components.SectionLogRelayResyncIconButton
@@ -50,7 +52,6 @@ import com.erv.app.ui.dashboard.datesWithWeightActivity
 import com.erv.app.ui.theme.ErvDarkTherapyRedDark
 import com.erv.app.ui.theme.ErvDarkTherapyRedGlow
 import com.erv.app.ui.theme.ErvDarkTherapyRedMid
-import com.erv.app.ui.theme.ErvHeaderRed
 import com.erv.app.ui.theme.ErvLightTherapyRedDark
 import com.erv.app.ui.theme.ErvLightTherapyRedGlow
 import com.erv.app.ui.theme.ErvLightTherapyRedMid
@@ -112,6 +113,9 @@ fun WeightTrainingLogScreen(
     val headerGlow = if (darkTheme) ErvDarkTherapyRedGlow else ErvLightTherapyRedGlow
     val headerMid = if (darkTheme) ErvDarkTherapyRedMid else ErvLightTherapyRedMid
     val keyManager = LocalKeyManager.current
+    val kind1ShareSuccessMsg = stringResource(R.string.kind1_share_success)
+    val kind1NoSocialMsg = stringResource(R.string.kind1_share_no_social_relays)
+    val kind1FailureMsg = stringResource(R.string.kind1_share_failed)
     val appContext = LocalContext.current.applicationContext
     val dayLogRelayEntries = remember(state) { WeightSync.dayLogOutboxEntries(state) }
 
@@ -230,14 +234,9 @@ fun WeightTrainingLogScreen(
                         dayLogEntries = dayLogRelayEntries,
                         snackbarHostState = snackbarHostState,
                         scope = scope,
-                        contentColor = Color.White,
                     )
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = ErvHeaderRed,
-                    titleContentColor = Color.White,
-                    navigationIconContentColor = Color.White
-                )
+                colors = ervTopAppBarColors()
             )
         },
         floatingActionButton = {
@@ -295,10 +294,22 @@ fun WeightTrainingLogScreen(
 
     nostrWeightShare?.let { (shareDate, shareSession) ->
         var extraHashtags by remember(shareDate, shareSession.id) { mutableStateOf("") }
-        AlertDialog(
-            onDismissRequest = { nostrWeightShare = null },
-            title = { Text(stringResource(R.string.workout_share_dialog_title)) },
-            text = {
+        var sharePublishing by remember(shareDate, shareSession.id) { mutableStateOf(false) }
+        val previewContent = remember(shareDate, shareSession, extraHashtags, state, loadUnit) {
+            buildWeightWorkoutKind1Draft(
+                session = shareSession,
+                library = state,
+                logDate = shareDate,
+                displayUnit = loadUnit,
+                hashtagsInput = extraHashtags,
+            ).content
+        }
+        WorkoutKind1SharePreviewDialog(
+            content = previewContent,
+            socialRelayUrls = keyManager.relayUrlsForKind1Publish(),
+            confirming = sharePublishing,
+            onDismiss = { if (!sharePublishing) nostrWeightShare = null },
+            headerContent = {
                 OutlinedTextField(
                     value = extraHashtags,
                     onValueChange = { extraHashtags = it },
@@ -308,42 +319,39 @@ fun WeightTrainingLogScreen(
                     supportingText = {
                         Text(
                             stringResource(R.string.workout_share_extra_hashtags_helper),
-                            style = MaterialTheme.typography.bodySmall
+                            style = MaterialTheme.typography.bodySmall,
                         )
                     },
                     minLines = 2,
-                    maxLines = 4
+                    maxLines = 4,
                 )
             },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        val d = shareDate
-                        val s = shareSession
-                        val input = extraHashtags
-                        nostrWeightShare = null
-                        scope.launch {
-                            if (relayPool != null && signer != null) {
-                                val ok = publishWeightWorkoutNote(
-                                    relayPool,
-                                    signer,
-                                    s,
-                                    state,
-                                    d,
-                                    loadUnit,
-                                    input
-                                )
-                                snackbarHostState.showSnackbar(
-                                    if (ok) "Shared to your relays!" else "Failed to share — check relay connection"
-                                )
-                            }
-                        }
+            onConfirm = {
+                val d = shareDate
+                val s = shareSession
+                val input = extraHashtags
+                sharePublishing = true
+                scope.launch {
+                    if (relayPool != null && signer != null) {
+                        val result = publishWeightWorkoutNote(
+                            relayPool = relayPool,
+                            keyManager = keyManager,
+                            signer = signer,
+                            session = s,
+                            library = state,
+                            logDate = d,
+                            displayUnit = loadUnit,
+                            hashtagsInput = input,
+                            successMessage = kind1ShareSuccessMsg,
+                            noSocialRelaysMessage = kind1NoSocialMsg,
+                            failureMessage = kind1FailureMsg,
+                        )
+                        snackbarHostState.showSnackbar(result.userMessage)
+                        if (result.ok) nostrWeightShare = null
                     }
-                ) { Text("Share") }
+                    sharePublishing = false
+                }
             },
-            dismissButton = {
-                TextButton(onClick = { nostrWeightShare = null }) { Text("Cancel") }
-            }
         )
     }
 

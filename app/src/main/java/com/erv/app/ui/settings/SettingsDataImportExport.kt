@@ -2,6 +2,7 @@
 
 package com.erv.app.ui.settings
 
+import com.erv.app.ui.theme.ervTopAppBarColors
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -492,6 +493,7 @@ fun SettingsDataImportExportScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
+                colors = ervTopAppBarColors(),
                 title = { Text("Data Interchange + Backup") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {

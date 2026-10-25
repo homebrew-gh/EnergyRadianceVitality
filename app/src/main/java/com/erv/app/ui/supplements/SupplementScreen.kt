@@ -2,6 +2,7 @@
 
 package com.erv.app.ui.supplements
 
+import com.erv.app.ui.theme.ervTopAppBarColors
 import android.Manifest
 import com.erv.app.ui.components.FormSectionLabel
 import com.erv.app.ui.components.FormSectionLabelMedium
@@ -88,7 +89,7 @@ import com.erv.app.supplements.datedSupplementEntriesForSectionLog
 import com.erv.app.ui.dashboard.SectionLogCalendarSheet
 import com.erv.app.ui.dashboard.SectionLogFilterBar
 import com.erv.app.ui.dashboard.datesWithSupplementActivity
-import com.erv.app.ui.theme.ErvHeaderRed
+import com.erv.app.ui.theme.ErvSessionRed
 import com.erv.app.ui.theme.ErvLightTherapyRedMid
 import kotlinx.coroutines.launch
 import java.util.UUID
@@ -100,7 +101,6 @@ import java.util.Locale
 private enum class SupplementsTab { Supplements, Routines }
 
 // Match Light Therapy header color scheme: lighter red top bar, darker wine tab row
-private val SupplementRedDark = Color(0xFF4A0E0E)
 private val SupplementRedMid = Color(0xFF8B0000)
 
 private val SupplementLogFriendlyDate: DateTimeFormatter =
@@ -229,12 +229,7 @@ fun SupplementCategoryScreen(
                         Icon(Icons.Default.DateRange, contentDescription = "Open log")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = ErvHeaderRed,
-                    titleContentColor = Color.White,
-                    actionIconContentColor = Color.White,
-                    navigationIconContentColor = Color.White
-                )
+                colors = ervTopAppBarColors()
             )
         }
     ) { padding ->
@@ -246,8 +241,7 @@ fun SupplementCategoryScreen(
             ) {
                 TabRow(
                     selectedTabIndex = activeTab,
-                    containerColor = SupplementRedDark,
-                    contentColor = Color.White
+                    containerColor = MaterialTheme.colorScheme.background,
                 ) {
                     SupplementsTab.entries.forEachIndexed { index, tab ->
                         Tab(
@@ -384,7 +378,7 @@ fun SupplementCategoryScreen(
             }
             if (showBarcodeScanner) {
                 SupplementBarcodeScannerScreen(
-                    headerColor = ErvHeaderRed,
+                    headerColor = ErvSessionRed,
                     onBarcode = { code ->
                         showBarcodeScanner = false
                         scope.launch {
@@ -827,7 +821,6 @@ fun SupplementLogScreen(
     val datesWithActivity = remember(state) { datesWithSupplementActivity(state) }
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
-    val headerMid = ErvHeaderRed
     val keyManager = LocalKeyManager.current
     val logAppContext = LocalContext.current.applicationContext
 
@@ -857,11 +850,7 @@ fun SupplementLogScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = headerMid,
-                    titleContentColor = Color.White,
-                    navigationIconContentColor = Color.White
-                )
+                colors = ervTopAppBarColors()
             )
         }
     ) { padding ->
@@ -1702,11 +1691,7 @@ fun SupplementDetailScreen(
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                         }
                     },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = ErvHeaderRed,
-                        titleContentColor = Color.White,
-                        navigationIconContentColor = Color.White
-                    )
+                    colors = ervTopAppBarColors()
                 )
             }
         ) { padding ->
@@ -1769,12 +1754,7 @@ fun SupplementDetailScreen(
                         Icon(Icons.Default.Delete, contentDescription = "Delete supplement")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = ErvHeaderRed,
-                    titleContentColor = Color.White,
-                    actionIconContentColor = Color.White,
-                    navigationIconContentColor = Color.White
-                )
+                colors = ervTopAppBarColors()
             )
         }
     ) { padding ->

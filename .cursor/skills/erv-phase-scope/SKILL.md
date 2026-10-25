@@ -53,7 +53,14 @@ From [`CONTRIBUTING.md`](../../CONTRIBUTING.md): health categories (Stretching, 
 | Android workout UI | `app/.../ui/workouts/` |
 | Planner merge plan | `docs/architecture/PROGRAMS_AND_WORKOUTS_MERGE_AND_AI.md` |
 | Pre-AI athlete context | `docs/architecture/ATHLETE_CONTEXT_WEB_PREP.md` |
+| Phase 4 AI coach (Maple Proxy, web/Start9 only) | `docs/architecture/AI_COACH_MAPLE_INTEGRATION.md` |
 | Start9 checklist | `docs/architecture/START9_COMPANION_V1.md` |
+
+## Checklist ownership
+
+`PHASES.md` holds status summaries only. Each spec owns the checkboxes for its initiative
+(owner table at the top of `PHASES.md`). When work lands: tick the box in the **owning** spec,
+then update the one-line status in `PHASES.md`. Never copy a checklist into a second file.
 
 ## Before implementing
 

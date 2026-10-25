@@ -15,6 +15,10 @@ private fun matchesLocale(voice: Voice, locale: Locale): Boolean {
     return true
 }
 
+private fun isVoiceUsableOffline(voice: Voice): Boolean =
+    !voice.isNetworkConnectionRequired &&
+        !voice.features.contains(TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED)
+
 /**
  * Best-effort gender hint from voice name and [Voice.getFeatures] (Google and other engines vary).
  * Returns null when unknown.
@@ -72,14 +76,23 @@ fun applyStretchGuidedTtsVoice(tts: TextToSpeech, locale: Locale, pref: StretchG
             }
         }
         StretchGuidedTtsVoice.PREFER_FEMALE, StretchGuidedTtsVoice.PREFER_MALE -> {
-            val voices = tts.voices ?: return
-            val candidates = voices.filter { matchesLocale(it, appliedLocale) }
-                .ifEmpty { voices.filter { it.locale.language == appliedLocale.language } }
+            val voices = try {
+                tts.voices ?: return
+            } catch (_: Exception) {
+                return
+            }
+            // Network-only or not-yet-downloaded voices produce silence (or an error) when offline;
+            // only fall back to them if nothing else matches the locale.
+            val usable = voices.filter { isVoiceUsableOffline(it) }.ifEmpty { voices }
+            val candidates = usable.filter { matchesLocale(it, appliedLocale) }
+                .ifEmpty { usable.filter { it.locale.language == appliedLocale.language } }
             if (candidates.isEmpty()) return
             val wantFemale = pref == StretchGuidedTtsVoice.PREFER_FEMALE
             val wanted = if (wantFemale) "female" else "male"
             val preferred = candidates.filter { voiceGenderHint(it) == wanted }
-            val chosen = preferred.firstOrNull() ?: candidates.firstOrNull()
+            val chosen = (preferred.ifEmpty { candidates })
+                .sortedWith(compareByDescending<Voice> { it.quality }.thenBy { it.latency })
+                .firstOrNull()
             chosen?.let { tts.setVoice(it) }
         }
     }

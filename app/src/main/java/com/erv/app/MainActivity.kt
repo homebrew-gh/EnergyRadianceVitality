@@ -30,7 +30,6 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.erv.app.ui.components.FieldLabel
 import com.erv.app.data.ThemeMode
@@ -75,12 +74,9 @@ import com.erv.app.ui.cardio.CardioLiveWorkoutViewModel
 import com.erv.app.cycling.Concept2Pm5BleViewModel
 import com.erv.app.cycling.CyclingCscBleViewModel
 import com.erv.app.hr.HeartRateBleViewModel
-import com.erv.app.hr.HeartRateTopBar
-import com.erv.app.hr.HeartRateZoneInputs
 import com.erv.app.cycling.LocalConcept2Pm
 import com.erv.app.cycling.LocalCyclingCsc
 import com.erv.app.hr.LocalHeartRateBle
-import com.erv.app.hr.requiredBlePermissionsForHeartRate
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.erv.app.ui.onboarding.FirstRunSetupScreen
 import com.erv.app.ui.onboarding.RelaySetupScreen
@@ -99,15 +95,39 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.merge
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
- * Minimum spacing between inbound relay data pulls triggered by app resume / relay reconnect.
- * Prevents rapid re-syncs (e.g. permission dialogs causing pause/resume) from spamming relays,
- * while still refreshing promptly when the user returns to the app after time away.
+ * Minimum spacing between full history pulls (startup, resume after a while, relay reconnect).
+ * Permission dialogs can pause/resume the activity; this keeps those from re-downloading the
+ * whole relay window.
  */
 private const val RELAY_DATA_SYNC_MIN_INTERVAL_MS = 15_000L
+
+/** Recent-window pulls are small. Resume and the foreground poll use a shorter gap. */
+private const val RELAY_DATA_RECENT_MIN_INTERVAL_MS = 5_000L
+
+/**
+ * Backup for the live subscription: while the app is on screen, pull the last few weeks at this
+ * interval in case the relay dropped the subscription without closing the socket.
+ */
+private const val RELAY_DATA_RECENT_POLL_MS = 120_000L
+
+/**
+ * One pull runs at a time. A resume or poll that arrives mid-fetch is remembered and run once
+ * more afterwards, so a workout published while the first snapshot was in flight is not dropped.
+ */
+private class RelaySyncCoordinator {
+    var inProgress: Boolean = false
+    var rerunFull: Boolean = false
+    var rerunRecent: Boolean = false
+}
 
 class MainActivity : AppCompatActivity() {
 
@@ -314,8 +334,13 @@ private fun ErvApp(
                         scope.launch {
                             onboardingPool?.let { pool ->
                                 pool.setRelays(keyManager.relayUrlsForPool())
-                                delay(1500)
                                 resolveSigner()?.let { currentSigner ->
+                                    RelayConfigImport.fetchAndApply(
+                                        keyManager,
+                                        currentSigner,
+                                        userPreferences,
+                                        pool,
+                                    )
                                     SettingsSync.saveToNetwork(
                                         context.applicationContext,
                                         pool,
@@ -372,59 +397,26 @@ private fun ErvApp(
 }
 
 /**
- * After login: connect (bootstrap relays only if none saved), fetch NIP-65 relay list and NIP-B7 Blossom
- * servers (kind 10063) in parallel, then fetch erv/settings from the network. If nothing yields stored relays,
- * applies [KeyManager.DEFAULT_RELAYS].
- * Returns true if settings were found (skip onboarding), false otherwise.
+ * After login: when the user already has relays saved, connect and try to import NIP-65,
+ * Blossom servers (kind 10063), and encrypted `erv/settings`. Returns true when settings
+ * were found (skip relay onboarding), false when the user must add a relay first.
  */
 private suspend fun runPostLoginSetup(
     keyManager: KeyManager,
     signer: EventSigner,
     userPreferences: UserPreferences
 ): Boolean {
+    if (keyManager.relayUrlsForPool().isEmpty()) return false
+
     val trustTls = userPreferences.peekTrustSelfSignedLanTls()
     val pool = RelayPool(signer, RelayOkHttpClient.create(trustTls), trustTls)
     try {
         pool.setRelays(keyManager.relayUrlsForPool())
-        pool.awaitAtLeastOneConnected(timeoutMs = 15_000)
-
-        val pubkey = keyManager.publicKeyHex ?: return false
-        val (nip65Urls, blossomUrls) = coroutineScope {
-            val nip65 = async { Nip65.fetchRelayListFromNetwork(pool, pubkey, timeoutMs = 8000) }
-            val nipB7 = async { NipB7.fetchBlossomServersFromNetwork(pool, pubkey, timeoutMs = 8000) }
-            nip65.await() to nipB7.await()
-        }
-        nip65Urls.forEach { keyManager.addSocialRelay(it) }
-        applyImportedBlossomServersFromProfile(userPreferences, blossomUrls)
-
-        pool.setRelays(keyManager.relayUrlsForPool())
-        delay(1500)
-
-        val config = SettingsSync.fetchFromNetwork(pool, signer, pubkey, timeoutMs = 5000)
-        if (config != null) {
-            SettingsSync.applyToKeyManager(config, keyManager)
-        }
-        keyManager.populateDefaultRelaysIfStillEmpty()
-        return config != null
+        return RelayConfigImport.fetchAndApply(keyManager, signer, userPreferences, pool) ==
+            RelayConfigImportResult.SETTINGS_APPLIED
     } finally {
         pool.disconnect()
     }
-}
-
-/**
- * If the user has not set a **public** Blossom URL yet, copies the first entry from their kind 10063 list
- * (same source as “Load from my Nostr profile” in Settings) and switches upload type to Blossom.
- */
-private suspend fun applyImportedBlossomServersFromProfile(
-    userPreferences: UserPreferences,
-    blossomUrls: List<String>
-) {
-    if (userPreferences.peekBlossomPublicServerOrigin().isNotBlank()) return
-    val first = blossomUrls.firstOrNull() ?: return
-    val normalized = Nip96Uploader.normalizeMediaServerOrigin(first)
-    if (normalized.isEmpty()) return
-    userPreferences.setBlossomPublicServerOrigin(normalized)
-    userPreferences.setWorkoutMediaUploadBackend(WorkoutMediaUploadBackend.BLOSSOM)
 }
 
 // ---------------------------------------------------------------------------
@@ -448,14 +440,6 @@ private fun MainAppShell(
 ) {
     val context = LocalContext.current
     val navController = rememberNavController()
-    val navBackStackEntry by navController.currentBackStackEntryAsState()
-    val currentNavRoute = navBackStackEntry?.destination?.route
-    val heartRateBannerExpanded by userPreferences.heartRateBannerExpanded.collectAsState(initial = true)
-    val heartRateZoneInputs by userPreferences.heartRateZoneInputs.collectAsState(
-        initial = HeartRateZoneInputs(),
-    )
-    val showGlobalHeartRateBar =
-        heartRateBannerExpanded && !Routes.isCardioDestination(currentNavRoute)
     val supplementRepository = remember(context) { SupplementRepository(context) }
     val lightTherapyRepository = remember(context) { LightTherapyRepository(context) }
     val cardioRepository = remember(context, userPreferences) { CardioRepository(context, userPreferences) }
@@ -483,7 +467,10 @@ private fun MainAppShell(
     }
     var relayUrlsVersion by remember { mutableIntStateOf(0) }
     var relayDataSyncInProgress by remember { mutableStateOf(false) }
-    val lastRelayDataSyncAtMs = remember { mutableLongStateOf(0L) }
+    val lastFullRelaySyncAtMs = remember { mutableLongStateOf(0L) }
+    val lastRecentRelaySyncAtMs = remember { mutableLongStateOf(0L) }
+    val syncCoordinator = remember { RelaySyncCoordinator() }
+    val relayApplyMutex = remember { Mutex() }
     // Resume signals trigger an inbound relay pull when the user returns to the app, so activity
     // logged on another device shows up without requiring a full app restart.
     val resumeSignals = remember { MutableSharedFlow<Unit>(extraBufferCapacity = 1) }
@@ -496,47 +483,16 @@ private fun MainAppShell(
     val unifiedState by unifiedRoutineRepository.state.collectAsState(initial = UnifiedRoutineLibraryState())
     val workoutState by workoutRepository.state.collectAsState(initial = com.erv.app.workouts.WorkoutLibraryState())
 
-    // Pulls the latest kind-30078 payloads from the relays and merges them into local state.
-    // Runs at startup and whenever the app resumes / a data relay reconnects, so activity logged
-    // on another device propagates here. [force] bypasses the resume debounce (used for startup).
-    suspend fun runRelayDataSync(pool: RelayPool, sig: EventSigner, force: Boolean) {
-        if (relayDataSyncInProgress) return
-        if (!force &&
-            System.currentTimeMillis() - lastRelayDataSyncAtMs.longValue < RELAY_DATA_SYNC_MIN_INTERVAL_MS
-        ) {
-            return
-        }
-        relayDataSyncInProgress = true
-        try {
-            val pubkey = sig.publicKey
-            val appCtx = context.applicationContext
-            val latestByTag = withContext(Dispatchers.IO) {
-                val connected = pool.awaitAtLeastOneConnected(timeoutMs = 12_000)
-                android.util.Log.i(
-                    "ErvRelaySync",
-                    "runRelayDataSync: force=$force connected=$connected " +
-                        "relayUrls=${keyManager.relayUrlsForKind30078Publish()} " +
-                        "relayStates=${pool.relayStates.value}",
-                )
-                fetchLatestKind30078ByDTag(pool, pubkey, timeoutMs = 12_000, signer = sig)
-            }
-            android.util.Log.i(
-                "ErvRelaySync",
-                "runRelayDataSync: latestByTag=${latestByTag.size} tags=${latestByTag.keys}",
-            )
-            withContext(Dispatchers.IO) {
-                CatalogSync.syncCatalogs(
-                    appCtx,
-                    pool,
-                    sig,
-                    latestByTag,
-                    keyManager.relayUrlsForKind30078Publish(),
-                )
-            }
-            // Decryption (NIP-44), payload merges, and repository writes are CPU-heavy. Keep them off
-            // the main dispatcher so startup / resume sync does not stutter the UI.
-            if (latestByTag.isNotEmpty()) withContext(Dispatchers.Default) {
-                SupplementSync.fromLatestByTag(latestByTag, sig).let { remote ->
+    // Decryption (NIP-44), payload merges, and repository writes are CPU-heavy. Keep them off
+    // the main dispatcher so startup / resume sync does not stutter the UI.
+    // Serialized: the live subscription and a background pull both read-merge-write repositories.
+    // Categories with no tag in [latestByTag] are skipped.
+    suspend fun applyKind30078(latestByTag: Map<String, NostrEvent>, sig: EventSigner, appCtx: android.content.Context) {
+        if (latestByTag.isEmpty()) return
+        fun has(vararg prefixes: String) = latestByTag.keys.any { tag -> prefixes.any { tag.startsWith(it) } }
+        relayApplyMutex.withLock {
+        withContext(Dispatchers.Default) {
+                if (has("erv/supplements/")) SupplementSync.fromLatestByTag(latestByTag, sig).let { remote ->
                     val merged = LibraryStateMerge.mergeSupplement(supplementRepository.currentState(), remote)
                     supplementRepository.replaceAll(merged)
                     RelayPayloadDigestStore.reconcileIdenticalRemoteMerged(
@@ -545,7 +501,7 @@ private fun MainAppShell(
                         SupplementSync.fullOutboxEntries(merged),
                     )
                 }
-                LightSync.fromLatestByTag(latestByTag, sig).let { remote ->
+                if (has("erv/light/")) LightSync.fromLatestByTag(latestByTag, sig).let { remote ->
                     val merged = LibraryStateMerge.mergeLight(lightTherapyRepository.currentState(), remote)
                     lightTherapyRepository.replaceAll(merged)
                     RelayPayloadDigestStore.reconcileIdenticalRemoteMerged(
@@ -554,7 +510,7 @@ private fun MainAppShell(
                         LightSync.fullOutboxEntries(merged),
                     )
                 }
-                CardioSync.fromLatestByTag(latestByTag, sig).let { remote ->
+                if (has("erv/cardio/")) CardioSync.fromLatestByTag(latestByTag, sig).let { remote ->
                     val merged = LibraryStateMerge.mergeCardio(cardioRepository.currentState(), remote)
                     cardioRepository.replaceAll(merged)
                     RelayPayloadDigestStore.reconcileIdenticalRemoteMerged(
@@ -563,7 +519,7 @@ private fun MainAppShell(
                         CardioSync.fullOutboxEntries(merged),
                     )
                 }
-                WeightSync.fromLatestByTag(latestByTag, sig).let { remote ->
+                if (has("erv/weight/")) WeightSync.fromLatestByTag(latestByTag, sig).let { remote ->
                     val merged = LibraryStateMerge.mergeWeight(weightRepository.currentState(), remote)
                     weightRepository.replaceAll(merged)
                     RelayPayloadDigestStore.reconcileIdenticalRemoteMerged(
@@ -572,7 +528,7 @@ private fun MainAppShell(
                         WeightSync.fullOutboxEntries(merged),
                     )
                 }
-                HeatColdSync.fromLatestByTag(latestByTag, sig).let { remote ->
+                if (has("erv/sauna/", "erv/cold/")) HeatColdSync.fromLatestByTag(latestByTag, sig).let { remote ->
                     val merged = LibraryStateMerge.mergeHeatCold(heatColdRepository.currentState(), remote)
                     heatColdRepository.replaceAll(merged)
                     RelayPayloadDigestStore.reconcileIdenticalRemoteMerged(
@@ -581,7 +537,7 @@ private fun MainAppShell(
                         HeatColdSync.fullOutboxEntries(merged),
                     )
                 }
-                StretchingSync.fromLatestByTag(latestByTag, sig).let { remote ->
+                if (has("erv/stretching/")) StretchingSync.fromLatestByTag(latestByTag, sig).let { remote ->
                     val merged = LibraryStateMerge.mergeStretch(stretchingRepository.currentState(), remote)
                     stretchingRepository.replaceAll(merged)
                     RelayPayloadDigestStore.reconcileIdenticalRemoteMerged(
@@ -590,7 +546,7 @@ private fun MainAppShell(
                         StretchingSync.fullOutboxEntries(merged),
                     )
                 }
-                ProgramSync.fromLatestByTag(latestByTag, sig)?.let { remote ->
+                if (has("erv/programs/")) ProgramSync.fromLatestByTag(latestByTag, sig)?.let { remote ->
                     val merged = LibraryStateMerge.mergePrograms(programRepository.currentState(), remote)
                     programRepository.replaceAll(merged)
                     RelayPayloadDigestStore.reconcileIdenticalRemoteMerged(
@@ -599,7 +555,7 @@ private fun MainAppShell(
                         ProgramSync.fullOutboxEntries(merged),
                     )
                 }
-                WorkoutSync.fromLatestByTag(latestByTag, sig).let { remote ->
+                if (has("erv/workouts/")) WorkoutSync.fromLatestByTag(latestByTag, sig).let { remote ->
                     val merged = LibraryStateMerge.mergeWorkouts(workoutRepository.currentState(), remote)
                     workoutRepository.replaceAll(merged)
                     RelayPayloadDigestStore.reconcileIdenticalRemoteMerged(
@@ -608,7 +564,7 @@ private fun MainAppShell(
                         WorkoutSync.fullOutboxEntries(merged),
                     )
                 }
-                BodyTrackerSync.fromLatestByTag(latestByTag, sig).let { remote ->
+                if (has("erv/body_tracker/")) BodyTrackerSync.fromLatestByTag(latestByTag, sig).let { remote ->
                     val merged = LibraryStateMerge.mergeBodyTracker(bodyTrackerRepository.currentState(), remote)
                     bodyTrackerRepository.replaceAll(merged)
                     RelayPayloadDigestStore.reconcileIdenticalRemoteMerged(
@@ -655,11 +611,131 @@ private fun MainAppShell(
                         listOf(mergedPair),
                     )
                 }
+        }
+        }
+    }
+
+    // Pulls kind-30078 payloads from the relays and merges them into local state.
+    // [recentOnly] loads the last few weeks (workout / light / supplements logged on the other
+    // device). A full pull also backfills older history, but applies the recent window first.
+    // [force] bypasses the debounce (startup and the manual pull).
+    suspend fun runRelayDataSync(
+        pool: RelayPool,
+        sig: EventSigner,
+        force: Boolean,
+        recentOnly: Boolean = false,
+    ) {
+        synchronized(syncCoordinator) {
+            if (syncCoordinator.inProgress) {
+                if (recentOnly) syncCoordinator.rerunRecent = true else syncCoordinator.rerunFull = true
+                return
             }
-            lastRelayDataSyncAtMs.longValue = System.currentTimeMillis()
+            val now = System.currentTimeMillis()
+            if (!force && recentOnly &&
+                now - lastRecentRelaySyncAtMs.longValue < RELAY_DATA_RECENT_MIN_INTERVAL_MS
+            ) {
+                return
+            }
+            if (!force && !recentOnly &&
+                now - lastFullRelaySyncAtMs.longValue < RELAY_DATA_SYNC_MIN_INTERVAL_MS
+            ) {
+                return
+            }
+            syncCoordinator.inProgress = true
+        }
+        var modeRecent = recentOnly
+        try {
+            while (true) {
+                relayDataSyncInProgress = !modeRecent
+                val pubkey = sig.publicKey
+                val appCtx = context.applicationContext
+                val timeoutMs = if (modeRecent) 8_000L else 12_000L
+                val (snapshot, anyRelayConnected) = withContext(Dispatchers.IO) {
+                    val connected = pool.awaitAtLeastOneConnected(timeoutMs = timeoutMs)
+                    android.util.Log.i(
+                        "ErvRelaySync",
+                        "runRelayDataSync: force=$force recentOnly=$modeRecent connected=$connected " +
+                            "relayUrls=${keyManager.relayUrlsForKind30078Publish()} " +
+                            "relayStates=${pool.relayStates.value}",
+                    )
+                    if (!connected) {
+                        Kind30078Snapshot(
+                            latestByTag = emptyMap(),
+                            broadFetchComplete = false,
+                            mastersFetchComplete = false,
+                        ) to false
+                    } else {
+                        fetchLatestKind30078Snapshot(
+                            relayPool = pool,
+                            pubkeyHex = pubkey,
+                            timeoutMs = timeoutMs,
+                            signer = sig,
+                            includeBroadHistory = !modeRecent,
+                            onRecentReady = if (modeRecent) {
+                                null
+                            } else {
+                                { tags -> applyKind30078(tags, sig, appCtx) }
+                            },
+                        ) to true
+                    }
+                }
+                val latestByTag = snapshot.latestByTag
+                android.util.Log.i(
+                    "ErvRelaySync",
+                    "runRelayDataSync: latestByTag=${latestByTag.size} tags=${latestByTag.keys} " +
+                        "mastersComplete=${snapshot.mastersFetchComplete} " +
+                        "broadComplete=${snapshot.broadFetchComplete}",
+                )
+                if (!modeRecent) {
+                    withContext(Dispatchers.IO) {
+                        // Only treat "catalog missing" as authoritative when a relay was connected and
+                        // finished answering the targeted catalog query; otherwise keep the cached copy
+                        // and do not re-bootstrap the relay.
+                        CatalogSync.syncCatalogs(
+                            appCtx,
+                            pool,
+                            sig,
+                            latestByTag,
+                            keyManager.relayUrlsForKind30078Publish(),
+                            fetchComplete = anyRelayConnected && snapshot.mastersFetchComplete,
+                        )
+                    }
+                }
+                applyKind30078(latestByTag, sig, appCtx)
+                if (!anyRelayConnected) {
+                    synchronized(syncCoordinator) {
+                        syncCoordinator.rerunFull = false
+                        syncCoordinator.rerunRecent = false
+                    }
+                    break
+                }
+                val finished = System.currentTimeMillis()
+                lastRecentRelaySyncAtMs.longValue = finished
+                if (!modeRecent) lastFullRelaySyncAtMs.longValue = finished
+                val nextRecent = synchronized(syncCoordinator) {
+                    val full = syncCoordinator.rerunFull
+                    val recent = syncCoordinator.rerunRecent
+                    syncCoordinator.rerunFull = false
+                    syncCoordinator.rerunRecent = false
+                    when {
+                        full -> false
+                        recent -> true
+                        else -> null
+                    }
+                }
+                if (nextRecent == null) break
+                modeRecent = nextRecent
+            }
         } finally {
+            synchronized(syncCoordinator) { syncCoordinator.inProgress = false }
             relayDataSyncInProgress = false
         }
+    }
+
+    suspend fun syncOnResumeOrReconnect(pool: RelayPool, sig: EventSigner) {
+        val fullDue = System.currentTimeMillis() - lastFullRelaySyncAtMs.longValue >=
+            RELAY_DATA_SYNC_MIN_INTERVAL_MS
+        runRelayDataSync(pool, sig, force = false, recentOnly = !fullDue)
     }
 
     DisposableEffect(activityForLifecycle, reminderRepository) {
@@ -681,13 +757,36 @@ private fun MainAppShell(
             userPreferences.rememberNostrRelayUsage(keyManager.relayUrlsForKind30078Publish())
         }
     }
-    // Re-pull from relays whenever the user returns to the app, so activity logged on another
-    // device appears without a full restart. Debounced via [RELAY_DATA_SYNC_MIN_INTERVAL_MS].
+    // Re-pull when the user returns. A full history pull is debounced; a recent-window pull still
+    // runs so a workout or log from the other device shows up after a short app switch.
     LaunchedEffect(relayPool, signer) {
         val pool = relayPool ?: return@LaunchedEffect
         val sig = signer ?: return@LaunchedEffect
         resumeSignals.collect {
-            runRelayDataSync(pool, sig, force = false)
+            syncOnResumeOrReconnect(pool, sig)
+        }
+    }
+    // Live push: the relay forwards new app data from the web companion or another device over the
+    // open websocket. Restarted when relays change so newly added relays get the subscription.
+    LaunchedEffect(relayPool, signer, relayUrlsVersion) {
+        val pool = relayPool ?: return@LaunchedEffect
+        val sig = signer ?: return@LaunchedEffect
+        val appCtx = context.applicationContext
+        runLiveKind30078Subscription(appCtx, pool, sig.publicKey, sig) { latest ->
+            val direct = latest.filterKeys { !liveTagNeedsFullPull(it) }
+            applyKind30078(direct, sig, appCtx)
+            if (latest.keys.any(::liveTagNeedsFullPull)) {
+                runRelayDataSync(pool, sig, force = true)
+            }
+        }
+    }
+    LaunchedEffect(relayPool, signer) {
+        val pool = relayPool ?: return@LaunchedEffect
+        val sig = signer ?: return@LaunchedEffect
+        while (true) {
+            delay(RELAY_DATA_RECENT_POLL_MS)
+            if (activityForLifecycle.lifecycle.currentState < Lifecycle.State.RESUMED) continue
+            runRelayDataSync(pool, sig, force = false, recentOnly = true)
         }
     }
     LaunchedEffect(reminderRepository) {
@@ -735,12 +834,38 @@ private fun MainAppShell(
             .collect { anyDataRelayConnected ->
                 if (!anyDataRelayConnected) return@collect
                 // A data relay just (re)connected: pull down anything logged elsewhere while we
-                // were disconnected. Debounced so it does not duplicate the startup pull.
-                runRelayDataSync(pool, sig, force = false)
+                // were disconnected. A recent full pull is not repeated; the recent window still is.
+                syncOnResumeOrReconnect(pool, sig)
                 withContext(Dispatchers.IO) {
                     TrainingDayLogRelaySync.drainPending(context.applicationContext)
                 }
             }
+    }
+    // Sends queued uploads at the pace the data relay allows (rate-limit pauses, backoff).
+    LaunchedEffect(relayPool, signer, relayUrlsVersion) {
+        val pool = relayPool ?: return@LaunchedEffect
+        val sig = signer ?: return@LaunchedEffect
+        val dataRelayConnected = pool.relayStates
+            .map { states ->
+                keyManager.relayUrlsForKind30078Publish().any { url ->
+                    states[url].let { it is ConnectionState.Connected || it is ConnectionState.Authenticated }
+                }
+            }
+            .distinctUntilChanged()
+            .drop(1)
+            .filter { it }
+            .map { }
+        val outbox = RelayPublishOutbox.get(context.applicationContext)
+        val queueSizeChanged = outbox.pendingCountFlow().distinctUntilChanged().drop(1).map { }
+        withContext(Dispatchers.IO) {
+            runRelayOutboxDrainLoop(
+                outbox = outbox,
+                relayPool = pool,
+                signer = sig,
+                dataRelayUrls = { keyManager.relayUrlsForKind30078Publish() },
+                wakeSignals = merge(resumeSignals, dataRelayConnected, queueSizeChanged),
+            )
+        }
     }
 
     Box(Modifier.fillMaxSize()) {
@@ -784,9 +909,6 @@ private fun MainAppShell(
                 windowContentView.keepScreenOn = false
             }
         }
-        val blePermissionLauncher = rememberLauncherForActivityResult(
-            ActivityResultContracts.RequestMultiplePermissions()
-        ) { }
         CompositionLocalProvider(
             LocalRelayDataSyncInProgress provides relayDataSyncInProgress,
             LocalHeartRateBle provides heartRateBleViewModel,
@@ -795,15 +917,6 @@ private fun MainAppShell(
             LocalKeyManager provides keyManager,
         ) {
             Column(Modifier.fillMaxSize()) {
-                if (showGlobalHeartRateBar) {
-                    HeartRateTopBar(
-                        viewModel = heartRateBleViewModel,
-                        onRequestBlePermissions = {
-                            blePermissionLauncher.launch(requiredBlePermissionsForHeartRate())
-                        },
-                        zoneInputs = heartRateZoneInputs,
-                    )
-                }
                 ErvNavHost(
                     modifier = Modifier.weight(1f),
                     navController = navController,

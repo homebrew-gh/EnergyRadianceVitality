@@ -1,5 +1,8 @@
 package com.erv.app.ui.unifiedroutines
 
+import com.erv.app.ui.theme.ervSessionTopAppBarColors
+import com.erv.app.hr.HeartRatePill
+import com.erv.app.ui.theme.ervTopAppBarColors
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Column
@@ -95,7 +98,6 @@ import com.erv.app.stretching.stretchCategoryDisplayLabel
 import com.erv.app.ui.cardio.OutdoorRuckPackWeightDialog
 import com.erv.app.ui.cardio.CardioQuickLaunchEditorDialog
 import com.erv.app.ui.stretching.StretchPickStretchDialog
-import com.erv.app.ui.theme.ErvHeaderRed
 import com.erv.app.ui.weighttraining.WeightPickExerciseDialog
 import com.erv.app.ui.weighttraining.WeightLiveWorkoutFgsDisclosureDialog
 import com.erv.app.ui.weighttraining.WeightLiveWorkoutViewModel
@@ -189,11 +191,7 @@ fun UnifiedRoutineCategoryScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = ErvHeaderRed,
-                    titleContentColor = Color.White,
-                    navigationIconContentColor = Color.White
-                )
+                colors = ervTopAppBarColors()
             )
         }
     ) { padding ->
@@ -427,7 +425,9 @@ fun UnifiedRoutineRunScreen(
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     val heartRateBle = LocalHeartRateBle.current
-    val heartRateBannerExpanded by userPreferences.heartRateBannerExpanded.collectAsState(initial = true)
+    val heartRateZoneInputs by userPreferences.heartRateZoneInputs.collectAsState(
+        initial = com.erv.app.hr.HeartRateZoneInputs(),
+    )
     val session = unifiedState.activeSession?.takeIf { it.routineId == routineId }
     val recapSession = session?.let { unifiedState.sessionById(it.sessionId) }
     val routine = session?.routineSnapshot ?: unifiedState.routineById(routineId)
@@ -465,11 +465,7 @@ fun UnifiedRoutineRunScreen(
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                         }
                     },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = ErvHeaderRed,
-                        titleContentColor = Color.White,
-                        navigationIconContentColor = Color.White
-                    )
+                    colors = ervSessionTopAppBarColors()
                 )
             }
         ) { padding ->
@@ -611,33 +607,16 @@ fun UnifiedRoutineRunScreen(
                     }
                 },
                 actions = {
-                    IconButton(
-                        onClick = {
-                            scope.launch {
-                                val showHeartRateBanner = !heartRateBannerExpanded
-                                userPreferences.setHeartRateBannerExpanded(showHeartRateBanner)
-                                if (showHeartRateBanner) {
-                                    heartRateBle.tryPreferredDeviceReconnectOnce()
-                                }
-                            }
-                        }
-                    ) {
-                        Icon(
-                            imageVector = if (heartRateBannerExpanded) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
-                            contentDescription = "Heart rate monitor",
-                            tint = if (heartRateBannerExpanded) Color(0xFFFF8A80) else Color.White
-                        )
-                    }
+                    HeartRatePill(
+                        viewModel = heartRateBle,
+                        zoneInputs = heartRateZoneInputs,
+                        contentColor = Color.White,
+                    )
                     TextButton(onClick = { showDiscardConfirm = true }) {
                         Text("Discard", color = Color.White)
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = ErvHeaderRed,
-                    titleContentColor = Color.White,
-                    navigationIconContentColor = Color.White,
-                    actionIconContentColor = Color.White
-                )
+                colors = ervSessionTopAppBarColors()
             )
         }
     ) { padding ->

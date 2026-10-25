@@ -63,7 +63,8 @@ Day-log tags remain **Android publish**; web **reads** them for Progress (W2).
 
 ## 5. Work packages (W1–W6)
 
-Check boxes here as work lands. Mirror key items in [START9_COMPANION_V1.md](START9_COMPANION_V1.md).
+This is the **only** checklist for W1–W6. Check boxes here as work lands; [PHASES.md](../PHASES.md)
+carries a one-line status per package and [START9_COMPANION_V1.md](START9_COMPANION_V1.md) links here.
 
 ### W1 — Athlete profile (synced)
 
@@ -72,7 +73,7 @@ Check boxes here as work lands. Mirror key items in [START9_COMPANION_V1.md](STA
 - [x] Web **Profile** tab — full editor + publish
 - [x] Server publish allowlist (`erv_tags.rs`)
 - [x] Android — fetch/merge on relay sync; read-only Settings summary
-- [x] Export bundle includes training profile (Settings → reference export)
+- [x] Export bundle includes training profile (web "Copy training context" bundle, W6; the Android programs reference bundle does not include it)
 
 **Acceptance:** Edit profile on web → publish → Android relay sync → Settings shows same summary.
 
@@ -187,6 +188,10 @@ Influence examples are UI copy only. **`stylePresetIds` drive deterministic cont
 ---
 
 ## 10. Phase 4 AI hook (later)
+
+Concrete plan: [AI_COACH_MAPLE_INTEGRATION.md](AI_COACH_MAPLE_INTEGRATION.md) — the web
+`AiContextBuilder` wraps `buildTrainingContextJson()` from W6 with a `contextLevel` and
+`contextHash`; the server relays to Maple Proxy on StartOS.
 
 When AI ships ([PROGRAMS_AND_WORKOUTS_MERGE_AND_AI.md](PROGRAMS_AND_WORKOUTS_MERGE_AND_AI.md) §6):
 

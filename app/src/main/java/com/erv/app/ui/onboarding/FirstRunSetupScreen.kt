@@ -1,5 +1,6 @@
 package com.erv.app.ui.onboarding
 
+import com.erv.app.ui.theme.ervTopAppBarColors
 import android.content.Context
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -304,6 +305,7 @@ fun FirstRunSetupScreen(
     Scaffold(
         topBar = {
             TopAppBar(
+                colors = ervTopAppBarColors(),
                 title = { Text("Quick setup") },
                 actions = {
                     TextButton(onClick = { finishSetup(saveValues = false) }) {

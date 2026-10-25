@@ -56,6 +56,15 @@ class CatalogSyncTest {
     }
 
     @Test
+    fun catalogPublishAction_neverBootstrapsFromIncompleteFetch() {
+        // Offline / timed-out fetch: "missing" is not evidence the relay lacks the catalog.
+        assertEquals("None", CatalogSync.catalogPublishActionForTest(null, fetchComplete = false))
+        // A received catalog is still upgraded / adopted regardless of fetch completeness.
+        assertEquals("Upgrade", CatalogSync.catalogPublishActionForTest(0, fetchComplete = false))
+        assertEquals("None", CatalogSync.catalogPublishActionForTest(2, fetchComplete = false))
+    }
+
+    @Test
     fun catalogDTags_useErvCatalogNamespace() {
         assertTrue(CatalogSync.catalogDTags.all { it.startsWith("erv/catalog/") })
         assertEquals(3, CatalogSync.catalogDTags.size)

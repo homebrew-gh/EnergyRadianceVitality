@@ -15,9 +15,6 @@ import kotlinx.coroutines.launch
  */
 object Nip65 {
 
-    /** Well-known relays used to bootstrap NIP-65 lookups. */
-    val bootstrapRelays = KeyManager.DEFAULT_RELAYS
-
     /**
      * Parse relay URLs from a kind 10002 event. NIP-65 uses "r" tags:
      * ["r", "wss://...", "write"] or ["r", "wss://...", "read"] or ["r", "wss://..."].
@@ -32,7 +29,7 @@ object Nip65 {
 
     /**
      * Fetch the user's relay list (kind 10002) from the network.
-     * [relayPool] should already be connected (e.g. to user's relays and/or [bootstrapRelays]).
+     * [relayPool] should already be connected to relays the user configured.
      * Returns the list of relay URLs from the latest kind 10002 event, or empty if none found.
      */
     suspend fun fetchRelayListFromNetwork(

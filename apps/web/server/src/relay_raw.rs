@@ -14,7 +14,9 @@ use tokio::net::TcpStream;
 use tokio::time::{timeout, Instant};
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::Message;
-use tokio_tungstenite::{connect_async, connect_async_tls_with_config, Connector, MaybeTlsStream, WebSocketStream};
+use tokio_tungstenite::{
+    connect_async, connect_async_tls_with_config, Connector, MaybeTlsStream, WebSocketStream,
+};
 
 const KIND_AUTH: u16 = 22242;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
@@ -302,9 +304,7 @@ mod tests {
             &keys,
             &relay,
             filter,
-            RelayConnectOptions {
-                insecure_tls: true,
-            },
+            RelayConnectOptions { insecure_tls: true },
         )
         .await
         .expect("relay fetch");

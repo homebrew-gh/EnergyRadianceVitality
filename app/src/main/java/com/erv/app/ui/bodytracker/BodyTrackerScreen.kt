@@ -2,6 +2,7 @@
 
 package com.erv.app.ui.bodytracker
 
+import com.erv.app.ui.theme.ervTopAppBarColors
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -91,7 +92,6 @@ import com.erv.app.nostr.EventSigner
 import com.erv.app.nostr.KeyManager
 import com.erv.app.nostr.LocalKeyManager
 import com.erv.app.nostr.RelayPool
-import com.erv.app.ui.theme.ErvHeaderRed
 import kotlinx.coroutines.CoroutineScope
 import com.erv.app.SectionLogDateFilter
 import com.erv.app.ui.dashboard.SectionLogCalendarSheet
@@ -465,8 +465,6 @@ fun BodyTrackerLogScreen(
     val showLogDateOnCards = dateFilter !is SectionLogDateFilter.SingleDay
     val datesWithActivity = remember(state) { datesWithBodyTrackerActivity(state) }
 
-    val headerColor = ErvHeaderRed
-    val onHeader = Color.White
 
     pendingDelete?.let { log ->
         AlertDialog(
@@ -546,12 +544,7 @@ fun BodyTrackerLogScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = headerColor,
-                    titleContentColor = onHeader,
-                    navigationIconContentColor = onHeader,
-                    actionIconContentColor = onHeader
-                )
+                colors = ervTopAppBarColors()
             )
         }
     ) { padding ->
@@ -687,8 +680,6 @@ private fun BodyTrackerEditorScaffold(
         }
     }
 
-    val headerColor = ErvHeaderRed
-    val onHeader = Color.White
 
     fun buildLogFromDraft(): BodyTrackerDayLog {
         val w = parsePositiveDouble(weightText)?.let { displayToKg(it, weightUnit) }
@@ -791,12 +782,7 @@ private fun BodyTrackerEditorScaffold(
                         }
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = headerColor,
-                    titleContentColor = onHeader,
-                    navigationIconContentColor = onHeader,
-                    actionIconContentColor = onHeader
-                )
+                colors = ervTopAppBarColors()
             )
         }
     ) { padding ->

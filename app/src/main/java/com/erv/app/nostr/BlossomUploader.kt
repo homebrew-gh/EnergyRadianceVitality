@@ -37,9 +37,16 @@ object BlossomUploader {
         signer: EventSigner,
         trustSelfSignedLanTls: Boolean = false,
     ): Result<String> = withContext(Dispatchers.IO) {
-        val base = normalizedOrigin.trimEnd('/') + "/"
-        if (!base.startsWith("https://", ignoreCase = true)) {
-            return@withContext Result.failure(IOException("Blossom server must use HTTPS"))
+        val base = normalizedOrigin.trim().trimEnd('/') + "/"
+        val https = base.startsWith("https://", ignoreCase = true)
+        val httpOnPrivateLan = BlossomEndpoints.allowsInsecureHttpUpload(base, trustSelfSignedLanTls)
+        if (!https && !httpOnPrivateLan) {
+            val message = if (base.startsWith("http://", ignoreCase = true)) {
+                "Blossom HTTP uploads require a private host and LAN TLS trust in Settings"
+            } else {
+                "Blossom server must use HTTPS"
+            }
+            return@withContext Result.failure(IOException(message))
         }
         val putUrl = "${base}upload"
         val hashHex = Hex.encode(sha256(bytes))

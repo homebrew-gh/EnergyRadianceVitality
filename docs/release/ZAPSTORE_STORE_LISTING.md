@@ -29,7 +29,9 @@ Privacy and ownership model:
 
 - ERV is local first.
 - Sync is optional.
+- **ERV does not ship default public relay URLs on Android** — you add relays you trust (for example Start9, Haven, or self-hosted).
 - Supported health payloads are encrypted before relay sync.
+- Public workout shares go only to relays you mark Social; encrypted backups use Data relays.
 - ERV does not operate its own hosted health-data cloud.
 - Android cloud backup and device transfer are disabled for app data; use ERV export / backup files when you want an off-device copy.
 - Exported files are plaintext unless you encrypt them separately.

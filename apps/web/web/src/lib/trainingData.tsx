@@ -4,11 +4,17 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
 import { ApiError, api } from "./api";
-import { APP_DATA_TTL_MS, appDataCacheAgeMs, getAppData } from "./appDataCache";
+import {
+  APP_DATA_TTL_MS,
+  appDataCacheAgeMs,
+  getAppData,
+  invalidateAppDataCache,
+} from "./appDataCache";
 import {
   CARDIO_ROUTINES_D_TAG,
   cardioMasterPayload,
@@ -42,9 +48,11 @@ import {
 } from "./weightTraining";
 import {
   buildWorkoutLibraryPublishEntries,
-  parseWorkoutsFromAppDataRecords,
+  nextWorkoutDeleteMarkers,
+  parseWorkoutLibraryFromAppDataRecords,
   WorkoutLibraryPublishError,
   type Workout,
+  type WorkoutDeleteMarkers,
 } from "./workoutTraining";
 import {
   emptyProgramMaster,
@@ -56,7 +64,12 @@ import {
 
 export const ROUTINES_PUBLISHED_EVENT = "erv-routines-published";
 
+function workoutSnapshotById(workouts: Workout[]): Map<string, string> {
+  return new Map(workouts.map((workout) => [workout.id, JSON.stringify(workout)]));
+}
+
 export function notifyRoutinesPublished() {
+  invalidateAppDataCache();
   window.dispatchEvent(new CustomEvent(ROUTINES_PUBLISHED_EVENT));
 }
 
@@ -98,6 +111,10 @@ export function TrainingProvider({ children }: { children: ReactNode }) {
   const [stretchRoutines, setStretchRoutines] = useState<StretchRoutine[]>([]);
   const [cardioRoutines, setCardioRoutines] = useState<CardioRoutine[]>([]);
   const [workouts, setWorkouts] = useState<Workout[]>([]);
+  /** Workout JSON by id as last loaded from or published to the relay; saves only resend shards that differ. */
+  const relayWorkoutsRef = useRef<Map<string, string>>(new Map());
+  /** Delete markers from the relay index; carried forward and extended on every save. */
+  const deletedWorkoutsRef = useRef<WorkoutDeleteMarkers>({});
   const [programMaster, setProgramMaster] = useState<ProgramMasterPayload>(emptyProgramMaster);
   const [exercises, setExercises] = useState<WeightExercise[]>([]);
   const [catalogs, setCatalogs] = useState<ErvCatalogs>(EMPTY_CATALOGS);
@@ -152,7 +169,8 @@ export function TrainingProvider({ children }: { children: ReactNode }) {
       const nextCardioMaster = cardioRecord?.plaintext
         ? parseCardioMasterPayload(cardioRecord.plaintext)
         : { routines: [], customActivityTypes: [], quickLaunches: [] };
-      const nextWorkouts = parseWorkoutsFromAppDataRecords(records);
+      const { workouts: nextWorkouts, deletedWorkouts: nextDeletedWorkouts } =
+        parseWorkoutLibraryFromAppDataRecords(records);
       const nextProgramMaster = programMasterRecord?.plaintext
         ? parseProgramMasterPayload(programMasterRecord.plaintext)
         : emptyProgramMaster();
@@ -161,6 +179,8 @@ export function TrainingProvider({ children }: { children: ReactNode }) {
       setStretchRoutines(nextStretch);
       setCardioRoutines(nextCardioMaster.routines);
       setWorkouts(nextWorkouts);
+      relayWorkoutsRef.current = workoutSnapshotById(nextWorkouts);
+      deletedWorkoutsRef.current = nextDeletedWorkouts;
       setProgramMaster(nextProgramMaster);
       setCardioMaster(nextCardioMaster);
       setCatalogs(nextCatalogs);
@@ -300,16 +320,31 @@ export function TrainingProvider({ children }: { children: ReactNode }) {
         ...workout,
         lastModifiedEpochSeconds: workout.lastModifiedEpochSeconds ?? now,
       }));
-      const entries = buildWorkoutLibraryPublishEntries(stamped, now);
+      const published = relayWorkoutsRef.current;
+      const changedIds = new Set(
+        stamped
+          .filter((workout) => published.get(workout.id) !== JSON.stringify(workout))
+          .map((workout) => workout.id),
+      );
+      const deletedWorkouts = nextWorkoutDeleteMarkers(
+        deletedWorkoutsRef.current,
+        published.keys(),
+        stamped,
+        now,
+      );
+      const entries = buildWorkoutLibraryPublishEntries(stamped, now, changedIds, deletedWorkouts);
       let lastEventIdLocal: string | null = null;
       for (const entry of entries) {
         const result = await api.publishAppData(entry);
         lastEventIdLocal = result.event_id;
       }
       setWorkouts(stamped);
+      relayWorkoutsRef.current = workoutSnapshotById(stamped);
+      deletedWorkoutsRef.current = deletedWorkouts;
       setLastEventId(lastEventIdLocal);
       notifyRoutinesPublished();
     } catch (e) {
+      invalidateAppDataCache();
       const msg =
         e instanceof WorkoutLibraryPublishError
           ? e.message

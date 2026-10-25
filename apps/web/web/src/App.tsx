@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider, useAuth } from "./lib/auth";
+import { SessionWatcher } from "./lib/sessionWatcher";
 import { hasRelayConfigured } from "./lib/relayUrl";
 import { AppShell } from "./routes/AppShell";
 import { CatalogEditorTab } from "./routes/CatalogEditorTab";
@@ -39,7 +40,9 @@ function Gate() {
   }
 
   return (
-    <Routes>
+    <>
+      <SessionWatcher />
+      <Routes>
       <Route path="/setup" element={<SetupRoute />} />
       <Route path="/unlock" element={<UnlockRoute />} />
       <Route path="/app" element={<AppShell />}>
@@ -61,6 +64,7 @@ function Gate() {
       </Route>
       <Route path="*" element={<RootRedirect status={status} />} />
     </Routes>
+    </>
   );
 }
 

@@ -1,6 +1,5 @@
 package com.erv.app.ui.navigation
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
@@ -16,10 +15,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.erv.app.ui.theme.ErvColdMid
-import com.erv.app.ui.theme.ErvDarkColdMid
-import com.erv.app.ui.theme.ErvDarkTherapyRedMid
-import com.erv.app.ui.theme.ErvLightTherapyRedMid
+import com.erv.app.ui.theme.ErvAccentColdDark
+import com.erv.app.ui.theme.ErvAccentColdLight
+import com.erv.app.ui.theme.ErvAccentHeatDark
+import com.erv.app.ui.theme.ErvAccentHeatLight
+import com.erv.app.ui.theme.LocalErvDarkTheme
 
 /**
  * Paired heat + cold glyphs (warm-tinted thermostat, cool-tinted AC) for Hot + Cold category tiles.
@@ -30,9 +30,8 @@ fun HotColdDualIcons(
     iconSize: Dp = 24.dp,
     heatIcon: ImageVector = Icons.Default.Thermostat,
     coldIcon: ImageVector = Icons.Default.AcUnit,
-    /** Warm accent; matches Light therapy / hot session reds. */
-    heatTint: Color = if (isSystemInDarkTheme()) ErvDarkTherapyRedMid else ErvLightTherapyRedMid,
-    coldTint: Color = if (isSystemInDarkTheme()) ErvDarkColdMid else ErvColdMid,
+    heatTint: Color = if (LocalErvDarkTheme.current) ErvAccentHeatDark else ErvAccentHeatLight,
+    coldTint: Color = if (LocalErvDarkTheme.current) ErvAccentColdDark else ErvAccentColdLight,
     /** Muted grey for both icons (Coming-soon category tiles). */
     muted: Boolean = false,
 ) {

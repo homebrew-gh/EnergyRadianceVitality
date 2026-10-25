@@ -43,6 +43,10 @@ Use these skills for the matching task — read the skill file before implementi
 - **Web changes:** `npm run typecheck` + `npm run build` in `apps/web/web/`.
 - **StartOS package:** `./packages/start9/build.sh` — run in an **external terminal**, not inside the agent.
 
+## Secrets
+
+Do not commit or push `apps/web/server/data/cookie.key`. It is the local companion session-cookie signing key and is listed in `.gitignore`. The StartOS service keeps its own key on the `/data` volume.
+
 ## Heavy builds and IDE freezes
 
 See [`docs/architecture/START9_SCAFFOLD_AUDIT.md`](docs/architecture/START9_SCAFFOLD_AUDIT.md). Build outputs under `app/build/`, `target/`, `node_modules/`, and `.pack/rootfs/` are excluded via `.cursorignore`.

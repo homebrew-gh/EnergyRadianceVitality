@@ -160,6 +160,30 @@ pub fn suggested_relay_url() -> Option<String> {
     }
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct DetectedAiEndpoint {
+    pub label: String,
+    pub provider: String,
+    pub base_url: String,
+}
+
+pub fn detected_ai_endpoints() -> Vec<DetectedAiEndpoint> {
+    let Ok(raw) = std::env::var("ERV_DETECTED_AI_ENDPOINTS_JSON") else {
+        return Vec::new();
+    };
+    let Ok(endpoints) = serde_json::from_str::<Vec<DetectedAiEndpoint>>(&raw) else {
+        return Vec::new();
+    };
+    endpoints
+        .into_iter()
+        .filter(|endpoint| {
+            let url = endpoint.base_url.trim();
+            !endpoint.label.trim().is_empty()
+                && (url.starts_with("http://") || url.starts_with("https://"))
+        })
+        .collect()
+}
+
 pub fn relay_prefill_url() -> Option<String> {
     suggested_relay_url().or_else(detected_relay_url)
 }
@@ -190,7 +214,11 @@ fn relay_url_port(url: &str) -> Option<u16> {
     })
 }
 
-fn internal_for_lan_relay_url(url: &str, detected: &[DetectedRelay], fallback: Option<&str>) -> Option<String> {
+fn internal_for_lan_relay_url(
+    url: &str,
+    detected: &[DetectedRelay],
+    fallback: Option<&str>,
+) -> Option<String> {
     use nostr::Url;
 
     let parsed = Url::parse(url).ok()?;
@@ -219,12 +247,14 @@ fn resolve_relay_url_with(
     use nostr::Url;
 
     if let Ok(parsed) = Url::parse(url) {
-        if parsed.host_str().is_some_and(|host| host.ends_with(".startos")) {
+        if parsed
+            .host_str()
+            .is_some_and(|host| host.ends_with(".startos"))
+        {
             return url.to_string();
         }
 
-        if let Some(internal) =
-            internal_for_lan_relay_url(url, detected_relays, internal_relay_url)
+        if let Some(internal) = internal_for_lan_relay_url(url, detected_relays, internal_relay_url)
         {
             tracing::info!(
                 configured = %url,
@@ -271,7 +301,10 @@ pub fn normalize_relay_url(url: &str) -> String {
         return trimmed.to_string();
     };
     if parsed.scheme() == "wss" {
-        if parsed.host_str().is_some_and(|host| host.ends_with(".startos")) {
+        if parsed
+            .host_str()
+            .is_some_and(|host| host.ends_with(".startos"))
+        {
             let _ = parsed.set_scheme("ws");
             return parsed.to_string();
         }
@@ -380,10 +413,30 @@ mod tests {
     fn detected_relay_url_reads_internal_startos_ws_url() {
         let mut guard = EnvGuard::new();
         guard.set("ERV_INTERNAL_RELAY_URL", "ws://haven.startos:3355");
-        assert_eq!(
-            detected_relay_url(),
-            Some("ws://haven.startos:3355".into())
+        assert_eq!(detected_relay_url(), Some("ws://haven.startos:3355".into()));
+    }
+
+    #[test]
+    fn detected_ai_endpoints_reads_env() {
+        let mut guard = EnvGuard::new();
+        guard.set(
+            "ERV_DETECTED_AI_ENDPOINTS_JSON",
+            r#"[{"label":"Maple Proxy","provider":"MAPLE","base_url":"http://maple-proxy.startos:8080"}]"#,
         );
+        let endpoints = detected_ai_endpoints();
+        assert_eq!(endpoints.len(), 1);
+        assert_eq!(endpoints[0].provider, "MAPLE");
+        assert_eq!(endpoints[0].base_url, "http://maple-proxy.startos:8080");
+    }
+
+    #[test]
+    fn detected_ai_endpoints_rejects_non_http() {
+        let mut guard = EnvGuard::new();
+        guard.set(
+            "ERV_DETECTED_AI_ENDPOINTS_JSON",
+            r#"[{"label":"Bad","provider":"MAPLE","base_url":"file:///tmp/x"}]"#,
+        );
+        assert!(detected_ai_endpoints().is_empty());
     }
 
     #[test]
@@ -493,10 +546,7 @@ mod tests {
     fn relay_prefill_prefers_suggested_over_internal() {
         let mut guard = EnvGuard::new();
         guard.set("ERV_INTERNAL_RELAY_URL", "ws://nostr-rs-relay.startos:8080");
-        guard.set(
-            "ERV_SUGGESTED_RELAY_URL",
-            "wss://nostr-rs-relay.local:443",
-        );
+        guard.set("ERV_SUGGESTED_RELAY_URL", "wss://nostr-rs-relay.local:443");
         assert_eq!(
             relay_prefill_url(),
             Some("wss://nostr-rs-relay.local:443".into())

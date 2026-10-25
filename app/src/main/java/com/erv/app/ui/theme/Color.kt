@@ -41,6 +41,14 @@ val ErvInversePrimary = Color(0xFFFFB68E)
 
 val ErvScrim = Color(0xFF000000)
 
+val ErvSurfaceDim = Color(0xFFF2E4D8)
+val ErvSurfaceBright = Color(0xFFFFFBF7)
+val ErvSurfaceContainerLowest = Color(0xFFFFFFFF)
+val ErvSurfaceContainerLow = Color(0xFFFFF5EC)
+val ErvSurfaceContainer = Color(0xFFFCEFE4)
+val ErvSurfaceContainerHigh = Color(0xFFF9EADE)
+val ErvSurfaceContainerHighest = Color(0xFFF5E6D8)
+
 // --- Dark palette: warm ember glow with red-wine surfaces ---
 
 val ErvDarkPrimary = Color(0xFFFFA38A)           // warm coral
@@ -80,8 +88,41 @@ val ErvDarkInversePrimary = Color(0xFFC45C26)
 
 val ErvDarkScrim = Color(0xFF000000)
 
-// Shared app header red, matching the dashboard top bar.
-val ErvHeaderRed = Color(0xFFC62828)
+val ErvDarkSurfaceDim = Color(0xFF160B0E)
+val ErvDarkSurfaceBright = Color(0xFF432126)
+val ErvDarkSurfaceContainerLowest = Color(0xFF110709)
+val ErvDarkSurfaceContainerLow = Color(0xFF1F0E12)
+val ErvDarkSurfaceContainer = Color(0xFF251116)
+val ErvDarkSurfaceContainerHigh = Color(0xFF30181D)
+val ErvDarkSurfaceContainerHighest = Color(0xFF3B1E24)
+
+// Live-session headers only (live lift, composed/unified runs and their summaries).
+// Browse and settings screens use the neutral ervTopAppBarColors().
+val ErvSessionRed = Color(0xFFC62828)
+
+// Sun mark in the dashboard top bar.
+val ErvLogoSunLight = Color(0xFFE39B1B)
+val ErvLogoSunDark = Color(0xFFFFCB47)
+
+// --- Category accents: icon tints and soft icon backdrops on Launch Pad and the category menu. ---
+val ErvAccentWeightLight = Color(0xFFA66300)
+val ErvAccentWeightDark = Color(0xFFFFC870)
+val ErvAccentCardioLight = Color(0xFFC2185B)
+val ErvAccentCardioDark = Color(0xFFFF8FA8)
+val ErvAccentStretchLight = Color(0xFF7E57C2)
+val ErvAccentStretchDark = Color(0xFFC9A7FF)
+val ErvAccentLightTherapyLight = Color(0xFFD84315)
+val ErvAccentLightTherapyDark = Color(0xFFFF8A65)
+val ErvAccentSupplementsLight = Color(0xFF3F7F3A)
+val ErvAccentSupplementsDark = Color(0xFF9CD08F)
+val ErvAccentFastingLight = Color(0xFF00796B)
+val ErvAccentFastingDark = Color(0xFF7FD1C7)
+val ErvAccentBodyLight = Color(0xFF3F5AA8)
+val ErvAccentBodyDark = Color(0xFFA3B8FF)
+val ErvAccentHeatLight = Color(0xFFB3261E)
+val ErvAccentHeatDark = Color(0xFFFF7B6B)
+val ErvAccentColdLight = Color(0xFF3F6A8F)
+val ErvAccentColdDark = Color(0xFF9CC3E6)
 
 // --- Light Therapy accent (theme-aware) ---
 // Light theme: darker red so cards/top bar stand out on light background

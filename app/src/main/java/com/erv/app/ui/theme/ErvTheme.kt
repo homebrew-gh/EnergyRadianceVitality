@@ -8,11 +8,17 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
+import androidx.core.view.doOnAttach
 
 private val ErvLightColorScheme = lightColorScheme(
     primary = ErvPrimary,
@@ -42,7 +48,14 @@ private val ErvLightColorScheme = lightColorScheme(
     inverseSurface = ErvInverseSurface,
     inverseOnSurface = ErvInverseOnSurface,
     inversePrimary = ErvInversePrimary,
-    scrim = ErvScrim
+    scrim = ErvScrim,
+    surfaceDim = ErvSurfaceDim,
+    surfaceBright = ErvSurfaceBright,
+    surfaceContainerLowest = ErvSurfaceContainerLowest,
+    surfaceContainerLow = ErvSurfaceContainerLow,
+    surfaceContainer = ErvSurfaceContainer,
+    surfaceContainerHigh = ErvSurfaceContainerHigh,
+    surfaceContainerHighest = ErvSurfaceContainerHighest,
 )
 
 private val ErvDarkColorScheme = darkColorScheme(
@@ -73,8 +86,18 @@ private val ErvDarkColorScheme = darkColorScheme(
     inverseSurface = ErvDarkInverseSurface,
     inverseOnSurface = ErvDarkInverseOnSurface,
     inversePrimary = ErvDarkInversePrimary,
-    scrim = ErvDarkScrim
+    scrim = ErvDarkScrim,
+    surfaceDim = ErvDarkSurfaceDim,
+    surfaceBright = ErvDarkSurfaceBright,
+    surfaceContainerLowest = ErvDarkSurfaceContainerLowest,
+    surfaceContainerLow = ErvDarkSurfaceContainerLow,
+    surfaceContainer = ErvDarkSurfaceContainer,
+    surfaceContainerHigh = ErvDarkSurfaceContainerHigh,
+    surfaceContainerHighest = ErvDarkSurfaceContainerHighest,
 )
+
+/** True when the ERV dark palette is active (follows the in-app Appearance setting, not just the system). */
+val LocalErvDarkTheme = staticCompositionLocalOf { false }
 
 @Composable
 fun ErvTheme(
@@ -82,34 +105,64 @@ fun ErvTheme(
     content: @Composable () -> Unit
 ) {
     val colorScheme = if (darkTheme) ErvDarkColorScheme else ErvLightColorScheme
+    val systemBars = remember { ErvSystemBarController() }
 
     val view = LocalView.current
     val hostContext = LocalContext.current
-    // view.context is often ContextThemeWrapper, not Activity — casting caused ClassCastException
-    // in bubble activities and other embedded windows.
-    // Bubbles may not attach the ComposeView to a window before the first SideEffect; insets
-    // controllers can throw if the view is not attached.
     if (!view.isInEditMode) {
-        SideEffect {
-            val activity = hostContext.findActivity() ?: return@SideEffect
-            if (!view.isAttachedToWindow) return@SideEffect
-            try {
-                val window = activity.window
-                window.statusBarColor = colorScheme.surface.toArgb()
-                WindowCompat.getInsetsController(window, view)?.let { c ->
-                    c.isAppearanceLightStatusBars = !darkTheme
+        LaunchedEffect(systemBars, colorScheme, darkTheme) {
+            snapshotFlow { systemBars.top()?.let { it.color to it.lightIcons } }
+                .collect { request ->
+                    val statusColor = request?.first ?: colorScheme.background
+                    val lightStatusIcons = request?.second ?: darkTheme
+                    view.doOnAttach {
+                        applySystemBarColors(
+                            view = view,
+                            hostContext = hostContext,
+                            statusBarColor = statusColor,
+                            lightStatusIcons = lightStatusIcons,
+                            navigationBarColor = colorScheme.background,
+                            lightNavigationIcons = darkTheme,
+                        )
+                    }
                 }
-            } catch (_: Throwable) {
-                // Ignore: bubble / embedded / transient window states
-            }
         }
     }
 
-    MaterialTheme(
-        colorScheme = colorScheme,
-        typography = ErvTypography,
-        content = content
-    )
+    CompositionLocalProvider(
+        LocalErvDarkTheme provides darkTheme,
+        LocalErvSystemBars provides systemBars,
+    ) {
+        MaterialTheme(
+            colorScheme = colorScheme,
+            typography = ErvTypography,
+            content = content
+        )
+    }
+}
+
+private fun applySystemBarColors(
+    view: android.view.View,
+    hostContext: Context,
+    statusBarColor: Color,
+    lightStatusIcons: Boolean,
+    navigationBarColor: Color,
+    lightNavigationIcons: Boolean,
+) {
+    // view.context is often ContextThemeWrapper, not Activity — casting caused ClassCastException
+    // in bubble activities and other embedded windows.
+    val activity = hostContext.findActivity() ?: return
+    try {
+        val window = activity.window
+        window.statusBarColor = statusBarColor.toArgb()
+        window.navigationBarColor = navigationBarColor.toArgb()
+        WindowCompat.getInsetsController(window, view)?.let { c ->
+            c.isAppearanceLightStatusBars = !lightStatusIcons
+            c.isAppearanceLightNavigationBars = !lightNavigationIcons
+        }
+    } catch (_: Throwable) {
+        // Ignore: bubble / embedded / transient window states
+    }
 }
 
 private fun Context.findActivity(): Activity? {

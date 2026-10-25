@@ -42,7 +42,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.erv.app.R
+import com.erv.app.ui.components.WorkoutKind1SharePreviewDialog
 import com.erv.app.ui.components.FieldLabel
 import com.erv.app.cardio.CardioDistanceUnit
 import com.erv.app.cardio.CardioSession
@@ -57,9 +60,13 @@ import com.erv.app.data.WorkoutMediaUploadBackend
 import com.erv.app.hr.HeartRateSessionAnalyticsSection
 import com.erv.app.nostr.BlossomUploader
 import com.erv.app.nostr.EventSigner
-import com.erv.app.nostr.Nip96Uploader
+import com.erv.app.nostr.KeyManager
+import com.erv.app.nostr.Kind1PublishResult
+import com.erv.app.nostr.Kind1ShareDraft
+import com.erv.app.nostr.Kind1SocialShare
+import com.erv.app.nostr.LocalKeyManager
 import com.erv.app.nostr.RelayPool
-import com.erv.app.nostr.UnsignedEvent
+import com.erv.app.nostr.Nip96Uploader
 import com.erv.app.nostr.buildWorkoutShareHashtagContentLineFromTopics
 import com.erv.app.nostr.parseWorkoutShareTopics
 import com.erv.app.nostr.workoutShareBaseTopicTags
@@ -112,9 +119,10 @@ fun UnifiedWorkoutSummaryScreen(
     val workoutMediaBackend by userPreferences.workoutMediaUploadBackend.collectAsState(
         initial = WorkoutMediaUploadBackend.NIP96
     )
-    val attachRouteImage by userPreferences.attachRouteImageToWorkoutNostrShare.collectAsState(initial = true)
+    val attachRouteImage by userPreferences.attachRouteImageToWorkoutNostrShare.collectAsState(initial = false)
     var sharing by remember { mutableStateOf(false) }
     var shared by remember { mutableStateOf(false) }
+    var showSharePreview by remember { mutableStateOf(false) }
     var sharePersonalMessage by remember { mutableStateOf("") }
     var shareHashtags by remember {
         mutableStateOf(buildWorkoutShareHashtagContentLineFromTopics(workoutShareBaseTopicTags))
@@ -158,6 +166,48 @@ fun UnifiedWorkoutSummaryScreen(
         }
     }
     val totalCardioKcal = remember(cardioSessions) { cardioSessions.sumOf { it.estimatedKcal ?: 0.0 } }
+    val keyManager = LocalKeyManager.current
+    val routeSourceForShare = remember(cardioSessions) {
+        cardioSessions.firstOrNull { it.routeImageUrl != null || it.gpsTrack?.points?.isNotEmpty() == true }
+    }
+    val hasGpsForShare = routeSourceForShare?.gpsTrack?.points?.isNotEmpty() == true
+    val normalizedShareMediaOrigin = remember(nip96Origin, blossomPublicOrigin, workoutMediaBackend) {
+        when (workoutMediaBackend) {
+            WorkoutMediaUploadBackend.NIP96 -> Nip96Uploader.normalizeMediaServerOrigin(nip96Origin)
+            WorkoutMediaUploadBackend.BLOSSOM -> Nip96Uploader.normalizeMediaServerOrigin(blossomPublicOrigin)
+        }
+    }
+    val sharePreviewContent = remember(
+        summary,
+        cardioSessions,
+        weightSessions,
+        weightState,
+        loadUnit,
+        distanceUnit,
+        sharePersonalMessage,
+        shareHashtags,
+    ) {
+        val topics = parseWorkoutShareTopics(shareHashtags)
+        buildUnifiedWorkoutNoteContent(
+            summary = summary,
+            cardioSessions = cardioSessions,
+            weightSessions = weightSessions,
+            weightState = weightState,
+            loadUnit = loadUnit,
+            distanceUnit = distanceUnit,
+            personalMessage = sharePersonalMessage,
+            topics = topics,
+            routeImageUrl = null,
+        )
+    }
+    val shareRouteImageNote = when {
+        attachRouteImage && hasGpsForShare && normalizedShareMediaOrigin.isNotEmpty() ->
+            stringResource(R.string.kind1_share_preview_route_image)
+        else -> null
+    }
+    val kind1ShareSuccessMsg = stringResource(R.string.kind1_share_success)
+    val kind1NoSocialMsg = stringResource(R.string.kind1_share_no_social_relays)
+    val kind1FailureMsg = stringResource(R.string.kind1_share_failed)
     val totalWeightKcal = remember(weightSessions) { weightSessions.sumOf { it.estimatedKcal ?: 0.0 } }
     val totalEstimatedKcal = remember(totalCardioKcal, totalWeightKcal) {
         (totalCardioKcal + totalWeightKcal).takeIf { it > 0.5 }
@@ -302,50 +352,7 @@ fun UnifiedWorkoutSummaryScreen(
                 OutlinedButton(
                     onClick = {
                         if (sharing || shared) return@OutlinedButton
-                        sharing = true
-                        scope.launch {
-                            val routeSource = cardioSessions.firstOrNull { it.routeImageUrl != null || it.gpsTrack?.points?.isNotEmpty() == true }
-                            val routeImageUrl = uploadUnifiedRouteImageIfNeeded(
-                                context = context,
-                                source = routeSource,
-                                nip96OriginRaw = nip96Origin,
-                                blossomPublicOriginRaw = blossomPublicOrigin,
-                                mediaBackend = workoutMediaBackend,
-                                attachRouteImage = attachRouteImage,
-                                dark = dark,
-                                mid = mid,
-                                glow = glow,
-                                signer = signer
-                            )
-                            val topics = parseWorkoutShareTopics(shareHashtags)
-                            val tags = workoutShareKind1TopicTagsFromTopics(topics).toMutableList()
-                            if (routeImageUrl != null) {
-                                tags.add(listOf("imeta", "url $routeImageUrl", "m image/png", "dim 1080x1440"))
-                            }
-                            val unsigned = UnsignedEvent(
-                                pubkey = signer.publicKey,
-                                createdAt = System.currentTimeMillis() / 1000,
-                                kind = 1,
-                                tags = tags,
-                                content = buildUnifiedWorkoutNoteContent(
-                                    summary = summary,
-                                    cardioSessions = cardioSessions,
-                                    weightSessions = weightSessions,
-                                    weightState = weightState,
-                                    loadUnit = loadUnit,
-                                    distanceUnit = distanceUnit,
-                                    personalMessage = sharePersonalMessage,
-                                    topics = topics,
-                                    routeImageUrl = routeImageUrl
-                                )
-                            )
-                            val ok = relayPool.publish(signer.sign(unsigned))
-                            sharing = false
-                            shared = ok
-                            snackbarHostState.showSnackbar(
-                                if (ok) "Shared to your relays!" else "Failed to share — check relay connection"
-                            )
-                        }
+                        showSharePreview = true
                     },
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !sharing && !shared,
@@ -376,6 +383,51 @@ fun UnifiedWorkoutSummaryScreen(
             }
         }
         SnackbarHost(hostState = snackbarHostState, modifier = Modifier.align(Alignment.BottomCenter))
+    }
+
+    if (showSharePreview && relayPool != null && signer != null) {
+        WorkoutKind1SharePreviewDialog(
+            content = sharePreviewContent,
+            socialRelayUrls = keyManager.relayUrlsForKind1Publish(),
+            routeImageNote = shareRouteImageNote,
+            confirming = sharing,
+            onDismiss = { if (!sharing) showSharePreview = false },
+            onConfirm = {
+                sharing = true
+                scope.launch {
+                    val result = publishUnifiedWorkoutKind1Note(
+                        context = context,
+                        relayPool = relayPool,
+                        keyManager = keyManager,
+                        signer = signer,
+                        summary = summary,
+                        cardioSessions = cardioSessions,
+                        weightSessions = weightSessions,
+                        weightState = weightState,
+                        loadUnit = loadUnit,
+                        distanceUnit = distanceUnit,
+                        personalMessage = sharePersonalMessage,
+                        hashtagsInput = shareHashtags,
+                        nip96OriginRaw = nip96Origin,
+                        blossomPublicOriginRaw = blossomPublicOrigin,
+                        mediaBackend = workoutMediaBackend,
+                        attachRouteImage = attachRouteImage,
+                        dark = dark,
+                        mid = mid,
+                        glow = glow,
+                        successMessage = kind1ShareSuccessMsg,
+                        noSocialRelaysMessage = kind1NoSocialMsg,
+                        failureMessage = kind1FailureMsg,
+                    )
+                    sharing = false
+                    if (result.ok) {
+                        shared = true
+                        showSharePreview = false
+                    }
+                    snackbarHostState.showSnackbar(result.userMessage)
+                }
+            },
+        )
     }
 
     if (showSaveRoutineDialog && summary.routineSnapshot != null) {
@@ -505,6 +557,99 @@ private suspend fun uploadUnifiedRouteImageIfNeeded(
         WorkoutMediaUploadBackend.BLOSSOM ->
             BlossomUploader.uploadBlob(normalizedOrigin, bytes, "image/png", signer).getOrNull()
     }
+}
+
+private fun buildUnifiedWorkoutKind1Draft(
+    summary: com.erv.app.unifiedroutines.UnifiedWorkoutSession,
+    cardioSessions: List<CardioSession>,
+    weightSessions: List<WeightWorkoutSession>,
+    weightState: WeightLibraryState,
+    loadUnit: BodyWeightUnit,
+    distanceUnit: CardioDistanceUnit,
+    personalMessage: String,
+    hashtagsInput: String,
+    routeImageUrl: String? = null,
+): Kind1ShareDraft {
+    val topics = parseWorkoutShareTopics(hashtagsInput)
+    val tags = workoutShareKind1TopicTagsFromTopics(topics).toMutableList()
+    if (routeImageUrl != null) {
+        tags.add(listOf("imeta", "url $routeImageUrl", "m image/png", "dim 1080x1440"))
+    }
+    return Kind1ShareDraft(
+        content = buildUnifiedWorkoutNoteContent(
+            summary = summary,
+            cardioSessions = cardioSessions,
+            weightSessions = weightSessions,
+            weightState = weightState,
+            loadUnit = loadUnit,
+            distanceUnit = distanceUnit,
+            personalMessage = personalMessage,
+            topics = topics,
+            routeImageUrl = routeImageUrl,
+        ),
+        tags = tags,
+    )
+}
+
+private suspend fun publishUnifiedWorkoutKind1Note(
+    context: android.content.Context,
+    relayPool: RelayPool,
+    keyManager: KeyManager,
+    signer: EventSigner,
+    summary: com.erv.app.unifiedroutines.UnifiedWorkoutSession,
+    cardioSessions: List<CardioSession>,
+    weightSessions: List<WeightWorkoutSession>,
+    weightState: WeightLibraryState,
+    loadUnit: BodyWeightUnit,
+    distanceUnit: CardioDistanceUnit,
+    personalMessage: String,
+    hashtagsInput: String,
+    nip96OriginRaw: String,
+    blossomPublicOriginRaw: String,
+    mediaBackend: WorkoutMediaUploadBackend,
+    attachRouteImage: Boolean,
+    dark: Color,
+    mid: Color,
+    glow: Color,
+    successMessage: String,
+    noSocialRelaysMessage: String,
+    failureMessage: String,
+): Kind1PublishResult {
+    val routeSource = cardioSessions.firstOrNull {
+        it.routeImageUrl != null || it.gpsTrack?.points?.isNotEmpty() == true
+    }
+    val routeImageUrl = uploadUnifiedRouteImageIfNeeded(
+        context = context,
+        source = routeSource,
+        nip96OriginRaw = nip96OriginRaw,
+        blossomPublicOriginRaw = blossomPublicOriginRaw,
+        mediaBackend = mediaBackend,
+        attachRouteImage = attachRouteImage,
+        dark = dark,
+        mid = mid,
+        glow = glow,
+        signer = signer,
+    )
+    val draft = buildUnifiedWorkoutKind1Draft(
+        summary = summary,
+        cardioSessions = cardioSessions,
+        weightSessions = weightSessions,
+        weightState = weightState,
+        loadUnit = loadUnit,
+        distanceUnit = distanceUnit,
+        personalMessage = personalMessage,
+        hashtagsInput = hashtagsInput,
+        routeImageUrl = routeImageUrl,
+    )
+    return Kind1SocialShare.publish(
+        relayPool = relayPool,
+        keyManager = keyManager,
+        signer = signer,
+        draft = draft,
+        successMessage = successMessage,
+        noSocialRelaysMessage = noSocialRelaysMessage,
+        failureMessage = failureMessage,
+    )
 }
 
 private fun buildUnifiedWorkoutNoteContent(

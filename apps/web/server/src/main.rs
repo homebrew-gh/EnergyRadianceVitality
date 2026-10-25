@@ -5,6 +5,11 @@
 //! After unlock the key also lives in memory. The server connects to the user's Nostr relay
 //! (same as the Android app), fetches kind-30078 ERV events, and serves the SPA.
 
+mod ai_prompts;
+mod ai_provider;
+mod ai_queue;
+mod ai_relay;
+mod ai_routes;
 mod blossom;
 mod config;
 mod crypto;

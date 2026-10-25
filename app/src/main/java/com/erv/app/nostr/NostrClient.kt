@@ -1,6 +1,8 @@
 package com.erv.app.nostr
 
 import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.*
 import kotlinx.serialization.json.*
 import okhttp3.*
@@ -19,6 +21,12 @@ sealed interface ClientPublishResult {
     data object TimedOut : ClientPublishResult
     data class Rejected(val message: String) : ClientPublishResult
     data class SendFailed(val message: String) : ClientPublishResult
+}
+
+/** Ordered relay frames. EVENT is emitted before a later EOSE on the same socket. */
+sealed interface ClientInbound {
+    data class StoredEvent(val subscriptionId: String, val event: NostrEvent) : ClientInbound
+    data class EndOfStoredEvents(val subscriptionId: String) : ClientInbound
 }
 
 data class NostrFilter(
@@ -71,15 +79,46 @@ class NostrClient(
     private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
     val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
 
-    private val _events = MutableSharedFlow<Pair<String, NostrEvent>>(extraBufferCapacity = 64)
+    private val _events = MutableSharedFlow<Pair<String, NostrEvent>>(
+        extraBufferCapacity = 4096,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
     val events: SharedFlow<Pair<String, NostrEvent>> = _events.asSharedFlow()
 
     private val _notices = MutableSharedFlow<String>(extraBufferCapacity = 16)
     val notices: SharedFlow<String> = _notices.asSharedFlow()
 
+    /** Subscription ids for which this relay sent `EOSE` (end of stored events). */
+    private val _endOfStoredEvents = MutableSharedFlow<String>(
+        extraBufferCapacity = 64,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+    val endOfStoredEvents: SharedFlow<String> = _endOfStoredEvents.asSharedFlow()
+
+    /**
+     * Single ordered stream so a stored EVENT cannot be overtaken by the EOSE that follows it.
+     * [tryEmit] never blocks the socket reader; publish OK handling stays on this same queue.
+     */
+    private val _inboundMessages = MutableSharedFlow<ClientInbound>(
+        extraBufferCapacity = 4096,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+    val inboundMessages: SharedFlow<ClientInbound> = _inboundMessages.asSharedFlow()
+
+    /** Websocket callbacks enqueue here so frames are parsed in arrival order. */
+    private val socketMessages = Channel<String>(Channel.UNLIMITED)
+
     private val pendingPublishes = mutableMapOf<String, PendingPublish>()
     private var authEventId: String? = null
     private var pendingChallenge: String? = null
+
+    init {
+        scope.launch {
+            for (text in socketMessages) {
+                handleMessage(text)
+            }
+        }
+    }
 
     /** Remember REQs so they run after the socket opens (and again after NIP-42 AUTH). */
     private val subscriptionLock = Any()
@@ -111,7 +150,7 @@ class NostrClient(
 
             override fun onMessage(ws: WebSocket, text: String) {
                 if (ws !== webSocket) return
-                scope.launch { handleMessage(text) }
+                socketMessages.trySend(text)
             }
 
             override fun onFailure(ws: WebSocket, t: Throwable, response: Response?) {
@@ -262,7 +301,8 @@ class NostrClient(
                 "EVENT" -> {
                     val subId = json[1].jsonPrimitive.content
                     val event = NostrEvent.fromJson(json[2].jsonObject)
-                    _events.emit(subId to event)
+                    _events.tryEmit(subId to event)
+                    _inboundMessages.tryEmit(ClientInbound.StoredEvent(subId, event))
                 }
                 "OK" -> {
                     val eventId = json[1].jsonPrimitive.content
@@ -270,7 +310,13 @@ class NostrClient(
                     val message = if (json.size > 3) json[3].jsonPrimitive.content else ""
                     handleOk(eventId, success, message)
                 }
-                "EOSE" -> { /* End of stored events for subscription */ }
+                "EOSE" -> {
+                    if (json.size > 1) {
+                        val subId = json[1].jsonPrimitive.content
+                        _endOfStoredEvents.tryEmit(subId)
+                        _inboundMessages.tryEmit(ClientInbound.EndOfStoredEvents(subId))
+                    }
+                }
                 "CLOSED" -> {
                     val message = if (json.size > 2) json[2].jsonPrimitive.content else ""
                     if (message.startsWith("auth-required")) {
@@ -278,7 +324,7 @@ class NostrClient(
                     }
                 }
                 "NOTICE" -> {
-                    _notices.emit(json[1].jsonPrimitive.content)
+                    _notices.tryEmit(json[1].jsonPrimitive.content)
                 }
             }
         } catch (_: Exception) {

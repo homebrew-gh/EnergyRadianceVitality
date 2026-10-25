@@ -1,5 +1,8 @@
 package com.erv.app.ui.workouts
 
+import com.erv.app.ui.theme.ervTopAppBarColors
+import com.erv.app.ui.theme.ervSessionTopAppBarColors
+import com.erv.app.hr.HeartRatePill
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -32,6 +35,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -44,10 +48,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.erv.app.R
+import com.erv.app.ui.components.WorkoutKind1SharePreviewDialog
 import androidx.compose.ui.unit.sp
 import com.erv.app.hr.LocalHeartRateBle
-import com.erv.app.ui.theme.ErvHeaderRed
+import com.erv.app.ui.theme.ErvSessionRed
 import com.erv.app.ui.weighttraining.WeightLiveWorkoutFgsDisclosureDialog
 import com.erv.app.ui.weighttraining.WeightLiveWorkoutViewModel
 import com.erv.app.weighttraining.WeightLibraryState
@@ -89,6 +96,7 @@ import com.erv.app.weighttraining.totalSetCount
 import com.erv.app.weighttraining.totalVolumeLoadTimesReps
 import com.erv.app.weighttraining.weightLoadUnitSuffix
 import com.erv.app.nostr.EventSigner
+import com.erv.app.nostr.LocalKeyManager
 import com.erv.app.nostr.RelayPool
 import com.erv.app.nostr.buildWorkoutShareHashtagContentLineFromTopics
 import com.erv.app.nostr.workoutShareBaseTopicTags
@@ -96,7 +104,9 @@ import com.erv.app.workouts.ComposedWorkoutHrSection
 import com.erv.app.workouts.ComposedWorkoutHrSummary
 import com.erv.app.workouts.summaryLabel
 import com.erv.app.workouts.attachComposedWorkoutHeartRateToLinkedLogs
+import com.erv.app.workouts.backupComposedWorkoutSessionMedia
 import com.erv.app.workouts.buildComposedWorkoutHrSummary
+import com.erv.app.workouts.buildComposedWorkoutKind1Draft
 import com.erv.app.workouts.publishComposedWorkoutNote
 import com.erv.app.workouts.resolveCardioLaunch
 import com.erv.app.workouts.resolveStretchLaunch
@@ -144,6 +154,7 @@ fun WorkoutLiveRunScreen(
     modifier: Modifier = Modifier,
 ) {
     val scope = rememberCoroutineScope()
+    val appContext = LocalContext.current.applicationContext
     val heartRateBle = LocalHeartRateBle.current
     val liveWeightDraft by weightLiveWorkoutViewModel.activeDraft.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -163,6 +174,32 @@ fun WorkoutLiveRunScreen(
     var pendingWeightBatch by remember { mutableStateOf<List<WorkoutItem.Weight>?>(null) }
     var activeRest by remember { mutableStateOf<ActiveWorkoutRest?>(null) }
     var sectionTransition by remember { mutableStateOf<WorkoutSectionTransition?>(null) }
+    // Label of the step the athlete asked to skip; non-null while the confirmation dialog is up.
+    var pendingSkipLabel by remember { mutableStateOf<String?>(null) }
+
+    pendingSkipLabel?.let { label ->
+        AlertDialog(
+            onDismissRequest = { pendingSkipLabel = null },
+            title = { Text("Skip $label?") },
+            text = {
+                Text("Nothing will be logged for this step. It will be listed as skipped in the workout summary and the run moves on to the next step.")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pendingSkipLabel = null
+                        activeRest = null
+                        scope.launch { repository.skipCurrentStep() }
+                    },
+                ) {
+                    Text("Skip")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingSkipLabel = null }) { Text("Keep going") }
+            },
+        )
+    }
 
     // A finished section leaves both a "next section" title and (when the workout continues) a
     // "just finished" title. Turn that into a full-screen transition splash that counts down into
@@ -449,6 +486,7 @@ fun WorkoutLiveRunScreen(
         Scaffold(
             topBar = {
                 TopAppBar(
+                    colors = ervTopAppBarColors(),
                     title = { Text("Workout") },
                     navigationIcon = {
                         IconButton(onClick = onBack) {
@@ -466,6 +504,9 @@ fun WorkoutLiveRunScreen(
     val position = activeRun?.position ?: WorkoutRunPosition()
     val runStarted = activeRun?.isStarted() == true
     val currentStep = remember(workout, position) { WorkoutRunEngine.currentStep(workout, position) }
+    val skippedStepKeys = remember(activeRun?.itemRecaps) {
+        activeRun?.itemRecaps.orEmpty().filter { it.skipped }.map { it.segmentId to it.itemId }.toSet()
+    }
     val isComplete = runStarted && (
         WorkoutRunEngine.isWorkoutComplete(workout, position) ||
             currentStep?.isComplete == true
@@ -475,29 +516,34 @@ fun WorkoutLiveRunScreen(
     // Finalize once the run completes, regardless of how completion was reached: stamp the
     // continuous whole-workout HR onto each linked section log and build the finish summary.
     LaunchedEffect(isComplete) {
-        if (isComplete && !runFinalized) {
-            runFinalized = true
-            val run = repository.currentState().activeRun
-            val wholeRunHeartRate = heartRateBle.takeComposedWorkoutRunHeartRateSummary()
-            if (run != null) {
-                if (wholeRunHeartRate != null) {
-                    attachComposedWorkoutHeartRateToLinkedLogs(
-                        run = run,
-                        heartRate = wholeRunHeartRate,
-                        cardioRepository = cardioRepository,
-                        weightRepository = weightRepository,
-                        stretchingRepository = stretchingRepository,
-                    )
-                }
-                composedSummary = buildComposedWorkoutHrSummary(
+        if (!isComplete || runFinalized) return@LaunchedEffect
+        val run = repository.currentState().activeRun ?: return@LaunchedEffect
+        val wholeRunHeartRate = heartRateBle.takeComposedWorkoutRunHeartRateSummary()
+        if (wholeRunHeartRate != null) {
+            runCatching {
+                attachComposedWorkoutHeartRateToLinkedLogs(
                     run = run,
-                    wholeRun = wholeRunHeartRate,
+                    heartRate = wholeRunHeartRate,
                     cardioRepository = cardioRepository,
                     weightRepository = weightRepository,
                     stretchingRepository = stretchingRepository,
                 )
             }
         }
+        backupComposedWorkoutSessionMedia(
+            appContext = appContext,
+            run = run,
+            cardioRepository = cardioRepository,
+            weightRepository = weightRepository,
+        )
+        composedSummary = buildComposedWorkoutHrSummary(
+            run = run,
+            wholeRun = wholeRunHeartRate,
+            cardioRepository = cardioRepository,
+            weightRepository = weightRepository,
+            stretchingRepository = stretchingRepository,
+        )
+        runFinalized = true
     }
 
     val summary = composedSummary
@@ -641,11 +687,14 @@ fun WorkoutLiveRunScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = ErvHeaderRed,
-                    titleContentColor = Color.White,
-                    navigationIconContentColor = Color.White,
-                ),
+                actions = {
+                    HeartRatePill(
+                        viewModel = heartRateBle,
+                        zoneInputs = heartRateZoneInputs,
+                        contentColor = Color.White,
+                    )
+                },
+                colors = ervSessionTopAppBarColors(),
             )
         },
     ) { padding ->
@@ -756,6 +805,15 @@ fun WorkoutLiveRunScreen(
                             ) {
                                 Text(if (circuitSessionActive) "Resume circuit" else "Start circuit")
                             }
+                            if (!circuitSessionActive) {
+                                WorkoutSkipStepButton(
+                                    label = "Skip circuit",
+                                    onClick = {
+                                        pendingSkipLabel = circuitSegment.title
+                                            ?: defaultWorkoutSegmentKindLabel(circuitSegment.kind)
+                                    },
+                                )
+                            }
                         }
                     }
                 }
@@ -794,6 +852,10 @@ fun WorkoutLiveRunScreen(
                             ) {
                                 Text(if (extraInSection > 0) "Log section" else "Log sets")
                             }
+                            WorkoutSkipStepButton(
+                                label = "Skip exercise",
+                                onClick = { pendingSkipLabel = weightItem.displayExerciseName(exerciseName) },
+                            )
                         }
                     }
                 }
@@ -859,6 +921,12 @@ fun WorkoutLiveRunScreen(
                             ) {
                                 Text("Start timer")
                             }
+                            WorkoutSkipStepButton(
+                                label = "Skip cardio",
+                                onClick = {
+                                    pendingSkipLabel = cardioItem.title?.takeIf { it.isNotBlank() } ?: "this cardio"
+                                },
+                            )
                         }
                     }
                 }
@@ -885,6 +953,12 @@ fun WorkoutLiveRunScreen(
                             ) {
                                 Text("Start stretch")
                             }
+                            WorkoutSkipStepButton(
+                                label = "Skip stretch",
+                                onClick = {
+                                    pendingSkipLabel = mobilityItem.title?.takeIf { it.isNotBlank() } ?: "this stretch"
+                                },
+                            )
                         }
                     }
                 }
@@ -963,12 +1037,13 @@ fun WorkoutLiveRunScreen(
                             segment.items.forEachIndexed { itemIndex, item ->
                                 val isCurrentItem = isCurrent && itemIndex == position.itemIndex
                                 val prefix = if (isCurrentItem) "▸ " else "· "
+                                val skippedSuffix = if ((segment.id to item.id) in skippedStepKeys) " · skipped" else ""
                                 when (item) {
                                     is WorkoutItem.Weight -> {
                                         val name = weightState.exerciseById(item.exerciseId)?.name
                                             ?: item.exerciseId
                                         Text(
-                                            text = prefix + name + " (${item.prescription.displaySummary()})",
+                                            text = prefix + name + " (${item.prescription.displaySummary()})" + skippedSuffix,
                                             style = MaterialTheme.typography.bodyMedium,
                                             color = if (isCurrentItem) {
                                                 MaterialTheme.colorScheme.primary
@@ -978,7 +1053,7 @@ fun WorkoutLiveRunScreen(
                                         )
                                     }
                                     is WorkoutItem.Cardio -> Text(
-                                        text = prefix + item.displaySummary(),
+                                        text = prefix + item.displaySummary() + skippedSuffix,
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = if (isCurrentItem) {
                                             MaterialTheme.colorScheme.primary
@@ -987,7 +1062,7 @@ fun WorkoutLiveRunScreen(
                                         },
                                     )
                                     is WorkoutItem.Mobility -> Text(
-                                        text = prefix + item.displaySummary(),
+                                        text = prefix + item.displaySummary() + skippedSuffix,
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = if (isCurrentItem) {
                                             MaterialTheme.colorScheme.primary
@@ -1073,6 +1148,18 @@ private fun ComposedWorkoutSummaryScreen(
     var shareHashtags by remember {
         mutableStateOf(buildWorkoutShareHashtagContentLineFromTopics(workoutShareBaseTopicTags))
     }
+    var showSharePreview by remember { mutableStateOf(false) }
+    val keyManager = LocalKeyManager.current
+    val sharePreviewContent = remember(summary, sharePersonalMessage, shareHashtags) {
+        buildComposedWorkoutKind1Draft(
+            summary = summary,
+            personalMessage = sharePersonalMessage,
+            hashtagsInput = shareHashtags,
+        ).content
+    }
+    val kind1ShareSuccessMsg = stringResource(R.string.kind1_share_success)
+    val kind1NoSocialMsg = stringResource(R.string.kind1_share_no_social_relays)
+    val kind1FailureMsg = stringResource(R.string.kind1_share_failed)
     val loadSuffix = weightLoadUnitSuffix(loadUnit)
     val weightSessions = summary.sections.mapNotNull { it.weightSession }
     val totalSets = weightSessions.sumOf { it.totalSetCount() }
@@ -1081,10 +1168,7 @@ private fun ComposedWorkoutSummaryScreen(
         topBar = {
             TopAppBar(
                 title = { Text("Workout complete") },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = ErvHeaderRed,
-                    titleContentColor = Color.White,
-                ),
+                colors = ervSessionTopAppBarColors(),
             )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -1113,7 +1197,12 @@ private fun ComposedWorkoutSummaryScreen(
                         }
                         if (summary.sectionCount > 0) {
                             Text(
-                                text = "${summary.sectionCount} section(s) completed",
+                                text = buildString {
+                                    append("${summary.sectionCount} section(s) completed")
+                                    if (summary.skippedItems.isNotEmpty()) {
+                                        append(" · ${summary.skippedItems.size} step(s) skipped")
+                                    }
+                                },
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -1183,6 +1272,27 @@ private fun ComposedWorkoutSummaryScreen(
                     }
                 }
             }
+            if (summary.skippedItems.isNotEmpty()) {
+                item {
+                    FormSectionLabel("Skipped steps")
+                }
+                item {
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            summary.skippedItems.forEach { label ->
+                                Text(
+                                    text = "· $label",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
             if (relayPool != null && signer != null) {
                 item {
                     OutlinedTextField(
@@ -1210,21 +1320,7 @@ private fun ComposedWorkoutSummaryScreen(
                     OutlinedButton(
                         onClick = {
                             if (sharing || shared) return@OutlinedButton
-                            sharing = true
-                            scope.launch {
-                                val ok = publishComposedWorkoutNote(
-                                    relayPool = relayPool,
-                                    signer = signer,
-                                    summary = summary,
-                                    personalMessage = sharePersonalMessage,
-                                    hashtagsInput = shareHashtags,
-                                )
-                                sharing = false
-                                shared = ok
-                                snackbarHostState.showSnackbar(
-                                    if (ok) "Shared to your relays!" else "Failed to share — check relay connection",
-                                )
-                            }
+                            showSharePreview = true
                         },
                         modifier = Modifier.fillMaxWidth(),
                         enabled = !sharing && !shared,
@@ -1247,6 +1343,50 @@ private fun ComposedWorkoutSummaryScreen(
                 }
             }
         }
+    }
+    if (showSharePreview && relayPool != null && signer != null) {
+        WorkoutKind1SharePreviewDialog(
+            content = sharePreviewContent,
+            socialRelayUrls = keyManager.relayUrlsForKind1Publish(),
+            confirming = sharing,
+            onDismiss = { if (!sharing) showSharePreview = false },
+            onConfirm = {
+                sharing = true
+                scope.launch {
+                    val result = publishComposedWorkoutNote(
+                        relayPool = relayPool,
+                        keyManager = keyManager,
+                        signer = signer,
+                        summary = summary,
+                        personalMessage = sharePersonalMessage,
+                        hashtagsInput = shareHashtags,
+                        successMessage = kind1ShareSuccessMsg,
+                        noSocialRelaysMessage = kind1NoSocialMsg,
+                        failureMessage = kind1FailureMsg,
+                    )
+                    sharing = false
+                    if (result.ok) {
+                        shared = true
+                        showSharePreview = false
+                    }
+                    snackbarHostState.showSnackbar(result.userMessage)
+                }
+            },
+        )
+    }
+}
+
+/** Secondary "skip this step" action under a step card's primary button; opens the confirm dialog. */
+@Composable
+private fun WorkoutSkipStepButton(
+    label: String,
+    onClick: () -> Unit,
+) {
+    TextButton(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -1361,7 +1501,7 @@ private fun WorkoutSectionTransitionSplash(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(ErvHeaderRed),
+            .background(ErvSessionRed),
         contentAlignment = Alignment.Center,
     ) {
         Column(

@@ -1,7 +1,8 @@
-import { FieldLabel, SectionHeader } from "../components/FieldLabel";
+import { FieldLabel } from "../components/FieldLabel";
 import { PassphraseFields } from "../components/PassphraseFields";
 import { useState } from "react";
-import { Navigate, useNavigate } from "react-router-dom";
+import { Navigate, useLocation, useNavigate } from "react-router-dom";
+import type { UnlockLocationState } from "../lib/sessionWatcher";
 import { AuthCard } from "../components/AuthCard";
 import { RemoveAccountForm } from "../components/RemoveAccountForm";
 import { SecretInput } from "../components/SecretInput";
@@ -9,14 +10,19 @@ import { ApiError, api } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { MIN_PASSPHRASE_LENGTH } from "../lib/passphrase";
 
+type UnlockMode = "passphrase" | "nsec";
+
 export function UnlockRoute() {
   const { status, loading, refresh } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const sessionExpired =
+    (location.state as UnlockLocationState | null)?.reason === "session-expired";
+  const [mode, setMode] = useState<UnlockMode>("passphrase");
   const [passphrase, setPassphrase] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [showLogout, setShowLogout] = useState(false);
-  const [showRecover, setShowRecover] = useState(false);
   const [recoverNsec, setRecoverNsec] = useState("");
   const [recoverPass, setRecoverPass] = useState("");
   const [recoverConfirm, setRecoverConfirm] = useState("");
@@ -25,7 +31,12 @@ export function UnlockRoute() {
   if (!status?.has_state) return <Navigate to="/setup" replace />;
   if (status.unlocked) return <Navigate to="/app" replace />;
 
-  const onSubmit = async (e: React.FormEvent) => {
+  const switchMode = (next: UnlockMode) => {
+    setMode(next);
+    setError(null);
+  };
+
+  const onPassphraseSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setSubmitting(true);
@@ -43,7 +54,7 @@ export function UnlockRoute() {
   const onRecover = async (nextPassphrase: string | undefined) => {
     setError(null);
     if (!recoverNsec.startsWith("nsec1")) {
-      setError("Secret key must be an nsec1… string (same key as your Android app).");
+      setError("Secret key must be an nsec1… string (same key as this account).");
       return;
     }
     if (nextPassphrase !== undefined) {
@@ -74,42 +85,54 @@ export function UnlockRoute() {
         title="Unlock ERV"
         subtitle={status.npub ? `Signed in as ${status.npub.slice(0, 16)}…` : undefined}
       >
-        <form className="space-y-4" onSubmit={onSubmit}>
-          <div>
-            <label className="label" htmlFor="pass">
-              <FieldLabel>Passphrase</FieldLabel>
-            </label>
-            <SecretInput
-              id="pass"
-              autoComplete="current-password"
-              value={passphrase}
-              onChange={(e) => setPassphrase(e.target.value)}
-            />
-          </div>
-          {error && !showRecover ? (
-            <p className="text-sm text-error" role="alert">
-              {error}
-            </p>
-          ) : null}
-          <button type="submit" className="btn-primary w-full" disabled={submitting}>
-            {submitting ? "Unlocking…" : "Unlock"}
-          </button>
-        </form>
-      </AuthCard>
+        {sessionExpired ? (
+          <p className="text-sm text-muted mb-4" role="status">
+            Your session expired after a period of inactivity. Enter your passphrase to
+            continue, or unlock with this account's private key.
+          </p>
+        ) : null}
 
-      <div className="w-full max-w-md card p-5 space-y-3">
-        {showRecover ? (
+        {mode === "passphrase" ? (
+          <form className="space-y-4" onSubmit={onPassphraseSubmit}>
+            <div>
+              <label className="label" htmlFor="pass">
+                <FieldLabel>Passphrase</FieldLabel>
+              </label>
+              <SecretInput
+                id="pass"
+                autoComplete="current-password"
+                value={passphrase}
+                onChange={(e) => setPassphrase(e.target.value)}
+              />
+            </div>
+            {error ? (
+              <p className="text-sm text-error" role="alert">
+                {error}
+              </p>
+            ) : null}
+            <button type="submit" className="btn-primary w-full" disabled={submitting}>
+              {submitting ? "Unlocking…" : "Unlock"}
+            </button>
+            <button
+              type="button"
+              className="btn-ghost w-full text-sm"
+              onClick={() => switchMode("nsec")}
+            >
+              Can't remember your passphrase?
+            </button>
+          </form>
+        ) : (
           <form
-            className="space-y-3"
+            className="space-y-4"
             onSubmit={(e) => {
               e.preventDefault();
               void onRecover(recoverPass);
             }}
           >
-            <SectionHeader>I forgot — paste nsec</SectionHeader>
             <p className="text-sm text-muted">
-              Paste the same nsec as this companion. You can set a new passphrase
-              or continue without one.
+              If you still have this account's nsec, you can unlock without the old
+              passphrase. Set a new passphrase or continue without one. The key must
+              match the npub on this server.
             </p>
             <div>
               <label className="label" htmlFor="recover-nsec">
@@ -130,13 +153,13 @@ export function UnlockRoute() {
               onPassphrase={setRecoverPass}
               onConfirm={setRecoverConfirm}
             />
-            {error && showRecover ? (
+            {error ? (
               <p className="text-sm text-error" role="alert">
                 {error}
               </p>
             ) : null}
             <button type="submit" className="btn-primary w-full" disabled={submitting}>
-              {submitting ? "Recovering…" : "Recover and set passphrase"}
+              {submitting ? "Unlocking…" : "Unlock and set new passphrase"}
             </button>
             <button
               type="button"
@@ -144,35 +167,18 @@ export function UnlockRoute() {
               disabled={submitting}
               onClick={() => void onRecover(undefined)}
             >
-              Recover without passphrase
+              Unlock without passphrase
             </button>
             <button
               type="button"
-              className="btn-ghost text-sm w-full"
-              onClick={() => {
-                setShowRecover(false);
-                setError(null);
-              }}
+              className="btn-ghost w-full text-sm"
+              onClick={() => switchMode("passphrase")}
             >
-              Cancel
+              Back to passphrase
             </button>
           </form>
-        ) : (
-          <div className="space-y-2 text-center">
-            <p className="text-sm text-muted">Forgot your passphrase?</p>
-            <button
-              type="button"
-              className="btn-ghost text-sm"
-              onClick={() => {
-                setShowRecover(true);
-                setError(null);
-              }}
-            >
-              I forgot — paste nsec
-            </button>
-          </div>
         )}
-      </div>
+      </AuthCard>
 
       <div className="w-full max-w-md card p-5 border-[var(--erv-error)]/30">
         {showLogout ? (

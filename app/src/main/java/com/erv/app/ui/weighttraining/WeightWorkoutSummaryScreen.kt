@@ -49,8 +49,13 @@ import com.erv.app.data.BodyWeightUnit
 import com.erv.app.data.UserPreferences
 import com.erv.app.hr.HeartRateSessionAnalyticsSection
 import com.erv.app.nostr.EventSigner
+import com.erv.app.nostr.KeyManager
+import com.erv.app.nostr.Kind1PublishResult
+import com.erv.app.nostr.Kind1ShareDraft
+import com.erv.app.nostr.Kind1SocialShare
+import com.erv.app.nostr.LocalKeyManager
 import com.erv.app.nostr.RelayPool
-import com.erv.app.nostr.UnsignedEvent
+import com.erv.app.ui.components.WorkoutKind1SharePreviewDialog
 import com.erv.app.nostr.buildWorkoutShareHashtagContentLineFromTopics
 import com.erv.app.nostr.parseWorkoutShareTopics
 import com.erv.app.nostr.workoutShareBaseTopicTags
@@ -145,8 +150,31 @@ internal fun buildWeightWorkoutNoteContent(
     }
 }
 
+internal fun buildWeightWorkoutKind1Draft(
+    session: WeightWorkoutSession,
+    library: WeightLibraryState,
+    logDate: LocalDate,
+    displayUnit: BodyWeightUnit,
+    personalMessage: String = "",
+    hashtagsInput: String = "",
+): Kind1ShareDraft {
+    val topics = parseWorkoutShareTopics(hashtagsInput)
+    return Kind1ShareDraft(
+        content = buildWeightWorkoutNoteContent(
+            session = session,
+            library = library,
+            logDate = logDate,
+            displayUnit = displayUnit,
+            personalMessage = personalMessage,
+            topics = topics,
+        ),
+        tags = workoutShareKind1TopicTagsFromTopics(topics),
+    )
+}
+
 internal suspend fun publishWeightWorkoutNote(
     relayPool: RelayPool,
+    keyManager: KeyManager,
     signer: EventSigner,
     session: WeightWorkoutSession,
     library: WeightLibraryState,
@@ -154,25 +182,28 @@ internal suspend fun publishWeightWorkoutNote(
     displayUnit: BodyWeightUnit,
     personalMessage: String = "",
     hashtagsInput: String = "",
-): Boolean {
-    val topics = parseWorkoutShareTopics(hashtagsInput)
-    val content = buildWeightWorkoutNoteContent(
+    successMessage: String = "Shared to your social relays.",
+    noSocialRelaysMessage: String =
+        "No social relays configured. Open Settings → Relays and enable Social on at least one relay.",
+    failureMessage: String = "Failed to share — check social relay connections.",
+): Kind1PublishResult {
+    val draft = buildWeightWorkoutKind1Draft(
         session = session,
         library = library,
         logDate = logDate,
         displayUnit = displayUnit,
         personalMessage = personalMessage,
-        topics = topics
+        hashtagsInput = hashtagsInput,
     )
-    val unsigned = UnsignedEvent(
-        pubkey = signer.publicKey,
-        createdAt = System.currentTimeMillis() / 1000,
-        kind = 1,
-        tags = workoutShareKind1TopicTagsFromTopics(topics),
-        content = content
+    return Kind1SocialShare.publish(
+        relayPool = relayPool,
+        keyManager = keyManager,
+        signer = signer,
+        draft = draft,
+        successMessage = successMessage,
+        noSocialRelaysMessage = noSocialRelaysMessage,
+        failureMessage = failureMessage,
     )
-    val signed = signer.sign(unsigned)
-    return relayPool.publish(signed)
 }
 
 @Composable
@@ -209,10 +240,26 @@ fun WeightWorkoutSummaryFullScreen(
     var showRoutineConfirm by remember { mutableStateOf(false) }
     var routineUpdating by remember { mutableStateOf(false) }
     var showDiscardLogConfirm by remember { mutableStateOf(false) }
+    var showSharePreview by remember { mutableStateOf(false) }
+    val keyManager = LocalKeyManager.current
+    val sharePreviewContent = remember(session, logDate, library, loadUnit, sharePersonalMessage, shareHashtags) {
+        buildWeightWorkoutKind1Draft(
+            session = session,
+            library = library,
+            logDate = logDate,
+            displayUnit = loadUnit,
+            personalMessage = sharePersonalMessage,
+            hashtagsInput = shareHashtags,
+        ).content
+    }
 
     val routineToUpdate: WeightRoutine? = remember(session.routineId, library.routines) {
         session.routineId?.let { rid -> library.routines.firstOrNull { it.id == rid } }
     }
+
+    val kind1ShareSuccessMsg = stringResource(R.string.kind1_share_success)
+    val kind1NoSocialMsg = stringResource(R.string.kind1_share_no_social_relays)
+    val kind1FailureMsg = stringResource(R.string.kind1_share_failed)
 
     Box(
         modifier = Modifier
@@ -417,24 +464,7 @@ fun WeightWorkoutSummaryFullScreen(
                 OutlinedButton(
                     onClick = {
                         if (sharing || shared) return@OutlinedButton
-                        sharing = true
-                        scope.launch {
-                            val ok = publishWeightWorkoutNote(
-                                relayPool,
-                                signer,
-                                session,
-                                library,
-                                logDate,
-                                loadUnit,
-                                personalMessage = sharePersonalMessage,
-                                hashtagsInput = shareHashtags
-                            )
-                            sharing = false
-                            shared = ok
-                            snackbarHostState.showSnackbar(
-                                if (ok) "Shared to your relays!" else "Failed to share — check relay connection"
-                            )
-                        }
+                        showSharePreview = true
                     },
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !sharing && !shared,
@@ -545,6 +575,40 @@ fun WeightWorkoutSummaryFullScreen(
                     enabled = !routineUpdating
                 ) { Text("Cancel") }
             }
+        )
+    }
+
+    if (showSharePreview && relayPool != null && signer != null) {
+        WorkoutKind1SharePreviewDialog(
+            content = sharePreviewContent,
+            socialRelayUrls = keyManager.relayUrlsForKind1Publish(),
+            confirming = sharing,
+            onDismiss = { if (!sharing) showSharePreview = false },
+            onConfirm = {
+                sharing = true
+                scope.launch {
+                    val result = publishWeightWorkoutNote(
+                        relayPool = relayPool,
+                        keyManager = keyManager,
+                        signer = signer,
+                        session = session,
+                        library = library,
+                        logDate = logDate,
+                        displayUnit = loadUnit,
+                        personalMessage = sharePersonalMessage,
+                        hashtagsInput = shareHashtags,
+                        successMessage = kind1ShareSuccessMsg,
+                        noSocialRelaysMessage = kind1NoSocialMsg,
+                        failureMessage = kind1FailureMsg,
+                    )
+                    sharing = false
+                    if (result.ok) {
+                        shared = true
+                        showSharePreview = false
+                    }
+                    snackbarHostState.showSnackbar(result.userMessage)
+                }
+            },
         )
     }
 }
