@@ -18,7 +18,7 @@ From repo root:
 ./gradlew testDebugUnitTest --no-daemon
 ```
 
-This matches [`.github/workflows/android-build.yml`](../../.github/workflows/android-build.yml) — the only CI gate today.
+This matches [`.github/workflows/android-build.yml`](../../../.github/workflows/android-build.yml) — the only CI gate today.
 
 ### Web SPA
 
@@ -62,7 +62,7 @@ RELEASE_NOTES="Short summary of this build." ./packages/start9/build.sh
 - Output: `packages/start9/erv-web_x86_64.s9pk`
 - Set `SKIP_VERSION_BUMP=1` only for local repacks that will not be installed.
 
-Step-by-step reference: [`packages/start9/README.md`](../../packages/start9/README.md), [`docs/architecture/START9_SCAFFOLD_AUDIT.md`](../../docs/architecture/START9_SCAFFOLD_AUDIT.md).
+Step-by-step reference: [`packages/start9/README.md`](../../../packages/start9/README.md), [`docs/architecture/START9_SCAFFOLD_AUDIT.md`](../../../docs/architecture/START9_SCAFFOLD_AUDIT.md).
 
 ## What to run when
 

@@ -5,7 +5,7 @@ description: Scopes ERV feature work to the current roadmap phase and silo bound
 
 # ERV phase scope
 
-**Read [`docs/PHASES.md`](../../docs/PHASES.md) first.** It is the lightweight source of truth. Avoid opening huge docs unless necessary — these freeze Cursor and are listed in `.cursorignore`:
+**Read [`docs/PHASES.md`](../../../docs/PHASES.md) first.** It is the lightweight source of truth. Avoid opening huge docs unless necessary — these freeze Cursor and are listed in `.cursorignore`:
 
 - `docs/archive/PLAN_OF_ACTION.md`
 - `docs/architecture/WORKOUT_PLAN_EDITOR_SPEC.md`
@@ -41,7 +41,7 @@ Assign two different workouts to two days on web → sync → Android week view 
 
 ## Silo boundaries
 
-From [`CONTRIBUTING.md`](../../CONTRIBUTING.md): health categories (Stretching, Weight Training, Cardio, Sauna, Cold Plunge, Light Therapy, Supplements, Sleep) are separate silos. Prefer scoped PRs — one silo or shared infra (Nostr, theme, navigation) at a time.
+From [`CONTRIBUTING.md`](../../../CONTRIBUTING.md): health categories (Stretching, Weight Training, Cardio, Sauna, Cold Plunge, Light Therapy, Supplements, Sleep) are separate silos. Prefer scoped PRs — one silo or shared infra (Nostr, theme, navigation) at a time.
 
 ## Where to look
 
@@ -68,7 +68,7 @@ then update the one-line status in `PHASES.md`. Never copy a checklist into a se
 2. If it spans phases, propose splitting the PR or ask the user to confirm scope expansion.
 3. For sync/schema changes, also read **erv-nostr-sync-contract**.
 4. For Profile / Progress / training history on web, read
-   **[`docs/architecture/ATHLETE_CONTEXT_WEB_PREP.md`](../../docs/architecture/ATHLETE_CONTEXT_WEB_PREP.md)**.
+   **[`docs/architecture/ATHLETE_CONTEXT_WEB_PREP.md`](../../../docs/architecture/ATHLETE_CONTEXT_WEB_PREP.md)**.
 5. For UI on both platforms, also read **erv-cross-platform-ui**.
 
 ## Do not
