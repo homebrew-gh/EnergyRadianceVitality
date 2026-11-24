@@ -519,17 +519,57 @@ class WeightModelsSerializationTest {
     }
 
     @Test
-    fun weightSetLoggingTriggersRest_detects_first_logged_set() {
+    fun weightSetLoggingTriggersRest_starts_when_a_set_is_checked_off() {
         val previous = listOf(WeightSet(reps = 0), WeightSet(reps = 0))
-        val updated = listOf(WeightSet(reps = 5), WeightSet(reps = 0))
+        val updated = listOf(WeightSet(reps = 5, done = true), WeightSet(reps = 0))
         assertTrue(weightSetLoggingTriggersRest(previous, updated))
     }
 
     @Test
-    fun weightSetLoggingTriggersRest_ignores_edits_to_logged_set() {
-        val previous = listOf(WeightSet(reps = 5))
-        val updated = listOf(WeightSet(reps = 6))
-        assertFalse(weightSetLoggingTriggersRest(previous, updated))
+    fun weightSetLoggingTriggersRest_ignores_typing_reps() {
+        // B4: the "1" of "12" used to start the rest timer.
+        assertFalse(weightSetLoggingTriggersRest(listOf(WeightSet(reps = 0)), listOf(WeightSet(reps = 1))))
+        assertFalse(weightSetLoggingTriggersRest(listOf(WeightSet(reps = 5)), listOf(WeightSet(reps = 6))))
+    }
+
+    @Test
+    fun weightSetLoggingTriggersRest_ignores_edits_to_checked_set_and_added_rows() {
+        val previous = listOf(WeightSet(reps = 5, done = true))
+        assertFalse(weightSetLoggingTriggersRest(previous, listOf(WeightSet(reps = 6, done = true))))
+        assertFalse(weightSetLoggingTriggersRest(previous, previous + WeightSet(targetReps = 5)))
+    }
+
+    @Test
+    fun weightSetLoggingTriggersRest_starts_when_a_timed_hold_is_recorded() {
+        val previous = listOf(WeightSet(targetDurationSeconds = 45))
+        val updated = listOf(WeightSet(targetDurationSeconds = 45, durationSeconds = 45))
+        assertTrue(weightSetLoggingTriggersRest(previous, updated))
+    }
+
+    @Test
+    fun completedFromTargets_fills_empty_fields_and_keeps_typed_ones() {
+        val planned = WeightSet(targetReps = 8, targetWeightKg = 60.0)
+        assertEquals(WeightSet(reps = 8, weightKg = 60.0, targetReps = 8, targetWeightKg = 60.0, done = true), planned.completedFromTargets())
+        val typed = planned.copy(reps = 6, weightKg = 55.0)
+        assertEquals(typed.copy(done = true), typed.completedFromTargets())
+        assertNull(WeightSet(targetRepsRangeLabel = "5-8").completedFromTargets())
+        assertFalse(WeightSet().canCompleteFromTargets())
+    }
+
+    @Test
+    fun finishedSession_drops_the_live_check_flag() {
+        val draft = WeightWorkoutDraft(
+            startedAtEpochSeconds = 1L,
+            exerciseOrder = listOf("squat"),
+            setsByExerciseId = mapOf(
+                "squat" to listOf(WeightSet(reps = 5, weightKg = 100.0, done = true), WeightSet(targetReps = 5)),
+            ),
+        )
+        val session = draft.toFinishedLiveSession()!!
+        assertEquals(listOf(WeightSet(reps = 5, weightKg = 100.0)), session.entries.single().sets)
+        val json = Json { encodeDefaults = true }
+        assertFalse(json.encodeToString(WeightSet.serializer(), WeightSet(reps = 5)).contains("done"))
+        assertTrue(json.encodeToString(WeightSet.serializer(), WeightSet(reps = 5, done = true)).contains("\"done\":true"))
     }
 
     @Test

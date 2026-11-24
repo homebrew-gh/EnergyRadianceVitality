@@ -40,9 +40,9 @@ enum class CardioLiveSplitMode {
 /** Between-set rest during live weight workout (timer next to workout clock). */
 enum class WeightLiveRestTimerMode {
     OFF,
-    /** Start countdown when you tap Add set on an exercise. */
+    /** Start the countdown when you check off a set. */
     AUTO,
-    /** After Add set, tap Start next to the workout timer to begin the countdown. */
+    /** After you check off a set, tap Start next to the workout timer to begin the countdown. */
     MANUAL
 }
 
@@ -355,6 +355,19 @@ class UserPreferences(private val context: Context) {
     suspend fun setWeightLiveWorkoutFgsDisclosureSeen(seen: Boolean) {
         context.dataStore.edit { prefs ->
             prefs[Keys.WEIGHT_LIVE_FGS_DISCLOSURE_SEEN] = seen
+        }
+    }
+
+    /**
+     * The rest timer mode the athlete picked, or `null` when they never chose one. The live screen
+     * then counts down automatically wherever the workout prescribes a rest.
+     */
+    val weightLiveRestTimerModeChosen: Flow<WeightLiveRestTimerMode?> = context.dataStore.data.map { prefs ->
+        when (prefs[Keys.WEIGHT_LIVE_REST_TIMER_MODE]?.uppercase()) {
+            "AUTO" -> WeightLiveRestTimerMode.AUTO
+            "MANUAL" -> WeightLiveRestTimerMode.MANUAL
+            "OFF" -> WeightLiveRestTimerMode.OFF
+            else -> null
         }
     }
 
