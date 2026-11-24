@@ -17,6 +17,7 @@ import com.erv.app.nostr.parseWorkoutShareTopics
 import com.erv.app.nostr.workoutShareKind1TopicTagsFromTopics
 import com.erv.app.stretching.StretchSession
 import com.erv.app.stretching.StretchingRepository
+import com.erv.app.weighttraining.WeightLibraryState
 import com.erv.app.weighttraining.WeightRepository
 import com.erv.app.weighttraining.WeightWorkoutSession
 import com.erv.app.weighttraining.totalSetCount
@@ -298,6 +299,10 @@ data class ComposedWorkoutHrSummary(
     val sectionCount: Int = 0,
     /** Human-readable labels ("Main work · Bench press") for steps the athlete skipped. */
     val skippedItems: List<String> = emptyList(),
+    /** The library workout this run came from; "Save today's weights" writes back to it. */
+    val workoutId: String? = null,
+    /** Target weights that today's lifting would change, for "Save today's weights". */
+    val weightTargetChanges: List<WorkoutTargetWeightChange> = emptyList(),
 ) {
     val hasAnyHeartRate: Boolean
         get() = wholeRun != null || sections.any { it.heartRate != null }
@@ -388,7 +393,26 @@ suspend fun buildComposedWorkoutHrSummary(
         totalElapsedSeconds = totalElapsedSeconds,
         sectionCount = run.workoutSnapshot.segments.size,
         skippedItems = run.skippedItemLabels { exerciseId -> weightState.exerciseById(exerciseId)?.name },
+        workoutId = run.workoutId,
+        weightTargetChanges = run.weightTargetChanges(weightState),
     )
+}
+
+/** What "Save today's weights" would change, from the weight sessions this run logged. */
+fun WorkoutActiveRun.weightTargetChanges(weightState: WeightLibraryState): List<WorkoutTargetWeightChange> {
+    val sessionsBySegmentId = linkedMapOf<String, MutableList<WeightWorkoutSession>>()
+    itemRecaps
+        .filter { !it.skipped && it.kind == WorkoutLoggedItemKind.WEIGHT }
+        .distinctBy { it.linkedEntryId ?: (it.segmentId + it.itemId) }
+        .forEach { recap ->
+            val logDate = recap.linkedLogDate?.let { runCatching { LocalDate.parse(it) }.getOrNull() } ?: return@forEach
+            val entryId = recap.linkedEntryId ?: return@forEach
+            val session = weightState.logFor(logDate)?.workouts?.firstOrNull { it.id == entryId } ?: return@forEach
+            sessionsBySegmentId.getOrPut(recap.segmentId) { mutableListOf() }.add(session)
+        }
+    if (sessionsBySegmentId.isEmpty()) return emptyList()
+    val skippedKeys = itemRecaps.filter { it.skipped }.map { it.segmentId to it.itemId }.toSet()
+    return proposeWorkoutTargetWeightChanges(workoutSnapshot, sessionsBySegmentId, skippedKeys)
 }
 
 /** "Section · step" labels for every recap marked skipped, in storyboard order. */

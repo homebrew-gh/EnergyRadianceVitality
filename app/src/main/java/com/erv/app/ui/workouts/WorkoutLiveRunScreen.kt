@@ -121,6 +121,10 @@ import com.erv.app.workouts.publishComposedWorkoutNote
 import com.erv.app.workouts.resolveCardioLaunch
 import com.erv.app.workouts.resolveStretchLaunch
 import com.erv.app.workouts.weightItems
+import com.erv.app.workouts.WorkoutSync
+import com.erv.app.workouts.WorkoutTargetWeightChange
+import com.erv.app.workouts.withTodaysWeights
+import com.erv.app.weighttraining.formatWeightLoadNumber
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -650,6 +654,10 @@ fun WorkoutLiveRunScreen(
 
     val summary = composedSummary
     if (summary != null) {
+        val summaryKeyManager = LocalKeyManager.current
+        // Only offered while the workout is still in the library and today changed a target.
+        val canSaveTodaysWeights = summary.weightTargetChanges.isNotEmpty() &&
+            summary.workoutId != null && workout.id == summary.workoutId
         ComposedWorkoutSummaryScreen(
             summary = summary,
             weightState = weightState,
@@ -658,6 +666,29 @@ fun WorkoutLiveRunScreen(
             zoneInputs = heartRateZoneInputs,
             relayPool = relayPool,
             signer = signer,
+            onSaveTodaysWeights = if (canSaveTodaysWeights) {
+                {
+                    val current = repository.currentState().workouts.firstOrNull { it.id == summary.workoutId }
+                    if (current == null) {
+                        false
+                    } else {
+                        val updated = current.withTodaysWeights(summary.weightTargetChanges)
+                        if (updated != current) {
+                            repository.upsertWorkout(updated)
+                            WorkoutSync.publishLibraryIfSignedIn(
+                                appContext = appContext,
+                                relayPool = relayPool,
+                                signer = signer,
+                                state = repository.currentState(),
+                                dataRelayUrls = summaryKeyManager.relayUrlsForKind30078Publish(),
+                            )
+                        }
+                        true
+                    }
+                }
+            } else {
+                null
+            },
             onDone = {
                 finishingRun = true
                 scope.launch {
@@ -1302,6 +1333,53 @@ fun WorkoutLiveRunScreen(
     }
 }
 
+/** "Save today's weights": lists each target today's lifting would change, with one button to save them all. */
+@Composable
+private fun TodaysWeightsCard(
+    changes: List<WorkoutTargetWeightChange>,
+    weightState: WeightLibraryState,
+    loadUnit: BodyWeightUnit,
+    saving: Boolean,
+    saved: Boolean,
+    onSave: () -> Unit,
+) {
+    val suffix = weightLoadUnitSuffix(loadUnit)
+    fun weights(values: List<Double?>): String =
+        values.joinToString(", ") { kg -> kg?.let { formatWeightLoadNumber(it, loadUnit) } ?: "none" }
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = if (saved) {
+                    "Saved. Next time this workout starts from today's weights."
+                } else {
+                    "Today's weights differ from the workout's targets. Save them as the new targets?"
+                },
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            changes.forEach { change ->
+                val name = weightState.exerciseById(change.exerciseId)?.name ?: change.exerciseId
+                Text(
+                    text = "$name: ${weights(change.beforeKg)} → ${weights(change.afterKg)} $suffix",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (!saved) {
+                Button(
+                    onClick = onSave,
+                    enabled = !saving,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(if (saving) "Saving…" else "Save Today's Weights")
+                }
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ComposedWorkoutSummaryScreen(
@@ -1312,10 +1390,14 @@ private fun ComposedWorkoutSummaryScreen(
     zoneInputs: HeartRateZoneInputs,
     relayPool: RelayPool?,
     signer: EventSigner?,
+    /** Writes today's weights back as the workout's targets; null hides the card. Returns false if the workout is gone. */
+    onSaveTodaysWeights: (suspend () -> Boolean)? = null,
     onDone: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
+    var savingWeights by remember { mutableStateOf(false) }
+    var savedWeights by remember { mutableStateOf(false) }
     var sharing by remember { mutableStateOf(false) }
     var shared by remember { mutableStateOf(false) }
     var sharePersonalMessage by remember { mutableStateOf("") }
@@ -1444,6 +1526,33 @@ private fun ComposedWorkoutSummaryScreen(
                             distanceUnit = distanceUnit,
                         )
                     }
+                }
+            }
+            if (onSaveTodaysWeights != null) {
+                item {
+                    FormSectionLabel("Next time")
+                }
+                item {
+                    TodaysWeightsCard(
+                        changes = summary.weightTargetChanges,
+                        weightState = weightState,
+                        loadUnit = loadUnit,
+                        saving = savingWeights,
+                        saved = savedWeights,
+                        onSave = {
+                            if (savingWeights || savedWeights) return@TodaysWeightsCard
+                            savingWeights = true
+                            scope.launch {
+                                val ok = runCatching { onSaveTodaysWeights() }.getOrDefault(false)
+                                savingWeights = false
+                                if (ok) {
+                                    savedWeights = true
+                                } else {
+                                    snackbarHostState.showSnackbar("Couldn't update the workout. It may have been deleted.")
+                                }
+                            }
+                        },
+                    )
                 }
             }
             if (summary.skippedItems.isNotEmpty()) {
