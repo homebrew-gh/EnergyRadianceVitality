@@ -1,5 +1,6 @@
 package com.erv.app.heatcold
 
+import com.erv.app.data.preserveUnreadableState
 import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
@@ -103,19 +104,22 @@ class HeatColdRepository(context: Context) {
 
     private suspend fun updateState(transform: (HeatColdLibraryState) -> HeatColdLibraryState) {
         appContext.heatColdDataStore.edit { prefs ->
-            val current = decodeState(prefs[Keys.STATE])
+            val raw = prefs[Keys.STATE]
+            val current = decodeState(raw) { prefs.preserveUnreadableState(Keys.STATE, raw) }
             val updated = transform(current)
             prefs[Keys.STATE] = json.encodeToString(HeatColdLibraryState.serializer(), updated)
         }
     }
 
-    private fun decodeState(raw: String?): HeatColdLibraryState {
+    private fun decodeState(raw: String?, onUnreadable: () -> Unit = {}): HeatColdLibraryState {
         if (raw.isNullOrBlank()) return HeatColdLibraryState()
         return try {
             json.decodeFromString(HeatColdLibraryState.serializer(), raw).withStableSessionIds()
         } catch (_: SerializationException) {
+            onUnreadable()
             HeatColdLibraryState()
         } catch (_: IllegalArgumentException) {
+            onUnreadable()
             HeatColdLibraryState()
         }
     }

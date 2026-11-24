@@ -1,5 +1,6 @@
 package com.erv.app.cardio
 
+import com.erv.app.data.preserveUnreadableState
 import android.content.Context
 import com.erv.app.data.UserPreferences
 import androidx.datastore.core.DataStore
@@ -168,19 +169,22 @@ class CardioRepository(
 
     private suspend fun updateState(transform: (CardioLibraryState) -> CardioLibraryState) {
         appContext.cardioDataStore.edit { prefs ->
-            val current = decodeState(prefs[Keys.STATE])
+            val raw = prefs[Keys.STATE]
+            val current = decodeState(raw) { prefs.preserveUnreadableState(Keys.STATE, raw) }
             val updated = transform(current)
             prefs[Keys.STATE] = json.encodeToString(CardioLibraryState.serializer(), updated)
         }
     }
 
-    private fun decodeState(raw: String?): CardioLibraryState {
+    private fun decodeState(raw: String?, onUnreadable: () -> Unit = {}): CardioLibraryState {
         if (raw.isNullOrBlank()) return CardioLibraryState()
         return try {
             json.decodeFromString(CardioLibraryState.serializer(), raw)
         } catch (_: SerializationException) {
+            onUnreadable()
             CardioLibraryState()
         } catch (_: IllegalArgumentException) {
+            onUnreadable()
             CardioLibraryState()
         }
     }

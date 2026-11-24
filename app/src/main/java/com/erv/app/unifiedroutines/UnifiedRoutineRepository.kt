@@ -1,5 +1,6 @@
 package com.erv.app.unifiedroutines
 
+import com.erv.app.data.preserveUnreadableState
 import android.content.Context
 import com.erv.app.nostr.SessionMediaBackupRuntime
 import java.time.Instant
@@ -231,19 +232,22 @@ class UnifiedRoutineRepository(context: Context) {
 
     private suspend fun updateState(transform: (UnifiedRoutineLibraryState) -> UnifiedRoutineLibraryState) {
         appContext.unifiedRoutineDataStore.edit { prefs ->
-            val current = decodeState(prefs[Keys.STATE])
+            val raw = prefs[Keys.STATE]
+            val current = decodeState(raw) { prefs.preserveUnreadableState(Keys.STATE, raw) }
             val updated = transform(current)
             prefs[Keys.STATE] = json.encodeToString(UnifiedRoutineLibraryState.serializer(), updated)
         }
     }
 
-    private fun decodeState(raw: String?): UnifiedRoutineLibraryState {
+    private fun decodeState(raw: String?, onUnreadable: () -> Unit = {}): UnifiedRoutineLibraryState {
         if (raw.isNullOrBlank()) return UnifiedRoutineLibraryState()
         return try {
             json.decodeFromString(UnifiedRoutineLibraryState.serializer(), raw)
         } catch (_: SerializationException) {
+            onUnreadable()
             UnifiedRoutineLibraryState()
         } catch (_: IllegalArgumentException) {
+            onUnreadable()
             UnifiedRoutineLibraryState()
         }
     }

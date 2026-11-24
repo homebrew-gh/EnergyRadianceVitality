@@ -1,5 +1,6 @@
 package com.erv.app.supplements
 
+import com.erv.app.data.preserveUnreadableState
 import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
@@ -304,19 +305,22 @@ class SupplementRepository(context: Context) {
 
     private suspend fun updateState(transform: (SupplementLibraryState) -> SupplementLibraryState) {
         appContext.supplementDataStore.edit { prefs ->
-            val current = decodeState(prefs[Keys.STATE])
+            val raw = prefs[Keys.STATE]
+            val current = decodeState(raw) { prefs.preserveUnreadableState(Keys.STATE, raw) }
             val updated = transform(current)
             prefs[Keys.STATE] = json.encodeToString(SupplementLibraryState.serializer(), updated)
         }
     }
 
-    private fun decodeState(raw: String?): SupplementLibraryState {
+    private fun decodeState(raw: String?, onUnreadable: () -> Unit = {}): SupplementLibraryState {
         if (raw.isNullOrBlank()) return SupplementLibraryState()
         return try {
             json.decodeFromString(SupplementLibraryState.serializer(), raw)
         } catch (_: SerializationException) {
+            onUnreadable()
             SupplementLibraryState()
         } catch (_: IllegalArgumentException) {
+            onUnreadable()
             SupplementLibraryState()
         }
     }

@@ -1,7 +1,9 @@
 package com.erv.app.fasting
 
 import android.content.Context
+import com.erv.app.data.preserveUnreadableState
 import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.MutablePreferences
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -44,6 +46,7 @@ class FastingRepository(private val context: Context) {
             } else {
                 prefs[Keys.ACTIVE_SESSION_JSON_V1] = encodeSession(active)
             }
+            prefs.historyForWrite() // keeps a copy if the stored history can't be read
             prefs[Keys.HISTORY_JSON_V1] = encodeHistory(state.history)
             prefs[Keys.INTERMITTENT_PLAN_JSON_V1] = encodeIntermittentPlan(state.intermittentPlan)
         }
@@ -75,7 +78,7 @@ class FastingRepository(private val context: Context) {
         var saved: FastingSession? = null
         context.fastingDataStore.edit { prefs ->
             val active = decodeSession(prefs[Keys.ACTIVE_SESSION_JSON_V1]) ?: return@edit
-            val history = decodeHistory(prefs[Keys.HISTORY_JSON_V1])
+            val history = prefs.historyForWrite()
             val completed = active.copy(
                 status = FastingStatus.COMPLETED,
                 endedAtEpochSeconds = endedAtEpochSeconds,
@@ -118,7 +121,7 @@ class FastingRepository(private val context: Context) {
         )
         var saved: FastingSession? = null
         context.fastingDataStore.edit { prefs ->
-            val history = decodeHistory(prefs[Keys.HISTORY_JSON_V1])
+            val history = prefs.historyForWrite()
             val alreadyLogged = history.any {
                 it.kind == FastingSessionKind.INTERMITTENT &&
                     it.startedAtEpochSeconds == fastStart &&
@@ -138,7 +141,7 @@ class FastingRepository(private val context: Context) {
         var saved: FastingSession? = null
         context.fastingDataStore.edit { prefs ->
             val active = decodeSession(prefs[Keys.ACTIVE_SESSION_JSON_V1]) ?: return@edit
-            val history = decodeHistory(prefs[Keys.HISTORY_JSON_V1])
+            val history = prefs.historyForWrite()
             val cancelled = active.copy(
                 status = FastingStatus.CANCELLED,
                 endedAtEpochSeconds = endedAtEpochSeconds,
@@ -169,13 +172,22 @@ class FastingRepository(private val context: Context) {
     private fun encodeIntermittentPlan(plan: IntermittentFastingPlan): String =
         json.encodeToString(IntermittentFastingPlan.serializer(), plan.normalized())
 
-    private fun decodeHistory(raw: String?): List<FastingSession> {
+    private fun decodeHistory(raw: String?, onUnreadable: () -> Unit = {}): List<FastingSession> {
         if (raw.isNullOrBlank()) return emptyList()
         return runCatching {
             json.decodeFromString(ListSerializer(FastingSession.serializer()), raw)
                 .sortedByDescending { it.endedAtEpochSeconds ?: it.startedAtEpochSeconds }
                 .take(HISTORY_LIMIT)
-        }.getOrElse { emptyList() }
+        }.getOrElse {
+            onUnreadable()
+            emptyList()
+        }
+    }
+
+    /** History to build a write on; keeps a copy of the stored text first if it can't be decoded. */
+    private fun MutablePreferences.historyForWrite(): List<FastingSession> {
+        val raw = this[Keys.HISTORY_JSON_V1]
+        return decodeHistory(raw) { preserveUnreadableState(Keys.HISTORY_JSON_V1, raw) }
     }
 
     private fun encodeHistory(history: List<FastingSession>): String =

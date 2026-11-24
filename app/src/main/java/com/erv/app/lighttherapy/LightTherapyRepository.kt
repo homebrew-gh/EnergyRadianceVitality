@@ -1,5 +1,6 @@
 package com.erv.app.lighttherapy
 
+import com.erv.app.data.preserveUnreadableState
 import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
@@ -117,19 +118,22 @@ class LightTherapyRepository(context: Context) {
 
     private suspend fun updateState(transform: (LightLibraryState) -> LightLibraryState) {
         appContext.lightTherapyDataStore.edit { prefs ->
-            val current = decodeState(prefs[Keys.STATE])
+            val raw = prefs[Keys.STATE]
+            val current = decodeState(raw) { prefs.preserveUnreadableState(Keys.STATE, raw) }
             val updated = transform(current)
             prefs[Keys.STATE] = json.encodeToString(LightLibraryState.serializer(), updated)
         }
     }
 
-    private fun decodeState(raw: String?): LightLibraryState {
+    private fun decodeState(raw: String?, onUnreadable: () -> Unit = {}): LightLibraryState {
         if (raw.isNullOrBlank()) return LightLibraryState()
         return try {
             json.decodeFromString(LightLibraryState.serializer(), raw).withStableSessionIds()
         } catch (_: SerializationException) {
+            onUnreadable()
             LightLibraryState()
         } catch (_: IllegalArgumentException) {
+            onUnreadable()
             LightLibraryState()
         }
     }
