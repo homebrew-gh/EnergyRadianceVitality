@@ -440,6 +440,35 @@ class WorkoutSessionRunTest {
     }
 
     @Test
+    fun several_exercises_added_at_once_keep_the_order_picked() {
+        val run = started("example-strength-day")
+        val added = run.withSessionItemsAdded(
+            listOf(
+                WorkoutSessionAddition.Lift("erv-weight-exercise-bb-barbell-curl-v1"),
+                WorkoutSessionAddition.Lift("erv-weight-exercise-bb-barbell-row-v1"),
+            ),
+            newItemIds = listOf("first", "second"),
+            newSegmentIds = listOf("first-section", "second-section"),
+        )
+        assertEquals(
+            listOf("strength-squat", "first", "second", "strength-rest", "strength-bench", "strength-row", "strength-note"),
+            added.itemIds(0),
+        )
+        assertEquals(run.step(), added.step())
+
+        // Out of the section too: two cardio pieces become two sections, in order.
+        val cardio = run.withSessionItemsAdded(
+            listOf(WorkoutSessionAddition.Cardio("BIKE", 10), WorkoutSessionAddition.Cardio("ROWING", 5)),
+            newItemIds = listOf("bike", "row"),
+            newSegmentIds = listOf("bike-section", "row-section"),
+        )
+        assertEquals(
+            listOf("strength-main", "bike-section", "row-section", "strength-accessories"),
+            cardio.workoutSnapshot.segments.map { it.id },
+        )
+    }
+
+    @Test
     fun an_exercise_added_mid_superset_joins_from_the_current_round() {
         val roundTwo = started("example-pairs-and-circuit").play(
             1_060,

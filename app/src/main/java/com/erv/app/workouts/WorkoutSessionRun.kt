@@ -433,6 +433,20 @@ private fun WorkoutSessionAddition.newSegmentKind(): WorkoutSegmentKind = when (
 }
 
 /**
+ * Adds several items after the one on screen, in the order given, as if each were added in turn
+ * right after the one before it (see [withSessionItemAdded]).
+ */
+fun WorkoutActiveRun.withSessionItemsAdded(
+    additions: List<WorkoutSessionAddition>,
+    newItemIds: List<String> = additions.map { java.util.UUID.randomUUID().toString() },
+    newSegmentIds: List<String> = additions.map { java.util.UUID.randomUUID().toString() },
+): WorkoutActiveRun =
+    // Each one goes in right after the item on screen, so adding them last to first keeps the order.
+    additions.indices.reversed().fold(this) { run, i ->
+        run.withSessionItemAdded(additions[i], newItemIds[i], newSegmentIds[i])
+    }
+
+/**
  * Adds [addition] to today's run right after the item on screen: into the same section when it
  * fits there (a lift into a lifting section, cardio into a cardio section), otherwise as a new
  * section right after the current one. In a superset or circuit a lift joins the rounds from the

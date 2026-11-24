@@ -44,6 +44,7 @@ import com.erv.app.ui.theme.ErvDarkTherapyRedDark
 import com.erv.app.ui.theme.ErvDarkTherapyRedMid
 import com.erv.app.ui.theme.ErvLightTherapyRedDark
 import com.erv.app.ui.theme.ErvLightTherapyRedMid
+import com.erv.app.weighttraining.recentExerciseIds
 import com.erv.app.weighttraining.usesTimedHoldCountdownBeeps
 import com.erv.app.weighttraining.WeightLibraryState
 import com.erv.app.weighttraining.WeightSet
@@ -89,15 +90,15 @@ fun WeightManualWorkoutEditorScreen(
             exercises = library.exercises.sortedBy { it.name.lowercase() },
             excludeIds = exerciseOrder.toSet(),
             onDismiss = { showPickExercise = false },
-            onPick = { id ->
-                if (id !in exerciseOrder) {
-                    exerciseOrder = exerciseOrder + id
-                    setsByExerciseId = setsByExerciseId + (
-                        id to listOf(WeightSet(reps = 0, weightKg = null, rpe = null))
-                        )
+            recentExerciseIds = library.recentExerciseIds(),
+            onPickMany = { ids ->
+                val newIds = ids.filter { it !in exerciseOrder }
+                exerciseOrder = exerciseOrder + newIds
+                setsByExerciseId = setsByExerciseId + newIds.map { id ->
+                    id to listOf(WeightSet(reps = 0, weightKg = null, rpe = null))
                 }
                 showPickExercise = false
-            }
+            },
         )
     }
 

@@ -61,10 +61,10 @@ fun WeightRoutineEditorDialog(
             exercises = exerciseLibrary,
             excludeIds = exerciseIds.toSet(),
             onDismiss = { showPickExercise = false },
-            onPick = { id ->
-                exerciseIds = exerciseIds.toMutableList().also { it.add(id) }
+            onPickMany = { ids ->
+                exerciseIds = exerciseIds.toMutableList().also { it.addAll(ids) }
                 showPickExercise = false
-            }
+            },
         )
     }
 

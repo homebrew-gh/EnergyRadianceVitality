@@ -40,9 +40,11 @@ fun WeightExerciseEditorDialog(
     title: String,
     availableMuscleGroups: List<String> = emptyList(),
     onDismiss: () -> Unit,
-    onSave: (WeightExercise) -> Unit
+    onSave: (WeightExercise) -> Unit,
+    /** Starting name for a new exercise, e.g. what was typed in the picker's search. */
+    initialName: String = "",
 ) {
-    var name by remember(initial?.id) { mutableStateOf(initial?.name.orEmpty()) }
+    var name by remember(initial?.id) { mutableStateOf(initial?.name ?: initialName) }
     val muscleGroupOptions = remember(availableMuscleGroups, initial?.muscleGroup) {
         (availableMuscleGroups + listOfNotNull(initial?.muscleGroup))
             .map { it.trim().lowercase() }

@@ -84,6 +84,7 @@ import com.erv.app.weighttraining.WeightExercise
 import com.erv.app.weighttraining.WeightHiitBlockLog
 import com.erv.app.weighttraining.WeightHiitIntervalPlan
 import com.erv.app.weighttraining.WeightLibraryState
+import com.erv.app.weighttraining.recentExerciseIds
 import com.erv.app.weighttraining.WeightSet
 import com.erv.app.weighttraining.WeightWorkoutDraft
 import com.erv.app.weighttraining.defaultBarForExercise
@@ -167,6 +168,8 @@ fun WeightLiveWorkoutScreen(
     var tick by remember { mutableIntStateOf(0) }
     var showPickExercise by remember { mutableStateOf(false) }
     var showExerciseCreator by remember { mutableStateOf(false) }
+    // What was typed in the picker's search when Create was tapped.
+    var newExerciseName by remember { mutableStateOf("") }
     var showDiscardConfirm by remember { mutableStateOf(false) }
     var showOverflowMenu by remember { mutableStateOf(false) }
     var showFinishBlocked by remember { mutableStateOf(false) }
@@ -385,14 +388,18 @@ fun WeightLiveWorkoutScreen(
             exercises = library.exercises.sortedBy { it.name.lowercase() },
             excludeIds = draft.exerciseOrder.toSet(),
             onDismiss = { showPickExercise = false },
-            onPick = { id ->
-                onAddExercise(id)
-                onRecordExerciseActivity(id)
+            recentExerciseIds = library.recentExerciseIds(),
+            onPickMany = { ids ->
+                ids.forEach { id ->
+                    onAddExercise(id)
+                    onRecordExerciseActivity(id)
+                }
                 showPickExercise = false
-                editingExerciseId = id
+                editingExerciseId = ids.firstOrNull()
             },
-            onCreateNew = {
+            onCreateNew = { typed ->
                 showPickExercise = false
+                newExerciseName = typed
                 showExerciseCreator = true
             }
         )
@@ -403,6 +410,7 @@ fun WeightLiveWorkoutScreen(
             initial = null,
             title = "Add exercise",
             availableMuscleGroups = library.exercises.map { it.muscleGroup },
+            initialName = newExerciseName,
             onDismiss = { showExerciseCreator = false },
             onSave = { exercise ->
                 onCreateExercise(exercise)

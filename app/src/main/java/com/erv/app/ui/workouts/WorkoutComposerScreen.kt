@@ -59,6 +59,7 @@ import com.erv.app.data.BodyWeightUnit
 import com.erv.app.data.UserPreferences
 import com.erv.app.ui.components.FieldLabel
 import com.erv.app.ui.components.FormSectionLabelSmall
+import com.erv.app.weighttraining.recentExerciseIds
 import com.erv.app.weighttraining.formatWeightLoadNumber
 import com.erv.app.weighttraining.parseWeightInputToKg
 import com.erv.app.weighttraining.weightLoadUnitSuffix
@@ -168,16 +169,21 @@ fun WorkoutComposerScreen(
             exercises = weightState.exercises,
             excludeIds = segment.weightItems().map { it.exerciseId }.toSet(),
             onDismiss = { pickExercisesForSegmentIndex = -1 },
-            // Stays open so several exercises can be added in one pass; Done closes it.
-            onPick = { exerciseId ->
+            recentExerciseIds = weightState.recentExerciseIds(),
+            onPickMany = { exerciseIds ->
                 val index = pickExercisesForSegmentIndex
+                pickExercisesForSegmentIndex = -1
                 val current = segments[index]
-                val exercise = weightState.exerciseById(exerciseId)
                 segments[index] = current.copy(
-                    items = current.items + WorkoutItem.Weight(
-                        exerciseId = exerciseId,
-                        prescription = defaultWorkoutPrescriptionForExercise(exercise, current.kind),
-                    ),
+                    items = current.items + exerciseIds.map { exerciseId ->
+                        WorkoutItem.Weight(
+                            exerciseId = exerciseId,
+                            prescription = defaultWorkoutPrescriptionForExercise(
+                                weightState.exerciseById(exerciseId),
+                                current.kind,
+                            ),
+                        )
+                    },
                 )
             },
         )
@@ -434,6 +440,7 @@ private fun SegmentEditorCard(
                     addAll(item.alternativeExerciseIds)
                 },
                 onDismiss = { pickAlternativeForItemIndex = -1 },
+                recentExerciseIds = weightState.recentExerciseIds(),
                 onPick = { exerciseId ->
                     val index = pickAlternativeForItemIndex
                     pickAlternativeForItemIndex = -1
