@@ -83,7 +83,7 @@ See [StartOS Versions docs](https://docs.start9.com/packaging/0.4.0.x/versions.h
 | `apps/web/server/` | Rust Axum backend |
 | `apps/web/web/` | React SPA |
 
-Progress: [`docs/architecture/START9_COMPANION_V1.md`](../../docs/architecture/START9_COMPANION_V1.md). Troubleshooting: [`docs/architecture/START9_SCAFFOLD_AUDIT.md`](../../docs/architecture/START9_SCAFFOLD_AUDIT.md).
+Progress: [`docs/architecture/START9_COMPANION_V1.md`](../../../docs/architecture/START9_COMPANION_V1.md). Troubleshooting: [`docs/architecture/START9_SCAFFOLD_AUDIT.md`](../../../docs/architecture/START9_SCAFFOLD_AUDIT.md).
 
 ## Do not
 

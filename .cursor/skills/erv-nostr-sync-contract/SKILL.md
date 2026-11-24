@@ -69,7 +69,7 @@ relay-safe payloads.
 
 ## Verified example (weight routines)
 
-From [`docs/architecture/START9_SCAFFOLD_AUDIT.md`](../../docs/architecture/START9_SCAFFOLD_AUDIT.md):
+From [`docs/architecture/START9_SCAFFOLD_AUDIT.md`](../../../docs/architecture/START9_SCAFFOLD_AUDIT.md):
 
 | Step | Web | Android |
 |------|-----|---------|
@@ -85,7 +85,7 @@ Apply the same checklist to stretch, cardio, catalogs, and `erv/workouts/library
 
 When changing workout or plan JSON:
 
-- Schema: [`docs/import/workouts_import_schema.md`](../../docs/import/workouts_import_schema.md)
+- Schema: [`docs/import/workouts_import_schema.md`](../../../docs/import/workouts_import_schema.md)
 - Web types: `apps/web/web/src/lib/workoutTraining.ts`
 - Android models: `app/.../workouts/` (grep `WorkoutSync`, segment/item data classes)
 - Import version field: `ervWorkoutImportVersion`
@@ -107,4 +107,4 @@ When changing workout or plan JSON:
 
 ## Scope reference
 
-Phase boundaries and tag rollout: [`docs/PHASES.md`](../../docs/PHASES.md). Full composer grammar (large file): `docs/architecture/WORKOUT_PLAN_EDITOR_SPEC.md`.
+Phase boundaries and tag rollout: [`docs/PHASES.md`](../../../docs/PHASES.md). Full composer grammar (large file): `docs/architecture/WORKOUT_PLAN_EDITOR_SPEC.md`.

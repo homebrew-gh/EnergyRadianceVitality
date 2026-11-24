@@ -7,6 +7,7 @@ export type DetectedRelayOption = {
 export type AuthStatus = {
   has_state: boolean;
   unlocked: boolean;
+  passphrase_set?: boolean;
   npub?: string | null;
   relay_url?: string | null;
   relay_urls?: string[];
@@ -63,7 +64,7 @@ export type BlossomStatus = {
 
 export type SetupBody = {
   nsec: string;
-  passphrase: string;
+  passphrase?: string;
   relay_url?: string;
 };
 
@@ -140,11 +141,15 @@ export type UnlockBody = {
 
 export type RecoverBody = {
   nsec: string;
-  new_passphrase: string;
+  passphrase?: string;
+};
+
+export type PassphraseBody = {
+  passphrase?: string;
 };
 
 export type WipeBody = {
-  passphrase: string;
+  passphrase?: string;
   confirmation: string;
 };
 
@@ -207,6 +212,8 @@ export const api = {
     request<AuthStatus>("/api/auth/unlock", { method: "POST", json: body }),
   authRecover: (body: RecoverBody) =>
     request<AuthStatus>("/api/auth/recover", { method: "POST", json: body }),
+  authPassphrase: (body: PassphraseBody) =>
+    request<AuthStatus>("/api/auth/passphrase", { method: "POST", json: body }),
   authLock: () =>
     request<{ ok: boolean }>("/api/auth/lock", { method: "POST" }),
   authWipe: (body: WipeBody) =>

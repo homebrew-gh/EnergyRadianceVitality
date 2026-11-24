@@ -14,6 +14,7 @@ This folder is organized by purpose so release-critical docs are easy to find an
 ## Release
 
 - [Android release signing](release/ANDROID_RELEASE_SIGNING.md)
+- [GitHub releases and Obtainium](release/GITHUB_RELEASES_AND_OBTAINIUM.md)
 - [Zapstore release checklist](release/ZAPSTORE_RELEASE_CHECKLIST.md)
 - [Zapstore store listing draft](release/ZAPSTORE_STORE_LISTING.md)
 - [Manual release test checklist](release/MANUAL_RELEASE_TEST_CHECKLIST.md)
