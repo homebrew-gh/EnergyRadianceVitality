@@ -1,0 +1,199 @@
+# Build the ERV StartOS package (.s9pk) and publish it as a GitHub Release.
+#
+# Run it from the Actions tab: Start9 release > Run workflow. It does what
+# `RELEASE_NOTES="..." ./packages/start9/build.sh` does on your PC:
+#   1. builds the web app and the Rust server,
+#   2. bumps the package version (0.1.2:30 -> 0.1.2:31) and commits that bump to the branch,
+#   3. packs and signs erv-web_x86_64.s9pk with your StartOS developer key,
+#   4. publishes it as release start9-v<version> (never marked Latest, so Obtainium's Android
+#      releases are unaffected).
+# You still sideload the .s9pk into StartOS by hand. See docs/release/GITHUB_RELEASES_AND_OBTAINIUM.md.
+#
+# Required repository secret (Settings > Secrets and variables > Actions):
+#   ERV_STARTOS_DEV_KEY  the contents of ~/.startos/developer.key.pem (or id.key.pem) from the
+#                        PC you have been building on. StartOS only installs an update signed
+#                        by the same key as the installed package.
+# Optional repository variable:
+#   START_CLI_VERSION    a start-cli release tag to install (default: newest release)
+
+name: Start9 release
+
+on:
+  workflow_dispatch:
+    inputs:
+      notes:
+        description: "Release notes shown in StartOS and on the release"
+        required: true
+      prerelease:
+        description: "Mark the GitHub release as a pre-release"
+        type: boolean
+        default: false
+
+# Shares a version counter in the repo, so never run two at once.
+concurrency:
+  group: start9-release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Check signing secret
+        env:
+          DEV_KEY: ${{ secrets.ERV_STARTOS_DEV_KEY }}
+        run: |
+          if [[ -z "$DEV_KEY" ]]; then
+            echo "::error::Missing repository secret ERV_STARTOS_DEV_KEY. See docs/release/GITHUB_RELEASES_AND_OBTAINIUM.md."
+            exit 1
+          fi
+          if ! grep -q "BEGIN" <<< "$DEV_KEY"; then
+            echo "::error::ERV_STARTOS_DEV_KEY does not look like a PEM key. Paste the whole file, including the BEGIN and END lines."
+            exit 1
+          fi
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq squashfs-tools squashfs-tools-ng jq > /dev/null
+          rustup toolchain install stable --profile minimal
+          cargo --version
+          docker info --format 'Docker {{.ServerVersion}}'
+
+      - name: Install start-cli
+        env:
+          GH_TOKEN: ${{ github.token }}
+          START_CLI_VERSION: ${{ vars.START_CLI_VERSION }}
+        run: |
+          asset="start-cli_$(uname -m)-linux"
+          if [[ -n "$START_CLI_VERSION" ]]; then
+            api="https://api.github.com/repos/Start9Labs/start-technologies/releases/tags/$START_CLI_VERSION"
+            filter='[.assets[] | select(.name=="'"$asset"'")] | first | .browser_download_url'
+          else
+            api="https://api.github.com/repos/Start9Labs/start-technologies/releases"
+            filter='[.[].assets[] | select(.name=="'"$asset"'")] | first | .browser_download_url'
+          fi
+          url="$(curl -fsS -H "Authorization: token $GH_TOKEN" "$api" | jq -r "$filter")"
+          if [[ -z "$url" || "$url" == "null" ]]; then
+            echo "::error::Could not find $asset in Start9Labs/start-technologies releases${START_CLI_VERSION:+ (tag $START_CLI_VERSION)}."
+            exit 1
+          fi
+          curl -fsSL -H "Authorization: token $GH_TOKEN" -H "Accept: application/octet-stream" "$url" -o "$RUNNER_TEMP/start-cli"
+          sudo install -m 755 "$RUNNER_TEMP/start-cli" /usr/local/bin/start-cli
+          rm -f "$RUNNER_TEMP/start-cli"
+          echo "start-cli $(start-cli --version)"
+
+      - name: Install signing key
+        env:
+          DEV_KEY: ${{ secrets.ERV_STARTOS_DEV_KEY }}
+        run: |
+          umask 077
+          mkdir -p ~/.startos packages/start9/.startos
+          # Older start-cli reads developer.key.pem, newer reads id.key.pem plus a workspace
+          # build key. Write the same key to all three so either version signs with it.
+          printf '%s\n' "$DEV_KEY" > ~/.startos/developer.key.pem
+          cp ~/.startos/developer.key.pem ~/.startos/id.key.pem
+          cp ~/.startos/developer.key.pem packages/start9/.startos/build.key.pem
+
+      - name: Install web dependencies
+        working-directory: apps/web/web
+        run: npm ci
+
+      - name: Build and pack
+        env:
+          RELEASE_NOTES: ${{ inputs.notes }}
+        run: |
+          chmod +x packages/start9/build.sh packages/start9/scripts/*.sh
+          ./packages/start9/build.sh
+
+      - name: Read version
+        id: version
+        run: |
+          pkg=packages/start9
+          s9pk="$pkg/erv-web_x86_64.s9pk"
+          test -f "$s9pk"
+          version="$(start-cli s9pk inspect "$s9pk" manifest | jq -r .version)"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+:[0-9]+$ ]]; then
+            echo "::error::Unexpected package version '$version'."
+            exit 1
+          fi
+          tag="start9-v${version/:/.}"
+          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+            echo "::error::Tag $tag already exists. Was the version bump from an earlier build committed?"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "Built erv-web $version ($tag)"
+
+      - name: Commit version bump
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add packages/start9/startos/versions
+          if git diff --cached --quiet; then
+            echo "::error::build.sh did not change the version files."
+            exit 1
+          fi
+          git commit -m "Bump StartOS package to $VERSION"
+          for attempt in 1 2 3; do
+            if git push origin "HEAD:$BRANCH"; then
+              echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+              exit 0
+            fi
+            echo "Push rejected; replaying the bump on top of $BRANCH (attempt $attempt)."
+            git pull --rebase origin "$BRANCH"
+          done
+          echo "::error::Could not push the version bump to $BRANCH. If the branch is protected, allow GitHub Actions to push or run build.sh locally."
+          exit 1
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ steps.version.outputs.tag }}
+          NOTES: ${{ inputs.notes }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          mkdir -p dist
+          out="dist/erv-web_x86_64-${TAG#start9-}.s9pk"
+          cp packages/start9/erv-web_x86_64.s9pk "$out"
+          (cd dist && sha256sum "$(basename "$out")" > "$(basename "$out").sha256")
+          {
+            printf '%s\n\n' "$NOTES"
+            echo "StartOS package \`erv-web\` $VERSION (x86_64). Sideload it in StartOS, or:"
+            echo
+            echo '```'
+            echo "start-cli package install erv-web $VERSION --sideload $(basename "$out")"
+            echo '```'
+          } > "$RUNNER_TEMP/notes.md"
+          args=(--target "$commit" --title "ERV Start9 $VERSION" --notes-file "$RUNNER_TEMP/notes.md" --latest=false)
+          [[ "$PRERELEASE" == "true" ]] && args+=(--prerelease)
+          gh release create "$TAG" "$out" "$out.sha256" "${args[@]}"
+          {
+            echo "### ERV Start9 $VERSION"
+            echo
+            echo "Release: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/$TAG"
+            echo
+            echo "Version bump committed as $commit."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove signing key
+        if: always()
+        run: rm -f ~/.startos/developer.key.pem ~/.startos/id.key.pem packages/start9/.startos/build.key.pem

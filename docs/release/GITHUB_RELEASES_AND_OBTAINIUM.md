@@ -4,6 +4,31 @@ ERV release APKs can be built and published entirely on GitHub, and every Androi
 them up with [Obtainium](https://github.com/ImranR98/Obtainium). No local build or file transfer is
 needed once this is set up.
 
+The StartOS package has its own workflow in the same repo; see [StartOS releases](#startos-releases).
+The two never share tags: Android releases are `vYYYY.MM.DD[.N]` titled `ERV YYYY.MM.DD`, StartOS
+releases are `start9-vX.Y.Z.N` titled `ERV Start9 X.Y.Z:N`.
+
+## Setting up the secrets (quick steps)
+
+Do this once, on the PC that holds your keystore and StartOS key. With the
+[GitHub CLI](https://cli.github.com/) signed in (`gh auth login`), each secret is one command run
+from your ERV checkout, and nothing passes through the clipboard:
+
+```bash
+# Android: values come from your keystore.properties (storeFile, storePassword, keyAlias, keyPassword)
+base64 -w0 /absolute/path/to/erv-release.jks | gh secret set ERV_RELEASE_KEYSTORE_BASE64
+gh secret set ERV_RELEASE_STORE_PASSWORD   # prompts; paste storePassword
+gh secret set ERV_RELEASE_KEY_ALIAS        # prompts; paste keyAlias
+gh secret set ERV_RELEASE_KEY_PASSWORD     # prompts; paste keyPassword
+
+# StartOS: the developer key your past sideloads were signed with
+ls ~/.startos/                             # developer.key.pem (older start-cli) or id.key.pem
+gh secret set ERV_STARTOS_DEV_KEY < ~/.startos/developer.key.pem
+```
+
+Check with `gh secret list`. Without the CLI, add the same five under
+**Settings > Secrets and variables > Actions > New repository secret**, as described below.
+
 ## How a release works
 
 1. Open the repo on GitHub, go to **Actions > Android release**, and press **Run workflow**.
@@ -70,3 +95,49 @@ Obtainium. Later updates install normally.
 Zapstore. The workflow picks the next free version from the tags on GitHub, so a release made with
 `create-github-release.sh` (which pushes its tag) is counted. A local release whose tag was never
 pushed is not, and could share a version with a later workflow release.
+
+## StartOS releases
+
+**Actions > Start9 release > Run workflow** does what `RELEASE_NOTES="..." ./packages/start9/build.sh`
+does locally, then publishes the result:
+
+1. Builds the web app and Rust server, and bumps the package version (`0.1.2:30` to `0.1.2:31`).
+2. Commits the bump to the branch it ran on (`Bump StartOS package to 0.1.2:31`), so the next
+   build, local or on GitHub, counts up from there.
+3. Packs and signs `erv-web_x86_64.s9pk` and publishes it as release `start9-v0.1.2.31` with its
+   SHA-256. These releases are never marked Latest.
+4. You download the `.s9pk` from the release and sideload it in StartOS as before.
+
+The release notes you type are what StartOS shows for the update.
+
+### Signing key
+
+StartOS only installs an update that is signed by the same developer key as the installed
+package. Put the key you have been building with into the `ERV_STARTOS_DEV_KEY` secret: the whole
+contents of `~/.startos/developer.key.pem` (or `id.key.pem` with newer `start-cli`), including the
+`BEGIN` and `END` lines. If a run builds with a different key, StartOS will refuse it as an update.
+
+### start-cli version
+
+The workflow installs the newest `start-cli` release. If that ever breaks the build, set a
+repository variable `START_CLI_VERSION` (Settings > Secrets and variables > Actions > Variables) to
+the release tag that matches what you use locally (`start-cli --version`).
+
+### Mixing local and GitHub builds
+
+Both bump the same version file. After a local `build.sh`, commit and push the bumped
+`packages/start9/startos/versions/` file before the next GitHub build, or GitHub will build a version
+StartOS has already seen. Pull after a GitHub build before building locally. If `main` is protected
+against pushes from GitHub Actions, the bump commit fails and the run stops before publishing.
+
+### Keep Obtainium on Android releases
+
+Obtainium looks at every release in the repo. So it never tries a StartOS release, open ERV in
+Obtainium, tap the settings (gear) icon, and set **Filter release titles by regular expression** to:
+
+```
+^ERV [0-9]
+```
+
+That matches `ERV 2026.11.24` and skips `ERV Start9 0.1.2:31`.
+

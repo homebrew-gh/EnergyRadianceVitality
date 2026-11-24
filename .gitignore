@@ -25,3 +25,7 @@ apps/web/web/dist/
 packages/start9/node_modules/
 packages/start9/javascript/
 *.s9pk
+
+# StartOS signing keys (CI writes these during a Start9 release; never commit them)
+.startos/
+*.key.pem
