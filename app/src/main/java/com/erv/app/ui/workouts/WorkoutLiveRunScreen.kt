@@ -5,6 +5,7 @@ import com.erv.app.ui.theme.ervTopAppBarColors
 import com.erv.app.ui.theme.ervSessionTopAppBarColors
 import com.erv.app.hr.HeartRatePill
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -58,9 +59,11 @@ import com.erv.app.R
 import com.erv.app.ui.components.WorkoutKind1SharePreviewDialog
 import com.erv.app.hr.LocalHeartRateBle
 import com.erv.app.ui.theme.ErvSessionRed
+import com.erv.app.ui.weighttraining.WeightExerciseRecentWorkoutsDialog
 import com.erv.app.ui.weighttraining.WeightLiveWorkoutFgsDisclosureDialog
 import com.erv.app.ui.weighttraining.WeightLiveWorkoutViewModel
 import com.erv.app.weighttraining.WeightLibraryState
+import com.erv.app.weighttraining.historyForExercise
 import com.erv.app.workouts.Workout
 import com.erv.app.workouts.WorkoutActiveRun
 import com.erv.app.workouts.WorkoutItem
@@ -126,7 +129,6 @@ import com.erv.app.workouts.WorkoutTargetWeightChange
 import com.erv.app.workouts.withTodaysWeights
 import com.erv.app.weighttraining.formatWeightLoadNumber
 import com.erv.app.weighttraining.WeightCalorieEstimator
-import com.erv.app.weighttraining.WeightSync
 import com.erv.app.workouts.WorkoutSessionEngine
 import com.erv.app.workouts.WorkoutSessionEvent
 import com.erv.app.workouts.WorkoutSessionNames
@@ -137,6 +139,8 @@ import com.erv.app.workouts.WorkoutStepOutcome
 import com.erv.app.workouts.displayTitle
 import com.erv.app.workouts.isSessionComplete
 import com.erv.app.workouts.sessionCountdownEndsAtEpochSeconds
+import com.erv.app.workouts.canAddSessionSet
+import com.erv.app.workouts.canRemoveSessionSet
 import com.erv.app.workouts.sessionExerciseFor
 import com.erv.app.workouts.sessionHasNothingDone
 import com.erv.app.workouts.sessionItemKey
@@ -190,6 +194,9 @@ fun WorkoutLiveRunScreen(
     var composedSummary by remember { mutableStateOf<ComposedWorkoutHrSummary?>(null) }
     var runFinalized by remember { mutableStateOf(false) }
     var finishingRun by remember { mutableStateOf(false) }
+    // Set if building the finish summary failed, so the screen offers a way out instead.
+    var finalizeFailed by remember { mutableStateOf(false) }
+    var historyFor by remember { mutableStateOf<Pair<String, String>?>(null) }
     // Label of the item the athlete asked to skip; non-null while the confirmation dialog is up.
     var pendingSkipLabel by remember { mutableStateOf<String?>(null) }
     var showLeaveDialog by remember { mutableStateOf(false) }
@@ -211,8 +218,9 @@ fun WorkoutLiveRunScreen(
             val base = run.weightSessionFor(section)
             val stored = base.copy(estimatedKcal = WeightCalorieEstimator.estimateKcal(base, fallbackBodyWeightKg))
             weightRepository.addWorkout(today, stored)
+            // addWorkout uploads the day log in the background; waiting on the relays here held
+            // up the finish summary.
             repository.recordSessionLiftLog(section, today.toString(), stored.id)
-            weightRepository.currentState().logFor(today)?.let { WeightSync.queueDayLogForRelay(appContext, it) }
         }
     }
 
@@ -225,8 +233,22 @@ fun WorkoutLiveRunScreen(
         }
     }
 
+    /** Adds a set to the exercise on screen (1) or takes one away (-1), for today. */
+    fun changeSetCount(delta: Int) {
+        val atStep = session?.stepIndex
+        scope.launch { repository.changeSessionSetCount(delta, atStepIndex = atStep) }
+    }
+
+    /** "Last time (…): …" from the newest log of [exerciseId] that isn't from this run. */
+    fun lastTimeFor(exerciseId: String): String? =
+        weightState.historyForExercise(exerciseId)
+            .firstOrNull { it.workout.workoutLink?.sessionId != activeRun?.sessionId }
+            ?.let { describeLastTime(it, loadUnit, LocalDate.now()) }
+
+    // The run's own copy: the plan is built from it, and sets added today live in it.
     fun itemOf(step: WorkoutSessionStep): WorkoutItem? =
-        workout?.segments?.getOrNull(step.segmentIndex)?.items?.firstOrNull { it.id == step.itemId }
+        (activeRun?.workoutSnapshot ?: workout)?.segments?.getOrNull(step.segmentIndex)
+            ?.items?.firstOrNull { it.id == step.itemId }
 
     fun liftName(step: WorkoutSessionStep.LiftSet): String {
         val exerciseId = activeRun?.sessionExerciseFor(step) ?: step.exerciseId
@@ -426,9 +448,14 @@ fun WorkoutLiveRunScreen(
     // waiting, stamp the whole-workout HR onto each linked log and build the finish summary.
     LaunchedEffect(isComplete) {
         if (!isComplete || runFinalized) return@LaunchedEffect
-        logFinishedLiftSections()
+        runCatching { logFinishedLiftSections() }
         WorkoutSessionNotifier.stop(appContext)
-        val run = repository.currentState().activeRun ?: return@LaunchedEffect
+        val finished = repository.currentState().activeRun
+        if (finished == null) {
+            finalizeFailed = true
+            return@LaunchedEffect
+        }
+        val run: WorkoutActiveRun = finished
         val wholeRunHeartRate = heartRateBle.takeComposedWorkoutRunHeartRateSummary()
         if (wholeRunHeartRate != null) {
             runCatching {
@@ -441,20 +468,36 @@ fun WorkoutLiveRunScreen(
                 )
             }
         }
-        backupComposedWorkoutSessionMedia(
-            appContext = appContext,
-            run = run,
-            cardioRepository = cardioRepository,
-            weightRepository = weightRepository,
-        )
-        composedSummary = buildComposedWorkoutHrSummary(
-            run = run,
-            wholeRun = wholeRunHeartRate,
-            cardioRepository = cardioRepository,
-            weightRepository = weightRepository,
-            stretchingRepository = stretchingRepository,
-        )
+        runCatching {
+            backupComposedWorkoutSessionMedia(
+                appContext = appContext,
+                run = run,
+                cardioRepository = cardioRepository,
+                weightRepository = weightRepository,
+            )
+        }
+        val built = runCatching {
+            buildComposedWorkoutHrSummary(
+                run = run,
+                wholeRun = wholeRunHeartRate,
+                cardioRepository = cardioRepository,
+                weightRepository = weightRepository,
+                stretchingRepository = stretchingRepository,
+            )
+        }.getOrNull()
+        if (built == null) {
+            finalizeFailed = true
+            return@LaunchedEffect
+        }
+        composedSummary = built
         runFinalized = true
+    }
+
+    // Saving should take a moment; if it hangs, offer the way out rather than a stuck screen.
+    LaunchedEffect(isComplete) {
+        if (!isComplete) return@LaunchedEffect
+        delay(15_000L)
+        if (composedSummary == null) finalizeFailed = true
     }
 
     // Keep the ongoing notification in step with the session. Heart rate is folded in every 15
@@ -672,6 +715,29 @@ fun WorkoutLiveRunScreen(
         )
     }
 
+    historyFor?.let { (exerciseId, name) ->
+        WeightExerciseRecentWorkoutsDialog(
+            exerciseId = exerciseId,
+            exerciseName = name,
+            library = weightState,
+            loadUnit = loadUnit,
+            onDismiss = { historyFor = null },
+        )
+    }
+
+    /** The sets logged so far for one storyboard item, labelled "Set 2" or "Round 2". */
+    fun loggedSetsOf(segmentId: String, itemId: String): List<Pair<String, WorkoutSessionLoggedSet>> {
+        if (plan == null || session == null) return emptyList()
+        return plan.steps.indices.mapNotNull { index ->
+            val step = plan.steps[index] as? WorkoutSessionStep.LiftSet ?: return@mapNotNull null
+            if (step.segmentId != segmentId || step.itemId != itemId) return@mapNotNull null
+            val set = session.recordFor(index)?.takeIf { it.outcome == WorkoutStepOutcome.DONE }?.set
+                ?: return@mapNotNull null
+            val label = if (step.inRounds) "Round ${step.round}" else "Set ${step.setIndex + 1}"
+            label to WorkoutSessionLoggedSet(index, set)
+        }
+    }
+
     /** Done, skipped, or null while some of the item is still to do. */
     fun itemStatus(segmentId: String, itemId: String): String? {
         if (plan == null || session == null) return null
@@ -718,6 +784,7 @@ fun WorkoutLiveRunScreen(
                 Text(
                     text = when {
                         !runStarted || session == null -> "Starting…"
+                        isComplete && !finalizeFailed -> "Workout complete. Saving…"
                         isComplete -> "Workout complete"
                         else -> listOfNotNull(sectionTitle, progress).joinToString(" · ").ifBlank { "Ready" }
                     },
@@ -747,6 +814,7 @@ fun WorkoutLiveRunScreen(
                                 emptyList()
                             }
                             val segment = workout.segments.getOrNull(step.segmentIndex)
+                            val exerciseId = activeRun?.sessionExerciseFor(step) ?: step.exerciseId
                             WorkoutSessionLiftCard(
                                 step = step,
                                 exerciseName = liftName(step),
@@ -759,6 +827,12 @@ fun WorkoutLiveRunScreen(
                                 onSkipExercise = { pendingSkipLabel = liftName(step) },
                                 onSwap = { swapStep = step },
                                 onEditSet = { editingSet = it },
+                                lastTime = lastTimeFor(exerciseId),
+                                onShowHistory = { historyFor = exerciseId to liftName(step) },
+                                canAddSet = plan != null && activeRun?.canAddSessionSet(plan) == true,
+                                canRemoveSet = plan != null && activeRun?.canRemoveSessionSet(plan) == true,
+                                onAddSet = { changeSetCount(1) },
+                                onRemoveSet = { changeSetCount(-1) },
                             )
                         }
                         is WorkoutSessionStep.Rest -> {
@@ -801,7 +875,9 @@ fun WorkoutLiveRunScreen(
             item {
                 FormSectionLabelSmall("Storyboard")
             }
-            itemsIndexed(workout.segments, key = { _, segment -> segment.id }) { index, segment ->
+            // The run's own copy, so sets added or taken away today show here too.
+            val storyboard = activeRun?.workoutSnapshot?.takeIf { runStarted } ?: workout
+            itemsIndexed(storyboard.segments, key = { _, segment -> segment.id }) { index, segment ->
                 val isCurrent = runStarted && !isComplete && currentStep?.segmentIndex == index
                 val isRounds = segment.kind == WorkoutSegmentKind.CIRCUIT || segment.kind == WorkoutSegmentKind.SUPERSET
                 Card(modifier = Modifier.fillMaxWidth()) {
@@ -858,13 +934,28 @@ fun WorkoutLiveRunScreen(
                                     else -> MaterialTheme.colorScheme.onSurface
                                 },
                             )
+                            if (item is WorkoutItem.Weight) {
+                                // What was logged, so finished sets and sections stay readable;
+                                // tap one to fix it.
+                                loggedSetsOf(segment.id, item.id).forEach { (label, logged) ->
+                                    Text(
+                                        text = "$label: ${describeSessionSet(logged.set, loadUnit)}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable { editingSet = logged }
+                                            .padding(start = 16.dp, top = 2.dp, bottom = 2.dp),
+                                    )
+                                }
+                            }
                         }
                     }
                 }
             }
-            if (isComplete) {
-                // The completion summary is shown automatically once finalize runs; this is a
-                // fallback to leave the run if the summary could not be built.
+            if (isComplete && finalizeFailed) {
+                // The summary shows by itself once the run is saved; this is the way out if it
+                // could not be built.
                 item {
                     TextButton(
                         onClick = { discardRunAndLeave() },
@@ -1123,8 +1214,9 @@ private fun ComposedWorkoutSummaryScreen(
                 item {
                     FormSectionLabel("Workout log")
                 }
-                summary.sections.forEach { section ->
-                    item(key = "section_log_${section.title}_${section.kind}") {
+                // Two sections can share a title, so they are keyed by position.
+                summary.sections.forEachIndexed { index, section ->
+                    item(key = "section_log_$index") {
                         ComposedWorkoutSectionLogCard(
                             section = section,
                             weightState = weightState,

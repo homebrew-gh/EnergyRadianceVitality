@@ -262,3 +262,121 @@ fun WorkoutActiveRun.isSessionComplete(plan: WorkoutSessionPlan = sessionPlan())
 /** True when nothing has been done in the session yet (skips don't count). */
 fun WorkoutActiveRun.sessionHasNothingDone(): Boolean =
     session?.records.orEmpty().none { it.outcome == WorkoutStepOutcome.DONE }
+
+/** Most sets (or rounds) one item can be taken to during a run. */
+const val SESSION_MAX_SET_COUNT = 20
+
+/**
+ * A name for each step that stays the same when a set or round is added or taken away, so the
+ * records of steps already done can follow them into the new plan. Steps that share a name (the
+ * rests between sets of one exercise) are numbered in order.
+ */
+internal fun WorkoutSessionPlan.stepKeys(): List<String> {
+    val seen = HashMap<String, Int>()
+    return steps.map { step ->
+        val base = when (step) {
+            is WorkoutSessionStep.LiftSet -> "lift/${step.segmentId}/${step.itemId}/${step.round}/${step.setIndex}"
+            // The rest after a section carries the round count, which a new round changes.
+            is WorkoutSessionStep.Rest -> if (step.kind == WorkoutSessionRestKind.AFTER_SECTION) {
+                "rest-after/${step.segmentId}"
+            } else {
+                "rest/${step.segmentId}/${step.itemId}/${step.round}/${step.kind}"
+            }
+            is WorkoutSessionStep.CardioLeg -> "cardio/${step.segmentId}/${step.itemId}/${step.round}"
+            is WorkoutSessionStep.StretchHold -> "stretch/${step.segmentId}/${step.itemId}/${step.round}"
+            is WorkoutSessionStep.Note -> "note/${step.segmentId}/${step.itemId}"
+        }
+        val occurrence = seen.getOrDefault(base, 0)
+        seen[base] = occurrence + 1
+        "$base#$occurrence"
+    }
+}
+
+/**
+ * True when the item on screen can lose its last set (or its circuit its last round): more than
+ * one is left and nothing of the last one has been logged or skipped yet.
+ */
+fun WorkoutActiveRun.canRemoveSessionSet(plan: WorkoutSessionPlan = sessionPlan()): Boolean {
+    val state = session ?: return false
+    val step = WorkoutSessionEngine.currentStep(plan, state) as? WorkoutSessionStep.LiftSet ?: return false
+    if (step.setCount <= 1) return false
+    return if (step.inRounds) {
+        if (step.round >= step.setCount) return false
+        plan.steps.indices
+            .filter { plan.steps[it].segmentId == step.segmentId && plan.steps[it].round == step.setCount }
+            .filterNot { (plan.steps[it] as? WorkoutSessionStep.Rest)?.kind == WorkoutSessionRestKind.AFTER_SECTION }
+            .all { it > state.stepIndex && state.recordFor(it) == null }
+    } else {
+        val lastSet = plan.steps.indices.lastOrNull {
+            val other = plan.steps[it]
+            other is WorkoutSessionStep.LiftSet && other.segmentId == step.segmentId && other.itemId == step.itemId
+        } ?: return false
+        lastSet > state.stepIndex && state.recordFor(lastSet) == null
+    }
+}
+
+/** True when the item on screen can take another set (or its circuit another round). */
+fun WorkoutActiveRun.canAddSessionSet(plan: WorkoutSessionPlan = sessionPlan()): Boolean {
+    val state = session ?: return false
+    val step = WorkoutSessionEngine.currentStep(plan, state) as? WorkoutSessionStep.LiftSet ?: return false
+    return step.setCount < SESSION_MAX_SET_COUNT
+}
+
+/**
+ * Adds a set to the exercise on screen ([delta] 1) or takes its last set away ([delta] -1), for
+ * today only. In a superset or circuit a set is a round, so the whole section gains or loses one.
+ * The change goes into the run's own copy of the workout; sets already logged keep their records.
+ */
+fun WorkoutActiveRun.withSessionSetCountChanged(delta: Int): WorkoutActiveRun {
+    if (delta == 0) return this
+    val plan = sessionPlan()
+    val state = session ?: return this
+    val step = WorkoutSessionEngine.currentStep(plan, state) as? WorkoutSessionStep.LiftSet ?: return this
+    if (delta > 0 && !canAddSessionSet(plan)) return this
+    if (delta < 0 && !canRemoveSessionSet(plan)) return this
+    val change = delta.coerceIn(-1, 1)
+    val segments = workoutSnapshot.segments.map { segment ->
+        when {
+            segment.id != step.segmentId -> segment
+            step.inRounds -> segment.copy(rounds = (segment.effectiveRounds() + change).coerceAtLeast(1))
+            else -> segment.copy(
+                items = segment.items.map { item ->
+                    if (item is WorkoutItem.Weight && item.id == step.itemId) {
+                        item.copy(prescription = item.prescription.withSetCountChange(change))
+                    } else {
+                        item
+                    }
+                },
+            )
+        }
+    }
+    return withSessionWorkout(workoutSnapshot.copy(segments = segments))
+}
+
+/** One more set copied from the last, or the last one taken away; never fewer than one. */
+internal fun WorkoutWeightPrescription.withSetCountChange(delta: Int): WorkoutWeightPrescription {
+    if (sets.isNotEmpty()) {
+        val updated = if (delta > 0) sets + sets.last() else sets.dropLast(1).ifEmpty { sets.take(1) }
+        return copy(sets = updated, setCount = setCount?.let { updated.size })
+    }
+    return copy(setCount = ((setCount ?: 1) + delta).coerceAtLeast(1))
+}
+
+/**
+ * Replaces the run's workout copy and moves the session's records onto the plan built from it,
+ * step by step (see [stepKeys]). The step on screen stays on screen.
+ */
+internal fun WorkoutActiveRun.withSessionWorkout(snapshot: Workout): WorkoutActiveRun {
+    val state = session ?: return copy(workoutSnapshot = snapshot)
+    val oldKeys = sessionPlan().stepKeys()
+    val newPlan = WorkoutSessionPlan.from(snapshot)
+    val newIndexByKey = newPlan.stepKeys().withIndex().associate { it.value to it.index }
+    val records = state.records.mapNotNull { record ->
+        oldKeys.getOrNull(record.stepIndex)?.let(newIndexByKey::get)?.let { record.copy(stepIndex = it) }
+    }
+    val recorded = records.map { it.stepIndex }.toSet()
+    val stepIndex = oldKeys.getOrNull(state.stepIndex)?.let(newIndexByKey::get)
+        ?: newPlan.steps.indices.firstOrNull { it !in recorded }
+        ?: newPlan.size
+    return copy(workoutSnapshot = snapshot, session = state.copy(stepIndex = stepIndex, records = records))
+}
