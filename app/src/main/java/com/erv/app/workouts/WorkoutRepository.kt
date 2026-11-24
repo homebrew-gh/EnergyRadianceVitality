@@ -269,6 +269,21 @@ class WorkoutRepository(context: Context) {
         return result
     }
 
+    /**
+     * End the active run now, recapping every remaining step as skipped, so the finish summary
+     * shows what was logged. Returns null when there is no active run or it is already complete.
+     */
+    suspend fun endRunEarly(): WorkoutItemCompletionResult? {
+        var result: WorkoutItemCompletionResult? = null
+        updateState { state ->
+            val run = state.activeRun ?: return@updateState state
+            val outcome = run.endingEarly() ?: return@updateState state
+            result = outcome.result
+            state.copy(activeRun = outcome.run)
+        }
+        return result
+    }
+
     suspend fun clearActiveRun() {
         updateState { state -> state.copy(activeRun = null) }
     }
