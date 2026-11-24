@@ -218,7 +218,8 @@ fun mergeWorkoutDeleteMarkers(a: Map<String, Long>, b: Map<String, Long>): Map<S
 
 fun WorkoutLibraryState.sanitized(): WorkoutLibraryState {
     val liveWorkouts = workouts.withoutDeletedWorkouts(deletedWorkouts)
-    val validActiveRun = activeRun?.takeIf { run -> liveWorkouts.any { it.id == run.workoutId } }
+    // A standalone run has no library copy; any other run goes when its workout does.
+    val validActiveRun = activeRun?.takeIf { run -> run.standalone != null || liveWorkouts.any { it.id == run.workoutId } }
     val fallbackLibraryUpdated = maxOf(
         liveWorkouts.maxOfOrNull { it.lastModifiedEpochSeconds } ?: 0L,
         deletedWorkouts.values.maxOrNull() ?: 0L,
@@ -297,6 +298,23 @@ data class WorkoutActiveRun(
      * clock begins when the athlete taps it.
      */
     val sessionStepAwaitingStart: Boolean = false,
+    /** The rest timer setting the plan is built with (see [WorkoutSessionPlan.from]); null runs rests as planned. */
+    val sessionRestOptions: WorkoutSessionRestOptions? = null,
+    /**
+     * Set for a workout started on the phone rather than from the library: an empty one built as
+     * it goes, or one made from a weight routine. Its [workoutSnapshot] is the only copy.
+     */
+    val standalone: WorkoutStandaloneStart? = null,
+    /** A standalone run keeps going when its steps run out, until the athlete taps Finish. */
+    val sessionFinishRequested: Boolean = false,
+)
+
+/** Where a standalone run came from. */
+@Serializable
+data class WorkoutStandaloneStart(
+    /** The weight routine it was started from, or null for an empty workout. */
+    val routineId: String? = null,
+    val routineName: String? = null,
 )
 
 fun WorkoutActiveRun.isStarted(): Boolean = startedAtEpochSeconds != null

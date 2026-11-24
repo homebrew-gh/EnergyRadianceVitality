@@ -11,7 +11,7 @@ import com.erv.app.weighttraining.weightLoadUnitSuffix
  */
 
 /** The plan for this run, built from the workout as it was when the run started. */
-fun WorkoutActiveRun.sessionPlan(): WorkoutSessionPlan = WorkoutSessionPlan.from(workoutSnapshot)
+fun WorkoutActiveRun.sessionPlan(): WorkoutSessionPlan = WorkoutSessionPlan.from(workoutSnapshot, sessionRestOptions)
 
 /** Starts the single-screen session at its first step, or keeps one already under way. */
 fun WorkoutActiveRun.withSessionStarted(nowEpochSeconds: Long): WorkoutActiveRun =
@@ -108,6 +108,18 @@ fun WorkoutActiveRun.sessionNotificationContent(
     val title = workoutSnapshot.name.ifBlank { "Workout" }
     val workoutStart = startedAtEpochSeconds ?: nowEpochSeconds
     val step = WorkoutSessionEngine.currentStep(plan, state)
+    if (step == null && isSessionWaitingForMore(plan)) {
+        return WorkoutSessionNotificationContent(
+            title = title,
+            text = if (plan.size == 0) "Add an exercise to start" else "Add an exercise or finish",
+            progress = sessionProgressLabel(plan, state),
+            chronometerEpochSeconds = workoutStart,
+            countDown = false,
+            complete = false,
+            workoutStartedAtEpochSeconds = workoutStart,
+        )
+    }
+    step
         ?: return WorkoutSessionNotificationContent(
             title = title,
             text = "Workout complete",

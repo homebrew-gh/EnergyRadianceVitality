@@ -134,6 +134,7 @@ class UserPreferences(private val context: Context) {
         val PROGRAM_DASHBOARD_UNIFIED_ROUTINE_LAUNCH_JSON_V1 =
             stringPreferencesKey("program_dashboard_unified_routine_launch_json_v1")
         val WEIGHT_LIVE_REST_TIMER_MODE = stringPreferencesKey("weight_live_rest_timer_mode_v1")
+        val WORKOUT_SESSION_REST_TIMER_MODE = stringPreferencesKey("workout_session_rest_timer_mode_v1")
         val WEIGHT_LIVE_REST_TIMER_SECONDS = intPreferencesKey("weight_live_rest_timer_seconds_v1")
         val WEIGHT_LIVE_REST_TIMER_COUNTDOWN_SOUND_ENABLED =
             booleanPreferencesKey("weight_live_rest_timer_countdown_sound_enabled_v1")
@@ -389,6 +390,24 @@ class UserPreferences(private val context: Context) {
 
     val weightLiveRestTimerEndSoundEnabled: Flow<Boolean> = context.dataStore.data.map { prefs ->
         prefs[Keys.WEIGHT_LIVE_REST_TIMER_END_SOUND_ENABLED] ?: true
+    }
+
+    /**
+     * The workout session screen's rest timer setting. Kept apart from the weight screen's, so
+     * a setting picked there never takes away the rests of a workout; Auto until changed.
+     */
+    val workoutSessionRestTimerMode: Flow<WeightLiveRestTimerMode> = context.dataStore.data.map { prefs ->
+        when (prefs[Keys.WORKOUT_SESSION_REST_TIMER_MODE]?.uppercase()) {
+            "OFF" -> WeightLiveRestTimerMode.OFF
+            "MANUAL" -> WeightLiveRestTimerMode.MANUAL
+            else -> WeightLiveRestTimerMode.AUTO
+        }
+    }
+
+    suspend fun setWorkoutSessionRestTimerMode(mode: WeightLiveRestTimerMode) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.WORKOUT_SESSION_REST_TIMER_MODE] = mode.name
+        }
     }
 
     suspend fun setWeightLiveRestTimerMode(mode: WeightLiveRestTimerMode) {

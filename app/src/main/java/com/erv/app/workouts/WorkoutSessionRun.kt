@@ -55,8 +55,11 @@ fun WorkoutActiveRun.withSessionStartedAtPosition(nowEpochSeconds: Long): Workou
 /** The step the session opens on waits for Start when it is cardio or a stretch. */
 private fun WorkoutActiveRun.withStartGate(): WorkoutActiveRun {
     val first = session?.let { WorkoutSessionEngine.currentStep(sessionPlan(), it) }
-    return copy(sessionStepAwaitingStart = first.waitsForStart(null, newItem = true))
+    return copy(sessionStepAwaitingStart = first.waitsForStart(null, newItem = true, manualRest = manualRests()))
 }
+
+/** True when the rest timer is set to Manual, so rests wait for Start Rest. */
+private fun WorkoutActiveRun.manualRests(): Boolean = sessionRestOptions?.mode == WorkoutSessionRestMode.MANUAL
 
 /**
  * [event] applied to this run, with the bookkeeping kept in step: the storyboard position follows
@@ -98,7 +101,7 @@ internal fun WorkoutActiveRun.withSessionBookkeeping(
     val newItem = step?.itemId != previousStep?.itemId || step?.segmentId != previousStep?.segmentId
     // A saved cardio routine still runs on the cardio screen; everything else stays here.
     val opensOwnScreen = step is WorkoutSessionStep.CardioLeg && step.cardioRoutineId != null
-    val waitsForStart = step.waitsForStart(previousStep, newItem)
+    val waitsForStart = step.waitsForStart(previousStep, newItem, manualRests())
     return copy(
         position = plan.positionFor(workout, state),
         itemRecaps = itemRecaps + skippedRecaps,
@@ -116,12 +119,18 @@ internal fun WorkoutActiveRun.withSessionBookkeeping(
 
 /**
  * A new cardio item waits for Start, and so does a stretch that doesn't follow another hold; the
- * legs of one cardio item and a run of stretches flow on by themselves.
+ * legs of one cardio item and a run of stretches flow on by themselves. With the rest timer on
+ * Manual, a rest between sets or exercises waits for Start Rest.
  */
-internal fun WorkoutSessionStep?.waitsForStart(previousStep: WorkoutSessionStep?, newItem: Boolean): Boolean =
+internal fun WorkoutSessionStep?.waitsForStart(
+    previousStep: WorkoutSessionStep?,
+    newItem: Boolean,
+    manualRest: Boolean = false,
+): Boolean =
     when (this) {
         is WorkoutSessionStep.CardioLeg -> cardioRoutineId == null && newItem
         is WorkoutSessionStep.StretchHold -> previousStep !is WorkoutSessionStep.StretchHold
+        is WorkoutSessionStep.Rest -> manualRest && isTimerRest()
         else -> false
     }
 
@@ -173,6 +182,8 @@ data class WorkoutSessionLiftEntry(
  */
 fun WorkoutActiveRun.sessionLiftSectionsToLog(plan: WorkoutSessionPlan = sessionPlan()): List<WorkoutSessionLiftSection> {
     val state = session ?: return emptyList()
+    // A standalone workout can grow until Finish, so it goes into the log once, at the end.
+    if (standalone != null && !sessionFinishRequested) return emptyList()
     val linked = itemRecaps.filter { !it.skipped && it.linkedEntryId != null }.map { it.segmentId to it.itemId }.toSet()
     return workoutSnapshot.segments.mapIndexedNotNull { segmentIndex, segment ->
         if (!WorkoutSessionEngine.isSectionFinished(plan, state, segmentIndex)) return@mapIndexedNotNull null
@@ -218,6 +229,9 @@ fun WorkoutActiveRun.weightSessionFor(section: WorkoutSessionLiftSection): Weigh
         } else {
             null
         },
+        // A workout started from a weight routine logs like the weight screen did, under the routine.
+        routineId = standalone?.routineId,
+        routineName = standalone?.routineName,
         entries = section.entries.map { WeightWorkoutEntry(exerciseId = it.exerciseId, sets = it.sets) },
         workoutLink = linkFor(section.segmentId, section.entries.first().itemId),
     )
@@ -275,9 +289,18 @@ fun WorkoutActiveRun.withSessionItemLoggedElsewhere(
     return moved.withSessionBookkeeping(before, nowEpochSeconds)
 }
 
-/** True once the session has run out of steps. */
+/**
+ * True once the session has run out of steps. A standalone workout also needs Finish, since the
+ * athlete may add another exercise when the last one is done.
+ */
 fun WorkoutActiveRun.isSessionComplete(plan: WorkoutSessionPlan = sessionPlan()): Boolean =
-    session?.let { WorkoutSessionEngine.isComplete(plan, it) } == true
+    session?.let { WorkoutSessionEngine.isComplete(plan, it) } == true &&
+        (standalone == null || sessionFinishRequested)
+
+/** A standalone workout with nothing left to do but not finished: it waits for an exercise or Finish. */
+fun WorkoutActiveRun.isSessionWaitingForMore(plan: WorkoutSessionPlan = sessionPlan()): Boolean =
+    standalone != null && !sessionFinishRequested &&
+        session?.let { WorkoutSessionEngine.isComplete(plan, it) } == true
 
 /** True when nothing has been done in the session yet (skips don't count). */
 fun WorkoutActiveRun.sessionHasNothingDone(): Boolean =
@@ -383,25 +406,150 @@ internal fun WorkoutWeightPrescription.withSetCountChange(delta: Int): WorkoutWe
 }
 
 /**
- * Replaces the run's workout copy and moves the session's records onto the plan built from it,
- * step by step (see [stepKeys]). The step on screen stays on screen.
+ * Replaces the run's workout copy (and its rest timer setting) and moves the session's records
+ * onto the plan built from it, step by step (see [stepKeys]). [renameKey] turns an old step's key
+ * into its key in the new plan, or null for a step that is gone. The step on screen stays on
+ * screen; if it is gone, the first step still to do takes its place.
  */
-internal fun WorkoutActiveRun.withSessionWorkout(snapshot: Workout): WorkoutActiveRun {
-    val state = session ?: return copy(workoutSnapshot = snapshot)
-    val oldKeys = sessionPlan().stepKeys()
-    val newPlan = WorkoutSessionPlan.from(snapshot)
+internal fun WorkoutActiveRun.withSessionWorkout(
+    snapshot: Workout,
+    restOptions: WorkoutSessionRestOptions? = sessionRestOptions,
+    renameKey: (String) -> String? = { it },
+): WorkoutActiveRun {
+    val state = session ?: return copy(workoutSnapshot = snapshot, sessionRestOptions = restOptions)
+    val oldKeys = sessionPlan().stepKeys().map(renameKey)
+    val newPlan = WorkoutSessionPlan.from(snapshot, restOptions)
     val newIndexByKey = newPlan.stepKeys().withIndex().associate { it.value to it.index }
     val records = state.records.mapNotNull { record ->
         oldKeys.getOrNull(record.stepIndex)?.let(newIndexByKey::get)?.let { record.copy(stepIndex = it) }
     }
     val recorded = records.map { it.stepIndex }.toSet()
-    val stepIndex = oldKeys.getOrNull(state.stepIndex)?.let(newIndexByKey::get)
+    val onScreen = oldKeys.getOrNull(state.stepIndex)?.let(newIndexByKey::get)
+    val stepIndex = onScreen
         ?: newPlan.steps.indices.firstOrNull { it !in recorded }
         ?: newPlan.size
     // Steps that land behind the one on screen (an exercise added to a circuit already in its
     // second round, say) were never done, so they count as skipped and the section can finish.
     val passed = (0 until stepIndex).filter { it !in recorded }.map { WorkoutStepRecord(it, WorkoutStepOutcome.SKIPPED) }
-    return copy(workoutSnapshot = snapshot, session = state.copy(stepIndex = stepIndex, records = records + passed))
+    val moved = copy(
+        workoutSnapshot = snapshot,
+        sessionRestOptions = restOptions,
+        session = state.copy(stepIndex = stepIndex, records = records + passed),
+    )
+    if (onScreen != null) return moved
+    // A different step is on screen now: its clock starts, and it may wait for Start.
+    val step = WorkoutSessionEngine.currentStep(newPlan, moved.session!!)
+    return moved.copy(
+        sessionStepStartedAtEpochSeconds = nowWorkoutEpochSeconds(),
+        sessionStepAwaitingStart = step.waitsForStart(null, newItem = true, manualRest = moved.manualRests()),
+    )
+}
+
+/**
+ * Today's run with a new rest timer setting. The rests on screen and still to come follow it;
+ * rests already done keep their records. Changing it on a rest that goes away moves on.
+ */
+fun WorkoutActiveRun.withSessionRestOptions(options: WorkoutSessionRestOptions): WorkoutActiveRun {
+    if (options == sessionRestOptions) return this
+    val updated = withSessionWorkout(workoutSnapshot, restOptions = options)
+    val state = updated.session ?: return updated
+    val step = WorkoutSessionEngine.currentStep(updated.sessionPlan(), state)
+    // Switched to Manual on a rest already counting down: let it run. Switched away from Manual:
+    // a rest waiting for Start begins now.
+    return if (updated.sessionStepAwaitingStart && step is WorkoutSessionStep.Rest && options.mode != WorkoutSessionRestMode.MANUAL) {
+        updated.copy(sessionStepAwaitingStart = false, sessionStepStartedAtEpochSeconds = nowWorkoutEpochSeconds())
+    } else {
+        updated
+    }
+}
+
+/**
+ * True when the lift set at [stepIndex] can come out of today's run: a set of a plain (not
+ * superset or circuit) exercise in the section on screen, logged or still to come, while the
+ * exercise has another set and its section isn't in the weight log yet.
+ */
+fun WorkoutActiveRun.canRemoveSessionSetAt(stepIndex: Int, plan: WorkoutSessionPlan = sessionPlan()): Boolean {
+    val state = session ?: return false
+    val step = plan.steps.getOrNull(stepIndex) as? WorkoutSessionStep.LiftSet ?: return false
+    if (step.inRounds || step.setCount <= 1) return false
+    val current = WorkoutSessionEngine.currentStep(plan, state) ?: return false
+    if (current.segmentId != step.segmentId) return false
+    if (state.recordFor(stepIndex)?.outcome == WorkoutStepOutcome.SKIPPED) return false
+    return itemRecaps.none { it.segmentId == step.segmentId && it.itemId == step.itemId && it.linkedEntryId != null }
+}
+
+/**
+ * The last set of the exercise on screen that is still to come (at the latest, the one on
+ * screen): what Remove Set takes away. Null in a superset or circuit, where a set is a round.
+ */
+fun WorkoutActiveRun.sessionLastOpenSetIndex(plan: WorkoutSessionPlan = sessionPlan()): Int? {
+    val state = session ?: return null
+    val step = WorkoutSessionEngine.currentStep(plan, state) as? WorkoutSessionStep.LiftSet ?: return null
+    if (step.inRounds) return null
+    return plan.steps.indices.lastOrNull {
+        val other = plan.steps[it]
+        other is WorkoutSessionStep.LiftSet && other.segmentId == step.segmentId && other.itemId == step.itemId &&
+            it >= state.stepIndex && state.recordFor(it) == null
+    }
+}
+
+/**
+ * Takes one set out of today's run, logged or still to come (see [canRemoveSessionSetAt]): the
+ * exercise loses that set and one rest between its sets, and the sets after it move up.
+ */
+fun WorkoutActiveRun.withSessionSetRemoved(stepIndex: Int): WorkoutActiveRun {
+    val plan = sessionPlan()
+    if (!canRemoveSessionSetAt(stepIndex, plan)) return this
+    val step = plan.steps[stepIndex] as WorkoutSessionStep.LiftSet
+    val removed = step.setIndex
+    val lastSet = step.setCount - 1
+    val segments = workoutSnapshot.segments.map { segment ->
+        if (segment.id != step.segmentId) return@map segment
+        segment.copy(
+            items = segment.items.map { item ->
+                if (item is WorkoutItem.Weight && item.id == step.itemId) {
+                    item.copy(prescription = item.prescription.withSetRemoved(removed))
+                } else {
+                    item
+                }
+            },
+        )
+    }
+    val liftPrefix = "lift/${step.segmentId}/${step.itemId}/1/"
+    val restPrefix = "rest/${step.segmentId}/${step.itemId}/1/${WorkoutSessionRestKind.BETWEEN_SETS}#"
+    // The rest after the removed set goes with it (the one before it, for the last set).
+    val removedRest = if (removed < lastSet) removed else removed - 1
+    return withSessionWorkout(workoutSnapshot.copy(segments = segments)) { key ->
+        when {
+            key.startsWith(liftPrefix) -> {
+                val index = key.removePrefix(liftPrefix).substringBefore('#').toIntOrNull() ?: return@withSessionWorkout key
+                when {
+                    index == removed -> null
+                    index > removed -> "$liftPrefix${index - 1}#0"
+                    else -> key
+                }
+            }
+            key.startsWith(restPrefix) -> {
+                val occurrence = key.removePrefix(restPrefix).toIntOrNull() ?: return@withSessionWorkout key
+                when {
+                    occurrence == removedRest -> null
+                    occurrence > removedRest -> "$restPrefix${occurrence - 1}"
+                    else -> key
+                }
+            }
+            else -> key
+        }
+    }
+}
+
+/** This prescription without set [index]; never fewer than one set. */
+internal fun WorkoutWeightPrescription.withSetRemoved(index: Int): WorkoutWeightPrescription {
+    if (sets.isNotEmpty()) {
+        if (sets.size <= 1 || index !in sets.indices) return this
+        val updated = sets.toMutableList().apply { removeAt(index) }
+        return copy(sets = updated, setCount = setCount?.let { updated.size })
+    }
+    return copy(setCount = ((setCount ?: 1) - 1).coerceAtLeast(1))
 }
 
 /** Something added to today's run from the session screen. */
@@ -410,6 +558,8 @@ sealed class WorkoutSessionAddition {
     data class Lift(
         val exerciseId: String,
         val exercise: com.erv.app.weighttraining.WeightExercise? = null,
+        /** Sets logged for it last time; a standalone workout starts with that many. */
+        val lastSetCount: Int? = null,
     ) : WorkoutSessionAddition()
 
     /** A steady effort; [minutes] null runs open-ended until Finish. */
@@ -440,11 +590,17 @@ fun WorkoutActiveRun.withSessionItemsAdded(
     additions: List<WorkoutSessionAddition>,
     newItemIds: List<String> = additions.map { java.util.UUID.randomUUID().toString() },
     newSegmentIds: List<String> = additions.map { java.util.UUID.randomUUID().toString() },
-): WorkoutActiveRun =
-    // Each one goes in right after the item on screen, so adding them last to first keeps the order.
-    additions.indices.reversed().fold(this) { run, i ->
-        run.withSessionItemAdded(additions[i], newItemIds[i], newSegmentIds[i])
-    }
+): WorkoutActiveRun {
+    val state = session ?: return this
+    if (additions.isEmpty()) return this
+    // Each one goes in right after the item on screen, so adding them last to first keeps the
+    // order. With nothing on screen (an empty or used-up standalone workout) the first goes at
+    // the end and comes on screen, and the rest follow it the same way.
+    val nothingOnScreen = WorkoutSessionEngine.currentStep(sessionPlan(), state) == null
+    val first = if (nothingOnScreen) withSessionItemAdded(additions[0], newItemIds[0], newSegmentIds[0]) else this
+    val rest = if (nothingOnScreen) 1 until additions.size else additions.indices
+    return rest.reversed().fold(first) { run, i -> run.withSessionItemAdded(additions[i], newItemIds[i], newSegmentIds[i]) }
+}
 
 /**
  * Adds [addition] to today's run right after the item on screen: into the same section when it
@@ -458,27 +614,46 @@ fun WorkoutActiveRun.withSessionItemAdded(
     newSegmentId: String = java.util.UUID.randomUUID().toString(),
 ): WorkoutActiveRun {
     val state = session ?: return this
-    val step = WorkoutSessionEngine.currentStep(sessionPlan(), state) ?: return this
-    val segmentIndex = workoutSnapshot.segments.indexOfFirst { it.id == step.segmentId }
-    val segment = workoutSnapshot.segments.getOrNull(segmentIndex) ?: return this
-    val itemIndex = step.itemId?.let { id -> segment.items.indexOfFirst { it.id == id } } ?: -1
+    val step = WorkoutSessionEngine.currentStep(sessionPlan(), state)
+    if (step == null && standalone == null) return this
+    // Nothing on screen in a standalone workout: the new item goes at the end, into the last
+    // section when it is plain sets of the same sort.
+    val segmentIndex = if (step != null) {
+        workoutSnapshot.segments.indexOfFirst { it.id == step.segmentId }
+    } else {
+        workoutSnapshot.segments.lastIndex
+    }
+    val segment = workoutSnapshot.segments.getOrNull(segmentIndex)
+    if (step != null && segment == null) return this
+    val itemIndex = when {
+        segment == null -> -1
+        step != null -> step.itemId?.let { id -> segment.items.indexOfFirst { it.id == id } } ?: -1
+        segment.kind == WorkoutSegmentKind.SUPERSET || segment.kind == WorkoutSegmentKind.CIRCUIT -> -1
+        else -> segment.items.lastIndex
+    }
     // Into this section only after an item of it: on the rest after the whole section the new
     // steps would land behind the one on screen.
-    val intoSection = addition.fitsIn(segment.kind) && itemIndex >= 0
-    val nearbyLift = (segment.items.getOrNull(itemIndex) as? WorkoutItem.Weight)
-        ?: segment.weightItems().lastOrNull()
+    val intoSection = segment != null && addition.fitsIn(segment.kind) && itemIndex >= 0
+    val nearbyLift = (segment?.items?.getOrNull(itemIndex) as? WorkoutItem.Weight)
+        ?: segment?.weightItems()?.lastOrNull()
     val item: WorkoutItem = when (addition) {
-        is WorkoutSessionAddition.Lift -> WorkoutItem.Weight(
-            id = newItemId,
-            exerciseId = addition.exerciseId,
-            prescription = defaultWorkoutPrescriptionForExercise(
-                addition.exercise,
-                if (intoSection) segment.kind else WorkoutSegmentKind.STRAIGHT_SETS,
-            ).copy(
-                restBetweenSetsSeconds = nearbyLift?.prescription?.restBetweenSetsSeconds,
-                restAfterExerciseSeconds = nearbyLift?.prescription?.restAfterExerciseSeconds,
-            ),
-        )
+        is WorkoutSessionAddition.Lift -> {
+            val kind = if (intoSection) segment!!.kind else WorkoutSegmentKind.STRAIGHT_SETS
+            // A standalone workout has no targets to copy, so its plain sets start like a routine's.
+            val base = if (standalone != null && kind == WorkoutSegmentKind.STRAIGHT_SETS) {
+                standaloneLiftPrescription(addition.exercise, addition.lastSetCount)
+            } else {
+                defaultWorkoutPrescriptionForExercise(addition.exercise, kind)
+            }
+            WorkoutItem.Weight(
+                id = newItemId,
+                exerciseId = addition.exerciseId,
+                prescription = base.copy(
+                    restBetweenSetsSeconds = nearbyLift?.prescription?.restBetweenSetsSeconds,
+                    restAfterExerciseSeconds = nearbyLift?.prescription?.restAfterExerciseSeconds,
+                ),
+            )
+        }
         is WorkoutSessionAddition.Cardio -> WorkoutItem.Cardio(
             id = newItemId,
             cardio = WorkoutCardioPrescription(activity = addition.activity, targetMinutes = addition.minutes?.takeIf { it > 0 }),
@@ -492,14 +667,20 @@ fun WorkoutActiveRun.withSessionItemAdded(
             },
         )
     }
-    val segments = if (intoSection) {
+    val segments = if (intoSection && segment != null) {
         val items = segment.items.toMutableList().apply { add(itemIndex + 1, item) }
         workoutSnapshot.segments.map { if (it.id == segment.id) it.copy(items = items) else it }
     } else {
         val added = WorkoutSegment(id = newSegmentId, kind = addition.newSegmentKind(), items = listOf(item))
         workoutSnapshot.segments.toMutableList().apply { add(segmentIndex + 1, added) }
     }
-    return withSessionWorkout(workoutSnapshot.copy(segments = segments))
+    val updated = withSessionWorkout(workoutSnapshot.copy(segments = segments))
+    // A finished section that takes a new exercise is open again.
+    return if (intoSection && segment != null) {
+        updated.copy(completedSegmentIds = updated.completedSegmentIds - segment.id)
+    } else {
+        updated
+    }
 }
 
 private fun WorkoutItem.isWork(): Boolean =

@@ -30,7 +30,9 @@ import com.erv.app.data.BodyWeightUnit
 import com.erv.app.ui.components.FieldLabel
 import com.erv.app.weighttraining.WeightExerciseHistoryRow
 import com.erv.app.weighttraining.WeightSet
+import com.erv.app.weighttraining.formatRpeFieldForSets
 import com.erv.app.weighttraining.formatWeightLoadNumber
+import com.erv.app.weighttraining.parseDecimalInput
 import com.erv.app.weighttraining.parseWeightInputToKg
 import com.erv.app.weighttraining.weightLoadUnitSuffix
 import com.erv.app.workouts.WorkoutSessionStep
@@ -46,7 +48,7 @@ internal data class WorkoutSessionLoggedSet(val stepIndex: Int, val set: WeightS
 private fun WeightSet.isTimedTarget(): Boolean =
     (targetDurationSeconds ?: 0) > 0 && (targetReps ?: 0) <= 0
 
-/** "5 reps at 225 lb", "45 s", or "8 reps" for one set. */
+/** "5 reps at 225 lb", "45 s", or "8 reps" for one set, with " · RPE 8" when one was logged. */
 internal fun describeSessionSet(set: WeightSet, loadUnit: BodyWeightUnit): String {
     val amount = when {
         set.reps > 0 -> "${set.reps} reps"
@@ -55,8 +57,13 @@ internal fun describeSessionSet(set: WeightSet, loadUnit: BodyWeightUnit): Strin
     }
     val load = set.weightKg?.takeIf { it > 0 }
         ?.let { "${formatWeightLoadNumber(it, loadUnit)} ${weightLoadUnitSuffix(loadUnit)}" }
-    return if (load != null) "$amount at $load" else amount
+    val described = if (load != null) "$amount at $load" else amount
+    return set.rpe?.let { "$described · RPE ${formatRpeFieldForSets(it)}" } ?: described
 }
+
+/** RPE as typed: 1 to 10, halves allowed; null for blank or out of range. */
+internal fun parseSessionRpe(text: String): Double? =
+    parseDecimalInput(text)?.takeIf { it in 1.0..10.0 }
 
 /** "225 lb × 5", "45 s" or "8 reps": one set, short enough for a row of them. */
 internal fun describeSessionSetShort(set: WeightSet, loadUnit: BodyWeightUnit): String {
@@ -102,7 +109,7 @@ private fun describeSessionTarget(target: WeightSet, loadUnit: BodyWeightUnit): 
     }
 }
 
-/** Reps (or seconds for a timed hold) and load fields, as text so the athlete can clear them. */
+/** Reps (or seconds for a timed hold), load and RPE fields, as text so the athlete can clear them. */
 private class SetInputState(initial: WeightSet, timed: Boolean, loadUnit: BodyWeightUnit) {
     var amount by mutableStateOf(
         when {
@@ -116,14 +123,22 @@ private class SetInputState(initial: WeightSet, timed: Boolean, loadUnit: BodyWe
             ?.let { formatWeightLoadNumber(it, loadUnit) }.orEmpty(),
     )
 
+    /** Optional; starts blank for each new set, since effort changes set to set. */
+    var rpe by mutableStateOf(initial.rpe?.let(::formatRpeFieldForSets).orEmpty())
+
+    /** False while the RPE field holds something that isn't 1 to 10. */
+    val rpeValid: Boolean get() = rpe.isBlank() || parseSessionRpe(rpe) != null
+
     /** The set these fields describe, or null while the reps or seconds are missing. */
     fun toSet(base: WeightSet, timed: Boolean, loadUnit: BodyWeightUnit): WeightSet? {
         val value = amount.trim().toIntOrNull()?.takeIf { it > 0 } ?: return null
+        if (!rpeValid) return null
         val kg = load.takeIf { it.isNotBlank() }?.let { parseWeightInputToKg(it, loadUnit) }
+        val effort = parseSessionRpe(rpe)
         return if (timed) {
-            base.copy(reps = 0, durationSeconds = value, weightKg = kg, done = null)
+            base.copy(reps = 0, durationSeconds = value, weightKg = kg, rpe = effort, done = null)
         } else {
-            base.copy(reps = value, weightKg = kg, done = null)
+            base.copy(reps = value, weightKg = kg, rpe = effort, done = null)
         }
     }
 }
@@ -147,6 +162,15 @@ private fun SetInputsRow(state: SetInputState, timed: Boolean, loadUnit: BodyWei
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
             modifier = Modifier.weight(1f),
+        )
+        OutlinedTextField(
+            value = state.rpe,
+            onValueChange = { text -> state.rpe = text.filter { it.isDigit() || it == '.' || it == ',' }.take(4) },
+            label = { FieldLabel("RPE") },
+            isError = !state.rpeValid,
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+            modifier = Modifier.weight(0.7f),
         )
     }
 }
@@ -183,7 +207,7 @@ internal fun WorkoutSessionLiftCard(
     val inputs = remember(step.segmentId, step.itemId, step.setIndex, step.round) {
         SetInputState(
             initial = if (last != null) {
-                step.target.copy(reps = last.reps, weightKg = last.weightKg, durationSeconds = last.durationSeconds)
+                step.target.copy(reps = last.reps, weightKg = last.weightKg, durationSeconds = last.durationSeconds, rpe = null)
             } else {
                 step.target
             },
@@ -270,7 +294,7 @@ internal fun WorkoutSessionLiftCard(
     }
 }
 
-/** Fix a set already logged. */
+/** Fix a set already logged, or take it out with [onRemove] (null when it can't go). */
 @Composable
 internal fun WorkoutSessionEditSetDialog(
     title: String,
@@ -278,6 +302,7 @@ internal fun WorkoutSessionEditSetDialog(
     loadUnit: BodyWeightUnit,
     onDismiss: () -> Unit,
     onSave: (WeightSet) -> Unit,
+    onRemove: (() -> Unit)? = null,
 ) {
     val timed = logged.set.reps <= 0 && (logged.set.durationSeconds ?: 0) > 0
     val inputs = remember(logged.stepIndex) { SetInputState(logged.set, timed, loadUnit) }
@@ -289,7 +314,14 @@ internal fun WorkoutSessionEditSetDialog(
         confirmButton = {
             TextButton(onClick = { set?.let(onSave) }, enabled = set != null) { Text("Save") }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = {
+            Row {
+                if (onRemove != null) {
+                    TextButton(onClick = onRemove) { Text("Remove Set", color = MaterialTheme.colorScheme.error) }
+                }
+                TextButton(onClick = onDismiss) { Text("Cancel") }
+            }
+        },
     )
 }
 
@@ -299,7 +331,10 @@ private fun clockText(seconds: Int): String {
     return "%d:%02d".format(s / 60, s % 60)
 }
 
-/** A rest counting down, with what comes after it. */
+/**
+ * A rest counting down, with what comes after it. With the rest timer on Manual it waits at
+ * full length until [onStart].
+ */
 @Composable
 internal fun WorkoutSessionRestCard(
     title: String,
@@ -308,6 +343,8 @@ internal fun WorkoutSessionRestCard(
     onSkip: () -> Unit,
     onAddTime: () -> Unit,
     modifier: Modifier = Modifier,
+    awaitingStart: Boolean = false,
+    onStart: () -> Unit = {},
 ) {
     Card(
         modifier = modifier.fillMaxWidth(),
@@ -330,8 +367,13 @@ internal fun WorkoutSessionRestCard(
                 )
             }
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedButton(onClick = onAddTime) { Text("+30 s") }
-                Button(onClick = onSkip) { Text("Skip Rest") }
+                if (awaitingStart) {
+                    OutlinedButton(onClick = onSkip) { Text("Skip Rest") }
+                    Button(onClick = onStart) { Text("Start Rest") }
+                } else {
+                    OutlinedButton(onClick = onAddTime) { Text("+30 s") }
+                    Button(onClick = onSkip) { Text("Skip Rest") }
+                }
             }
         }
     }

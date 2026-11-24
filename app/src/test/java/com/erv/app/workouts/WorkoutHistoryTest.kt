@@ -100,4 +100,12 @@ class WorkoutHistoryTest {
         assertEquals("Workout", day.workouts.first().title)
         assertEquals("1 section · 16 min", day.workouts.first().headerLine)
     }
+
+    @Test
+    fun a_quick_start_workout_of_only_lifting_lists_as_a_weight_workout() {
+        val quick = lifting(1_000, 2_000, link("run-q", workoutId = "${STANDALONE_WORKOUT_ID_PREFIX}abc"))
+        val day = groupDayActivityByWorkout(emptyList(), listOf(quick), emptyList()) { null }
+        assertTrue(day.workouts.isEmpty())
+        assertEquals(listOf(quick), day.weight)
+    }
 }

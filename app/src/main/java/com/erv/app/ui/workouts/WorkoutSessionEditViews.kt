@@ -4,6 +4,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -14,6 +15,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Switch
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -25,14 +30,20 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.erv.app.stretching.StretchCatalogEntry
+import com.erv.app.ui.components.CompactIntWheel
 import com.erv.app.ui.components.FieldLabel
+import com.erv.app.ui.components.FormSectionLabel
+import com.erv.app.workouts.WorkoutSessionRestMode
+import kotlin.math.abs
 
 /** What the "Add to Workout" menu offers. */
 internal enum class WorkoutSessionAddKind { EXERCISE, CARDIO, STRETCH }
@@ -216,4 +227,125 @@ internal fun WorkoutSessionRemoveItemDialog(name: String, onDismiss: () -> Unit,
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
+}
+
+private val SESSION_REST_SECONDS_OPTIONS: List<Int> = (10..600 step 5).toList()
+
+private fun restWheelLabel(seconds: Int): String =
+    if (seconds >= 60) "%d:%02d".format(seconds / 60, seconds % 60) else "$seconds s"
+
+/**
+ * The session's rest timer: Off, Auto or Manual, the default rest where the workout gives none,
+ * and the countdown and rest-over sounds.
+ */
+@Composable
+internal fun WorkoutSessionRestSettingsDialog(
+    initialMode: WorkoutSessionRestMode,
+    initialSeconds: Int,
+    initialCountdownSound: Boolean,
+    initialEndSound: Boolean,
+    onDismiss: () -> Unit,
+    onSave: (mode: WorkoutSessionRestMode, seconds: Int, countdownSound: Boolean, endSound: Boolean) -> Unit,
+) {
+    var mode by remember { mutableStateOf(initialMode) }
+    var seconds by remember {
+        mutableIntStateOf(SESSION_REST_SECONDS_OPTIONS.minByOrNull { abs(it - initialSeconds) } ?: 90)
+    }
+    var countdownSound by remember { mutableStateOf(initialCountdownSound) }
+    var endSound by remember { mutableStateOf(initialEndSound) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Rest Timer") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    when (mode) {
+                        WorkoutSessionRestMode.AUTO -> "Each rest starts counting down as soon as you log a set."
+                        WorkoutSessionRestMode.MANUAL -> "Each rest between sets and exercises waits for you to tap Start Rest."
+                        WorkoutSessionRestMode.OFF ->
+                            "No rests between sets or exercises. Rests placed in the workout and between sections stay."
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = mode == WorkoutSessionRestMode.OFF,
+                        onClick = { mode = WorkoutSessionRestMode.OFF },
+                        label = { Text("Off") },
+                    )
+                    FilterChip(
+                        selected = mode == WorkoutSessionRestMode.AUTO,
+                        onClick = { mode = WorkoutSessionRestMode.AUTO },
+                        label = { Text("Auto") },
+                    )
+                    FilterChip(
+                        selected = mode == WorkoutSessionRestMode.MANUAL,
+                        onClick = { mode = WorkoutSessionRestMode.MANUAL },
+                        label = { Text("Manual") },
+                    )
+                }
+                if (mode != WorkoutSessionRestMode.OFF) {
+                    FormSectionLabel("Default rest")
+                    CompactIntWheel(
+                        values = SESSION_REST_SECONDS_OPTIONS,
+                        currentValue = seconds,
+                        onCommitted = { seconds = it },
+                        formatLabel = ::restWheelLabel,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Text(
+                        "Used between sets and after an exercise wherever the workout doesn't set a rest.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    SoundSwitchRow("Final 5 second countdown", countdownSound) { countdownSound = it }
+                    SoundSwitchRow("Rest over sound", endSound) { endSound = it }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onSave(mode, seconds, countdownSound, endSound) }) { Text("Save") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@Composable
+private fun SoundSwitchRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+        FieldLabel(label, modifier = Modifier.weight(1f))
+        Switch(checked = checked, onCheckedChange = onChange)
+    }
+}
+
+/**
+ * A standalone workout with nothing left to do: add the next exercise, or finish. [empty] is
+ * true before the first exercise.
+ */
+@Composable
+internal fun WorkoutSessionStandaloneNextCard(
+    empty: Boolean,
+    onAddExercise: () -> Unit,
+    onFinish: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Card(modifier = modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(
+                if (empty) "Add your first exercise to get going." else "That's everything so far. Add another exercise, or finish when you're done.",
+                style = MaterialTheme.typography.bodyLarge,
+            )
+            Button(onClick = onAddExercise, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Filled.Add, contentDescription = null)
+                Text("Add Exercise", modifier = Modifier.padding(start = 8.dp))
+            }
+            if (!empty) {
+                OutlinedButton(onClick = onFinish, modifier = Modifier.fillMaxWidth()) { Text("Finish Workout") }
+            }
+        }
+    }
 }

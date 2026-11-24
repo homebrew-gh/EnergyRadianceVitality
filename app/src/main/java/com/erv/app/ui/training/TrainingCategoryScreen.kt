@@ -80,6 +80,10 @@ import com.erv.app.stretching.StretchCatalogEntry
 import com.erv.app.stretching.StretchLibraryState
 import com.erv.app.ui.workouts.WorkoutLibraryListContent
 import com.erv.app.weighttraining.WeightLibraryState
+import com.erv.app.weighttraining.WeightRoutine
+import com.erv.app.weighttraining.historyForExercise
+import com.erv.app.workouts.standaloneRun
+import com.erv.app.workouts.standaloneWorkout
 import com.erv.app.workouts.TrainingDayActivity
 import com.erv.app.workouts.Workout
 import com.erv.app.workouts.WorkoutActiveRun
@@ -150,6 +154,52 @@ fun TrainingCategoryScreen(
     var syncingWorkouts by remember { mutableStateOf(false) }
     var workoutsTabSynced by remember { mutableStateOf(false) }
     var deletingWorkout by remember { mutableStateOf<Workout?>(null) }
+    // Quick Start while another workout runs: offer that one instead of replacing it.
+    var quickStartBlocked by remember { mutableStateOf(false) }
+
+    fun quickStart(routine: WeightRoutine?) {
+        if (startedRun != null) {
+            quickStartBlocked = true
+            return
+        }
+        scope.launch {
+            val workout = standaloneWorkout(
+                routine = routine,
+                exerciseById = weightState::exerciseById,
+                lastSetCount = { id -> weightState.historyForExercise(id).firstOrNull()?.entry?.sets?.size },
+            )
+            if (workoutRepository.startStandaloneRun(standaloneRun(workout, routine, restOptions = null))) {
+                onRunWorkout(workout.id)
+            } else {
+                quickStartBlocked = true
+            }
+        }
+    }
+
+    if (quickStartBlocked) {
+        val running = startedRun
+        AlertDialog(
+            onDismissRequest = { quickStartBlocked = false },
+            title = { Text("Workout In Progress") },
+            text = {
+                Text(
+                    "“${running?.workoutSnapshot?.name?.ifBlank { null } ?: "A workout"}” is still running. " +
+                        "Finish or discard it before starting another.",
+                )
+            },
+            confirmButton = {
+                if (running != null) {
+                    TextButton(onClick = {
+                        quickStartBlocked = false
+                        onRunWorkout(running.workoutId)
+                    }) { Text("Resume") }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { quickStartBlocked = false }) { Text("Cancel") }
+            },
+        )
+    }
 
     LaunchedEffect(tabEnum) {
         if (tabEnum == TrainingTab.Workouts && !workoutsTabSynced) {
@@ -289,6 +339,8 @@ fun TrainingCategoryScreen(
                         },
                         onDelete = { deletingWorkout = it },
                         modifier = Modifier.fillMaxSize(),
+                        weightRoutines = weightState.routines,
+                        onQuickStart = ::quickStart,
                     )
                 }
             }
