@@ -17,6 +17,7 @@ import com.erv.app.workouts.effectiveTimedPrepSeconds
 import com.erv.app.workouts.advanceAfterSlot
 import com.erv.app.workouts.buildCircuitSetsSeed
 import com.erv.app.workouts.buildWorkoutCircuitRun
+import com.erv.app.workouts.buildWorkoutWeightBatch
 import com.erv.app.workouts.circuitSlotKey
 import com.erv.app.workouts.currentSlot
 import com.erv.app.workouts.effectiveTimedPrepSeconds
@@ -203,34 +204,17 @@ class WeightLiveWorkoutViewModel(application: Application) : AndroidViewModel(ap
         suppressNotification: Boolean = false,
     ): Boolean {
         if (_activeDraft.value != null) return false
+        val batch = buildWorkoutWeightBatch(items, library) ?: return false
         val started = weightNowEpochSeconds()
-        val order = mutableListOf<String>()
-        val setsByExerciseId = mutableMapOf<String, List<WeightSet>>()
-        val restByExerciseId = mutableMapOf<String, Int>()
-        val prepByExerciseId = mutableMapOf<String, Int>()
-        items.forEach { item ->
-            val exercise = library.exerciseById(item.exerciseId) ?: return@forEach
-            if (setsByExerciseId.containsKey(item.exerciseId)) return@forEach
-            order.add(item.exerciseId)
-            setsByExerciseId[item.exerciseId] =
-                item.prescription.resolvedSets(loggingStyle = exercise.setLoggingStyle())
-            item.prescription.restBetweenSetsSeconds?.takeIf { it > 0 }?.let { seconds ->
-                restByExerciseId[item.exerciseId] = seconds
-            }
-            item.prescription.effectiveTimedPrepSeconds().takeIf { it > 0 }?.let { seconds ->
-                prepByExerciseId[item.exerciseId] = seconds
-            }
-        }
-        if (order.isEmpty()) return false
         val draft = WeightWorkoutDraft(
             startedAtEpochSeconds = started,
-            exerciseOrder = order,
-            setsByExerciseId = setsByExerciseId,
+            exerciseOrder = batch.exerciseOrder,
+            setsByExerciseId = batch.setsByExerciseId,
             hiitBlocksByExerciseId = emptyMap(),
             routineName = sessionLabel,
-            exerciseFocusMarks = listOf(WeightExerciseFocusMark(order.first(), started)),
-            restBetweenSetsSecondsByExerciseId = restByExerciseId,
-            timedPrepSecondsByExerciseId = prepByExerciseId,
+            exerciseFocusMarks = listOf(WeightExerciseFocusMark(batch.exerciseOrder.first(), started)),
+            restBetweenSetsSecondsByExerciseId = batch.restBetweenSetsSecondsByExerciseId,
+            timedPrepSecondsByExerciseId = batch.timedPrepSecondsByExerciseId,
         )
         _activeDraft.value = draft
         _liveWorkoutUiExpanded.value = true

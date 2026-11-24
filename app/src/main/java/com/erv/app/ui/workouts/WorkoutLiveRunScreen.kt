@@ -61,6 +61,7 @@ import com.erv.app.weighttraining.WeightLibraryState
 import com.erv.app.workouts.Workout
 import com.erv.app.workouts.WorkoutActiveRun
 import com.erv.app.workouts.WorkoutItem
+import com.erv.app.workouts.nextAlternativeChoiceIndex
 import com.erv.app.workouts.WorkoutRepository
 import com.erv.app.workouts.WorkoutRunEngine
 import com.erv.app.workouts.WorkoutRunPosition
@@ -167,9 +168,7 @@ fun WorkoutLiveRunScreen(
     var finishingRun by remember { mutableStateOf(false) }
     var pendingWeightItem by remember { mutableStateOf<WorkoutItem.Weight?>(null) }
     var pendingWeightLabel by remember { mutableStateOf<String?>(null) }
-    var pendingAlternativeChoice by remember {
-        mutableStateOf<Pair<WorkoutItem.Weight, String>?>(null)
-    }
+    var pendingAlternativeChoice by remember { mutableStateOf<AlternativeChoiceRequest?>(null) }
     var pendingCircuitSegment by remember { mutableStateOf<WorkoutSegment?>(null) }
     var pendingWeightBatch by remember { mutableStateOf<List<WorkoutItem.Weight>?>(null) }
     var activeRest by remember { mutableStateOf<ActiveWorkoutRest?>(null) }
@@ -310,7 +309,7 @@ fun WorkoutLiveRunScreen(
 
     fun launchWeightItem(item: WorkoutItem.Weight, label: String) {
         if (item.alternativeExerciseIds.isNotEmpty()) {
-            pendingAlternativeChoice = item to label
+            pendingAlternativeChoice = AlternativeChoiceRequest(listOf(item), label, index = 0)
             return
         }
         proceedToWeightLaunch(item, label)
@@ -355,8 +354,38 @@ fun WorkoutLiveRunScreen(
         val pos = activeRun?.position ?: WorkoutRunPosition()
         val sectionRun = WorkoutRunEngine.consecutiveWeightItemRun(current, pos)
         when {
-            sectionRun.size > 1 -> proceedToWeightBatch(sectionRun, current.name)
+            sectionRun.size > 1 -> {
+                // A session already open just reopens, so there is nothing to choose.
+                val firstChoice = if (weightLiveWorkoutViewModel.hasLiveSession) {
+                    null
+                } else {
+                    sectionRun.nextAlternativeChoiceIndex(0)
+                }
+                if (firstChoice != null) {
+                    pendingAlternativeChoice = AlternativeChoiceRequest(sectionRun, current.name, firstChoice)
+                } else {
+                    proceedToWeightBatch(sectionRun, current.name)
+                }
+            }
             sectionRun.size == 1 -> launchWeightItem(sectionRun.first(), current.name)
+        }
+    }
+
+    /** Applies one alternative pick, then asks for the next one or launches once all are chosen. */
+    fun chooseAlternative(request: AlternativeChoiceRequest, exerciseId: String) {
+        val items = request.items.toMutableList().also {
+            it[request.index] = it[request.index].copy(exerciseId = exerciseId)
+        }
+        val next = items.nextAlternativeChoiceIndex(request.index + 1)
+        if (next != null) {
+            pendingAlternativeChoice = request.copy(items = items, index = next)
+            return
+        }
+        pendingAlternativeChoice = null
+        if (items.size == 1) {
+            proceedToWeightLaunch(items.first(), request.label)
+        } else {
+            proceedToWeightBatch(items, request.label)
         }
     }
 
@@ -415,14 +444,25 @@ fun WorkoutLiveRunScreen(
 
     val alternativeChoice = pendingAlternativeChoice
     if (alternativeChoice != null) {
-        val (item, label) = alternativeChoice
+        val item = alternativeChoice.items[alternativeChoice.index]
+        val choiceCount = alternativeChoice.items.count { it.alternativeExerciseIds.isNotEmpty() }
+        val choiceNumber = alternativeChoice.items
+            .take(alternativeChoice.index + 1)
+            .count { it.alternativeExerciseIds.isNotEmpty() }
         AlertDialog(
             onDismissRequest = { pendingAlternativeChoice = null },
-            title = { Text("Choose exercise") },
+            title = {
+                Text(if (choiceCount > 1) "Choose exercise ($choiceNumber of $choiceCount)" else "Choose exercise")
+            },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(
-                        "Pick which movement to log for this step.",
+                        if (alternativeChoice.items.size > 1) {
+                            "Pick which movement to log in place of " +
+                                (weightState.exerciseById(item.exerciseId)?.name ?: item.exerciseId) + "."
+                        } else {
+                            "Pick which movement to log for this step."
+                        },
                         style = MaterialTheme.typography.bodySmall,
                     )
                     val options = buildList {
@@ -431,10 +471,7 @@ fun WorkoutLiveRunScreen(
                     }
                     options.forEach { exerciseId ->
                         TextButton(
-                            onClick = {
-                                pendingAlternativeChoice = null
-                                proceedToWeightLaunch(item.copy(exerciseId = exerciseId), label)
-                            },
+                            onClick = { chooseAlternative(alternativeChoice, exerciseId) },
                             modifier = Modifier.fillMaxWidth(),
                         ) {
                             Text(
@@ -1551,3 +1588,11 @@ private fun WorkoutSectionTransitionSplash(
         }
     }
 }
+
+/** Alternative-exercise choices still to make before launching [items] (one item or a whole section). */
+private data class AlternativeChoiceRequest(
+    val items: List<WorkoutItem.Weight>,
+    val label: String,
+    /** Index in [items] of the item whose alternative is being chosen now. */
+    val index: Int,
+)
