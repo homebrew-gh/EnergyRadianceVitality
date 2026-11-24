@@ -85,6 +85,8 @@ import com.erv.app.ui.media.playHiitWorkSegmentEndCue
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import com.erv.app.cardio.CardioBuiltinActivity
+import com.erv.app.cardio.CardioMetEstimator
+import com.erv.app.stretching.StretchingSync
 import com.erv.app.cardio.CardioDistanceUnit
 import com.erv.app.cardio.CardioLibraryState
 import com.erv.app.cardio.CardioRepository
@@ -140,6 +142,12 @@ import com.erv.app.workouts.displayTitle
 import com.erv.app.workouts.isSessionComplete
 import com.erv.app.workouts.sessionCountdownEndsAtEpochSeconds
 import com.erv.app.workouts.canAddSessionSet
+import com.erv.app.workouts.countdownSeconds
+import com.erv.app.workouts.cardioSessionFor
+import com.erv.app.workouts.isSessionCardioActivity
+import com.erv.app.workouts.linkFor
+import com.erv.app.workouts.sessionCardioItemsToLog
+import com.erv.app.workouts.sessionStretchSectionsToLog
 import com.erv.app.workouts.canRemoveSessionSet
 import com.erv.app.workouts.sessionExerciseFor
 import com.erv.app.workouts.sessionHasNothingDone
@@ -210,10 +218,54 @@ fun WorkoutLiveRunScreen(
     val session = activeRun?.session
     val currentStep = if (plan != null && session != null) WorkoutSessionEngine.currentStep(plan, session) else null
 
-    /** Saves a weight log entry for each lifting section the session has finished. */
-    suspend fun logFinishedLiftSections() = liftLogMutex.withLock {
+    val runKeyManager = LocalKeyManager.current
+
+    /**
+     * Saves what the session has finished to the silo logs: a weight entry per lifting section, a
+     * cardio entry per cardio item, a stretch entry per stretching section.
+     */
+    suspend fun logFinishedSections() = liftLogMutex.withLock {
         val run = repository.currentState().activeRun?.takeIf { it.workoutId == workoutId } ?: return@withLock
-        for (section in run.sessionLiftSectionsToLog()) {
+        val runPlan = run.sessionPlan()
+        for (item in run.sessionCardioItemsToLog(runPlan)) {
+            val today = LocalDate.now()
+            val cardioLibrary = cardioRepository.currentState()
+            val base = run.cardioSessionFor(item, cardioLibrary) ?: continue
+            // The per-item heart rate began when the item's first leg was started.
+            val withHr = heartRateBle.takeWorkoutHeartRateSummary()?.let { base.copy(heartRate = it) } ?: base
+            val stored = CardioMetEstimator.applyEstimatedKcal(withHr, cardioLibrary, fallbackBodyWeightKg)
+            // addSession uploads the day log in the background.
+            cardioRepository.addSession(today, stored)
+            repository.recordSessionCardioLog(item, today.toString(), stored.id)
+        }
+        for (section in run.sessionStretchSectionsToLog(runPlan)) {
+            val today = LocalDate.now()
+            val link = run.linkFor(section.segmentId, section.entries.first().itemId)
+            stretchingRepository.logSession(
+                date = today,
+                stretchIds = section.entries.map { it.catalogId },
+                totalMinutes = section.totalMinutes,
+                workoutLink = link,
+            )
+            val log = stretchingRepository.currentState().logFor(today)
+            val saved = log?.sessions?.lastOrNull { it.workoutLink == link } ?: continue
+            repository.recordSessionStretchLog(section, today.toString(), saved.id)
+            if (relayPool != null && signer != null) {
+                // Off the save path, so the relays never hold up the workout.
+                scope.launch {
+                    runCatching {
+                        StretchingSync.publishDailyLog(
+                            appContext,
+                            relayPool,
+                            signer,
+                            log,
+                            runKeyManager.relayUrlsForKind30078Publish(),
+                        )
+                    }
+                }
+            }
+        }
+        for (section in run.sessionLiftSectionsToLog(runPlan)) {
             val today = LocalDate.now()
             val base = run.weightSessionFor(section)
             val stored = base.copy(estimatedKcal = WeightCalorieEstimator.estimateKcal(base, fallbackBodyWeightKg))
@@ -229,7 +281,7 @@ fun WorkoutLiveRunScreen(
         val atStep = session?.stepIndex
         scope.launch {
             repository.applySessionEvent(event, atStepIndex = atStep)
-            logFinishedLiftSections()
+            logFinishedSections()
         }
     }
 
@@ -406,7 +458,7 @@ fun WorkoutLiveRunScreen(
         }
     }
 
-    /** Cardio and stretching still run on their own screens; open the one for [step]. */
+    /** Opens the cardio or stretching screen for [step] (saved cardio routines run there). */
     fun launchOwnScreenStep(step: WorkoutSessionStep?) {
         if (step == null) return
         when (val item = itemOf(step)) {
@@ -448,7 +500,7 @@ fun WorkoutLiveRunScreen(
     // waiting, stamp the whole-workout HR onto each linked log and build the finish summary.
     LaunchedEffect(isComplete) {
         if (!isComplete || runFinalized) return@LaunchedEffect
-        runCatching { logFinishedLiftSections() }
+        runCatching { logFinishedSections() }
         WorkoutSessionNotifier.stop(appContext)
         val finished = repository.currentState().activeRun
         if (finished == null) {
@@ -512,6 +564,7 @@ fun WorkoutLiveRunScreen(
     LaunchedEffect(
         session,
         activeRun?.sessionStepStartedAtEpochSeconds,
+        activeRun?.sessionStepAwaitingStart,
         activeRun?.sessionExerciseSwaps,
         notifiedBpm,
         fgsDisclosureSeen,
@@ -523,31 +576,48 @@ fun WorkoutLiveRunScreen(
         WorkoutSessionNotifier.sync(appContext, run, stepNames, loadUnit, notifiedBpm)
     }
 
-    // Moving onto a cardio or stretch step opens its screen, as the run always has.
+    // Moving onto a saved cardio routine opens the cardio screen, which runs those.
     LaunchedEffect(activeRun?.autoAdvanceRequested, session?.stepIndex) {
         if (activeRun?.autoAdvanceRequested != true || isComplete) return@LaunchedEffect
         repository.clearAutoAdvance()
         launchOwnScreenStep(currentStep)
     }
 
-    // The rest clock: counts down from when the rest came on screen, then moves on by itself.
+    // The step clock: a rest, a timed cardio leg or a stretch hold counts down from when it
+    // started and then moves on by itself; an open-ended cardio leg counts up until Finish.
     var clockTick by remember { mutableIntStateOf(0) }
     val countdownEnd = if (plan != null) activeRun?.sessionCountdownEndsAtEpochSeconds(plan) else null
-    LaunchedEffect(session?.stepIndex, activeRun?.sessionStepStartedAtEpochSeconds, clockTick) {
-        val rest = currentStep as? WorkoutSessionStep.Rest ?: return@LaunchedEffect
-        val end = countdownEnd ?: return@LaunchedEffect
+    val awaitingStart = activeRun?.sessionStepAwaitingStart == true
+    LaunchedEffect(session?.stepIndex, activeRun?.sessionStepStartedAtEpochSeconds, awaitingStart, clockTick) {
+        val step = currentStep ?: return@LaunchedEffect
+        val clocked = step is WorkoutSessionStep.Rest || step is WorkoutSessionStep.StretchHold ||
+            (step is WorkoutSessionStep.CardioLeg && step.cardioRoutineId == null)
+        if (!clocked || awaitingStart) return@LaunchedEffect
+        val end = countdownEnd
         val now = nowWorkoutEpochSeconds()
-        if (now >= end) {
-            // A rest that ended while ERV was in the background already alerted from the alarm.
+        if (end != null && now >= end) {
+            // One that ended while ERV was in the background already alerted from the alarm.
             if (restEndCueIsFresh(end, now)) {
                 playHiitWorkSegmentEndCue(appContext)
                 RestTimerAlarm.vibrateRestOver(appContext)
             }
-            send(WorkoutSessionEvent.TimedStepDone(rest.seconds))
+            send(WorkoutSessionEvent.TimedStepDone(step.countdownSeconds() ?: 0))
             return@LaunchedEffect
         }
         delay(1_000L)
         clockTick++
+    }
+
+    /** Seconds since the step on screen started its clock. */
+    fun stepElapsedSeconds(): Int =
+        activeRun?.sessionStepStartedAtEpochSeconds
+            ?.let { (nowWorkoutEpochSeconds() - it).toInt().coerceAtLeast(0) } ?: 0
+
+    /** Start on a cardio or stretch step; a new cardio item starts its own heart rate summary. */
+    fun startStep(step: WorkoutSessionStep) {
+        if (step is WorkoutSessionStep.CardioLeg) heartRateBle.resetWorkoutRecordingOnLiveStart()
+        val atStep = session?.stepIndex
+        scope.launch { repository.startSessionStep(atStepIndex = atStep) }
     }
 
     val summary = composedSummary
@@ -661,7 +731,7 @@ fun WorkoutLiveRunScreen(
                                 showLeaveDialog = false
                                 scope.launch {
                                     repository.endRunEarly()
-                                    logFinishedLiftSections()
+                                    logFinishedSections()
                                 }
                             },
                         ) {
@@ -854,14 +924,52 @@ fun WorkoutLiveRunScreen(
                             onContinue = { send(WorkoutSessionEvent.StepDone) },
                         )
                         is WorkoutSessionStep.CardioLeg, is WorkoutSessionStep.StretchHold -> {
-                            when (val item = itemOf(step)) {
-                                is WorkoutItem.Cardio -> OwnScreenCardioCard(
+                            val item = itemOf(step)
+                            val remaining = countdownEnd?.let { (it - nowWorkoutEpochSeconds()).toInt().coerceAtLeast(0) }
+                            when {
+                                step is WorkoutSessionStep.CardioLeg && item is WorkoutItem.Cardio &&
+                                    step.cardioRoutineId == null && isSessionCardioActivity(item.cardio.activity) -> {
+                                    val activityLabel = runCatching { CardioBuiltinActivity.valueOf(item.cardio.activity) }
+                                        .getOrNull()?.let { cardioState.resolveSnapshot(it, null).displayLabel }
+                                    WorkoutSessionCardioCard(
+                                        step = step,
+                                        title = item.title?.takeIf { it.isNotBlank() } ?: activityLabel ?: "Cardio",
+                                        heartRateTarget = cardioHeartRateTarget(item, step),
+                                        awaitingStart = awaitingStart,
+                                        clockSeconds = if ((step.targetSeconds ?: 0) > 0) {
+                                            remaining ?: (step.targetSeconds ?: 0)
+                                        } else {
+                                            stepElapsedSeconds()
+                                        },
+                                        onStart = { startStep(step) },
+                                        onFinish = { send(WorkoutSessionEvent.TimedStepDone(stepElapsedSeconds())) },
+                                        onSkipLeg = { send(WorkoutSessionEvent.SkipStep) },
+                                        onSkipCardio = { pendingSkipLabel = item.title?.takeIf { it.isNotBlank() } ?: "this cardio" },
+                                        onOpenCardioScreen = { launchCardioItem(item, step.segmentId) },
+                                    )
+                                }
+                                step is WorkoutSessionStep.StretchHold && item is WorkoutItem.Mobility -> {
+                                    val entry = stretchingRepository.catalog.firstOrNull { it.id == step.catalogId }
+                                    WorkoutSessionStretchCard(
+                                        step = step,
+                                        name = stepNames.nameFor(step) ?: entry?.name ?: "Stretch",
+                                        procedure = entry?.procedure,
+                                        awaitingStart = awaitingStart,
+                                        secondsLeft = remaining ?: step.holdSeconds,
+                                        onStart = { startStep(step) },
+                                        onDone = { send(WorkoutSessionEvent.TimedStepDone(stepElapsedSeconds())) },
+                                        onSkipHold = { send(WorkoutSessionEvent.SkipStep) },
+                                        onSkipStretch = { pendingSkipLabel = stepNames.nameFor(step) ?: "this stretch" },
+                                    )
+                                }
+                                // A saved cardio routine, or an activity only the cardio screen knows.
+                                item is WorkoutItem.Cardio -> OwnScreenCardioCard(
                                     item = item,
                                     cardioState = cardioState,
                                     onStart = { launchCardioItem(item, step.segmentId) },
                                     onSkip = { pendingSkipLabel = item.title?.takeIf { it.isNotBlank() } ?: "this cardio" },
                                 )
-                                is WorkoutItem.Mobility -> OwnScreenStretchCard(
+                                item is WorkoutItem.Mobility -> OwnScreenStretchCard(
                                     item = item,
                                     onStart = { launchMobilityItem(item, step.segmentId) },
                                     onSkip = { pendingSkipLabel = item.title?.takeIf { it.isNotBlank() } ?: "this stretch" },
@@ -970,7 +1078,20 @@ fun WorkoutLiveRunScreen(
     }
 }
 
-/** A cardio item, which still runs on the cardio screen. */
+/** "Zone 2 · 130–145 bpm" or "170 bpm" for a cardio leg, when the builder set a target. */
+private fun cardioHeartRateTarget(item: WorkoutItem.Cardio, step: WorkoutSessionStep.CardioLeg): String? {
+    val cardio = item.cardio
+    val min = cardio.hrTargetMinBpm
+    val max = cardio.hrTargetMaxBpm
+    val bpm = if (min != null && max != null) {
+        "$min–$max bpm"
+    } else {
+        (step.hrTargetBpm ?: cardio.hrTargetBpm)?.let { "$it bpm" }
+    }
+    return listOfNotNull(cardio.hrZoneLabel?.takeIf { it.isNotBlank() }, bpm).joinToString(" · ").ifBlank { null }
+}
+
+/** A saved cardio routine (or an activity the session can't log), which runs on the cardio screen. */
 @Composable
 private fun OwnScreenCardioCard(
     item: WorkoutItem.Cardio,
@@ -1008,7 +1129,7 @@ private fun OwnScreenCardioCard(
     }
 }
 
-/** A stretch item, which still runs on the stretching screen. */
+/** A stretch with no catalog pose to hold, which opens the stretching screen. */
 @Composable
 private fun OwnScreenStretchCard(
     item: WorkoutItem.Mobility,

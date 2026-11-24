@@ -66,6 +66,7 @@ fun WorkoutActiveRun.sessionCountdownEndsAtEpochSeconds(plan: WorkoutSessionPlan
     val state = session ?: return null
     val step = WorkoutSessionEngine.currentStep(plan, state) ?: return null
     val seconds = step.countdownSeconds() ?: return null
+    if (sessionStepAwaitingStart) return null
     val started = sessionStepStartedAtEpochSeconds ?: return null
     return started + seconds
 }

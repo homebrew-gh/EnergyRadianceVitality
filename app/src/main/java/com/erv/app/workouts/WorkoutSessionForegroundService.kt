@@ -237,16 +237,19 @@ object WorkoutSessionNotifier {
         val state = run.session
         val step = state?.let { WorkoutSessionEngine.currentStep(plan, it) }
         val restEnd = run.sessionCountdownEndsAtEpochSeconds(plan)?.takeIf { it > nowEpochSeconds }
-        if (step is WorkoutSessionStep.Rest && restEnd != null) {
-            // The alarm wakes the phone when rest ends with the screen off. Cardio legs and
-            // stretch holds are watched on screen, so only rests get an alarm.
+        if (step != null && step.countdownSeconds() != null && restEnd != null) {
+            // The alarm wakes the phone when a rest, a timed cardio leg or a stretch hold ends
+            // with the screen off.
             com.erv.app.weighttraining.RestTimerAlarm.schedule(
                 context,
                 endsAtEpochSeconds = restEnd,
-                text = run.sessionNotificationContent(names, loadUnit, nowEpochSeconds)?.text
-                    ?.substringAfter("Next: ", missingDelimiterValue = "")
-                    .orEmpty(),
+                text = run.sessionUpNextLabel(names, loadUnit, plan).orEmpty(),
                 openWeightLive = false,
+                title = when (step) {
+                    is WorkoutSessionStep.CardioLeg -> if (step.isRecovery) "Recovery over" else "Time's up"
+                    is WorkoutSessionStep.StretchHold -> "Hold over"
+                    else -> null
+                },
             )
         } else {
             com.erv.app.weighttraining.RestTimerAlarm.cancel(context)

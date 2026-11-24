@@ -171,6 +171,37 @@ class WorkoutRepository(context: Context) {
         }
     }
 
+    /** Starts the clock of the cardio or stretch step waiting on screen for Start. */
+    suspend fun startSessionStep(atStepIndex: Int? = null) {
+        updateState { state ->
+            val run = state.activeRun ?: return@updateState state
+            if (!run.sessionStepAwaitingStart) return@updateState state
+            if (atStepIndex != null && run.session?.stepIndex != atStepIndex) return@updateState state
+            state.copy(
+                activeRun = run.copy(
+                    sessionStepAwaitingStart = false,
+                    sessionStepStartedAtEpochSeconds = nowWorkoutEpochSeconds(),
+                ),
+            )
+        }
+    }
+
+    /** Links a cardio item the session finished to the cardio log entry saved for it. */
+    suspend fun recordSessionCardioLog(item: WorkoutSessionCardioItem, logDate: String, entryId: String) {
+        updateState { state ->
+            val run = state.activeRun ?: return@updateState state
+            state.copy(activeRun = run.withSessionCardioLogged(item, logDate, entryId, nowWorkoutEpochSeconds()))
+        }
+    }
+
+    /** Links a stretch section the session finished to the stretch log entry saved for it. */
+    suspend fun recordSessionStretchLog(section: WorkoutSessionStretchSection, logDate: String, entryId: String) {
+        updateState { state ->
+            val run = state.activeRun ?: return@updateState state
+            state.copy(activeRun = run.withSessionStretchLogged(section, logDate, entryId, nowWorkoutEpochSeconds()))
+        }
+    }
+
     /** Adds [seconds] to the rest or timed step on screen. */
     suspend fun extendSessionCountdown(seconds: Int) {
         updateState { state ->

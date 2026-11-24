@@ -292,6 +292,11 @@ data class WorkoutActiveRun(
     val sessionStepStartedAtEpochSeconds: Long? = null,
     /** Exercises swapped in for today, keyed by [sessionItemKey]; the logs use these. */
     val sessionExerciseSwaps: Map<String, String> = emptyMap(),
+    /**
+     * True while a cardio or stretch step waits for Start (time to get on the bike, say); its
+     * clock begins when the athlete taps it.
+     */
+    val sessionStepAwaitingStart: Boolean = false,
 )
 
 fun WorkoutActiveRun.isStarted(): Boolean = startedAtEpochSeconds != null

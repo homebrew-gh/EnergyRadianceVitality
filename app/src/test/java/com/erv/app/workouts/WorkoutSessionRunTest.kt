@@ -167,9 +167,12 @@ class WorkoutSessionRunTest {
     }
 
     @Test
-    fun cardio_and_stretch_steps_open_their_own_screens() {
+    fun cardio_and_stretch_steps_wait_for_start_on_the_session_screen() {
         val run = started("example-cardio-and-mobility")
-        // The first step waits for Start; nothing opens by itself.
+        // The first step waits for Start, and nothing opens another screen.
+        assertTrue(run.sessionStepAwaitingStart)
+        assertNull(run.sessionCountdownEndsAtEpochSeconds())
+        assertEquals(1_300L, run.copy(sessionStepAwaitingStart = false).sessionCountdownEndsAtEpochSeconds())
         assertFalse(run.autoAdvanceRequested)
         val bikeDone = run.copy(lastLaunchedSegmentId = "cardio-warmup", lastLaunchedItemId = "cardio-warmup-bike")
             .withSessionItemLoggedElsewhere(
@@ -181,7 +184,8 @@ class WorkoutSessionRunTest {
                 nowEpochSeconds = 1_400,
             )
         assertEquals("cardio-warmup-neck", bikeDone.step()?.itemId)
-        assertTrue(bikeDone.autoAdvanceRequested)
+        assertTrue(bikeDone.sessionStepAwaitingStart)
+        assertFalse(bikeDone.autoAdvanceRequested)
         assertNull(bikeDone.lastLaunchedItemId)
         assertEquals(WorkoutRunPosition(segmentIndex = 0, itemIndex = 1, round = 1), bikeDone.position)
         val recap = bikeDone.itemRecaps.single()
@@ -189,8 +193,9 @@ class WorkoutSessionRunTest {
         assertFalse(recap.skipped)
         assertEquals(WorkoutStepOutcome.DONE, bikeDone.session!!.recordFor(0)?.outcome)
         assertEquals(1_400L, bikeDone.session!!.recordFor(0)?.atEpochSeconds)
-        // Cardio and stretching log themselves; there is no weight entry to write.
+        // The cardio screen logged the bike, so there is nothing left to write for it.
         assertTrue(bikeDone.sessionLiftSectionsToLog().isEmpty())
+        assertTrue(bikeDone.sessionCardioItemsToLog().isEmpty())
     }
 
     @Test
@@ -207,12 +212,16 @@ class WorkoutSessionRunTest {
         )
         val afterRest = atRest.applyingSessionEvent(WorkoutSessionEvent.StepDone, 3_000)
         assertTrue(afterRest.step() is WorkoutSessionStep.StretchHold)
-        assertTrue(afterRest.autoAdvanceRequested)
-        // Moving between two holds of the same stretch is not a new screen to open.
-        val nextSide = afterRest.copy(autoAdvanceRequested = false)
+        assertTrue(afterRest.sessionStepAwaitingStart)
+        assertFalse(afterRest.autoAdvanceRequested)
+        // The second side, and the next stretch, follow on without another Start.
+        val nextSide = afterRest.copy(sessionStepAwaitingStart = false)
             .applyingSessionEvent(WorkoutSessionEvent.TimedStepDone(30), 3_030)
         assertEquals(afterRest.step()?.itemId, nextSide.step()?.itemId)
-        assertFalse(nextSide.autoAdvanceRequested)
+        assertFalse(nextSide.sessionStepAwaitingStart)
+        val nextStretch = nextSide.applyingSessionEvent(WorkoutSessionEvent.TimedStepDone(30), 3_060)
+        assertEquals("cardio-stretch-chin", nextStretch.step()?.itemId)
+        assertFalse(nextStretch.sessionStepAwaitingStart)
     }
 
     @Test
@@ -322,5 +331,71 @@ class WorkoutSessionRunTest {
             listOf(set(8)),
             WorkoutSessionEngine.loggedSets(more.sessionPlan(), more.session!!, "pairs-superset", "pairs-ohp"),
         )
+    }
+
+    @Test
+    fun cardio_done_on_the_session_screen_is_logged_once_its_legs_are_over() {
+        val run = started("example-cardio-and-mobility")
+            .copy(sessionStepAwaitingStart = false)
+            .applyingSessionEvent(WorkoutSessionEvent.TimedStepDone(300), 1_300)
+        assertEquals("cardio-warmup-neck", run.step()?.itemId)
+        val item = run.sessionCardioItemsToLog().single()
+        assertEquals("cardio-warmup-bike", item.itemId)
+        assertEquals("BIKE", item.activity)
+        assertEquals(300, item.elapsedSeconds)
+        assertEquals(1_000L, item.startedAtEpochSeconds)
+        assertEquals(1_300L, item.finishedAtEpochSeconds)
+
+        val session = run.cardioSessionFor(item, com.erv.app.cardio.CardioLibraryState())!!
+        assertEquals(5, session.durationMinutes)
+        assertEquals(1_000L, session.startEpochSeconds)
+        assertEquals(1_300L, session.endEpochSeconds)
+        assertEquals("cardio-warmup-bike", session.workoutLink?.itemId)
+        assertEquals(run.sessionId, session.workoutLink?.sessionId)
+
+        val logged = run.withSessionCardioLogged(item, "2026-11-24", session.id, 1_301)
+        assertTrue(logged.sessionCardioItemsToLog().isEmpty())
+        assertEquals(session.id, logged.itemRecaps.single().linkedEntryId)
+    }
+
+    @Test
+    fun interval_cardio_counts_its_work_legs_and_all_its_time() {
+        val plan = started("example-cardio-and-mobility").sessionPlan()
+        val firstSprint = plan.steps.indexOfFirst { it.itemId == "cardio-sprints" }
+        val sprintLegs = plan.steps.indices.filter { plan.steps[it].itemId == "cardio-sprints" }
+        val atSprints = started("example-cardio-and-mobility").copy(
+            session = WorkoutSessionState(
+                stepIndex = firstSprint,
+                records = (0 until firstSprint).map { WorkoutStepRecord(it, WorkoutStepOutcome.SKIPPED) },
+            ),
+            sessionStepAwaitingStart = false,
+        )
+        // 8 sprints of 30 s with 7 recoveries of 90 s.
+        assertEquals(15, sprintLegs.size)
+        val done = sprintLegs.fold(atSprints) { run, index ->
+            val leg = plan.steps[index] as WorkoutSessionStep.CardioLeg
+            run.applyingSessionEvent(WorkoutSessionEvent.TimedStepDone(leg.targetSeconds ?: 0), 2_000L + index)
+        }
+        val item = done.sessionCardioItemsToLog().single()
+        assertEquals(8, item.workLegsDone)
+        assertEquals(8 * 30 + 7 * 90, item.elapsedSeconds)
+    }
+
+    @Test
+    fun a_stretch_section_is_logged_once_it_is_finished() {
+        val afterBike = started("example-cardio-and-mobility")
+            .copy(sessionStepAwaitingStart = false)
+            .applyingSessionEvent(WorkoutSessionEvent.TimedStepDone(300), 1_300)
+        // The neck stretch is still to do, so the warm-up isn't finished yet.
+        assertTrue(afterBike.sessionStretchSectionsToLog().isEmpty())
+        val done = afterBike.copy(sessionStepAwaitingStart = false)
+            .applyingSessionEvent(WorkoutSessionEvent.TimedStepDone(30), 1_340)
+        val section = done.sessionStretchSectionsToLog().single()
+        assertEquals("cardio-warmup", section.segmentId)
+        assertEquals(listOf("builtin_neck_rotation"), section.entries.map { it.catalogId })
+        assertEquals(30, section.heldSeconds)
+        assertEquals(1, section.totalMinutes)
+        val logged = done.withSessionStretchLogged(section, "2026-11-24", "stretch-log-1", 1_341)
+        assertTrue(logged.sessionStretchSectionsToLog().isEmpty())
     }
 }
