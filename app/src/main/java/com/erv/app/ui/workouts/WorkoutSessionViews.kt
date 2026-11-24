@@ -406,6 +406,8 @@ internal fun WorkoutSessionCardioCard(
     onSkipCardio: () -> Unit,
     onOpenCardioScreen: () -> Unit,
     modifier: Modifier = Modifier,
+    /** The Concept2 or cycling sensor: connect before Start, live numbers while it runs. */
+    sensors: @Composable () -> Unit = {},
 ) {
     val timed = (step.targetSeconds ?: 0) > 0
     Card(
@@ -434,6 +436,7 @@ internal fun WorkoutSessionCardioCard(
             heartRateTarget?.takeIf { !step.isRecovery }?.let {
                 Text("Target $it", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+            sensors()
             if (awaitingStart) {
                 Button(onClick = onStart, modifier = Modifier.fillMaxWidth()) { Text("Start") }
                 TextButton(onClick = onOpenCardioScreen, modifier = Modifier.fillMaxWidth()) {

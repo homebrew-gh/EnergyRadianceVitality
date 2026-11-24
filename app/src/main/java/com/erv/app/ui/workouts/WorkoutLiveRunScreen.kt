@@ -93,6 +93,14 @@ import com.erv.app.cardio.CardioRepository
 import com.erv.app.cardio.formatCardioAveragePaceForSession
 import com.erv.app.cardio.formatCardioDistanceFromMeters
 import com.erv.app.cardio.isCyclingActivity
+import com.erv.app.cardio.isErgMonitorActivity
+import com.erv.app.cardio.CardioErgMetrics
+import com.erv.app.cycling.Concept2BleConnectionState
+import com.erv.app.cycling.Concept2Pm5BleViewModel
+import com.erv.app.cycling.CyclingCscBleConnectionState
+import com.erv.app.cycling.CyclingCscBleViewModel
+import com.erv.app.cycling.LocalConcept2Pm
+import com.erv.app.cycling.LocalCyclingCsc
 import com.erv.app.cardio.resolveSnapshot
 import com.erv.app.data.BodyWeightUnit
 import com.erv.app.data.UserPreferences
@@ -219,6 +227,8 @@ fun WorkoutLiveRunScreen(
     val currentStep = if (plan != null && session != null) WorkoutSessionEngine.currentStep(plan, session) else null
 
     val runKeyManager = LocalKeyManager.current
+    val concept2Ble = LocalConcept2Pm.current
+    val cyclingCscBle = LocalCyclingCsc.current
 
     /**
      * Saves what the session has finished to the silo logs: a weight entry per lifting section, a
@@ -231,8 +241,27 @@ fun WorkoutLiveRunScreen(
             val today = LocalDate.now()
             val cardioLibrary = cardioRepository.currentState()
             val base = run.cardioSessionFor(item, cardioLibrary) ?: continue
-            // The per-item heart rate began when the item's first leg was started.
-            val withHr = heartRateBle.takeWorkoutHeartRateSummary()?.let { base.copy(heartRate = it) } ?: base
+            // The per-item heart rate and sensor totals began when the item's first leg started.
+            // Take both erg and cycling summaries to clear their buffers; prefer the erg's, as the
+            // cardio screen does.
+            val ergSummary = if (base.activity.isErgMonitorActivity()) concept2Ble.takeWorkoutSummary() else null
+            val cscDistance = if (base.activity.isCyclingActivity()) {
+                cyclingCscBle.takeWorkoutSummary()?.distanceMeters
+            } else {
+                null
+            }
+            val withSensors = base.copy(
+                distanceMeters = ergSummary?.distanceMeters ?: cscDistance ?: base.distanceMeters,
+                erg = ergSummary?.let { summary ->
+                    CardioErgMetrics(
+                        avgPowerWatts = summary.avgPowerWatts,
+                        maxPowerWatts = summary.maxPowerWatts,
+                        avgCadenceRpm = summary.avgCadenceRpm,
+                        maxCadenceRpm = summary.maxCadenceRpm,
+                    )
+                },
+            )
+            val withHr = heartRateBle.takeWorkoutHeartRateSummary()?.let { withSensors.copy(heartRate = it) } ?: withSensors
             val stored = CardioMetEstimator.applyEstimatedKcal(withHr, cardioLibrary, fallbackBodyWeightKg)
             // addSession uploads the day log in the background.
             cardioRepository.addSession(today, stored)
@@ -615,7 +644,11 @@ fun WorkoutLiveRunScreen(
 
     /** Start on a cardio or stretch step; a new cardio item starts its own heart rate summary. */
     fun startStep(step: WorkoutSessionStep) {
-        if (step is WorkoutSessionStep.CardioLeg) heartRateBle.resetWorkoutRecordingOnLiveStart()
+        if (step is WorkoutSessionStep.CardioLeg) {
+            heartRateBle.resetWorkoutRecordingOnLiveStart()
+            concept2Ble.resetWorkoutRecordingOnLiveStart()
+            cyclingCscBle.resetWorkoutRecordingOnLiveStart()
+        }
         val atStep = session?.stepIndex
         scope.launch { repository.startSessionStep(atStepIndex = atStep) }
     }
@@ -929,8 +962,9 @@ fun WorkoutLiveRunScreen(
                             when {
                                 step is WorkoutSessionStep.CardioLeg && item is WorkoutItem.Cardio &&
                                     step.cardioRoutineId == null && isSessionCardioActivity(item.cardio.activity) -> {
-                                    val activityLabel = runCatching { CardioBuiltinActivity.valueOf(item.cardio.activity) }
-                                        .getOrNull()?.let { cardioState.resolveSnapshot(it, null).displayLabel }
+                                    val activitySnapshot = runCatching { CardioBuiltinActivity.valueOf(item.cardio.activity) }
+                                        .getOrNull()?.let { cardioState.resolveSnapshot(it, null) }
+                                    val activityLabel = activitySnapshot?.displayLabel
                                     WorkoutSessionCardioCard(
                                         step = step,
                                         title = item.title?.takeIf { it.isNotBlank() } ?: activityLabel ?: "Cardio",
@@ -946,6 +980,19 @@ fun WorkoutLiveRunScreen(
                                         onSkipLeg = { send(WorkoutSessionEvent.SkipStep) },
                                         onSkipCardio = { pendingSkipLabel = item.title?.takeIf { it.isNotBlank() } ?: "this cardio" },
                                         onOpenCardioScreen = { launchCardioItem(item, step.segmentId) },
+                                        sensors = {
+                                            if (activitySnapshot?.supportsBikeErgSensorConnect() == true) {
+                                                CardioBikeErgConnectInlineSection(
+                                                    activitySupportsErg = true,
+                                                    sessionKey = item.id,
+                                                    compact = true,
+                                                    cyclingSensorApplicable = activitySnapshot.isCyclingActivity(),
+                                                )
+                                                if (!awaitingStart) {
+                                                    SessionSensorReadout(concept2Ble, cyclingCscBle, distanceUnit)
+                                                }
+                                            }
+                                        },
                                     )
                                 }
                                 step is WorkoutSessionStep.StretchHold && item is WorkoutItem.Mobility -> {
@@ -1076,6 +1123,55 @@ fun WorkoutLiveRunScreen(
         }
     }
     }
+}
+
+/**
+ * Live sensor numbers under the cardio clock: the Concept2 monitor's power, cadence, speed and
+ * distance when it is connected, otherwise a cycling speed and cadence sensor's.
+ */
+@Composable
+private fun SessionSensorReadout(
+    concept2Ble: Concept2Pm5BleViewModel,
+    cyclingCscBle: CyclingCscBleViewModel,
+    distanceUnit: CardioDistanceUnit,
+) {
+    val ergConnection by concept2Ble.connectionState.collectAsState()
+    val ergPower by concept2Ble.currentPowerWatts.collectAsState()
+    val ergCadence by concept2Ble.currentCadenceRpm.collectAsState()
+    val ergSpeed by concept2Ble.currentSpeedKmh.collectAsState()
+    val ergDistance by concept2Ble.workoutDistanceMeters.collectAsState()
+    val cscConnection by cyclingCscBle.connectionState.collectAsState()
+    val cscSpeed by cyclingCscBle.currentSpeedKmh.collectAsState()
+    val cscCadence by cyclingCscBle.currentCadenceRpm.collectAsState()
+    val cscDistance by cyclingCscBle.workoutDistanceMeters.collectAsState()
+    fun speed(kmh: Double?): String? = kmh?.takeIf { it > 0.0 }?.let {
+        when (distanceUnit) {
+            CardioDistanceUnit.MILES -> "%.1f mph".format(it * 0.621371)
+            CardioDistanceUnit.KILOMETERS -> "%.1f km/h".format(it)
+        }
+    }
+    fun distance(meters: Double?): String? =
+        meters?.takeIf { it > 0.0 }?.let { formatCardioDistanceFromMeters(it, distanceUnit) }
+    val parts = when {
+        ergConnection == Concept2BleConnectionState.Connected -> listOfNotNull(
+            ergPower?.takeIf { it > 0 }?.let { "$it W" },
+            ergCadence?.takeIf { it > 0 }?.let { "$it rpm" },
+            speed(ergSpeed),
+            distance(ergDistance),
+        )
+        cscConnection == CyclingCscBleConnectionState.Connected -> listOfNotNull(
+            speed(cscSpeed),
+            cscCadence?.takeIf { it > 0 }?.let { "$it rpm" },
+            distance(cscDistance),
+        )
+        else -> emptyList()
+    }
+    if (parts.isEmpty()) return
+    Text(
+        parts.joinToString(" · "),
+        style = MaterialTheme.typography.titleLarge,
+        color = MaterialTheme.colorScheme.primary,
+    )
 }
 
 /** "Zone 2 · 130–145 bpm" or "170 bpm" for a cardio leg, when the builder set a target. */
