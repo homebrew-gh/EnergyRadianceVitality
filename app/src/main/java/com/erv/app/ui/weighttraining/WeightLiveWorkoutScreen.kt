@@ -190,9 +190,13 @@ fun WeightLiveWorkoutScreen(
     var activeRestExerciseId by remember(draft.startedAtEpochSeconds) { mutableStateOf<String?>(null) }
     var showRestTimerSettings by remember { mutableStateOf(false) }
 
-    val restTimerMode by userPreferences.weightLiveRestTimerMode.collectAsState(
-        initial = WeightLiveRestTimerMode.OFF
-    )
+    val restTimerModeChosen by userPreferences.weightLiveRestTimerModeChosen.collectAsState(initial = null)
+    // Until the athlete picks a mode, count down automatically wherever the workout prescribes rest.
+    val restTimerMode = restTimerModeChosen ?: if (draft.restBetweenSetsSecondsByExerciseId.values.any { it > 0 }) {
+        WeightLiveRestTimerMode.AUTO
+    } else {
+        WeightLiveRestTimerMode.OFF
+    }
     val restTimerDurationSec by userPreferences.weightLiveRestTimerSeconds.collectAsState(initial = 90)
     val restTimerCountdownSoundEnabled by userPreferences.weightLiveRestTimerCountdownSoundEnabled.collectAsState(initial = true)
     val restTimerEndSoundEnabled by userPreferences.weightLiveRestTimerEndSoundEnabled.collectAsState(initial = true)
@@ -307,7 +311,9 @@ fun WeightLiveWorkoutScreen(
     fun triggerRestAfterSet(exerciseId: String) {
         if (hiitTimerTarget != null) return
         if (timedSetTimerTarget != null) return
-        val mode = restTimerMode
+        val prescribesRest = (draft.restBetweenSetsSecondsByExerciseId[exerciseId] ?: 0) > 0
+        val mode = restTimerModeChosen
+            ?: if (prescribesRest) WeightLiveRestTimerMode.AUTO else WeightLiveRestTimerMode.OFF
         val duration = restDurationFor(exerciseId)
         if (mode == WeightLiveRestTimerMode.OFF || duration <= 0) return
         activeRestExerciseId = exerciseId
@@ -839,13 +845,13 @@ fun WeightLiveWorkoutScreen(
                                 clearRestTimerUi()
                                 hiitTimerTarget = editingId to plan
                             },
-                            onAfterAddSet = {
-                                if (circuitRun != null) {
-                                    onAfterCircuitSetLogged()
-                                } else {
-                                    triggerRestAfterSet(editingId)
-                                }
+                            // Rest starts when a set is checked off, not when a row is added.
+                            onAfterAddSet = if (circuitRun != null) {
+                                { onAfterCircuitSetLogged() }
+                            } else {
+                                null
                             },
+                            showSetChecks = true,
                             onStartTimedSetTimer = { setIndex ->
                                 val storageIndex = circuitRoundSetIndex ?: setIndex
                                 openTimedSetTimer(editingId, storageIndex)
@@ -1005,7 +1011,7 @@ fun WeightLiveWorkoutScreen(
                                     clearRestTimerUi()
                                     hiitTimerTarget = exerciseId to plan
                                 },
-                                onAfterAddSet = { triggerRestAfterSet(exerciseId) },
+                                showSetChecks = true,
                                 onStartTimedSetTimer = { setIndex ->
                                     openTimedSetTimer(exerciseId, setIndex)
                                 },

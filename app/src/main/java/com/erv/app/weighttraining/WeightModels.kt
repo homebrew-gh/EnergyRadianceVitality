@@ -132,6 +132,12 @@ data class WeightSet(
     val targetWeightKg: Double? = null,
     /** Builder / prescription hint for timed holds; live timer defaults to this or 30s. */
     val targetDurationSeconds: Int? = null,
+    /**
+     * Live session only: the athlete tapped this set's check. Kept in the in-progress draft so it
+     * survives the app being killed, and cleared when the session is saved, so logs never carry it.
+     */
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val done: Boolean? = null,
 )
 
 /** Ghost text for the live-workout reps field (single target or range label). */
@@ -142,13 +148,39 @@ fun WeightSet.repsShadowText(): String? =
 /** A set is "logged" (worth keeping) when it has reps or a timed hold. */
 fun WeightSet.isLogged(): Boolean = reps > 0 || (durationSeconds ?: 0) > 0
 
-/** True when a set row transitions from empty to logged (reps or timed hold). */
+/** True when the athlete has checked this set off in a live session. */
+fun WeightSet.isDone(): Boolean = done == true
+
+/** A set can be checked off when it has reps typed or a rep target to fill in. */
+fun WeightSet.canCompleteFromTargets(): Boolean = reps > 0 || (targetReps ?: 0) > 0
+
+/**
+ * The set as checked off: typed values win, empty reps and weight take the target, so a set that
+ * matches the plan is one tap. Returns `null` when there are no reps to log.
+ */
+fun WeightSet.completedFromTargets(): WeightSet? {
+    val loggedReps = reps.takeIf { it > 0 } ?: targetReps?.takeIf { it > 0 } ?: return null
+    return copy(
+        reps = loggedReps,
+        weightKg = weightKg ?: targetWeightKg?.takeIf { it > 0 },
+        done = true,
+    )
+}
+
+/** The set as saved in a finished session: the live-only check flag is dropped. */
+fun WeightSet.forSavedSession(): WeightSet = if (done == null) this else copy(done = null)
+
+/**
+ * True when a set row is checked off, or a timed hold is recorded. Typing reps alone does not
+ * start the rest timer, so the "1" of "12" no longer counts as a finished set.
+ */
 fun weightSetLoggingTriggersRest(previous: List<WeightSet>, updated: List<WeightSet>): Boolean {
     val limit = maxOf(previous.size, updated.size)
     for (i in 0 until limit) {
         val before = previous.getOrNull(i) ?: WeightSet()
         val after = updated.getOrNull(i) ?: continue
-        if (!before.isLogged() && after.isLogged()) return true
+        if (!before.isDone() && after.isDone()) return true
+        if ((before.durationSeconds ?: 0) <= 0 && (after.durationSeconds ?: 0) > 0) return true
     }
     return false
 }
@@ -384,7 +416,7 @@ private fun WeightWorkoutDraft.entryForOrderedExercise(id: String): WeightWorkou
     if (hiit != null) {
         return WeightWorkoutEntry(exerciseId = id, sets = emptyList(), hiitBlock = hiit)
     }
-    val s = setsByExerciseId[id].orEmpty().filter { it.isLogged() }
+    val s = setsByExerciseId[id].orEmpty().filter { it.isLogged() }.map { it.forSavedSession() }
     if (s.isEmpty()) return null
     return WeightWorkoutEntry(exerciseId = id, sets = s)
 }
@@ -459,7 +491,7 @@ fun buildSessionFromLogEditor(
         if (hiit != null) {
             WeightWorkoutEntry(exerciseId = id, sets = emptyList(), hiitBlock = hiit)
         } else {
-            val s = setsByExerciseId[id].orEmpty().filter { it.isLogged() }
+            val s = setsByExerciseId[id].orEmpty().filter { it.isLogged() }.map { it.forSavedSession() }
             if (s.isEmpty()) null else WeightWorkoutEntry(exerciseId = id, sets = s)
         }
     }

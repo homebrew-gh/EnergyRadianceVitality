@@ -15,6 +15,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.PlayArrow
@@ -28,8 +29,10 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedIconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -63,6 +66,9 @@ import com.erv.app.weighttraining.WeightHiitBlockLog
 import com.erv.app.weighttraining.WeightHiitIntervalPlan
 import com.erv.app.weighttraining.WeightSet
 import com.erv.app.weighttraining.WeightWorkoutDraft
+import com.erv.app.weighttraining.canCompleteFromTargets
+import com.erv.app.weighttraining.completedFromTargets
+import com.erv.app.weighttraining.isDone
 import com.erv.app.weighttraining.isLogged
 import com.erv.app.weighttraining.formatHiitBlockSummaryLine
 import com.erv.app.weighttraining.formatHoldDuration
@@ -183,6 +189,8 @@ fun WeightExerciseInlineSetsCard(
     onStartTimedSetTimer: ((setIndex: Int) -> Unit)? = null,
     /** Barbell lifts: plates per side under each set's weight, with a bar picker. */
     plateCalculator: PlateCalculatorUiState? = null,
+    /** Live workout: number each set row and add a check that logs the set (targets fill empty fields). */
+    showSetChecks: Boolean = false,
 ) {
     val loadSuffix = weightLoadUnitSuffix(loadUnit)
     val weightIsAddedLoad = equipment == WeightEquipment.OTHER
@@ -460,6 +468,17 @@ fun WeightExerciseInlineSetsCard(
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                             verticalAlignment = Alignment.Bottom
                         ) {
+                            if (showSetChecks) {
+                                Text(
+                                    "${idx + 1}",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier
+                                        .width(16.dp)
+                                        .padding(bottom = 18.dp)
+                                )
+                            }
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     "Reps",
@@ -539,6 +558,20 @@ fun WeightExerciseInlineSetsCard(
                                     modifier = Modifier.fillMaxWidth()
                                 )
                             }
+                            if (showSetChecks) {
+                                SetCheckButton(
+                                    done = set.isDone(),
+                                    enabled = set.isDone() || set.canCompleteFromTargets(),
+                                    onToggle = {
+                                        val next = if (set.isDone()) {
+                                            set.copy(done = null)
+                                        } else {
+                                            set.completedFromTargets()
+                                        }
+                                        if (next != null) onSetsChange(sets.replaceAt(idx, next))
+                                    },
+                                )
+                            }
                             IconButton(
                                 onClick = {
                                     if (sets.size > 1) {
@@ -598,6 +631,23 @@ fun WeightExerciseInlineSetsCard(
                     }
                 }
             }
+        }
+    }
+}
+
+/**
+ * Checks a set off. Empty reps and weight take the set's targets, so a set done as planned is one
+ * tap; tapping again un-checks it and keeps the values for editing.
+ */
+@Composable
+private fun SetCheckButton(done: Boolean, enabled: Boolean, onToggle: () -> Unit) {
+    if (done) {
+        FilledIconButton(onClick = onToggle) {
+            Icon(Icons.Default.Check, contentDescription = "Mark set not done")
+        }
+    } else {
+        OutlinedIconButton(onClick = onToggle, enabled = enabled) {
+            Icon(Icons.Default.Check, contentDescription = "Mark set done")
         }
     }
 }
