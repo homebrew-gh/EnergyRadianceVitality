@@ -166,6 +166,14 @@ import com.erv.app.workouts.sessionPlan
 import com.erv.app.workouts.sessionProgressLabel
 import com.erv.app.workouts.sessionUpNextLabel
 import com.erv.app.workouts.weightSessionFor
+import com.erv.app.workouts.WorkoutSessionAddition
+import com.erv.app.workouts.adjustedWorkout
+import com.erv.app.workouts.canMoveSessionItem
+import com.erv.app.workouts.canMoveSessionSection
+import com.erv.app.workouts.canRemoveSessionItem
+import com.erv.app.workouts.describeAdjustmentsFrom
+import com.erv.app.cardio.cardioBuiltinActivitiesForUserSelection
+import com.erv.app.ui.weighttraining.WeightPickExerciseDialog
 import java.time.LocalDate
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -217,7 +225,12 @@ fun WorkoutLiveRunScreen(
     // Label of the item the athlete asked to skip; non-null while the confirmation dialog is up.
     var pendingSkipLabel by remember { mutableStateOf<String?>(null) }
     var showLeaveDialog by remember { mutableStateOf(false) }
-    var swapStep by remember { mutableStateOf<WorkoutSessionStep.LiftSet?>(null) }
+    // Storyboard item (segment id to item id) being swapped, or picked from the whole library.
+    var swapItem by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var swapFromLibrary by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var addKind by remember { mutableStateOf<WorkoutSessionAddKind?>(null) }
+    // Segment id, item id and name of the item the athlete asked to remove.
+    var removeTarget by remember { mutableStateOf<Triple<String, String, String>?>(null) }
     var editingSet by remember { mutableStateOf<WorkoutSessionLoggedSet?>(null) }
     var disclosureDismissed by remember { mutableStateOf(false) }
     // One section is logged at a time, so two quick taps can't save it twice.
@@ -523,6 +536,20 @@ fun WorkoutLiveRunScreen(
         return
     }
 
+    /** A storyboard item's name as the builder gave it (no swap applied). */
+    fun storyboardItemName(item: WorkoutItem): String = when (item) {
+        is WorkoutItem.Weight -> item.displayExerciseName(weightState.exerciseById(item.exerciseId)?.name)
+        is WorkoutItem.Cardio -> item.title?.takeIf { it.isNotBlank() }
+            ?: runCatching { CardioBuiltinActivity.valueOf(item.cardio.activity) }.getOrNull()
+                ?.let { cardioState.resolveSnapshot(it, null).displayLabel }
+            ?: item.cardio.activity
+        is WorkoutItem.Mobility -> item.title?.takeIf { it.isNotBlank() }
+            ?: stretchingRepository.catalog.firstOrNull { it.id == item.mobility.catalogId }?.name
+            ?: "Stretch"
+        is WorkoutItem.Rest -> "Rest"
+        is WorkoutItem.Note -> "Note"
+    }
+
     val runStarted = activeRun?.isStarted() == true
     val isComplete = runStarted && plan != null && activeRun?.isSessionComplete(plan) == true
 
@@ -572,7 +599,15 @@ fun WorkoutLiveRunScreen(
             finalizeFailed = true
             return@LaunchedEffect
         }
-        composedSummary = built
+        // What today's adjustments would change in the library copy, for "Save Changes to Workout".
+        val adjusted = run.adjustedWorkout()
+        val adjustments = runCatching { adjusted.describeAdjustmentsFrom(workout, ::storyboardItemName) }
+            .getOrDefault(emptyList())
+        composedSummary = if (adjustments.isNotEmpty()) {
+            built.copy(adjustedWorkout = adjusted, workoutAdjustments = adjustments)
+        } else {
+            built
+        }
         runFinalized = true
     }
 
@@ -661,6 +696,26 @@ fun WorkoutLiveRunScreen(
         // Only offered while the workout is still in the library and today changed a target.
         val canSaveTodaysWeights = summary.weightTargetChanges.isNotEmpty() &&
             summary.workoutId != null && workout.id == summary.workoutId
+        val adjustedWorkout = summary.adjustedWorkout
+            ?.takeIf { summary.workoutId != null && workout.id == summary.workoutId }
+
+        /** Applies [update] to the library copy and publishes it; false when the workout is gone. */
+        suspend fun updateLibraryWorkout(update: (Workout) -> Workout): Boolean {
+            val current = repository.currentState().workouts.firstOrNull { it.id == summary.workoutId }
+                ?: return false
+            val updated = update(current)
+            if (updated != current) {
+                repository.upsertWorkout(updated)
+                WorkoutSync.publishLibraryIfSignedIn(
+                    appContext = appContext,
+                    relayPool = relayPool,
+                    signer = signer,
+                    state = repository.currentState(),
+                    dataRelayUrls = summaryKeyManager.relayUrlsForKind30078Publish(),
+                )
+            }
+            return true
+        }
         ComposedWorkoutSummaryScreen(
             summary = summary,
             weightState = weightState,
@@ -670,27 +725,19 @@ fun WorkoutLiveRunScreen(
             relayPool = relayPool,
             signer = signer,
             onSaveTodaysWeights = if (canSaveTodaysWeights) {
-                {
-                    val current = repository.currentState().workouts.firstOrNull { it.id == summary.workoutId }
-                    if (current == null) {
-                        false
-                    } else {
-                        val updated = current.withTodaysWeights(summary.weightTargetChanges)
-                        if (updated != current) {
-                            repository.upsertWorkout(updated)
-                            WorkoutSync.publishLibraryIfSignedIn(
-                                appContext = appContext,
-                                relayPool = relayPool,
-                                signer = signer,
-                                state = repository.currentState(),
-                                dataRelayUrls = summaryKeyManager.relayUrlsForKind30078Publish(),
-                            )
-                        }
-                        true
-                    }
-                }
+                { updateLibraryWorkout { it.withTodaysWeights(summary.weightTargetChanges) } }
             } else {
                 null
+            },
+            onSaveWorkoutChanges = adjustedWorkout?.let { adjusted ->
+                { alsoTodaysWeights: Boolean ->
+                    updateLibraryWorkout { current ->
+                        val changed = current.copy(segments = adjusted.segments)
+                        // Saving the changes replaces the sections, so weights already saved
+                        // as targets are written again on top.
+                        if (alsoTodaysWeights) changed.withTodaysWeights(summary.weightTargetChanges) else changed
+                    }
+                }
             },
             onDone = {
                 finishingRun = true
@@ -787,20 +834,89 @@ fun WorkoutLiveRunScreen(
         )
     }
 
-    val swapping = swapStep
-    if (swapping != null) {
-        val item = itemOf(swapping) as? WorkoutItem.Weight
-        val options = buildList {
-            add(swapping.exerciseId)
-            item?.alternativeExerciseIds?.let { addAll(it) }
-        }.distinct().map { id -> id to (weightState.exerciseById(id)?.name ?: id) }
-        WorkoutSessionSwapDialog(
-            options = options,
-            currentExerciseId = activeRun?.sessionExerciseFor(swapping) ?: swapping.exerciseId,
-            onDismiss = { swapStep = null },
+    val runWorkout = activeRun?.workoutSnapshot ?: workout
+    fun runItem(segmentId: String, itemId: String): WorkoutItem? =
+        runWorkout.segments.firstOrNull { it.id == segmentId }?.items?.firstOrNull { it.id == itemId }
+    fun todaysExerciseOf(segmentId: String, item: WorkoutItem.Weight): String =
+        activeRun?.sessionExerciseSwaps?.get(sessionItemKey(segmentId, item.id)) ?: item.exerciseId
+
+    swapItem?.let { (swapSegmentId, swapItemId) ->
+        val item = runItem(swapSegmentId, swapItemId) as? WorkoutItem.Weight
+        if (item == null) {
+            swapItem = null
+        } else {
+            val options = (listOf(item.exerciseId) + item.alternativeExerciseIds)
+                .distinct()
+                .map { id -> id to (weightState.exerciseById(id)?.name ?: id) }
+            WorkoutSessionSwapDialog(
+                options = options,
+                currentExerciseId = todaysExerciseOf(swapSegmentId, item),
+                onDismiss = { swapItem = null },
+                onPick = { exerciseId ->
+                    swapItem = null
+                    scope.launch { repository.swapSessionExercise(swapSegmentId, swapItemId, exerciseId) }
+                },
+                onChooseFromLibrary = {
+                    swapItem = null
+                    swapFromLibrary = swapSegmentId to swapItemId
+                },
+            )
+        }
+    }
+
+    swapFromLibrary?.let { (swapSegmentId, swapItemId) ->
+        val item = runItem(swapSegmentId, swapItemId) as? WorkoutItem.Weight
+        WeightPickExerciseDialog(
+            exercises = weightState.exercises,
+            excludeIds = setOfNotNull(item?.let { todaysExerciseOf(swapSegmentId, it) }),
+            onDismiss = { swapFromLibrary = null },
             onPick = { exerciseId ->
-                swapStep = null
-                scope.launch { repository.swapSessionExercise(swapping.segmentId, swapping.itemId, exerciseId) }
+                swapFromLibrary = null
+                scope.launch { repository.swapSessionExercise(swapSegmentId, swapItemId, exerciseId) }
+            },
+        )
+    }
+
+    when (addKind) {
+        WorkoutSessionAddKind.EXERCISE -> WeightPickExerciseDialog(
+            exercises = weightState.exercises,
+            excludeIds = emptySet(),
+            onDismiss = { addKind = null },
+            onPick = { exerciseId ->
+                addKind = null
+                val addition = WorkoutSessionAddition.Lift(exerciseId, weightState.exerciseById(exerciseId))
+                scope.launch { repository.addSessionItem(addition) }
+            },
+        )
+        WorkoutSessionAddKind.CARDIO -> WorkoutSessionAddCardioDialog(
+            activities = cardioBuiltinActivitiesForUserSelection()
+                .filter { isSessionCardioActivity(it.name) }
+                .map { it.name to cardioState.resolveSnapshot(it, null).displayLabel },
+            onDismiss = { addKind = null },
+            onAdd = { activity, minutes ->
+                addKind = null
+                scope.launch { repository.addSessionItem(WorkoutSessionAddition.Cardio(activity, minutes)) }
+            },
+        )
+        WorkoutSessionAddKind.STRETCH -> WorkoutSessionAddStretchDialog(
+            catalog = stretchingRepository.catalog,
+            onDismiss = { addKind = null },
+            onAdd = { entry, holdSeconds ->
+                addKind = null
+                val addition = WorkoutSessionAddition.Stretch(entry.id, holdSeconds, entry.requiresBothSides)
+                scope.launch { repository.addSessionItem(addition) }
+            },
+        )
+        null -> Unit
+    }
+
+    removeTarget?.let { (removeSegmentId, removeItemId, name) ->
+        WorkoutSessionRemoveItemDialog(
+            name = name,
+            onDismiss = { removeTarget = null },
+            onRemove = {
+                removeTarget = null
+                scope.launch { repository.removeSessionItem(removeSegmentId, removeItemId) }
             },
         )
     }
@@ -885,7 +1001,7 @@ fun WorkoutLiveRunScreen(
         ) {
             item {
                 val progress = if (plan != null && session != null) sessionProgressLabel(plan, session) else null
-                val sectionTitle = currentStep?.let { workout.segments.getOrNull(it.segmentIndex)?.displayTitle() }
+                val sectionTitle = currentStep?.let { runWorkout.segments.getOrNull(it.segmentIndex)?.displayTitle() }
                 Text(
                     text = when {
                         !runStarted || session == null -> "Starting…"
@@ -918,7 +1034,7 @@ fun WorkoutLiveRunScreen(
                             } else {
                                 emptyList()
                             }
-                            val segment = workout.segments.getOrNull(step.segmentIndex)
+                            val segment = runWorkout.segments.getOrNull(step.segmentIndex)
                             val exerciseId = activeRun?.sessionExerciseFor(step) ?: step.exerciseId
                             WorkoutSessionLiftCard(
                                 step = step,
@@ -926,11 +1042,11 @@ fun WorkoutLiveRunScreen(
                                 sectionTitle = segment?.takeIf { step.inRounds }?.displayTitle(),
                                 loadUnit = loadUnit,
                                 loggedSets = logged,
-                                canSwap = item?.alternativeExerciseIds?.isNotEmpty() == true,
+                                canSwap = item != null,
                                 onLog = { set -> send(WorkoutSessionEvent.SetLogged(set)) },
                                 onSkipSet = { send(WorkoutSessionEvent.SkipStep) },
                                 onSkipExercise = { pendingSkipLabel = liftName(step) },
-                                onSwap = { swapStep = step },
+                                onSwap = { swapItem = step.segmentId to step.itemId },
                                 onEditSet = { editingSet = it },
                                 lastTime = lastTimeFor(exerciseId),
                                 onShowHistory = { historyFor = exerciseId to liftName(step) },
@@ -1029,8 +1145,17 @@ fun WorkoutLiveRunScreen(
                     }
                 }
             }
+            // Today's run can be changed while it goes: swap, add, remove and reorder. None of it
+            // touches the saved workout unless the athlete saves the changes at the end.
+            val editRun = activeRun?.takeIf { runStarted && !isComplete && plan != null && session != null }
+            val editPlan = plan
             item {
                 FormSectionLabelSmall("Storyboard")
+            }
+            if (editRun != null) {
+                item(key = "add-to-workout") {
+                    WorkoutSessionAddButton(onPick = { addKind = it })
+                }
             }
             // The run's own copy, so sets added or taken away today show here too.
             val storyboard = activeRun?.workoutSnapshot?.takeIf { runStarted } ?: workout
@@ -1039,10 +1164,28 @@ fun WorkoutLiveRunScreen(
                 val isRounds = segment.kind == WorkoutSegmentKind.CIRCUIT || segment.kind == WorkoutSegmentKind.SUPERSET
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(12.dp)) {
-                        Text(
-                            text = segment.displayTitle() + if (isCurrent) " · now" else "",
-                            style = MaterialTheme.typography.titleSmall,
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = segment.displayTitle() + if (isCurrent) " · now" else "",
+                                style = MaterialTheme.typography.titleSmall,
+                                modifier = Modifier.weight(1f),
+                            )
+                            if (editRun != null && editPlan != null) {
+                                WorkoutSessionRowMenu(
+                                    contentDescription = "Section options",
+                                    actions = listOf(
+                                        WorkoutSessionMenuAction(
+                                            "Move Section Up",
+                                            editRun.canMoveSessionSection(segment.id, -1, editPlan),
+                                        ) { scope.launch { repository.moveSessionSection(segment.id, -1) } },
+                                        WorkoutSessionMenuAction(
+                                            "Move Section Down",
+                                            editRun.canMoveSessionSection(segment.id, 1, editPlan),
+                                        ) { scope.launch { repository.moveSessionSection(segment.id, 1) } },
+                                    ),
+                                )
+                            }
+                        }
                         if (isRounds) {
                             Text(
                                 text = buildString {
@@ -1081,16 +1224,45 @@ fun WorkoutLiveRunScreen(
                                 is WorkoutItem.Rest -> "Rest ${item.durationSeconds}s"
                                 is WorkoutItem.Note -> "Note: " + item.text.take(48).ifBlank { "…" }
                             }
-                            Text(
-                                text = (if (isCurrentItem) "▸ " else "· ") + text + status,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = when {
-                                    isCurrentItem -> MaterialTheme.colorScheme.primary
-                                    status.isNotEmpty() || item is WorkoutItem.Rest || item is WorkoutItem.Note ->
-                                        MaterialTheme.colorScheme.onSurfaceVariant
-                                    else -> MaterialTheme.colorScheme.onSurface
-                                },
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = (if (isCurrentItem) "▸ " else "· ") + text + status,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = when {
+                                        isCurrentItem -> MaterialTheme.colorScheme.primary
+                                        status.isNotEmpty() || item is WorkoutItem.Rest || item is WorkoutItem.Note ->
+                                            MaterialTheme.colorScheme.onSurfaceVariant
+                                        else -> MaterialTheme.colorScheme.onSurface
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                )
+                                if (editRun != null && editPlan != null) {
+                                    val name = (item as? WorkoutItem.Weight)
+                                        ?.let { weightState.exerciseById(todaysExerciseOf(segment.id, it))?.name }
+                                        ?: storyboardItemName(item)
+                                    WorkoutSessionRowMenu(
+                                        contentDescription = "Options for $name",
+                                        actions = listOf(
+                                            WorkoutSessionMenuAction(
+                                                "Swap Exercise",
+                                                item is WorkoutItem.Weight && status.isEmpty(),
+                                            ) { swapItem = segment.id to item.id },
+                                            WorkoutSessionMenuAction(
+                                                "Move Up",
+                                                editRun.canMoveSessionItem(segment.id, item.id, -1, editPlan),
+                                            ) { scope.launch { repository.moveSessionItem(segment.id, item.id, -1) } },
+                                            WorkoutSessionMenuAction(
+                                                "Move Down",
+                                                editRun.canMoveSessionItem(segment.id, item.id, 1, editPlan),
+                                            ) { scope.launch { repository.moveSessionItem(segment.id, item.id, 1) } },
+                                            WorkoutSessionMenuAction(
+                                                "Remove",
+                                                editRun.canRemoveSessionItem(segment.id, item.id, editPlan),
+                                            ) { removeTarget = Triple(segment.id, item.id, name) },
+                                        ),
+                                    )
+                                }
+                            }
                             if (item is WorkoutItem.Weight) {
                                 // What was logged, so finished sets and sections stay readable;
                                 // tap one to fix it.
@@ -1250,6 +1422,47 @@ private fun OwnScreenStretchCard(
     }
 }
 
+/** "Save Changes to Workout": what today's run changed in the workout, with one button to keep it. */
+@Composable
+private fun WorkoutChangesCard(
+    changes: List<String>,
+    saving: Boolean,
+    saved: Boolean,
+    onSave: () -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = if (saved) {
+                    "Saved. The workout now runs the way you did it today."
+                } else {
+                    "You changed this workout today. Keep the changes for next time?"
+                },
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            changes.forEach { line ->
+                Text(
+                    text = "· $line",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (!saved) {
+                Button(
+                    onClick = onSave,
+                    enabled = !saving,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(if (saving) "Saving…" else "Save Changes to Workout")
+                }
+            }
+        }
+    }
+}
+
 /** "Save today's weights": lists each target today's lifting would change, with one button to save them all. */
 @Composable
 private fun TodaysWeightsCard(
@@ -1309,12 +1522,19 @@ private fun ComposedWorkoutSummaryScreen(
     signer: EventSigner?,
     /** Writes today's weights back as the workout's targets; null hides the card. Returns false if the workout is gone. */
     onSaveTodaysWeights: (suspend () -> Boolean)? = null,
+    /**
+     * Writes today's swaps, additions, removals and order into the saved workout; null hides the
+     * card. Its argument is true when today's weights were already saved as targets.
+     */
+    onSaveWorkoutChanges: (suspend (Boolean) -> Boolean)? = null,
     onDone: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     var savingWeights by remember { mutableStateOf(false) }
     var savedWeights by remember { mutableStateOf(false) }
+    var savingChanges by remember { mutableStateOf(false) }
+    var savedChanges by remember { mutableStateOf(false) }
     var sharing by remember { mutableStateOf(false) }
     var shared by remember { mutableStateOf(false) }
     var sharePersonalMessage by remember { mutableStateOf("") }
@@ -1446,10 +1666,34 @@ private fun ComposedWorkoutSummaryScreen(
                     }
                 }
             }
-            if (onSaveTodaysWeights != null) {
+            if (onSaveTodaysWeights != null || onSaveWorkoutChanges != null) {
                 item {
                     FormSectionLabel("Next time")
                 }
+            }
+            if (onSaveWorkoutChanges != null) {
+                item {
+                    WorkoutChangesCard(
+                        changes = summary.workoutAdjustments,
+                        saving = savingChanges,
+                        saved = savedChanges,
+                        onSave = {
+                            if (savingChanges || savedChanges) return@WorkoutChangesCard
+                            savingChanges = true
+                            scope.launch {
+                                val ok = runCatching { onSaveWorkoutChanges(savedWeights) }.getOrDefault(false)
+                                savingChanges = false
+                                if (ok) {
+                                    savedChanges = true
+                                } else {
+                                    snackbarHostState.showSnackbar("Couldn't update the workout. It may have been deleted.")
+                                }
+                            }
+                        },
+                    )
+                }
+            }
+            if (onSaveTodaysWeights != null) {
                 item {
                     TodaysWeightsCard(
                         changes = summary.weightTargetChanges,

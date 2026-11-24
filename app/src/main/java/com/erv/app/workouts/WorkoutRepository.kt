@@ -171,6 +171,39 @@ class WorkoutRepository(context: Context) {
         }
     }
 
+    /** Adds a lift, cardio or stretch after the item on screen, for today only (see [withSessionItemAdded]). */
+    suspend fun addSessionItem(addition: WorkoutSessionAddition, atStepIndex: Int? = null) {
+        updateState { state ->
+            val run = state.activeRun ?: return@updateState state
+            if (atStepIndex != null && run.session?.stepIndex != atStepIndex) return@updateState state
+            state.copy(activeRun = run.withSessionItemAdded(addition))
+        }
+    }
+
+    /** Takes an item that hasn't started out of today's run (see [withSessionItemRemoved]). */
+    suspend fun removeSessionItem(segmentId: String, itemId: String) {
+        updateState { state ->
+            val run = state.activeRun ?: return@updateState state
+            state.copy(activeRun = run.withSessionItemRemoved(segmentId, itemId))
+        }
+    }
+
+    /** Moves an item that hasn't started up (-1) or down (1) in its section, for today. */
+    suspend fun moveSessionItem(segmentId: String, itemId: String, delta: Int) {
+        updateState { state ->
+            val run = state.activeRun ?: return@updateState state
+            state.copy(activeRun = run.withSessionItemMoved(segmentId, itemId, delta))
+        }
+    }
+
+    /** Moves a section that hasn't started up (-1) or down (1), for today. */
+    suspend fun moveSessionSection(segmentId: String, delta: Int) {
+        updateState { state ->
+            val run = state.activeRun ?: return@updateState state
+            state.copy(activeRun = run.withSessionSectionMoved(segmentId, delta))
+        }
+    }
+
     /** Starts the clock of the cardio or stretch step waiting on screen for Start. */
     suspend fun startSessionStep(atStepIndex: Int? = null) {
         updateState { state ->
