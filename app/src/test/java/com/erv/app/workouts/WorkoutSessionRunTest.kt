@@ -454,7 +454,11 @@ class WorkoutSessionRunTest {
         assertEquals(onScreen, added.step())
         val plan = added.sessionPlan()
         val state = added.session!!
-        val addedSteps = plan.steps.indices.filter { plan.steps[it].itemId == "added" }
+        // Its lift sets only: the rest after it in each round carries its id too.
+        val addedSteps = plan.steps.indices.filter {
+            val step = plan.steps[it]
+            step is WorkoutSessionStep.LiftSet && step.itemId == "added"
+        }
         assertEquals(3, addedSteps.size)
         // Round 1 had already passed, so the new lift counts as skipped there.
         val roundOne = addedSteps.first { plan.steps[it].round == 1 }
