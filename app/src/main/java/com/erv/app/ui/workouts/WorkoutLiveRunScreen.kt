@@ -21,6 +21,10 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material3.Surface
+import androidx.compose.runtime.saveable.rememberSaveable
+import com.erv.app.ui.media.WorkoutMediaControlPanel
 import com.erv.app.ui.components.FormSectionLabel
 import com.erv.app.ui.components.FormSectionLabelSmall
 import androidx.compose.material3.AlertDialog
@@ -233,6 +237,8 @@ fun WorkoutLiveRunScreen(
     var removeTarget by remember { mutableStateOf<Triple<String, String, String>?>(null) }
     var editingSet by remember { mutableStateOf<WorkoutSessionLoggedSet?>(null) }
     var disclosureDismissed by remember { mutableStateOf(false) }
+    // The music bar under the workout, from the top bar's note button (as on the old weight screen).
+    var mediaControlsShown by rememberSaveable { mutableStateOf(false) }
     // One section is logged at a time, so two quick taps can't save it twice.
     val liftLogMutex = remember { Mutex() }
 
@@ -974,6 +980,19 @@ fun WorkoutLiveRunScreen(
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         snackbarHost = { SnackbarHost(snackbarHostState) },
+        bottomBar = {
+            if (mediaControlsShown) {
+                Surface(tonalElevation = 3.dp, shadowElevation = 4.dp, modifier = Modifier.fillMaxWidth()) {
+                    WorkoutMediaControlPanel(
+                        showHeaderTitle = false,
+                        compact = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
+                }
+            }
+        },
         topBar = {
             TopAppBar(
                 title = { Text(workout.name) },
@@ -988,6 +1007,13 @@ fun WorkoutLiveRunScreen(
                         zoneInputs = heartRateZoneInputs,
                         contentColor = Color.White,
                     )
+                    IconButton(onClick = { mediaControlsShown = !mediaControlsShown }) {
+                        Icon(
+                            Icons.Filled.MusicNote,
+                            contentDescription = stringResource(R.string.media_control_cd_music),
+                            tint = Color.White.copy(alpha = if (mediaControlsShown) 1f else 0.7f),
+                        )
+                    }
                 },
                 colors = ervSessionTopAppBarColors(),
             )
