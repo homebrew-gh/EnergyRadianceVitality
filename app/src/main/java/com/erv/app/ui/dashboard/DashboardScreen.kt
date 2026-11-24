@@ -211,6 +211,9 @@ import com.erv.app.weighttraining.WeightRoutine
 import com.erv.app.ui.weighttraining.WeightWorkoutSummaryFullScreen
 import com.erv.app.weighttraining.weightActivityRowsFor
 import com.erv.app.workouts.WorkoutLibraryState
+import com.erv.app.workouts.WorkoutHistoryEntry
+import com.erv.app.workouts.WorkoutHistorySection
+import com.erv.app.workouts.groupDayActivityByWorkout
 import com.erv.app.workouts.WorkoutRepository
 import java.time.LocalDate
 import kotlin.math.max
@@ -331,6 +334,10 @@ fun DashboardScreen(
     }
     val stretchRows = remember(stretchState, selectedDate) {
         stretchState.stretchActivityFor(selectedDate)
+    }
+    // Sessions logged by a workout run show once, under that workout, instead of in each silo.
+    val trainingActivity = remember(cardioRows, weightRows, stretchRows, workoutState.workouts) {
+        groupDayActivityByWorkout(cardioRows, weightRows, stretchRows) { id -> workoutState.workoutById(id)?.name }
     }
     val datesWithActivity = remember(
         supplementState,
@@ -1012,11 +1019,12 @@ fun DashboardScreen(
                                     showSectionHeading = false,
                                     supplementRows = supplementRows,
                                     lightRows = lightRows,
-                                    cardioRows = cardioRows,
-                                    weightRows = weightRows,
+                                    workoutEntries = trainingActivity.workouts,
+                                    cardioRows = trainingActivity.cardio,
+                                    weightRows = trainingActivity.weight,
                                     saunaRows = saunaRows,
                                     coldRows = coldRows,
-                                    stretchRows = stretchRows,
+                                    stretchRows = trainingActivity.stretch,
                                     onOpenCardioRow = { session ->
                                         cardioWorkoutSummary = CardioTimerCompletionResult(session, null)
                                     },
@@ -1041,11 +1049,12 @@ fun DashboardScreen(
                             showSectionHeading = false,
                             supplementRows = supplementRows,
                             lightRows = lightRows,
-                            cardioRows = cardioRows,
-                            weightRows = weightRows,
+                            workoutEntries = trainingActivity.workouts,
+                            cardioRows = trainingActivity.cardio,
+                            weightRows = trainingActivity.weight,
                             saunaRows = saunaRows,
                             coldRows = coldRows,
-                            stretchRows = stretchRows,
+                            stretchRows = trainingActivity.stretch,
                             onOpenCardioRow = { session ->
                                 cardioWorkoutSummary = CardioTimerCompletionResult(session, null)
                             },
@@ -3316,6 +3325,8 @@ private fun ActivitySection(
     showSectionHeading: Boolean = true,
     supplementRows: List<SupplementActivityRow>,
     lightRows: List<LightActivityRow>,
+    /** Workout runs, each with its lifting, cardio and stretching sections; those rows are not repeated below. */
+    workoutEntries: List<WorkoutHistoryEntry> = emptyList(),
     cardioRows: List<CardioActivityRow>,
     weightRows: List<WeightActivityRow>,
     saunaRows: List<HeatColdActivityRow>,
@@ -3342,13 +3353,14 @@ private fun ActivitySection(
         ) {
             val hasSupplements = supplementRows.isNotEmpty()
             val hasLight = lightRows.isNotEmpty()
+            val hasWorkouts = workoutEntries.isNotEmpty()
             val hasCardio = cardioRows.isNotEmpty()
             val hasWeight = weightRows.isNotEmpty()
             val hasSauna = saunaRows.isNotEmpty()
             val hasCold = coldRows.isNotEmpty()
             val hasStretch = stretchRows.isNotEmpty()
 
-            if (!hasSupplements && !hasLight && !hasCardio && !hasWeight && !hasSauna && !hasCold && !hasStretch) {
+            if (!hasSupplements && !hasLight && !hasWorkouts && !hasCardio && !hasWeight && !hasSauna && !hasCold && !hasStretch) {
                 Text(
                     text = "No activity logged yet.",
                     style = MaterialTheme.typography.bodySmall,
@@ -3378,8 +3390,22 @@ private fun ActivitySection(
                         }
                     }
                 }
-                if (hasCardio) {
+                if (hasWorkouts) {
                     if (hasSupplements || hasLight) Spacer(Modifier.height(12.dp))
+                    ActivityCategorySection(title = "Workouts") {
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            workoutEntries.forEach { entry ->
+                                WorkoutHistoryEntryContent(
+                                    entry = entry,
+                                    onOpenCardioRow = onOpenCardioRow,
+                                    onOpenWeightRow = onOpenWeightRow,
+                                )
+                            }
+                        }
+                    }
+                }
+                if (hasCardio) {
+                    if (hasSupplements || hasLight || hasWorkouts) Spacer(Modifier.height(12.dp))
                     ActivityCategorySection(title = "Cardio") {
                         cardioRows.forEach { row ->
                             Text(
@@ -3392,44 +3418,17 @@ private fun ActivitySection(
                     }
                 }
                 if (hasWeight) {
-                    if (hasSupplements || hasLight || hasCardio) Spacer(Modifier.height(12.dp))
+                    if (hasSupplements || hasLight || hasWorkouts || hasCardio) Spacer(Modifier.height(12.dp))
                     ActivityCategorySection(title = "Weight Training") {
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             weightRows.forEach { row ->
-                                Column(
-                                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                                    modifier = Modifier.clickable { onOpenWeightRow(row.session) }
-                                ) {
-                                    Text(
-                                        text = row.headerLine,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                    row.exerciseBlocks.forEach { block ->
-                                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                            Text(
-                                                text = block.titleLine,
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                fontWeight = FontWeight.SemiBold,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                            block.setLines.forEach { line ->
-                                                Text(
-                                                    text = line,
-                                                    modifier = Modifier.padding(start = 12.dp),
-                                                    style = MaterialTheme.typography.bodySmall,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
+                                WeightActivityRowContent(row = row, onOpen = { onOpenWeightRow(row.session) })
                             }
                         }
                     }
                 }
                 if (hasSauna) {
-                    if (hasSupplements || hasLight || hasCardio || hasWeight) Spacer(Modifier.height(12.dp))
+                    if (hasSupplements || hasLight || hasWorkouts || hasCardio || hasWeight) Spacer(Modifier.height(12.dp))
                     ActivityCategorySection(title = "Sauna") {
                         saunaRows.forEach { row ->
                             Text(
@@ -3441,7 +3440,7 @@ private fun ActivitySection(
                     }
                 }
                 if (hasCold) {
-                    if (hasSupplements || hasLight || hasCardio || hasWeight || hasSauna) Spacer(Modifier.height(12.dp))
+                    if (hasSupplements || hasLight || hasWorkouts || hasCardio || hasWeight || hasSauna) Spacer(Modifier.height(12.dp))
                     ActivityCategorySection(title = "Cold Plunge") {
                         coldRows.forEach { row ->
                             Text(
@@ -3453,7 +3452,7 @@ private fun ActivitySection(
                     }
                 }
                 if (hasStretch) {
-                    if (hasSupplements || hasLight || hasCardio || hasWeight || hasSauna || hasCold) {
+                    if (hasSupplements || hasLight || hasWorkouts || hasCardio || hasWeight || hasSauna || hasCold) {
                         Spacer(Modifier.height(12.dp))
                     }
                     ActivityCategorySection(title = "Stretching") {
@@ -3465,6 +3464,90 @@ private fun ActivitySection(
                             )
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+/** A weight session's header and its exercises with their sets; tap to open it. */
+@Composable
+private fun WeightActivityRowContent(
+    row: com.erv.app.weighttraining.WeightActivityRow,
+    onOpen: () -> Unit,
+    header: String = row.headerLine,
+) {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = Modifier.clickable(onClick = onOpen)
+    ) {
+        Text(
+            text = header,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        row.exerciseBlocks.forEach { block ->
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    text = block.titleLine,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                block.setLines.forEach { line ->
+                    Text(
+                        text = line,
+                        modifier = Modifier.padding(start = 12.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** One workout run: its name and length, then each section in the order it was done. */
+@Composable
+private fun WorkoutHistoryEntryContent(
+    entry: WorkoutHistoryEntry,
+    onOpenCardioRow: (com.erv.app.cardio.CardioSession) -> Unit,
+    onOpenWeightRow: (com.erv.app.weighttraining.WeightWorkoutSession) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(
+            text = entry.title,
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        Text(
+            text = entry.headerLine,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Column(
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(start = 12.dp)
+        ) {
+            entry.sections.forEach { section ->
+                when (section) {
+                    is WorkoutHistorySection.Lifting -> WeightActivityRowContent(
+                        row = section.row,
+                        onOpen = { onOpenWeightRow(section.row.session) },
+                        header = "Lifting • ${section.row.headerLine}",
+                    )
+                    is WorkoutHistorySection.Cardio -> Text(
+                        text = "Cardio • ${section.row.summaryLine}",
+                        modifier = Modifier.clickable { onOpenCardioRow(section.row.session) },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    is WorkoutHistorySection.Stretching -> Text(
+                        text = "Stretching • ${section.row.summaryLine}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
         }
