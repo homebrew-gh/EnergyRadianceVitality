@@ -34,6 +34,8 @@ sealed class WorkoutSessionStep {
         val setCount: Int,
         /** Targets only (reps 0, no logged weight), as [WorkoutWeightPrescription.resolvedSets] seeds them. */
         val target: WeightSet,
+        /** True in a superset or circuit, where [setCount] is the number of rounds. */
+        val inRounds: Boolean = false,
     ) : WorkoutSessionStep()
 
     data class Rest(
@@ -380,6 +382,7 @@ private fun MutableList<WorkoutSessionStep>.addRoundSteps(segmentIndex: Int, seg
             add(
                 WorkoutSessionStep.LiftSet(
                     segmentIndex, segment.id, item.id, round, item.exerciseId, round - 1, rounds, target,
+                    inRounds = true,
                 ),
             )
             val lastInRound = liftIndex == lifts.lastIndex

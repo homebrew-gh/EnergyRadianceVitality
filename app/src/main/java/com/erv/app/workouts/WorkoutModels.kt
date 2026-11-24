@@ -286,6 +286,10 @@ data class WorkoutActiveRun(
     /** Set after a section finishes when the next step is silo-backed; drives continuous auto-advance. */
     val autoAdvanceRequested: Boolean = false,
     val displayRef: String = generateWorkoutRunDisplayRef(),
+    /** Progress through the single-screen session (see [WorkoutSessionEngine]); null for silo-by-silo runs. */
+    val session: WorkoutSessionState? = null,
+    /** When the session's current step came on screen; rests and timed holds count down from it. */
+    val sessionStepStartedAtEpochSeconds: Long? = null,
 )
 
 fun WorkoutActiveRun.isStarted(): Boolean = startedAtEpochSeconds != null

@@ -86,6 +86,7 @@ object RestTimerAlarm {
         if (intent.action != ACTION_REST_OVER) return
         val app = context.applicationContext
         WeightLiveWorkoutForegroundService.updateRest(app, endsAtEpochSeconds = null, label = null)
+        com.erv.app.workouts.WorkoutSessionForegroundService.countdownOver(app)
         if (appInForeground()) return
         showRestOverNotification(
             app,

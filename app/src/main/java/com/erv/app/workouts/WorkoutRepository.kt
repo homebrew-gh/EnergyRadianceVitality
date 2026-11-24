@@ -121,6 +121,22 @@ class WorkoutRepository(context: Context) {
         }
     }
 
+    /** Starts the single-screen session on the active run (see [withSessionStarted]). */
+    suspend fun startSession(workoutId: String) {
+        updateState { state ->
+            val run = state.activeRun?.takeIf { it.workoutId == workoutId } ?: return@updateState state
+            state.copy(activeRun = run.withSessionStarted(nowWorkoutEpochSeconds()))
+        }
+    }
+
+    /** Applies [event] to the active run's session; does nothing when no session is running. */
+    suspend fun applySessionEvent(event: WorkoutSessionEvent) {
+        updateState { state ->
+            val run = state.activeRun ?: return@updateState state
+            state.copy(activeRun = run.withSessionEvent(event, nowWorkoutEpochSeconds()))
+        }
+    }
+
     suspend fun markSegmentCompleted(segmentId: String) {
         updateState { state ->
             val run = state.activeRun ?: return@updateState state

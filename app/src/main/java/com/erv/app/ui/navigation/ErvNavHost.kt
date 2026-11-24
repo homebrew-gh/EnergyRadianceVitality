@@ -160,6 +160,7 @@ fun ErvNavHost(
     navigateToWeightLiveWorkout: MutableStateFlow<Boolean>,
     navigateToCardioLiveWorkout: MutableStateFlow<Boolean>,
     navigateToFasting: MutableStateFlow<Boolean>,
+    navigateToWorkoutRun: MutableStateFlow<String?>,
     onRelaysChanged: () -> Unit = {},
     onPullRelayData: suspend () -> Unit = {},
     showDeferNostrLoginEntry: Boolean = false,
@@ -172,6 +173,7 @@ fun ErvNavHost(
     val openWeightLive by navigateToWeightLiveWorkout.collectAsState()
     val openCardioLive by navigateToCardioLiveWorkout.collectAsState()
     val openFasting by navigateToFasting.collectAsState()
+    val openWorkoutRunId by navigateToWorkoutRun.collectAsState()
     LaunchedEffect(pendingRoutineId) {
         if (pendingRoutineId != null) {
             navController.navigate(Routes.DASHBOARD) {
@@ -204,6 +206,13 @@ fun ErvNavHost(
             }
             navigateToFasting.value = false
         }
+    }
+    LaunchedEffect(openWorkoutRunId) {
+        val workoutId = openWorkoutRunId ?: return@LaunchedEffect
+        navController.navigate(Routes.workoutRun(workoutId)) {
+            launchSingleTop = true
+        }
+        navigateToWorkoutRun.value = null
     }
     NavHost(
         navController = navController,
