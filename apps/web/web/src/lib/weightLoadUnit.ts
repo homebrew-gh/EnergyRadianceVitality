@@ -7,9 +7,15 @@ export function weightLoadUnitSuffix(unit: BodyWeightUnit): "kg" | "lb" {
   return unit === "KG" ? "kg" : "lb";
 }
 
+/**
+ * Weight in the chosen unit, up to two decimals with trailing zeros dropped, so 205 lb stored as
+ * 92.986 kg reads "205" (not "205.0") and 102.25 lb keeps both decimals.
+ */
 export function formatWeightLoadNumber(kg: number, unit: BodyWeightUnit): string {
   const v = unit === "KG" ? kg : kgToLb(kg);
-  return v % 1 === 0 ? String(Math.round(v)) : v.toFixed(1);
+  if (!Number.isFinite(v)) return "";
+  const rounded = Math.round(v * 100) / 100;
+  return String(Object.is(rounded, -0) ? 0 : rounded);
 }
 
 /** Parse user input in the chosen unit to stored kg, or `null` if blank/invalid. */

@@ -13,6 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 
 - Weight and RPE fields keep what you type, so decimals like 2.5 or 137.25 can be entered. Whole pounds no longer show as "145.0", quarter values keep both decimals, and a comma decimal separator is accepted.
+- Pounds everywhere: the phone run screen and builder show target loads in your chosen unit instead of kg, exercise volume reads "lb·reps", and the builder's baseline and progression loads round to 2.5 lb with 2.5, 5 or 10 lb steps.
 
 ## [2026.06.20] - 2026-06-20
 

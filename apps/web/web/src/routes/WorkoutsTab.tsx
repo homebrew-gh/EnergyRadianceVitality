@@ -17,7 +17,11 @@ import { useTrainingHistory } from "../lib/trainingHistoryData";
 import { useTraining } from "../lib/trainingData";
 import { buildTrainingSnapshot, snapshotHasData } from "../lib/trainingSnapshot";
 import type { WeightExercisePickerFilter } from "../lib/weightExerciseAvailability";
-import { useWeightLoadUnit } from "../lib/weightLoadUnit";
+import {
+  formatWeightLoadNumber,
+  useWeightLoadUnit,
+  weightLoadUnitSuffix,
+} from "../lib/weightLoadUnit";
 import { useAuth } from "../lib/auth";
 import { useUnsavedChangesWarning } from "../hooks/useUnsavedChangesWarning";
 import {
@@ -126,7 +130,8 @@ export function WorkoutsTab() {
     [weightLogs, cardioLogs, exercises, lastLoadedAt],
   );
   const hasBaseline = snapshotHasData(snapshot);
-  const progressIncrementKg = progressionIncrementKg(profile.progressionStyle);
+  const progressIncrementKg = progressionIncrementKg(profile.progressionStyle, weightLoadUnit);
+  const progressIncrementLabel = `+${formatWeightLoadNumber(progressIncrementKg, weightLoadUnit)} ${weightLoadUnitSuffix(weightLoadUnit)}`;
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState("");
@@ -351,7 +356,7 @@ export function WorkoutsTab() {
         return;
       }
       const item = newWeightItem(id, segment.kind, exercise);
-      const suggested = suggestedTargetWeightKg(id, snapshot);
+      const suggested = suggestedTargetWeightKg(id, snapshot, 0, weightLoadUnit);
       if (suggested != null) {
         item.prescription = applyTargetWeightToPrescription(item.prescription, suggested);
       }
@@ -396,6 +401,7 @@ export function WorkoutsTab() {
         weightLogs,
         profile,
         computedAtMs: lastLoadedAt ?? Date.now(),
+        weightLoadUnit,
       });
       await saveWorkouts(upsertWorkout(workouts, copy));
       setSuccess(`Duplicated "${workout.name}" with progressed loads as "${copy.name}".`);
@@ -414,11 +420,11 @@ export function WorkoutsTab() {
       lastModifiedEpochSeconds: 0,
       createdAtEpochSeconds: 0,
     };
-    const updated = applyBaselineLoadsToWorkout(draft, snapshot, incrementKg);
+    const updated = applyBaselineLoadsToWorkout(draft, snapshot, incrementKg, weightLoadUnit);
     setSegments(updated.segments);
     setSuccess(
       incrementKg > 0
-        ? `Applied baseline loads + ${incrementKg} kg progress to weight items.`
+        ? `Applied baseline loads + ${formatWeightLoadNumber(incrementKg, weightLoadUnit)} ${weightLoadUnitSuffix(weightLoadUnit)} progress to weight items.`
         : "Applied baseline loads from your training history.",
     );
   };
@@ -738,9 +744,9 @@ export function WorkoutsTab() {
                 type="button"
                 className="btn-ghost text-xs py-1 px-2"
                 onClick={() => applyBaselineToEditor(progressIncrementKg)}
-                title={`Uses profile progression (+${progressIncrementKg} kg) or last-week session when found`}
+                title={`Uses profile progression (${progressIncrementLabel}) or last-week session when found`}
               >
-                Apply baseline + progress (+{progressIncrementKg} kg)
+                Apply baseline + progress ({progressIncrementLabel})
               </button>
             </div>
           ) : null}
