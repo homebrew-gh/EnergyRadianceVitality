@@ -22,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.saveable.rememberSaveable
 import com.erv.app.ui.media.WorkoutMediaControlPanel
@@ -45,6 +46,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -86,6 +88,7 @@ import com.erv.app.weighttraining.RestTimerAlarm
 import com.erv.app.weighttraining.restEndCueIsFresh
 import com.erv.app.weighttraining.restSecondsRemaining
 import com.erv.app.ui.media.playHiitWorkSegmentEndCue
+import com.erv.app.ui.media.playHiitWorkCountdownTickCue
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import com.erv.app.cardio.CardioBuiltinActivity
@@ -108,6 +111,7 @@ import com.erv.app.cycling.LocalCyclingCsc
 import com.erv.app.cardio.resolveSnapshot
 import com.erv.app.data.BodyWeightUnit
 import com.erv.app.data.UserPreferences
+import com.erv.app.data.WeightLiveRestTimerMode
 import com.erv.app.programs.encodeStretchLaunch
 import com.erv.app.hr.HeartRateSessionAnalyticsSection
 import com.erv.app.hr.HeartRateZoneInputs
@@ -162,6 +166,12 @@ import com.erv.app.workouts.linkFor
 import com.erv.app.workouts.sessionCardioItemsToLog
 import com.erv.app.workouts.sessionStretchSectionsToLog
 import com.erv.app.workouts.canRemoveSessionSet
+import com.erv.app.workouts.canRemoveSessionSetAt
+import com.erv.app.workouts.isSessionWaitingForMore
+import com.erv.app.workouts.isStandaloneWorkoutId
+import com.erv.app.workouts.sessionLastOpenSetIndex
+import com.erv.app.workouts.WorkoutSessionRestMode
+import com.erv.app.workouts.WorkoutSessionRestOptions
 import com.erv.app.workouts.sessionExerciseFor
 import com.erv.app.workouts.sessionHasNothingDone
 import com.erv.app.workouts.sessionItemKey
@@ -216,6 +226,13 @@ fun WorkoutLiveRunScreen(
 ) {
     val scope = rememberCoroutineScope()
     val appContext = LocalContext.current.applicationContext
+    // A standalone workout's only copy is its run, which is cleared when the athlete is done:
+    // hold the last one seen so the summary and its last frame still have a workout.
+    val lastWorkout = remember(workoutId) { mutableStateOf(workout) }
+    SideEffect { if (workout != null) lastWorkout.value = workout }
+    @Suppress("NAME_SHADOWING")
+    val workout = workout ?: lastWorkout.value
+    val isStandalone = isStandaloneWorkoutId(workoutId)
     val heartRateBle = LocalHeartRateBle.current
     val snackbarHostState = remember { SnackbarHostState() }
     val fgsDisclosureSeen by userPreferences.weightLiveWorkoutFgsDisclosureSeen.collectAsState(initial = false)
@@ -223,6 +240,13 @@ fun WorkoutLiveRunScreen(
     val loadUnit by userPreferences.weightTrainingLoadUnit.collectAsState(initial = BodyWeightUnit.LB)
     val distanceUnit by userPreferences.cardioDistanceUnit.collectAsState(initial = CardioDistanceUnit.MILES)
     val fallbackBodyWeightKg by userPreferences.fallbackBodyWeightKg.collectAsState(initial = null)
+    // Rest timer: null until the settings load, so a run never starts on a guessed setting.
+    val restTimerMode by userPreferences.workoutSessionRestTimerMode.collectAsState(initial = null)
+    val restTimerSeconds by userPreferences.weightLiveRestTimerSeconds.collectAsState(initial = null)
+    val restCountdownSound by userPreferences.weightLiveRestTimerCountdownSoundEnabled.collectAsState(initial = true)
+    val restEndSound by userPreferences.weightLiveRestTimerEndSoundEnabled.collectAsState(initial = true)
+    var showRestSettings by remember { mutableStateOf(false) }
+    var confirmFinish by remember { mutableStateOf(false) }
     var composedSummary by remember { mutableStateOf<ComposedWorkoutHrSummary?>(null) }
     var runFinalized by remember { mutableStateOf(false) }
     var finishingRun by remember { mutableStateOf(false) }
@@ -247,7 +271,7 @@ fun WorkoutLiveRunScreen(
     // One section is logged at a time, so two quick taps can't save it twice.
     val liftLogMutex = remember { Mutex() }
 
-    val plan = remember(activeRun?.sessionId, activeRun?.workoutSnapshot) { activeRun?.sessionPlan() }
+    val plan = remember(activeRun?.sessionId, activeRun?.workoutSnapshot, activeRun?.sessionRestOptions) { activeRun?.sessionPlan() }
     val session = activeRun?.session
     val currentStep = if (plan != null && session != null) WorkoutSessionEngine.currentStep(plan, session) else null
 
@@ -345,6 +369,10 @@ fun WorkoutLiveRunScreen(
         scope.launch { repository.changeSessionSetCount(delta, atStepIndex = atStep) }
     }
 
+    /** Sets logged for [exerciseId] the last time, so a standalone workout starts with as many. */
+    fun lastSetCountFor(exerciseId: String): Int? =
+        weightState.historyForExercise(exerciseId).firstOrNull()?.entry?.sets?.size?.takeIf { it > 0 }
+
     /** "Last time (…): …" from the newest log of [exerciseId] that isn't from this run. */
     fun lastTimeFor(exerciseId: String): String? =
         weightState.historyForExercise(exerciseId)
@@ -415,6 +443,14 @@ fun WorkoutLiveRunScreen(
         if (!finishingRun && activeRun?.isStarted() == true && activeRun.session == null) {
             repository.startSession(workoutId)
         }
+    }
+
+    // The rest timer setting follows the athlete's choice, also when it changes mid-run.
+    LaunchedEffect(restTimerMode, restTimerSeconds, session == null) {
+        val mode = restTimerMode ?: return@LaunchedEffect
+        val seconds = restTimerSeconds ?: return@LaunchedEffect
+        if (session == null) return@LaunchedEffect
+        repository.setSessionRestOptions(WorkoutSessionRestOptions(mode.toSessionRestMode(), seconds))
     }
 
     // Opening a workout while a different one is running used to replace it silently.
@@ -611,9 +647,14 @@ fun WorkoutLiveRunScreen(
             return@LaunchedEffect
         }
         // What today's adjustments would change in the library copy, for "Save Changes to Workout".
+        // A standalone workout has no library copy to change.
         val adjusted = run.adjustedWorkout()
-        val adjustments = runCatching { adjusted.describeAdjustmentsFrom(workout, ::storyboardItemName) }
-            .getOrDefault(emptyList())
+        val adjustments = if (run.standalone != null) {
+            emptyList()
+        } else {
+            runCatching { adjusted.describeAdjustmentsFrom(workout, ::storyboardItemName) }
+                .getOrDefault(emptyList())
+        }
         composedSummary = if (adjustments.isNotEmpty()) {
             built.copy(adjustedWorkout = adjusted, workoutAdjustments = adjustments)
         } else {
@@ -675,11 +716,16 @@ fun WorkoutLiveRunScreen(
         if (end != null && now >= end) {
             // One that ended while ERV was in the background already alerted from the alarm.
             if (restEndCueIsFresh(end, now)) {
-                playHiitWorkSegmentEndCue(appContext)
+                // The rest timer's sound setting covers rests; holds and legs always cue.
+                if (step !is WorkoutSessionStep.Rest || restEndSound) playHiitWorkSegmentEndCue(appContext)
                 RestTimerAlarm.vibrateRestOver(appContext)
             }
             send(WorkoutSessionEvent.TimedStepDone(step.countdownSeconds() ?: 0))
             return@LaunchedEffect
+        }
+        // One beep a second over the last five seconds of a rest.
+        if (end != null && step is WorkoutSessionStep.Rest && restCountdownSound && (end - now) in 1..5) {
+            playHiitWorkCountdownTickCue(appContext)
         }
         delay(1_000L)
         clockTick++
@@ -705,7 +751,7 @@ fun WorkoutLiveRunScreen(
     if (summary != null) {
         val summaryKeyManager = LocalKeyManager.current
         // Only offered while the workout is still in the library and today changed a target.
-        val canSaveTodaysWeights = summary.weightTargetChanges.isNotEmpty() &&
+        val canSaveTodaysWeights = summary.weightTargetChanges.isNotEmpty() && !isStandalone &&
             summary.workoutId != null && workout.id == summary.workoutId
         val adjustedWorkout = summary.adjustedWorkout
             ?.takeIf { summary.workoutId != null && workout.id == summary.workoutId }
@@ -846,6 +892,65 @@ fun WorkoutLiveRunScreen(
         )
     }
 
+    if (confirmFinish) {
+        val nothingDone = activeRun?.sessionHasNothingDone() != false
+        AlertDialog(
+            onDismissRequest = { confirmFinish = false },
+            title = { Text(if (nothingDone) "Nothing Logged Yet" else "Finish Workout?") },
+            text = {
+                Text(
+                    if (nothingDone) {
+                        "No sets are logged, so there's nothing to save. Discard this workout?"
+                    } else {
+                        "Logs the sets you've done and shows the summary. Sets not done yet are left out."
+                    },
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmFinish = false
+                        if (nothingDone) {
+                            discardRunAndLeave()
+                        } else {
+                            scope.launch {
+                                repository.endRunEarly()
+                                logFinishedSections()
+                            }
+                        }
+                    },
+                ) {
+                    if (nothingDone) {
+                        Text("Discard", color = MaterialTheme.colorScheme.error)
+                    } else {
+                        Text("Finish")
+                    }
+                }
+            },
+            dismissButton = { TextButton(onClick = { confirmFinish = false }) { Text("Keep Going") } },
+        )
+    }
+
+    if (showRestSettings) {
+        WorkoutSessionRestSettingsDialog(
+            initialMode = (restTimerMode ?: WeightLiveRestTimerMode.AUTO).toSessionRestMode(),
+            initialSeconds = restTimerSeconds ?: 90,
+            initialCountdownSound = restCountdownSound,
+            initialEndSound = restEndSound,
+            onDismiss = { showRestSettings = false },
+            onSave = { mode, seconds, countdown, end ->
+                showRestSettings = false
+                // Saving the setting is enough: the run follows it (see the effect above).
+                scope.launch {
+                    userPreferences.setWorkoutSessionRestTimerMode(mode.toSavedRestMode())
+                    userPreferences.setWeightLiveRestTimerSeconds(seconds)
+                    userPreferences.setWeightLiveRestTimerCountdownSoundEnabled(countdown)
+                    userPreferences.setWeightLiveRestTimerEndSoundEnabled(end)
+                }
+            },
+        )
+    }
+
     val runWorkout = activeRun?.workoutSnapshot ?: workout
     fun runItem(segmentId: String, itemId: String): WorkoutItem? =
         runWorkout.segments.firstOrNull { it.id == segmentId }?.items?.firstOrNull { it.id == itemId }
@@ -941,7 +1046,9 @@ fun WorkoutLiveRunScreen(
             recentExerciseIds = recentExerciseIds,
             onPickMany = { exerciseIds ->
                 addKind = null
-                val additions = exerciseIds.map { WorkoutSessionAddition.Lift(it, weightState.exerciseById(it)) }
+                val additions = exerciseIds.map {
+                    WorkoutSessionAddition.Lift(it, weightState.exerciseById(it), lastSetCount = lastSetCountFor(it))
+                }
                 scope.launch { repository.addSessionItems(additions) }
             },
             onCreateNew = { typed ->
@@ -993,6 +1100,14 @@ fun WorkoutLiveRunScreen(
             onSave = { set ->
                 editingSet = null
                 scope.launch { repository.applySessionEvent(WorkoutSessionEvent.EditSet(editing.stepIndex, set)) }
+            },
+            onRemove = if (activeRun?.canRemoveSessionSetAt(editing.stepIndex, plan) == true) {
+                {
+                    editingSet = null
+                    scope.launch { repository.removeSessionSet(editing.stepIndex) }
+                }
+            } else {
+                null
             },
         )
     }
@@ -1068,6 +1183,17 @@ fun WorkoutLiveRunScreen(
                             tint = Color.White.copy(alpha = if (mediaControlsShown) 1f else 0.7f),
                         )
                     }
+                    if (runStarted && !isComplete) {
+                        IconButton(onClick = { showRestSettings = true }) {
+                            Icon(Icons.Filled.Timer, contentDescription = "Rest timer", tint = Color.White.copy(alpha = 0.85f))
+                        }
+                    }
+                    // A standalone workout ends when you say so; a library one ends with its last step.
+                    if (isStandalone && runStarted && !isComplete) {
+                        TextButton(onClick = { confirmFinish = true }) {
+                            Text("Finish", color = Color.White)
+                        }
+                    }
                 },
                 colors = ervSessionTopAppBarColors(),
             )
@@ -1132,9 +1258,22 @@ fun WorkoutLiveRunScreen(
                                 lastTime = lastTimeFor(exerciseId),
                                 onShowHistory = { historyFor = exerciseId to liftName(step) },
                                 canAddSet = plan != null && activeRun?.canAddSessionSet(plan) == true,
-                                canRemoveSet = plan != null && activeRun?.canRemoveSessionSet(plan) == true,
+                                // A plain exercise loses its last set still to come (the one on
+                                // screen, at the latest); a superset or circuit loses a round.
+                                canRemoveSet = plan != null && activeRun != null && if (step.inRounds) {
+                                    activeRun.canRemoveSessionSet(plan)
+                                } else {
+                                    activeRun.sessionLastOpenSetIndex(plan)?.let { activeRun.canRemoveSessionSetAt(it, plan) } == true
+                                },
                                 onAddSet = { changeSetCount(1) },
-                                onRemoveSet = { changeSetCount(-1) },
+                                onRemoveSet = {
+                                    val openSet = if (step.inRounds || plan == null) null else activeRun?.sessionLastOpenSetIndex(plan)
+                                    if (openSet != null) {
+                                        scope.launch { repository.removeSessionSet(openSet) }
+                                    } else {
+                                        changeSetCount(-1)
+                                    }
+                                },
                             )
                         }
                         is WorkoutSessionStep.Rest -> {
@@ -1149,6 +1288,8 @@ fun WorkoutLiveRunScreen(
                                 nextLabel = plan?.let { activeRun?.sessionUpNextLabel(stepNames, loadUnit, it) },
                                 onSkip = { send(WorkoutSessionEvent.StepDone) },
                                 onAddTime = { scope.launch { repository.extendSessionCountdown(30) } },
+                                awaitingStart = awaitingStart,
+                                onStart = { startStep(step) },
                             )
                         }
                         is WorkoutSessionStep.Note -> WorkoutSessionNoteCard(
@@ -1224,6 +1365,16 @@ fun WorkoutLiveRunScreen(
                             }
                         }
                     }
+                }
+            }
+            // A standalone workout that has done everything so far waits here for more, or Finish.
+            if (runStarted && !isComplete && step == null && plan != null && activeRun?.isSessionWaitingForMore(plan) == true) {
+                item(key = "standalone-next") {
+                    WorkoutSessionStandaloneNextCard(
+                        empty = plan.size == 0,
+                        onAddExercise = { addKind = WorkoutSessionAddKind.EXERCISE },
+                        onFinish = { confirmFinish = true },
+                    )
                 }
             }
             // Today's run can be changed while it goes: swap, add, remove and reorder. None of it
@@ -2015,4 +2166,17 @@ private fun ComposedWorkoutSectionLogCard(
             }
         }
     }
+}
+
+/** The saved rest timer choice as the session engine names it. */
+private fun WeightLiveRestTimerMode.toSessionRestMode(): WorkoutSessionRestMode = when (this) {
+    WeightLiveRestTimerMode.OFF -> WorkoutSessionRestMode.OFF
+    WeightLiveRestTimerMode.AUTO -> WorkoutSessionRestMode.AUTO
+    WeightLiveRestTimerMode.MANUAL -> WorkoutSessionRestMode.MANUAL
+}
+
+private fun WorkoutSessionRestMode.toSavedRestMode(): WeightLiveRestTimerMode = when (this) {
+    WorkoutSessionRestMode.OFF -> WeightLiveRestTimerMode.OFF
+    WorkoutSessionRestMode.AUTO -> WeightLiveRestTimerMode.AUTO
+    WorkoutSessionRestMode.MANUAL -> WeightLiveRestTimerMode.MANUAL
 }

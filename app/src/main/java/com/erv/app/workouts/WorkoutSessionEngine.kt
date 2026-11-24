@@ -107,6 +107,37 @@ enum class WorkoutSessionRestKind {
 
 enum class WorkoutStretchSide { LEFT, RIGHT }
 
+/** How the rests between sets and exercises run (the rest timer setting on the session screen). */
+@Serializable
+enum class WorkoutSessionRestMode {
+    /** No rests between sets or exercises; rests the builder placed and section rests stay. */
+    @SerialName("off") OFF,
+
+    /** Each rest counts down as soon as it comes on screen. */
+    @SerialName("auto") AUTO,
+
+    /** Each rest between sets or exercises waits for Start Rest. */
+    @SerialName("manual") MANUAL,
+}
+
+/**
+ * The athlete's rest timer setting for one run. [defaultSeconds] fills the rest between sets and
+ * after an exercise where the workout gives none (0 leaves those without a rest).
+ */
+@Serializable
+data class WorkoutSessionRestOptions(
+    val mode: WorkoutSessionRestMode = WorkoutSessionRestMode.AUTO,
+    val defaultSeconds: Int = 0,
+)
+
+/** A rest the rest timer setting applies to: between sets, between exercises, or between rounds. */
+fun WorkoutSessionStep.isTimerRest(): Boolean =
+    this is WorkoutSessionStep.Rest && (
+        kind == WorkoutSessionRestKind.BETWEEN_SETS ||
+            kind == WorkoutSessionRestKind.BETWEEN_EXERCISES ||
+            kind == WorkoutSessionRestKind.AFTER_ROUND
+        )
+
 /** The steps of one workout, built once from the run's workout snapshot. */
 data class WorkoutSessionPlan(
     val workoutId: String,
@@ -115,8 +146,13 @@ data class WorkoutSessionPlan(
     val size: Int get() = steps.size
 
     companion object {
-        fun from(workout: Workout): WorkoutSessionPlan =
-            WorkoutSessionPlan(workout.id, buildWorkoutSessionSteps(workout))
+        fun from(workout: Workout, rest: WorkoutSessionRestOptions? = null): WorkoutSessionPlan {
+            val steps = buildWorkoutSessionSteps(workout, rest?.defaultSeconds?.coerceAtLeast(0) ?: 0)
+            return WorkoutSessionPlan(
+                workout.id,
+                if (rest?.mode == WorkoutSessionRestMode.OFF) steps.filterNot { it.isTimerRest() } else steps,
+            )
+        }
     }
 }
 
@@ -318,7 +354,10 @@ object WorkoutSessionEngine {
 
 private const val DEFAULT_STRETCH_HOLD_SECONDS = 30
 
-private fun buildWorkoutSessionSteps(workout: Workout): List<WorkoutSessionStep> = buildList<WorkoutSessionStep> {
+private fun buildWorkoutSessionSteps(
+    workout: Workout,
+    defaultRestSeconds: Int,
+): List<WorkoutSessionStep> = buildList<WorkoutSessionStep> {
     workout.segments.forEachIndexed { segmentIndex, segment ->
         when (segment.kind) {
             WorkoutSegmentKind.SUPERSET, WorkoutSegmentKind.CIRCUIT ->
@@ -326,7 +365,12 @@ private fun buildWorkoutSessionSteps(workout: Workout): List<WorkoutSessionStep>
             else -> segment.items.forEachIndexed { itemIndex, item ->
                 val hasNextItem = itemIndex < segment.items.lastIndex
                 when (item) {
-                    is WorkoutItem.Weight -> addStraightSets(segmentIndex, segment, item, hasNextItem)
+                    is WorkoutItem.Weight -> addStraightSets(
+                        segmentIndex, segment, item, hasNextItem,
+                        defaultRestBetweenSets = defaultRestSeconds,
+                        // A rest the builder placed next already covers the gap.
+                        defaultRestAfter = if (segment.items.getOrNull(itemIndex + 1) is WorkoutItem.Rest) 0 else defaultRestSeconds,
+                    )
                     is WorkoutItem.Rest -> if (item.durationSeconds > 0) {
                         add(
                             WorkoutSessionStep.Rest(
@@ -358,9 +402,12 @@ private fun MutableList<WorkoutSessionStep>.addStraightSets(
     segment: WorkoutSegment,
     item: WorkoutItem.Weight,
     hasNextItem: Boolean,
+    defaultRestBetweenSets: Int,
+    defaultRestAfter: Int,
 ) {
     val sets = item.prescription.resolvedSets()
-    val restBetweenSets = item.prescription.restBetweenSetsSeconds ?: 0
+    // The rest timer's default length stands in where the workout gives no rest.
+    val restBetweenSets = item.prescription.restBetweenSetsSeconds?.takeIf { it > 0 } ?: defaultRestBetweenSets
     sets.forEachIndexed { setIndex, target ->
         add(
             WorkoutSessionStep.LiftSet(
@@ -375,7 +422,7 @@ private fun MutableList<WorkoutSessionStep>.addStraightSets(
             )
         }
     }
-    val restAfter = item.prescription.restAfterExerciseSeconds ?: 0
+    val restAfter = item.prescription.restAfterExerciseSeconds?.takeIf { it > 0 } ?: defaultRestAfter
     if (hasNextItem && restAfter > 0) {
         add(
             WorkoutSessionStep.Rest(

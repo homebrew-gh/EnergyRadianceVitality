@@ -636,7 +636,9 @@ fun ErvNavHost(
                 otherRunInProgress = workoutState.activeRun?.takeIf {
                     it.workoutId != workoutId && it.isStarted()
                 },
-                workout = workoutState.workoutById(workoutId),
+                // A standalone workout (Quick Start) lives only in its run.
+                workout = workoutState.workoutById(workoutId)
+                    ?: workoutState.activeRun?.takeIf { it.workoutId == workoutId && it.standalone != null }?.workoutSnapshot,
                 weightState = weightState,
                 cardioState = cardioState,
                 userPreferences = userPreferences,

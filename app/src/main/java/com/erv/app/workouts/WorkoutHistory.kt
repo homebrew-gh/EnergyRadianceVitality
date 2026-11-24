@@ -92,8 +92,18 @@ fun groupDayActivityByWorkout(
         cardio.forEach { if (it.session.workoutLink != null) add(WorkoutHistorySection.Cardio(it)) }
         stretch.forEach { if (it.session.workoutLink != null) add(WorkoutHistorySection.Stretching(it)) }
     }
-    val workouts = linked
-        .groupBy { it.link!!.sessionId }
+    val groups = linked.groupBy { it.link!!.sessionId }
+    // A standalone workout that was only lifting reads as the weight workout it is.
+    val liftingOnly = groups.values
+        .filter { sections ->
+            isStandaloneWorkoutId(sections.first().link!!.workoutId) &&
+                sections.all { it is WorkoutHistorySection.Lifting }
+        }
+        .flatten()
+        .map { (it as WorkoutHistorySection.Lifting).row }
+    val shownOnTheirOwn = liftingOnly.map { it.session.id }.toSet()
+    val workouts = groups
+        .filterValues { sections -> sections.none { it is WorkoutHistorySection.Lifting && it.row.session.id in shownOnTheirOwn } }
         .map { (sessionId, sections) ->
             val link = sections.first().link!!
             WorkoutHistoryEntry(
@@ -107,7 +117,7 @@ fun groupDayActivityByWorkout(
     return DayTrainingActivity(
         workouts = workouts,
         cardio = cardio.filter { it.session.workoutLink == null },
-        weight = weight.filter { it.session.workoutLink == null },
+        weight = weight.filter { it.session.workoutLink == null || it.session.id in shownOnTheirOwn },
         stretch = stretch.filter { it.session.workoutLink == null },
     )
 }

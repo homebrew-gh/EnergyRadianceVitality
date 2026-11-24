@@ -114,6 +114,37 @@ class WorkoutRepository(context: Context) {
         }
     }
 
+    /**
+     * Starts [run], a standalone workout from [standaloneRun], unless another workout is already
+     * under way. Returns false when one is, so the caller can offer to resume it instead.
+     */
+    suspend fun startStandaloneRun(run: WorkoutActiveRun): Boolean {
+        var started = false
+        updateState { state ->
+            if (state.activeRun?.isStarted() == true) return@updateState state
+            started = true
+            state.copy(activeRun = run)
+        }
+        return started
+    }
+
+    /** Applies the rest timer setting to the run in progress (see [withSessionRestOptions]). */
+    suspend fun setSessionRestOptions(options: WorkoutSessionRestOptions) {
+        updateState { state ->
+            val run = state.activeRun ?: return@updateState state
+            if (run.session == null || run.sessionRestOptions == options) return@updateState state
+            state.copy(activeRun = run.withSessionRestOptions(options))
+        }
+    }
+
+    /** Takes one set (logged or still to come) out of today's run (see [withSessionSetRemoved]). */
+    suspend fun removeSessionSet(stepIndex: Int) {
+        updateState { state ->
+            val run = state.activeRun ?: return@updateState state
+            state.copy(activeRun = run.withSessionSetRemoved(stepIndex))
+        }
+    }
+
     suspend fun updateRunPosition(position: WorkoutRunPosition) {
         updateState { state ->
             val run = state.activeRun ?: return@updateState state
@@ -427,6 +458,8 @@ class WorkoutRepository(context: Context) {
                 val plan = run.sessionPlan()
                 if (run.isSessionComplete(plan)) return@updateState state
                 val ended = run.applyingSessionEvent(WorkoutSessionEvent.EndWorkout, nowWorkoutEpochSeconds())
+                    // A standalone workout ends only here, when the athlete taps Finish.
+                    .let { if (it.standalone != null) it.copy(sessionFinishRequested = true) else it }
                 result = WorkoutItemCompletionResult(
                     segmentJustCompleted = true,
                     completedSegmentId = null,
