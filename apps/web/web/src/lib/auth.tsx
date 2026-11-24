@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import { api, type AuthStatus, type WipeBody } from "./api";
+import { clearAllStoredWorkoutDrafts } from "./workoutDraftStorage";
 
 type AuthContextValue = {
   status: AuthStatus | null;
@@ -47,6 +48,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const wipe = useCallback(
     async (body: WipeBody) => {
       await api.authWipe(body);
+      clearAllStoredWorkoutDrafts();
       await refresh();
     },
     [refresh],

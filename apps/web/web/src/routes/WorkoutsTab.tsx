@@ -18,6 +18,14 @@ import { useTraining } from "../lib/trainingData";
 import { buildTrainingSnapshot, snapshotHasData } from "../lib/trainingSnapshot";
 import type { WeightExercisePickerFilter } from "../lib/weightExerciseAvailability";
 import { useWeightLoadUnit } from "../lib/weightLoadUnit";
+import { useAuth } from "../lib/auth";
+import { useUnsavedChangesWarning } from "../hooks/useUnsavedChangesWarning";
+import {
+  clearStoredWorkoutDraft,
+  readStoredWorkoutDraft,
+  workoutDraftFingerprint,
+  writeStoredWorkoutDraft,
+} from "../lib/workoutDraftStorage";
 import {
   applyBaselineLoadsToWorkout,
   applyTargetWeightToPrescription,
@@ -69,6 +77,14 @@ function newSegment(kind: WorkoutSegmentKind): WorkoutSegment {
   return base;
 }
 
+const EMPTY_DRAFT_FINGERPRINT = workoutDraftFingerprint("", []);
+const UNPUBLISHED_DRAFT_MESSAGE =
+  "This workout has changes that are not published yet. They stay in this browser, but your phone won't see them until you publish.";
+
+function copySegments(segments: WorkoutSegment[]): WorkoutSegment[] {
+  return segments.map((segment) => ({ ...segment, items: [...(segment.items ?? [])] }));
+}
+
 function moveSegment(segments: WorkoutSegment[], from: number, to: number): WorkoutSegment[] {
   if (from === to || from < 0 || to < 0 || from >= segments.length || to >= segments.length) {
     return segments;
@@ -96,6 +112,8 @@ export function WorkoutsTab() {
   const { gymMembership, equipment, enabledWeightExercisePackIds } = useEquipment();
   const { weightLogs, cardioLogs, lastLoadedAt } = useTrainingHistory();
   const [weightLoadUnit] = useWeightLoadUnit();
+  const { status: authStatus } = useAuth();
+  const draftAccountKey = authStatus?.npub ?? "default";
 
   const snapshot = useMemo(
     () =>
@@ -120,6 +138,42 @@ export function WorkoutsTab() {
   const [weightPickerFilter, setWeightPickerFilter] =
     useState<WeightExercisePickerFilter>("ALL");
   const alertsRef = useRef<HTMLDivElement>(null);
+  /** What the draft looked like when it was last opened, published or reset. */
+  const [draftBaseline, setDraftBaseline] = useState(EMPTY_DRAFT_FINGERPRINT);
+  const [draftRestored, setDraftRestored] = useState(false);
+  const draftDirty = workoutDraftFingerprint(name, segments) !== draftBaseline;
+  useUnsavedChangesWarning(draftDirty, UNPUBLISHED_DRAFT_MESSAGE);
+
+  // Bring back an unpublished draft kept in this browser (after a reload or closed tab).
+  useEffect(() => {
+    setDraftRestored(false);
+    const stored = readStoredWorkoutDraft(draftAccountKey);
+    if (stored) {
+      setEditingId(stored.editingId);
+      setName(stored.name);
+      setSegments(copySegments(stored.segments));
+      setActiveSegmentIndex(stored.segments.length > 0 ? 0 : null);
+      setDraftBaseline(stored.baseline);
+      setSuccess("Restored your unpublished workout draft from this browser.");
+    }
+    setDraftRestored(true);
+  }, [draftAccountKey]);
+
+  // Keep the draft in this browser while it has unpublished changes.
+  useEffect(() => {
+    if (!draftRestored) return;
+    if (!draftDirty) {
+      clearStoredWorkoutDraft(draftAccountKey);
+      return;
+    }
+    writeStoredWorkoutDraft(draftAccountKey, {
+      editingId,
+      name,
+      segments,
+      baseline: draftBaseline,
+      savedAtMs: Date.now(),
+    });
+  }, [draftRestored, draftDirty, draftAccountKey, editingId, name, segments, draftBaseline]);
 
   const catalogExercises = exercises;
   const activeSegmentIndexResolved =
@@ -180,13 +234,30 @@ export function WorkoutsTab() {
     setSegments([]);
     setActiveSegmentIndex(null);
     setFormError(null);
+    setDraftBaseline(EMPTY_DRAFT_FINGERPRINT);
+  };
+
+  /** Asks before throwing away unpublished changes. Returns true when it is fine to continue. */
+  const confirmDiscardDraft = (action: string): boolean => {
+    if (!draftDirty) return true;
+    const label = name.trim() ? `"${name.trim()}"` : "this workout";
+    return window.confirm(`${action} will discard the unpublished changes to ${label}. Continue?`);
+  };
+
+  const cancelEdit = () => {
+    if (!confirmDiscardDraft("Cancelling")) return;
+    resetForm();
   };
 
   const startEdit = (workout: Workout) => {
+    if (editingId === workout.id) return;
+    if (!confirmDiscardDraft(`Opening "${workout.name}"`)) return;
+    const segmentsCopy = copySegments(workout.segments);
     setEditingId(workout.id);
     setName(workout.name);
-    setSegments(workout.segments.map((s) => ({ ...s, items: [...(s.items ?? [])] })));
+    setSegments(segmentsCopy);
     setActiveSegmentIndex(workout.segments.length > 0 ? 0 : null);
+    setDraftBaseline(workoutDraftFingerprint(workout.name, segmentsCopy));
     setFormError(null);
     setSuccess(null);
   };
@@ -367,14 +438,25 @@ export function WorkoutsTab() {
       ...segment,
       title: segment.title?.trim() || null,
     }));
-    const workout: Workout = {
-      id: editingId ?? crypto.randomUUID(),
-      name: trimmed,
-      segments: normalizedSegments,
-      sourceLabel: "Start9",
-      lastModifiedEpochSeconds: now,
-      createdAtEpochSeconds: now,
-    };
+    // Editing keeps what the form does not show (description, tags, created date, source).
+    const existing = editingId ? workouts.find((w) => w.id === editingId) : undefined;
+    const workout: Workout = existing
+      ? {
+          ...existing,
+          name: trimmed,
+          segments: normalizedSegments,
+          sourceLabel: existing.sourceLabel ?? "Start9",
+          createdAtEpochSeconds: existing.createdAtEpochSeconds ?? now,
+          lastModifiedEpochSeconds: now,
+        }
+      : {
+          id: editingId ?? crypto.randomUUID(),
+          name: trimmed,
+          segments: normalizedSegments,
+          sourceLabel: "Start9",
+          lastModifiedEpochSeconds: now,
+          createdAtEpochSeconds: now,
+        };
 
     try {
       const wasEditing = editingId != null;
@@ -524,13 +606,10 @@ export function WorkoutsTab() {
             await saveWorkouts(mergeImportedWorkouts(workouts, imported));
             const updated = imported.find((workout) => workout.id === editingId);
             if (updated) {
+              const updatedSegments = copySegments(updated.segments);
               setName(updated.name);
-              setSegments(
-                updated.segments.map((segment) => ({
-                  ...segment,
-                  items: [...(segment.items ?? [])],
-                })),
-              );
+              setSegments(updatedSegments);
+              setDraftBaseline(workoutDraftFingerprint(updated.name, updatedSegments));
             }
             setFormError(null);
             setSuccess(
@@ -577,7 +656,8 @@ export function WorkoutsTab() {
               draftLabel={name}
               segmentCount={segments.length}
               itemCount={draftItemCount}
-              onCancelEdit={resetForm}
+              unpublished={draftDirty}
+              onCancelEdit={cancelEdit}
             />
           ) : undefined
         }
@@ -593,6 +673,11 @@ export function WorkoutsTab() {
                 <h3 className="text-lg font-semibold text-heading">
                   {editingId ? "Edit Workout" : "Compose Workout"}
                 </h3>
+                {draftDirty ? (
+                  <p className="mt-1 text-xs font-semibold text-[var(--erv-error)]">
+                    Not published yet. Your phone won't see these changes until you publish.
+                  </p>
+                ) : null}
                 <p className="mt-1 text-sm text-muted">
                   Start with a template or block, select the active segment, then add items from
                   the library.
@@ -740,7 +825,7 @@ export function WorkoutsTab() {
                 {saving ? "Publishing…" : editingId ? "Publish update" : "Publish to relay"}
               </button>
               {editingId ? (
-                <button type="button" className="btn-ghost" onClick={resetForm}>
+                <button type="button" className="btn-ghost" onClick={cancelEdit}>
                   Cancel edit
                 </button>
               ) : null}
