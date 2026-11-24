@@ -241,4 +241,86 @@ class WorkoutSessionRunTest {
         assertTrue(idle.sessionLiftSectionsToLog().isEmpty())
         assertFalse(idle.isSessionComplete())
     }
+
+    @Test
+    fun a_set_can_be_added_or_taken_away_for_today() {
+        val onSecond = started("example-strength-day").play(
+            1_060,
+            WorkoutSessionEvent.SetLogged(set(5, 102.5)),
+            WorkoutSessionEvent.StepDone,
+        )
+        val second = onSecond.step() as WorkoutSessionStep.LiftSet
+        assertEquals(1, second.setIndex)
+        assertEquals(3, second.setCount)
+        assertTrue(onSecond.canAddSessionSet())
+        assertTrue(onSecond.canRemoveSessionSet())
+
+        val added = onSecond.withSessionSetCountChanged(1)
+        val onScreen = added.step() as WorkoutSessionStep.LiftSet
+        assertEquals(1, onScreen.setIndex)
+        assertEquals(4, onScreen.setCount)
+        val squat = added.workoutSnapshot.segments[0].items[0] as WorkoutItem.Weight
+        assertEquals(4, squat.prescription.setCount)
+        // The set already logged keeps its record.
+        assertEquals(
+            listOf(set(5, 102.5)),
+            WorkoutSessionEngine.loggedSets(added.sessionPlan(), added.session!!, "strength-main", "strength-squat"),
+        )
+
+        val removed = added.withSessionSetCountChanged(-1).withSessionSetCountChanged(-1)
+        assertEquals(2, (removed.step() as WorkoutSessionStep.LiftSet).setCount)
+        // The set on screen is now the last one: it can be skipped, not taken away.
+        assertFalse(removed.canRemoveSessionSet())
+        assertEquals(removed, removed.withSessionSetCountChanged(-1))
+        val next = removed.play(2_000, WorkoutSessionEvent.SetLogged(set(5, 102.5)))
+        assertEquals(WorkoutSessionRestKind.BETWEEN_EXERCISES, (next.step() as WorkoutSessionStep.Rest).kind)
+
+        // Only today's copy changes; the workout in the library keeps its three sets.
+        val planned = examples.getValue("example-strength-day").segments[0].items[0] as WorkoutItem.Weight
+        assertEquals(3, planned.prescription.setCount)
+    }
+
+    @Test
+    fun an_added_set_copies_the_last_planned_one() {
+        val bench = (examples.getValue("example-strength-day").segments[0].items[2] as WorkoutItem.Weight).prescription
+        val more = bench.withSetCountChange(1)
+        assertEquals(4, more.sets.size)
+        assertEquals(bench.sets.last(), more.sets.last())
+        assertEquals(bench.sets.take(2), bench.withSetCountChange(-1).sets)
+        assertEquals(1, WorkoutWeightPrescription(setCount = 1).withSetCountChange(-1).setCount)
+    }
+
+    @Test
+    fun in_a_superset_a_set_is_a_round() {
+        val run = started("example-pairs-and-circuit")
+        val first = run.step() as WorkoutSessionStep.LiftSet
+        assertTrue(first.inRounds)
+        assertEquals(3, first.setCount)
+
+        val fewer = run.withSessionSetCountChanged(-1)
+        assertEquals(2, fewer.workoutSnapshot.segments[0].rounds)
+        assertEquals(2, (fewer.step() as WorkoutSessionStep.LiftSet).setCount)
+
+        // Into round 2 of 2: the last round has started, so it can't be taken away.
+        val lastRound = fewer.play(
+            1_060,
+            WorkoutSessionEvent.SetLogged(set(8)),
+            WorkoutSessionEvent.StepDone,
+            WorkoutSessionEvent.SetLogged(set(6)),
+            WorkoutSessionEvent.StepDone,
+        )
+        val onLastRound = lastRound.step() as WorkoutSessionStep.LiftSet
+        assertEquals("pairs-ohp", onLastRound.itemId)
+        assertEquals(2, onLastRound.round)
+        assertFalse(lastRound.canRemoveSessionSet())
+
+        val more = lastRound.withSessionSetCountChanged(1)
+        val onScreen = more.step() as WorkoutSessionStep.LiftSet
+        assertEquals(2, onScreen.round)
+        assertEquals(3, onScreen.setCount)
+        assertEquals(
+            listOf(set(8)),
+            WorkoutSessionEngine.loggedSets(more.sessionPlan(), more.session!!, "pairs-superset", "pairs-ohp"),
+        )
+    }
 }

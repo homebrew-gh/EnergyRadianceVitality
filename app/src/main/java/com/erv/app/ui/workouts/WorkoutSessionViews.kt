@@ -28,12 +28,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.erv.app.data.BodyWeightUnit
 import com.erv.app.ui.components.FieldLabel
+import com.erv.app.weighttraining.WeightExerciseHistoryRow
 import com.erv.app.weighttraining.WeightSet
 import com.erv.app.weighttraining.formatWeightLoadNumber
 import com.erv.app.weighttraining.parseWeightInputToKg
 import com.erv.app.weighttraining.weightLoadUnitSuffix
 import com.erv.app.workouts.WorkoutSessionStep
 import com.erv.app.workouts.formatStepSeconds
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 /** A lift set already logged for the item on screen, with the session step it belongs to. */
 internal data class WorkoutSessionLoggedSet(val stepIndex: Int, val set: WeightSet)
@@ -52,6 +56,32 @@ internal fun describeSessionSet(set: WeightSet, loadUnit: BodyWeightUnit): Strin
     val load = set.weightKg?.takeIf { it > 0 }
         ?.let { "${formatWeightLoadNumber(it, loadUnit)} ${weightLoadUnitSuffix(loadUnit)}" }
     return if (load != null) "$amount at $load" else amount
+}
+
+/** "225 lb × 5", "45 s" or "8 reps": one set, short enough for a row of them. */
+internal fun describeSessionSetShort(set: WeightSet, loadUnit: BodyWeightUnit): String {
+    val load = set.weightKg?.takeIf { it > 0 }
+        ?.let { "${formatWeightLoadNumber(it, loadUnit)} ${weightLoadUnitSuffix(loadUnit)}" }
+    return when {
+        set.reps > 0 && load != null -> "$load × ${set.reps}"
+        set.reps > 0 -> "${set.reps} reps"
+        (set.durationSeconds ?: 0) > 0 ->
+            listOfNotNull(load, formatStepSeconds(set.durationSeconds ?: 0)).joinToString(" · ")
+        load != null -> load
+        else -> "—"
+    }
+}
+
+/** "Last time (Nov 20): 225 lb × 5, 225 lb × 5" from the newest earlier log of the exercise. */
+internal fun describeLastTime(row: WeightExerciseHistoryRow, loadUnit: BodyWeightUnit, today: LocalDate): String? {
+    val sets = row.entry.sets
+    if (sets.isEmpty()) return null
+    val day = when (row.logDate) {
+        today -> "earlier today"
+        today.minusDays(1) -> "yesterday"
+        else -> row.logDate.format(DateTimeFormatter.ofPattern("MMM d", Locale.getDefault()))
+    }
+    return "Last time ($day): " + sets.joinToString(", ") { describeSessionSetShort(it, loadUnit) }
 }
 
 /** The target for a lift step, for the line under the exercise name. */
@@ -139,6 +169,13 @@ internal fun WorkoutSessionLiftCard(
     onSwap: () -> Unit,
     onEditSet: (WorkoutSessionLoggedSet) -> Unit,
     modifier: Modifier = Modifier,
+    /** The sets from the last time this exercise was logged, from [describeLastTime]. */
+    lastTime: String? = null,
+    onShowHistory: (() -> Unit)? = null,
+    canAddSet: Boolean = false,
+    canRemoveSet: Boolean = false,
+    onAddSet: () -> Unit = {},
+    onRemoveSet: () -> Unit = {},
 ) {
     val timed = step.target.isTimedTarget()
     val last = loggedSets.lastOrNull()?.set
@@ -174,6 +211,9 @@ internal fun WorkoutSessionLiftCard(
             describeSessionTarget(step.target, loadUnit)?.let {
                 Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+            lastTime?.let {
+                Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             SetInputsRow(inputs, timed, loadUnit)
             val set = inputs.toSet(step.target, timed, loadUnit)
             Button(
@@ -202,9 +242,28 @@ internal fun WorkoutSessionLiftCard(
                     Text("Skip Exercise", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            if (canSwap) {
-                TextButton(onClick = onSwap, modifier = Modifier.fillMaxWidth()) {
-                    Text("Swap Exercise")
+            // In a superset or circuit a set is a round of the whole section.
+            val unit = if (step.inRounds) "Round" else "Set"
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(onClick = onAddSet, enabled = canAddSet, modifier = Modifier.weight(1f)) {
+                    Text("Add $unit")
+                }
+                OutlinedButton(onClick = onRemoveSet, enabled = canRemoveSet, modifier = Modifier.weight(1f)) {
+                    Text("Remove $unit")
+                }
+            }
+            if (canSwap || onShowHistory != null) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    if (onShowHistory != null) {
+                        TextButton(onClick = onShowHistory, modifier = Modifier.weight(1f)) {
+                            Text("Past Workouts")
+                        }
+                    }
+                    if (canSwap) {
+                        TextButton(onClick = onSwap, modifier = Modifier.weight(1f)) {
+                            Text("Swap Exercise")
+                        }
+                    }
                 }
             }
         }

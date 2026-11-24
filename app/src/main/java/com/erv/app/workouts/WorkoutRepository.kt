@@ -159,6 +159,18 @@ class WorkoutRepository(context: Context) {
         }
     }
 
+    /**
+     * Adds a set to the exercise on screen ([delta] 1) or takes one away ([delta] -1), for today
+     * only (see [withSessionSetCountChanged]). Ignored once [atStepIndex] has left the screen.
+     */
+    suspend fun changeSessionSetCount(delta: Int, atStepIndex: Int? = null) {
+        updateState { state ->
+            val run = state.activeRun ?: return@updateState state
+            if (atStepIndex != null && run.session?.stepIndex != atStepIndex) return@updateState state
+            state.copy(activeRun = run.withSessionSetCountChanged(delta))
+        }
+    }
+
     /** Adds [seconds] to the rest or timed step on screen. */
     suspend fun extendSessionCountdown(seconds: Int) {
         updateState { state ->
