@@ -1,0 +1,93 @@
+{
+  "description": "Shared plate calculator cases. The Android (PlateCalculatorTest) and web (plateCalculator.test.ts) suites both run every case, so the phone and the builder always show the same plates. All weights are in the unit you lift in. plates lists per-side plates heaviest first, or the plates on the loaded end for ONE_END.",
+  "cases": [
+    {
+      "name": "exact load in pounds",
+      "target": 185, "bar": 45, "loading": "BOTH_ENDS",
+      "plates": [{ "weight": 45, "pairCount": 4 }, { "weight": 25, "pairCount": 2 }, { "weight": 10, "pairCount": 2 }, { "weight": 5, "pairCount": 2 }, { "weight": 2.5, "pairCount": 2 }],
+      "exact": { "total": 185, "plates": [45, 25] },
+      "below": { "total": 180, "plates": [45, 10, 10, 2.5] },
+      "above": { "total": 190, "plates": [45, 25, 2.5] }
+    },
+    {
+      "name": "empty bar",
+      "target": 45, "bar": 45, "loading": "BOTH_ENDS",
+      "plates": [{ "weight": 45, "pairCount": 2 }, { "weight": 2.5, "pairCount": 1 }],
+      "exact": { "total": 45, "plates": [] },
+      "below": null,
+      "above": { "total": 50, "plates": [2.5] }
+    },
+    {
+      "name": "target under the bar weight",
+      "target": 30, "bar": 45, "loading": "BOTH_ENDS",
+      "plates": [{ "weight": 45, "pairCount": 2 }],
+      "exact": null,
+      "below": null,
+      "above": { "total": 45, "plates": [] }
+    },
+    {
+      "name": "largest-first would get stuck",
+      "target": 105, "bar": 45, "loading": "BOTH_ENDS",
+      "plates": [{ "weight": 25, "pairCount": 1 }, { "weight": 10, "pairCount": 3 }],
+      "exact": { "total": 105, "plates": [10, 10, 10] },
+      "below": { "total": 95, "plates": [25] },
+      "above": { "total": 115, "plates": [25, 10] }
+    },
+    {
+      "name": "fewest plates wins when several combinations work",
+      "target": 135, "bar": 45, "loading": "BOTH_ENDS",
+      "plates": [{ "weight": 45, "pairCount": 1 }, { "weight": 25, "pairCount": 1 }, { "weight": 10, "pairCount": 2 }],
+      "exact": { "total": 135, "plates": [45] },
+      "below": { "total": 115, "plates": [25, 10] },
+      "above": { "total": 155, "plates": [45, 10] }
+    },
+    {
+      "name": "weight that cannot be loaded",
+      "target": 137, "bar": 45, "loading": "BOTH_ENDS",
+      "plates": [{ "weight": 45, "pairCount": 2 }, { "weight": 10, "pairCount": 1 }, { "weight": 5, "pairCount": 1 }, { "weight": 2.5, "pairCount": 1 }],
+      "exact": null,
+      "below": { "total": 135, "plates": [45] },
+      "above": { "total": 140, "plates": [45, 2.5] }
+    },
+    {
+      "name": "runs out of plates",
+      "target": 405, "bar": 45, "loading": "BOTH_ENDS",
+      "plates": [{ "weight": 45, "pairCount": 2 }, { "weight": 25, "pairCount": 1 }],
+      "exact": null,
+      "below": { "total": 275, "plates": [45, 45, 25] },
+      "above": null
+    },
+    {
+      "name": "open trap bar heavier than an Olympic bar",
+      "target": 245, "bar": 60, "loading": "BOTH_ENDS",
+      "plates": [{ "weight": 45, "pairCount": 4 }, { "weight": 25, "pairCount": 2 }, { "weight": 10, "pairCount": 2 }, { "weight": 5, "pairCount": 2 }, { "weight": 2.5, "pairCount": 2 }],
+      "exact": { "total": 245, "plates": [45, 45, 2.5] },
+      "below": { "total": 240, "plates": [45, 45] },
+      "above": { "total": 250, "plates": [45, 45, 5] }
+    },
+    {
+      "name": "landmine loads one end",
+      "target": 70, "bar": 45, "loading": "ONE_END",
+      "plates": [{ "weight": 25, "pairCount": 1 }, { "weight": 10, "pairCount": 1 }],
+      "exact": { "total": 70, "plates": [25] },
+      "below": { "total": 65, "plates": [10, 10] },
+      "above": { "total": 80, "plates": [25, 10] }
+    },
+    {
+      "name": "kilograms",
+      "target": 102.5, "bar": 20, "loading": "BOTH_ENDS",
+      "plates": [{ "weight": 25, "pairCount": 2 }, { "weight": 10, "pairCount": 1 }, { "weight": 5, "pairCount": 1 }, { "weight": 1.25, "pairCount": 2 }],
+      "exact": { "total": 102.5, "plates": [25, 10, 5, 1.25] },
+      "below": { "total": 100, "plates": [25, 10, 5] },
+      "above": { "total": 105, "plates": [25, 10, 5, 1.25, 1.25] }
+    },
+    {
+      "name": "no plate loading",
+      "target": 20, "bar": 45, "loading": "NONE",
+      "plates": [{ "weight": 45, "pairCount": 2 }],
+      "exact": null,
+      "below": null,
+      "above": null
+    }
+  ]
+}

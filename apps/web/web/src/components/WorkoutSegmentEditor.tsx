@@ -15,6 +15,7 @@ import {
 } from "../lib/workoutPrescriptionHints";
 import { stretchLabel } from "../lib/stretchTraining";
 import { exerciseLabel, type WeightExercise } from "../lib/weightTraining";
+import { PlateLoadHint } from "./PlateLoadHint";
 import { ReorderableList } from "./ReorderableList";
 import {
   defaultRestPolicy,
@@ -83,6 +84,7 @@ function WeightPrescriptionFields({
   suggestedTargetKg,
   supportsTargetWeight = loggingStyle !== "time_only",
   weightLoadUnit = "LB",
+  exercise,
 }: {
   prescription: WorkoutWeightPrescription;
   loggingStyle: WeightSetLoggingStyle;
@@ -91,6 +93,8 @@ function WeightPrescriptionFields({
   suggestedTargetKg?: number | null;
   supportsTargetWeight?: boolean;
   weightLoadUnit?: BodyWeightUnit;
+  /** The lift, so barbell exercises can show plates per side. */
+  exercise?: WeightExercise | null;
 }) {
   const [showPerSetEditor, setShowPerSetEditor] = useState(() => {
     const sets = prescription.sets ?? [];
@@ -302,6 +306,15 @@ function WeightPrescriptionFields({
               weightGhostHint,
             )
           : null}
+        {supportsTargetWeight && !isMaxReps && !showPerSetEditor ? (
+          <PlateLoadHint
+            key={exercise?.id ?? "none"}
+            exercise={exercise}
+            targetKg={prescription.targetWeightKg}
+            weightLoadUnit={weightLoadUnit}
+            onUseWeightKg={(targetWeightKg) => onChange({ ...prescription, targetWeightKg })}
+          />
+        ) : null}
         {!timedPrescription && !isMaxReps
           ? field("Target RIR", prescription.targetRir ?? null, (targetRir) =>
               onChange({ ...prescription, targetRir }),
@@ -779,6 +792,7 @@ export function WorkoutSegmentEditor({
                             onChange={(next) =>
                               onUpdate(updateWeightItemPrescription(segment, itemKey, next))
                             }
+                            exercise={catalogExercises.find((ex) => ex.id === item.exerciseId) ?? null}
                           />
                           <label className="text-xs space-y-1 block">
                             <FieldLabel>Alternative exercises (optional, pick at run)</FieldLabel>

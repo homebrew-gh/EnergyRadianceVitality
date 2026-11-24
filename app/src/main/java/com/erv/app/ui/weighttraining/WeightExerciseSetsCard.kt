@@ -181,6 +181,8 @@ fun WeightExerciseInlineSetsCard(
     onAfterAddSet: (() -> Unit)? = null,
     /** When set, opens the full-screen timed-set timer for rows with a target duration. */
     onStartTimedSetTimer: ((setIndex: Int) -> Unit)? = null,
+    /** Barbell lifts: plates per side under each set's weight, with a bar picker. */
+    plateCalculator: PlateCalculatorUiState? = null,
 ) {
     val loadSuffix = weightLoadUnitSuffix(loadUnit)
     val weightIsAddedLoad = equipment == WeightEquipment.OTHER
@@ -547,6 +549,16 @@ fun WeightExerciseInlineSetsCard(
                             ) {
                                 Icon(Icons.Default.Close, contentDescription = "Remove set")
                             }
+                        }
+                        if (plateCalculator != null) {
+                            PlateLoadLine(
+                                weightKg = set.weightKg ?: set.targetWeightKg,
+                                loadUnit = loadUnit,
+                                calc = plateCalculator,
+                                onUseWeightKg = { kg ->
+                                    onSetsChange(sets.replaceAt(idx, set.copy(weightKg = kg)))
+                                },
+                            )
                         }
                     }
                 }

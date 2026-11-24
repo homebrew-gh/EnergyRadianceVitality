@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.MapSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
 
@@ -152,6 +153,7 @@ class UserPreferences(private val context: Context) {
          * Trust self-signed TLS for wss/https relay and media URLs (Start9, WireGuard, LAN).
          */
         val TRUST_SELF_SIGNED_LAN_TLS_V1 = booleanPreferencesKey("trust_self_signed_lan_tls_v1")
+        val PLATE_BAR_BY_EXERCISE = stringPreferencesKey("plate_calculator_bar_by_exercise_v1")
     }
 
     val themeMode: Flow<ThemeMode> = context.dataStore.data.map { prefs ->
@@ -246,6 +248,27 @@ class UserPreferences(private val context: Context) {
     suspend fun setWeightTrainingLoadUnit(unit: BodyWeightUnit) {
         context.dataStore.edit { prefs ->
             prefs[Keys.WEIGHT_TRAINING_LOAD_UNIT] = unit.name
+        }
+    }
+
+    private val plateBarMapSerializer = MapSerializer(String.serializer(), String.serializer())
+
+    private fun decodePlateBarMap(raw: String?): Map<String, String> =
+        if (raw.isNullOrBlank()) {
+            emptyMap()
+        } else {
+            runCatching { json.decodeFromString(plateBarMapSerializer, raw) }.getOrDefault(emptyMap())
+        }
+
+    /** Bar last picked in the plate calculator, by exercise id. Kept on this phone only. */
+    val plateBarByExercise: Flow<Map<String, String>> = context.dataStore.data.map { prefs ->
+        decodePlateBarMap(prefs[Keys.PLATE_BAR_BY_EXERCISE])
+    }
+
+    suspend fun setPlateBarForExercise(exerciseId: String, barId: String) {
+        context.dataStore.edit { prefs ->
+            val updated = decodePlateBarMap(prefs[Keys.PLATE_BAR_BY_EXERCISE]) + (exerciseId to barId)
+            prefs[Keys.PLATE_BAR_BY_EXERCISE] = json.encodeToString(plateBarMapSerializer, updated)
         }
     }
 
