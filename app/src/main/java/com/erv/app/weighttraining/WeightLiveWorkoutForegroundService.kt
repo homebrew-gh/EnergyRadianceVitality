@@ -54,6 +54,17 @@ class WeightLiveWorkoutForegroundService : Service() {
     @Volatile
     private var startedAtEpochSeconds: Long = 0L
 
+    /** Session name for the notification title (workout or routine); null uses the default title. */
+    @Volatile
+    private var title: String? = null
+
+    /** End of the rest countdown being shown, or null when not resting. */
+    @Volatile
+    private var restEndsAtEpochSeconds: Long? = null
+
+    @Volatile
+    private var restLabel: String? = null
+
     /** Updated async from DataStore; false until loaded so we do not attach bubble metadata prematurely. */
     @Volatile
     private var bubbleEnabled: Boolean = false
@@ -67,11 +78,25 @@ class WeightLiveWorkoutForegroundService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent != null && intent.action == ACTION_REST) {
+            if (!isRunning) {
+                // The session ended before this update arrived; don't put a notification back up.
+                stopSelf()
+                return START_NOT_STICKY
+            }
+            restEndsAtEpochSeconds = intent.getLongExtra(EXTRA_REST_ENDS_AT_EPOCH_SEC, 0L)
+                .takeIf { it > weightNowEpochSeconds() }
+            restLabel = intent.getStringExtra(EXTRA_REST_LABEL)
+            postForeground()
+            return START_NOT_STICKY
+        }
         if (intent?.action != ACTION_START) {
             stopSelf()
             return START_NOT_STICKY
         }
+        isRunning = true
         startedAtEpochSeconds = intent!!.getLongExtra(EXTRA_STARTED_AT_EPOCH_SEC, weightNowEpochSeconds())
+        title = intent.getStringExtra(EXTRA_TITLE)?.takeIf { it.isNotBlank() }
         postForeground()
         serviceScope.launch {
             val enabled = withContext(Dispatchers.IO) {
@@ -86,6 +111,7 @@ class WeightLiveWorkoutForegroundService : Service() {
     }
 
     override fun onDestroy() {
+        isRunning = false
         serviceScope.cancel()
         stopEverything()
         super.onDestroy()
@@ -130,13 +156,27 @@ class WeightLiveWorkoutForegroundService : Service() {
             immutable
         )
 
+        val restEnd = restEndsAtEpochSeconds?.takeIf { it > weightNowEpochSeconds() }
+        val sessionTitle = title ?: getString(R.string.weight_live_notification_title)
         val builder = NotificationCompat.Builder(this, WeightLiveWorkoutConstants.NOTIFICATION_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_erv)
-            .setContentTitle(getString(R.string.weight_live_notification_title))
-            .setContentText(getString(R.string.weight_live_notification_chronometer_line))
-            .setWhen(startedAtMs)
             .setShowWhen(true)
             .setUsesChronometer(true)
+        if (restEnd != null) {
+            // The chronometer counts down to the end of rest, so the shade and lock screen show
+            // the time left without the app posting an update every second.
+            builder
+                .setContentTitle(getString(R.string.weight_live_notification_rest_title))
+                .setContentText(restLabel?.takeIf { it.isNotBlank() } ?: sessionTitle)
+                .setWhen(restEnd * 1000L)
+                .setChronometerCountDown(true)
+        } else {
+            builder
+                .setContentTitle(sessionTitle)
+                .setContentText(getString(R.string.weight_live_notification_chronometer_line))
+                .setWhen(startedAtMs)
+        }
+        builder
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
@@ -197,18 +237,50 @@ class WeightLiveWorkoutForegroundService : Service() {
         private const val BUBBLE_PENDING_INTENT_REQUEST = 2
         private const val ACTION_START = "com.erv.app.weight.LIVE_START"
         private const val EXTRA_STARTED_AT_EPOCH_SEC = "startedAtEpochSec"
+        private const val EXTRA_TITLE = "title"
+        private const val ACTION_REST = "com.erv.app.weight.LIVE_REST"
+        private const val EXTRA_REST_ENDS_AT_EPOCH_SEC = "restEndsAtEpochSec"
+        private const val EXTRA_REST_LABEL = "restLabel"
+
+        /** True while the service is in the foreground; rest updates go only to a running service. */
+        @Volatile
+        var isRunning: Boolean = false
+            private set
         /** Pre–bubble-v2 channel; deleting lets users get a single channel with bubble toggles. */
         private const val LEGACY_NOTIFICATION_CHANNEL_ID = "erv_weight_live_workout"
 
-        fun start(context: Context, startedAtEpochSeconds: Long) {
+        fun start(context: Context, startedAtEpochSeconds: Long, title: String? = null) {
             val app = context.applicationContext
             ContextCompat.startForegroundService(
                 app,
                 Intent(app, WeightLiveWorkoutForegroundService::class.java).apply {
                     action = ACTION_START
                     putExtra(EXTRA_STARTED_AT_EPOCH_SEC, startedAtEpochSeconds)
+                    title?.let { putExtra(EXTRA_TITLE, it) }
                 }
             )
+        }
+
+        /**
+         * Show a rest countdown ending at [endsAtEpochSeconds] in the ongoing notification, or go
+         * back to the session clock when it is null. Does nothing when the service isn't running
+         * (no notification is up), so it never starts one.
+         */
+        fun updateRest(context: Context, endsAtEpochSeconds: Long?, label: String?) {
+            if (!isRunning) return
+            val app = context.applicationContext
+            try {
+                app.startService(
+                    Intent(app, WeightLiveWorkoutForegroundService::class.java).apply {
+                        action = ACTION_REST
+                        putExtra(EXTRA_REST_ENDS_AT_EPOCH_SEC, endsAtEpochSeconds ?: 0L)
+                        label?.let { putExtra(EXTRA_REST_LABEL, it) }
+                    }
+                )
+            } catch (e: IllegalStateException) {
+                // Background start limits: the notification keeps the session clock instead.
+                Log.w(TAG, "Rest notification update skipped", e)
+            }
         }
 
         fun stop(context: Context) {

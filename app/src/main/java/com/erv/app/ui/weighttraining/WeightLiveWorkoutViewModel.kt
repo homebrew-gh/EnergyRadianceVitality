@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.erv.app.data.UserPreferences
 import com.erv.app.weighttraining.setLoggingStyle
 import com.erv.app.weighttraining.WeightLibraryState
+import com.erv.app.weighttraining.RestTimerAlarm
 import com.erv.app.weighttraining.WeightLiveWorkoutForegroundService
 import com.erv.app.weighttraining.WeightHiitBlockLog
 import com.erv.app.weighttraining.WeightRoutine
@@ -71,7 +72,7 @@ class WeightLiveWorkoutViewModel(application: Application) : AndroidViewModel(ap
                     _activeDraft.value = draft
                     val suppressNotification = userPreferences.liveWeightWorkoutNotificationSuppressed.first()
                     if (!suppressNotification) {
-                        WeightLiveWorkoutForegroundService.start(getApplication(), draft.startedAtEpochSeconds)
+                        WeightLiveWorkoutForegroundService.start(getApplication(), draft.startedAtEpochSeconds, draft.routineName)
                     }
                 }
             }
@@ -111,7 +112,7 @@ class WeightLiveWorkoutViewModel(application: Application) : AndroidViewModel(ap
         _liveWorkoutUiExpanded.value = true
         viewModelScope.launch {
             userPreferences.setLiveWeightWorkoutNotificationSuppressed(false)
-            WeightLiveWorkoutForegroundService.start(getApplication(), draft.startedAtEpochSeconds)
+            WeightLiveWorkoutForegroundService.start(getApplication(), draft.startedAtEpochSeconds, draft.routineName)
             persistDraft()
         }
         return true
@@ -143,7 +144,7 @@ class WeightLiveWorkoutViewModel(application: Application) : AndroidViewModel(ap
         viewModelScope.launch {
             userPreferences.setLiveWeightWorkoutNotificationSuppressed(suppressNotification)
             if (!suppressNotification) {
-                WeightLiveWorkoutForegroundService.start(getApplication(), draft.startedAtEpochSeconds)
+                WeightLiveWorkoutForegroundService.start(getApplication(), draft.startedAtEpochSeconds, draft.routineName)
             }
             persistDraft()
         }
@@ -186,7 +187,7 @@ class WeightLiveWorkoutViewModel(application: Application) : AndroidViewModel(ap
         viewModelScope.launch {
             userPreferences.setLiveWeightWorkoutNotificationSuppressed(suppressNotification)
             if (!suppressNotification) {
-                WeightLiveWorkoutForegroundService.start(getApplication(), draft.startedAtEpochSeconds)
+                WeightLiveWorkoutForegroundService.start(getApplication(), draft.startedAtEpochSeconds, draft.routineName)
             }
             persistDraft()
         }
@@ -221,7 +222,7 @@ class WeightLiveWorkoutViewModel(application: Application) : AndroidViewModel(ap
         viewModelScope.launch {
             userPreferences.setLiveWeightWorkoutNotificationSuppressed(suppressNotification)
             if (!suppressNotification) {
-                WeightLiveWorkoutForegroundService.start(getApplication(), draft.startedAtEpochSeconds)
+                WeightLiveWorkoutForegroundService.start(getApplication(), draft.startedAtEpochSeconds, draft.routineName)
             }
             persistDraft()
         }
@@ -277,7 +278,7 @@ class WeightLiveWorkoutViewModel(application: Application) : AndroidViewModel(ap
         viewModelScope.launch {
             userPreferences.setLiveWeightWorkoutNotificationSuppressed(suppressNotification)
             if (!suppressNotification) {
-                WeightLiveWorkoutForegroundService.start(getApplication(), draft.startedAtEpochSeconds)
+                WeightLiveWorkoutForegroundService.start(getApplication(), draft.startedAtEpochSeconds, draft.routineName)
             }
             persistDraft()
         }
@@ -370,8 +371,48 @@ class WeightLiveWorkoutViewModel(application: Application) : AndroidViewModel(ap
         persistDraft()
     }
 
+    /**
+     * Start, wait for, or clear the rest countdown. [endsAtEpochSeconds] non-null starts a
+     * countdown; [manualPending] means a set was logged and the athlete starts it by hand.
+     * [nextLabel] is what the rest leads into ("Next set: Bench Press") for the notification.
+     */
+    fun setRest(
+        endsAtEpochSeconds: Long?,
+        manualPending: Boolean,
+        exerciseId: String?,
+        nextLabel: String?,
+    ) {
+        val d = _activeDraft.value ?: return
+        val updated = d.copy(
+            restEndsAtEpochSeconds = endsAtEpochSeconds,
+            restManualPending = manualPending && endsAtEpochSeconds == null,
+            restExerciseId = exerciseId,
+            // A circuit's between-slot rest is consumed once its countdown starts, so coming back
+            // to the screen doesn't start it again from the top.
+            circuitRun = if (endsAtEpochSeconds != null) {
+                d.circuitRun?.copy(pendingRestSeconds = null)
+            } else {
+                d.circuitRun
+            },
+        )
+        if (updated == d) return
+        _activeDraft.value = updated
+        persistDraft()
+        val app = getApplication<Application>()
+        if (endsAtEpochSeconds != null && endsAtEpochSeconds > weightNowEpochSeconds()) {
+            RestTimerAlarm.schedule(app, endsAtEpochSeconds, nextLabel.orEmpty(), openWeightLive = true)
+            WeightLiveWorkoutForegroundService.updateRest(app, endsAtEpochSeconds, nextLabel)
+        } else if (d.restEndsAtEpochSeconds != null) {
+            RestTimerAlarm.cancel(app)
+            WeightLiveWorkoutForegroundService.updateRest(app, endsAtEpochSeconds = null, label = null)
+        }
+    }
+
     fun clearDraft() {
         if (_activeDraft.value != null) {
+            if (_activeDraft.value?.restEndsAtEpochSeconds != null) {
+                RestTimerAlarm.cancel(getApplication())
+            }
             WeightLiveWorkoutForegroundService.stop(getApplication())
         }
         _activeDraft.value = null

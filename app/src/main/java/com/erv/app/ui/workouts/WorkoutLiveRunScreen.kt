@@ -39,9 +39,11 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -72,6 +74,11 @@ import com.erv.app.workouts.displayExerciseName
 import com.erv.app.workouts.displaySummary
 import com.erv.app.workouts.isFreshWithNothingLogged
 import com.erv.app.workouts.isStarted
+import com.erv.app.workouts.nowWorkoutEpochSeconds
+import com.erv.app.weighttraining.RestTimerAlarm
+import com.erv.app.weighttraining.restEndCueIsFresh
+import com.erv.app.weighttraining.restSecondsRemaining
+import com.erv.app.ui.media.playHiitWorkSegmentEndCue
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import com.erv.app.cardio.CardioBuiltinActivity
@@ -117,9 +124,10 @@ import com.erv.app.workouts.weightItems
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+/** A rest between steps, as an end time so it stays right after the app was in the background. */
 private data class ActiveWorkoutRest(
     val advanceFrom: WorkoutRunPosition,
-    val secondsRemaining: Int,
+    val endsAtEpochSeconds: Long,
     val label: String,
 )
 
@@ -178,6 +186,8 @@ fun WorkoutLiveRunScreen(
     var pendingCircuitSegment by remember { mutableStateOf<WorkoutSegment?>(null) }
     var pendingWeightBatch by remember { mutableStateOf<List<WorkoutItem.Weight>?>(null) }
     var activeRest by remember { mutableStateOf<ActiveWorkoutRest?>(null) }
+    // Bumped every second while resting so the countdown recomposes from the wall clock.
+    var restTick by remember { mutableIntStateOf(0) }
     var sectionTransition by remember { mutableStateOf<WorkoutSectionTransition?>(null) }
     // Label of the step the athlete asked to skip; non-null while the confirmation dialog is up.
     var pendingSkipLabel by remember { mutableStateOf<String?>(null) }
@@ -301,7 +311,7 @@ fun WorkoutLiveRunScreen(
             segmentIndex = segmentIndex,
             initialRound = position.round,
             initialSlotIndex = position.itemIndex,
-            suppressNotification = true,
+            suppressNotification = false,
         )
         if (started) {
             // Re-arm the per-section HR buffer so every section (not just the first) captures its
@@ -339,7 +349,7 @@ fun WorkoutLiveRunScreen(
             prescription = item.prescription,
             library = weightState,
             sessionLabel = label,
-            suppressNotification = true,
+            suppressNotification = false,
         )
         if (started) {
             heartRateBle.resetWorkoutRecordingOnLiveStart()
@@ -382,7 +392,7 @@ fun WorkoutLiveRunScreen(
             items = items,
             library = weightState,
             sessionLabel = label,
-            suppressNotification = true,
+            suppressNotification = false,
         )
         if (started) {
             heartRateBle.resetWorkoutRecordingOnLiveStart()
@@ -672,7 +682,7 @@ fun WorkoutLiveRunScreen(
         }
         activeRest = ActiveWorkoutRest(
             advanceFrom = from,
-            secondsRemaining = seconds,
+            endsAtEpochSeconds = nowWorkoutEpochSeconds() + seconds,
             label = label,
         )
     }
@@ -718,16 +728,34 @@ fun WorkoutLiveRunScreen(
         sectionTransition = transition.copy(secondsRemaining = transition.secondsRemaining - 1)
     }
 
-    LaunchedEffect(activeRest?.advanceFrom, activeRest?.secondsRemaining) {
+    LaunchedEffect(activeRest?.advanceFrom, activeRest?.endsAtEpochSeconds, restTick) {
         val rest = activeRest ?: return@LaunchedEffect
-        if (rest.secondsRemaining <= 0) {
+        val now = nowWorkoutEpochSeconds()
+        if (now >= rest.endsAtEpochSeconds) {
+            // Rest that ended while ERV was in the background already alerted from the notification.
+            if (restEndCueIsFresh(rest.endsAtEpochSeconds, now)) {
+                playHiitWorkSegmentEndCue(appContext)
+                RestTimerAlarm.vibrateRestOver(appContext)
+            }
             val from = rest.advanceFrom
             activeRest = null
             applyAdvance(from)
             return@LaunchedEffect
         }
         delay(1_000L)
-        activeRest = rest.copy(secondsRemaining = rest.secondsRemaining - 1)
+        restTick++
+    }
+
+    // Wake the phone when this rest ends even if the screen is locked or ERV is in the background.
+    // Disposing (rest skipped, finished, or this screen left) cancels it.
+    DisposableEffect(activeRest?.endsAtEpochSeconds) {
+        val rest = activeRest
+        if (rest != null) {
+            RestTimerAlarm.schedule(appContext, rest.endsAtEpochSeconds, rest.label, openWeightLive = false)
+        }
+        onDispose {
+            if (rest != null) RestTimerAlarm.cancel(appContext)
+        }
     }
 
     LaunchedEffect(
@@ -885,7 +913,10 @@ fun WorkoutLiveRunScreen(
                 item {
                     WorkoutRestCountdownCard(
                         label = activeRest!!.label,
-                        secondsRemaining = activeRest!!.secondsRemaining,
+                        secondsRemaining = restSecondsRemaining(
+                            activeRest!!.endsAtEpochSeconds,
+                            nowWorkoutEpochSeconds(),
+                        ) ?: 0,
                         onSkip = {
                             val from = activeRest!!.advanceFrom
                             activeRest = null

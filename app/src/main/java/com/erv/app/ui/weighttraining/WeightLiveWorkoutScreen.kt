@@ -64,6 +64,9 @@ import com.erv.app.R
 import com.erv.app.data.BodyWeightUnit
 import com.erv.app.data.UserPreferences
 import com.erv.app.data.WeightLiveRestTimerMode
+import com.erv.app.weighttraining.RestTimerAlarm
+import com.erv.app.weighttraining.restEndCueIsFresh
+import com.erv.app.weighttraining.restSecondsRemaining
 import com.erv.app.hr.LocalHeartRateBle
 import com.erv.app.ui.components.FormSectionLabelMedium
 import com.erv.app.ui.media.WorkoutMediaControlPanel
@@ -153,6 +156,12 @@ fun WeightLiveWorkoutScreen(
     onSaveSets: (String, List<WeightSet>) -> Unit,
     onSaveHiitBlock: (String, WeightHiitBlockLog) -> Unit,
     onClearHiitBlock: (String) -> Unit,
+    /**
+     * Rest countdown changed: ends at the given time (null = none), waiting for a manual start,
+     * for the given exercise, leading into the given label. The parent stores it in the draft and
+     * schedules the background alert.
+     */
+    onRestChange: (endsAtEpochSeconds: Long?, manualPending: Boolean, exerciseId: String?, nextLabel: String?) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -185,9 +194,15 @@ fun WeightLiveWorkoutScreen(
     var mediaControlsEnabled by rememberSaveable { mutableStateOf(false) }
     var hiitTimerTarget by remember { mutableStateOf<Pair<String, WeightHiitIntervalPlan>?>(null) }
     var timedSetTimerTarget by remember { mutableStateOf<WeightTimedSetTimerTarget?>(null) }
-    var restEndAtEpochSeconds by remember(draft.startedAtEpochSeconds) { mutableStateOf<Long?>(null) }
-    var restManualPending by remember(draft.startedAtEpochSeconds) { mutableStateOf(false) }
-    var activeRestExerciseId by remember(draft.startedAtEpochSeconds) { mutableStateOf<String?>(null) }
+    // Rest lives in the draft so it keeps counting when this screen is left or rebuilt.
+    val restEndAtEpochSeconds = draft.restEndsAtEpochSeconds
+    val restManualPending = draft.restManualPending
+    val activeRestExerciseId = draft.restExerciseId
+    fun restNextLabel(exerciseId: String?): String? =
+        exerciseId?.let { library.exerciseById(it)?.name }?.let { "Next set: $it" }
+    fun startRestCountdown(exerciseId: String?, seconds: Int) {
+        onRestChange(weightNowEpochSeconds() + seconds, false, exerciseId, restNextLabel(exerciseId))
+    }
     var showRestTimerSettings by remember { mutableStateOf(false) }
 
     val restTimerModeChosen by userPreferences.weightLiveRestTimerModeChosen.collectAsState(initial = null)
@@ -246,8 +261,8 @@ fun WeightLiveWorkoutScreen(
     LaunchedEffect(circuitRun?.pendingRestSeconds) {
         val seconds = circuitRun?.pendingRestSeconds ?: return@LaunchedEffect
         if (seconds > 0) {
-            restManualPending = false
-            restEndAtEpochSeconds = weightNowEpochSeconds() + seconds
+            val nextExerciseId = circuitRun?.currentSlot()?.exerciseId
+            startRestCountdown(nextExerciseId, seconds)
         }
     }
 
@@ -268,23 +283,28 @@ fun WeightLiveWorkoutScreen(
 
     LaunchedEffect(restEndAtEpochSeconds, tick) {
         val end = restEndAtEpochSeconds ?: return@LaunchedEffect
-        if (weightNowEpochSeconds() >= end) {
-            if (latestEndSoundEnabled) {
-                playHiitWorkSegmentEndCue(context)
+        val now = weightNowEpochSeconds()
+        if (now >= end) {
+            // A rest that ended while ERV was in the background already alerted from the
+            // notification, so coming back to the screen stays quiet.
+            if (restEndCueIsFresh(end, now)) {
+                if (latestEndSoundEnabled) {
+                    playHiitWorkSegmentEndCue(context)
+                }
+                RestTimerAlarm.vibrateRestOver(context)
             }
-            restEndAtEpochSeconds = null
+            onRestChange(null, false, activeRestExerciseId, null)
         }
     }
 
     fun clearRestTimerUi() {
-        restEndAtEpochSeconds = null
-        restManualPending = false
+        if (restEndAtEpochSeconds != null || restManualPending) {
+            onRestChange(null, false, activeRestExerciseId, null)
+        }
     }
 
     val restRemainingSec = remember(tick, restEndAtEpochSeconds) {
-        val end = restEndAtEpochSeconds ?: return@remember null
-        val left = (end - weightNowEpochSeconds()).toInt().coerceAtLeast(0)
-        if (left <= 0) null else left
+        restSecondsRemaining(restEndAtEpochSeconds, weightNowEpochSeconds())
     }
 
     LaunchedEffect(restRemainingSec) {
@@ -316,17 +336,10 @@ fun WeightLiveWorkoutScreen(
             ?: if (prescribesRest) WeightLiveRestTimerMode.AUTO else WeightLiveRestTimerMode.OFF
         val duration = restDurationFor(exerciseId)
         if (mode == WeightLiveRestTimerMode.OFF || duration <= 0) return
-        activeRestExerciseId = exerciseId
-        restEndAtEpochSeconds = null
         when (mode) {
             WeightLiveRestTimerMode.OFF -> Unit
-            WeightLiveRestTimerMode.AUTO -> {
-                restManualPending = false
-                restEndAtEpochSeconds = weightNowEpochSeconds() + duration
-            }
-            WeightLiveRestTimerMode.MANUAL -> {
-                restManualPending = true
-            }
+            WeightLiveRestTimerMode.AUTO -> startRestCountdown(exerciseId, duration)
+            WeightLiveRestTimerMode.MANUAL -> onRestChange(null, true, exerciseId, null)
         }
     }
 
@@ -731,9 +744,8 @@ fun WeightLiveWorkoutScreen(
                 restSecondsRemaining = restRemainingSec,
                 restManualPending = restManualPending && restEndAtEpochSeconds == null,
                 onStartManualRest = {
-                    restManualPending = false
                     val exerciseId = activeRestExerciseId ?: editingExerciseId
-                    restEndAtEpochSeconds = weightNowEpochSeconds() + restDurationFor(exerciseId)
+                    startRestCountdown(exerciseId, restDurationFor(exerciseId))
                 },
                 onSkipRest = { clearRestTimerUi() },
                 onRestZoneLongPress = { showRestTimerSettings = true },
