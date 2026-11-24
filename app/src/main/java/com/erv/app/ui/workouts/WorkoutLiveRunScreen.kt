@@ -178,6 +178,9 @@ import com.erv.app.workouts.canRemoveSessionItem
 import com.erv.app.workouts.describeAdjustmentsFrom
 import com.erv.app.cardio.cardioBuiltinActivitiesForUserSelection
 import com.erv.app.ui.weighttraining.WeightPickExerciseDialog
+import com.erv.app.ui.weighttraining.WeightExerciseEditorDialog
+import com.erv.app.weighttraining.WeightSync
+import com.erv.app.weighttraining.recentExerciseIds
 import java.time.LocalDate
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -233,6 +236,8 @@ fun WorkoutLiveRunScreen(
     var swapItem by remember { mutableStateOf<Pair<String, String>?>(null) }
     var swapFromLibrary by remember { mutableStateOf<Pair<String, String>?>(null) }
     var addKind by remember { mutableStateOf<WorkoutSessionAddKind?>(null) }
+    // Name typed in the picker for a new exercise, and the item it swaps in for (null: add it).
+    var createExercise by remember { mutableStateOf<Pair<String, Pair<String, String>?>?>(null) }
     // Segment id, item id and name of the item the athlete asked to remove.
     var removeTarget by remember { mutableStateOf<Triple<String, String, String>?>(null) }
     var editingSet by remember { mutableStateOf<WorkoutSessionLoggedSet?>(null) }
@@ -871,15 +876,59 @@ fun WorkoutLiveRunScreen(
         }
     }
 
+    // The run screen redraws every second; work out the recent list only when the logs change.
+    val recentExerciseIds = remember(weightState.logs, weightState.exercises) { weightState.recentExerciseIds() }
+
     swapFromLibrary?.let { (swapSegmentId, swapItemId) ->
         val item = runItem(swapSegmentId, swapItemId) as? WorkoutItem.Weight
         WeightPickExerciseDialog(
             exercises = weightState.exercises,
             excludeIds = setOfNotNull(item?.let { todaysExerciseOf(swapSegmentId, it) }),
             onDismiss = { swapFromLibrary = null },
+            recentExerciseIds = recentExerciseIds,
             onPick = { exerciseId ->
                 swapFromLibrary = null
                 scope.launch { repository.swapSessionExercise(swapSegmentId, swapItemId, exerciseId) }
+            },
+            onCreateNew = { typed ->
+                swapFromLibrary = null
+                createExercise = typed to (swapSegmentId to swapItemId)
+            },
+        )
+    }
+
+    createExercise?.let { (typedName, swapTarget) ->
+        WeightExerciseEditorDialog(
+            initial = null,
+            title = "New Exercise",
+            availableMuscleGroups = weightState.exercises.map { it.muscleGroup },
+            initialName = typedName,
+            onDismiss = { createExercise = null },
+            onSave = { exercise ->
+                createExercise = null
+                scope.launch {
+                    weightRepository.upsertExercise(exercise)
+                    if (swapTarget != null) {
+                        repository.swapSessionExercise(swapTarget.first, swapTarget.second, exercise.id)
+                    } else {
+                        repository.addSessionItem(WorkoutSessionAddition.Lift(exercise.id, exercise))
+                    }
+                }
+                // Publish the library in the background; never hold the screen on relays.
+                if (relayPool != null && signer != null) {
+                    val urls = runKeyManager.relayUrlsForKind30078Publish()
+                    scope.launch {
+                        runCatching {
+                            WeightSync.publishExercises(
+                                appContext,
+                                relayPool,
+                                signer,
+                                weightRepository.currentState().exercises,
+                                urls,
+                            )
+                        }
+                    }
+                }
             },
         )
     }
@@ -889,10 +938,15 @@ fun WorkoutLiveRunScreen(
             exercises = weightState.exercises,
             excludeIds = emptySet(),
             onDismiss = { addKind = null },
-            onPick = { exerciseId ->
+            recentExerciseIds = recentExerciseIds,
+            onPickMany = { exerciseIds ->
                 addKind = null
-                val addition = WorkoutSessionAddition.Lift(exerciseId, weightState.exerciseById(exerciseId))
-                scope.launch { repository.addSessionItem(addition) }
+                val additions = exerciseIds.map { WorkoutSessionAddition.Lift(it, weightState.exerciseById(it)) }
+                scope.launch { repository.addSessionItems(additions) }
+            },
+            onCreateNew = { typed ->
+                addKind = null
+                createExercise = typed to null
             },
         )
         WorkoutSessionAddKind.CARDIO -> WorkoutSessionAddCardioDialog(

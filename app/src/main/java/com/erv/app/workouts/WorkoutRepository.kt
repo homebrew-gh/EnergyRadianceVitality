@@ -180,6 +180,15 @@ class WorkoutRepository(context: Context) {
         }
     }
 
+    /** Adds several items after the one on screen, in order (see [withSessionItemsAdded]). */
+    suspend fun addSessionItems(additions: List<WorkoutSessionAddition>) {
+        if (additions.isEmpty()) return
+        updateState { state ->
+            val run = state.activeRun ?: return@updateState state
+            state.copy(activeRun = run.withSessionItemsAdded(additions))
+        }
+    }
+
     /** Takes an item that hasn't started out of today's run (see [withSessionItemRemoved]). */
     suspend fun removeSessionItem(segmentId: String, itemId: String) {
         updateState { state ->

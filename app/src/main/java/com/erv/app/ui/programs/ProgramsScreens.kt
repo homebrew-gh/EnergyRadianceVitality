@@ -120,6 +120,7 @@ import com.erv.app.stretching.StretchingSync
 import com.erv.app.stretching.stretchCategoryDisplayLabel
 import com.erv.app.ui.stretching.StretchPickStretchDialog
 import com.erv.app.unifiedroutines.UnifiedRoutineLibraryState
+import com.erv.app.weighttraining.recentExerciseIds
 import com.erv.app.weighttraining.WeightLibraryState
 import com.erv.app.weighttraining.WeightRepository
 import com.erv.app.weighttraining.WeightRoutine
@@ -1632,10 +1633,11 @@ private fun BlockEditorDialog(
             exercises = weightState.exercises.sortedBy { it.name.lowercase() },
             excludeIds = weightIds.toSet(),
             onDismiss = { showWeightPickExercise = false },
-            onPick = { id ->
-                weightIds = weightIds + id
+            recentExerciseIds = weightState.recentExerciseIds(),
+            onPickMany = { ids ->
+                weightIds = weightIds + ids
                 showWeightPickExercise = false
-            }
+            },
         )
     }
 
