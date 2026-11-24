@@ -2,9 +2,6 @@ package com.erv.app.unifiedroutines
 
 import com.erv.app.data.preserveUnreadableState
 import android.content.Context
-import com.erv.app.nostr.SessionMediaBackupRuntime
-import java.time.Instant
-import java.time.ZoneId
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
@@ -18,6 +15,11 @@ import kotlinx.serialization.json.Json
 
 private val Context.unifiedRoutineDataStore: DataStore<Preferences> by preferencesDataStore(name = "erv_unified_routines")
 
+/**
+ * Saved data from the old Unified Workouts feature, which the phone no longer runs. It stays so
+ * backups keep it, data deletion clears it and heart rate trends still count those sessions. The
+ * cardio, weight and stretch entries those sessions logged live in their own logs.
+ */
 class UnifiedRoutineRepository(context: Context) {
 
     private val appContext = context.applicationContext
@@ -47,189 +49,6 @@ class UnifiedRoutineRepository(context: Context) {
         replaceAll(UnifiedRoutineLibraryState())
     }
 
-    suspend fun upsertRoutine(routine: UnifiedRoutine) {
-        val stamped = routine.touch()
-        updateState { state ->
-            state.copy(routines = state.routines.upsertById(stamped) { it.id })
-        }
-    }
-
-    suspend fun deleteRoutine(routineId: String) {
-        updateState { state ->
-            state.copy(
-                routines = state.routines.filterNot { it.id == routineId },
-                sessions = state.sessions.filterNot { it.routineId == routineId },
-                activeSession = state.activeSession?.takeUnless { it.routineId == routineId }
-            )
-        }
-    }
-
-    suspend fun startSession(routineId: String) {
-        updateState { state ->
-            val routine = state.routineById(routineId) ?: return@updateState state
-            createStartedSessionState(
-                state = state,
-                routine = routine,
-                persistInRoutines = true,
-                startedAsAdHoc = false
-            )
-        }
-    }
-
-    suspend fun startAdHocSession(routine: UnifiedRoutine) {
-        updateState { state ->
-            createStartedSessionState(
-                state = state,
-                routine = routine,
-                persistInRoutines = false,
-                startedAsAdHoc = true
-            )
-        }
-    }
-
-    private fun createStartedSessionState(
-        state: UnifiedRoutineLibraryState,
-        routine: UnifiedRoutine,
-        persistInRoutines: Boolean,
-        startedAsAdHoc: Boolean,
-    ): UnifiedRoutineLibraryState {
-            val session = UnifiedWorkoutSession(
-                routineId = routine.id,
-                routineName = routine.name,
-                startedAtEpochSeconds = nowUnifiedRoutineEpochSeconds(),
-                routineSnapshot = routine,
-                startedAsAdHoc = startedAsAdHoc,
-                blocks = routine.blocks.map { block ->
-                    UnifiedWorkoutBlockRecap(
-                        blockId = block.id,
-                        type = block.type,
-                        title = block.title,
-                        sourceBlock = block,
-                    )
-                }
-            )
-            return state.copy(
-                routines = if (persistInRoutines) state.routines else state.routines.filterNot { it.id == routine.id },
-                sessions = state.sessions.filterNot { it.id == state.activeSession?.sessionId } + session,
-                activeSession = UnifiedRoutineSessionState(
-                    sessionId = session.id,
-                    routineId = routine.id,
-                    routineSnapshot = routine,
-                    startedAsAdHoc = startedAsAdHoc,
-                    startedAtEpochSeconds = session.startedAtEpochSeconds,
-                    completedBlockIds = emptyList(),
-                    lastLaunchedBlockId = null
-                )
-            )
-    }
-
-    suspend fun markBlockCompleted(routineId: String, blockId: String, completed: Boolean) {
-        updateState { state ->
-            val session = state.activeSession ?: return@updateState state
-            if (session.routineId != routineId) return@updateState state
-            val nextIds = if (completed) {
-                (session.completedBlockIds + blockId).distinct()
-            } else {
-                session.completedBlockIds.filterNot { it == blockId }
-            }
-            state.copy(
-                sessions = state.sessions.updateById(session.sessionId) { existing ->
-                    existing.copy(completedBlockIds = nextIds)
-                },
-                activeSession = session.copy(completedBlockIds = nextIds)
-            )
-        }
-    }
-
-    suspend fun setLastLaunchedBlock(routineId: String, blockId: String?) {
-        updateState { state ->
-            val session = state.activeSession ?: return@updateState state
-            if (session.routineId != routineId) return@updateState state
-            state.copy(
-                sessions = state.sessions.updateById(session.sessionId) { existing ->
-                    existing.copy(
-                        lastLaunchedBlockId = blockId,
-                        blocks = existing.blocks.map { block ->
-                            if (block.blockId != blockId || block.startedAtEpochSeconds != null) block
-                            else block.copy(startedAtEpochSeconds = nowUnifiedRoutineEpochSeconds())
-                        }
-                    )
-                },
-                activeSession = session.copy(lastLaunchedBlockId = blockId)
-            )
-        }
-    }
-
-    suspend fun attachLoggedBlock(routineId: String, blockId: String, logDate: String, entryId: String) {
-        updateState { state ->
-            val session = state.activeSession ?: return@updateState state
-            if (session.routineId != routineId) return@updateState state
-            val nextIds = (session.completedBlockIds + blockId).distinct()
-            state.copy(
-                sessions = state.sessions.updateById(session.sessionId) { existing ->
-                    existing.copy(
-                        completedBlockIds = nextIds,
-                        lastLaunchedBlockId = blockId,
-                        blocks = existing.blocks.map { block ->
-                            if (block.blockId != blockId) block
-                            else block.copy(
-                                startedAtEpochSeconds = block.startedAtEpochSeconds ?: nowUnifiedRoutineEpochSeconds(),
-                                finishedAtEpochSeconds = nowUnifiedRoutineEpochSeconds(),
-                                linkedLogDate = logDate,
-                                linkedEntryId = entryId
-                            )
-                        }
-                    )
-                },
-                activeSession = session.copy(
-                    completedBlockIds = nextIds,
-                    lastLaunchedBlockId = blockId
-                )
-            )
-        }
-    }
-
-    suspend fun finishSession(routineId: String, heartRate: com.erv.app.cardio.CardioHrScaffolding?) {
-        val active = currentState().activeSession ?: return
-        if (active.routineId != routineId) return
-        updateState { state ->
-            val session = state.activeSession ?: return@updateState state
-            if (session.routineId != routineId) return@updateState state
-            state.copy(
-                sessions = state.sessions.updateById(session.sessionId) { existing ->
-                    existing.copy(
-                        completedBlockIds = session.completedBlockIds,
-                        lastLaunchedBlockId = session.lastLaunchedBlockId,
-                        finishedAtEpochSeconds = nowUnifiedRoutineEpochSeconds(),
-                        heartRate = heartRate
-                    )
-                },
-                activeSession = null
-            )
-        }
-        if (heartRate != null) {
-            val dateIso = Instant.ofEpochSecond(active.startedAtEpochSeconds)
-                .atZone(ZoneId.systemDefault())
-                .toLocalDate()
-                .toString()
-            SessionMediaBackupRuntime.scheduleHeartRateGraph(
-                appContext = appContext,
-                localId = active.sessionId,
-                dateIso = dateIso,
-                heartRate = heartRate,
-            )
-        }
-    }
-
-    suspend fun clearActiveSession() {
-        updateState { state ->
-            state.copy(
-                sessions = state.sessions.filterNot { it.id == state.activeSession?.sessionId },
-                activeSession = null
-            )
-        }
-    }
-
     private suspend fun updateState(transform: (UnifiedRoutineLibraryState) -> UnifiedRoutineLibraryState) {
         appContext.unifiedRoutineDataStore.edit { prefs ->
             val raw = prefs[Keys.STATE]
@@ -251,19 +70,4 @@ class UnifiedRoutineRepository(context: Context) {
             UnifiedRoutineLibraryState()
         }
     }
-}
-
-private fun <T : Any> List<T>.upsertById(entry: T, idSelector: (T) -> String): List<T> {
-    val items = toMutableList()
-    val id = idSelector(entry)
-    val index = items.indexOfFirst { idSelector(it) == id }
-    if (index >= 0) items[index] = entry else items.add(entry)
-    return items
-}
-
-private fun List<UnifiedWorkoutSession>.updateById(
-    sessionId: String,
-    transform: (UnifiedWorkoutSession) -> UnifiedWorkoutSession
-): List<UnifiedWorkoutSession> = map { session ->
-    if (session.id == sessionId) transform(session) else session
 }

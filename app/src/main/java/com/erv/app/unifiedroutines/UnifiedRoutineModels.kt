@@ -2,12 +2,12 @@ package com.erv.app.unifiedroutines
 
 import com.erv.app.cardio.CardioHrScaffolding
 import com.erv.app.cardio.CardioQuickLaunch
-import com.erv.app.cardio.CardioRoutine
-import com.erv.app.stretching.StretchRoutine
-import com.erv.app.weighttraining.WeightRoutine
 import java.util.UUID
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+
+// Old Unified Workouts data, kept only so saved sessions, backups and logged entries' unifiedLink
+// still decode. Nothing creates these any more; the Training tab's workouts replace them.
 
 @Serializable
 enum class UnifiedRoutineBlockType {
@@ -108,56 +108,3 @@ fun generateUnifiedWorkoutDisplayRef(nowEpochSeconds: Long = nowUnifiedRoutineEp
     val randomPart = UUID.randomUUID().toString().replace("-", "").takeLast(4).uppercase()
     return "UW-$timePart-$randomPart"
 }
-
-fun UnifiedRoutine.touch(): UnifiedRoutine =
-    copy(lastModifiedEpochSeconds = nowUnifiedRoutineEpochSeconds())
-
-fun UnifiedRoutineSessionState.isBlockCompleted(blockId: String): Boolean = blockId in completedBlockIds
-
-fun UnifiedWorkoutSession.isBlockCompleted(blockId: String): Boolean = blockId in completedBlockIds
-
-fun UnifiedWorkoutSession.linkFor(blockId: String): UnifiedSessionLink =
-    UnifiedSessionLink(
-        sessionId = id,
-        routineId = routineId,
-        blockId = blockId,
-        displayRef = displayRef
-    )
-
-fun WeightRoutine.toUnifiedRoutine(): UnifiedRoutine =
-    UnifiedRoutine(
-        name = name,
-        blocks = listOf(
-            UnifiedRoutineBlock(
-                type = UnifiedRoutineBlockType.WEIGHT,
-                title = name,
-                weightRoutineId = id,
-            )
-        )
-    )
-
-fun CardioRoutine.toUnifiedRoutine(): UnifiedRoutine =
-    UnifiedRoutine(
-        name = name,
-        blocks = listOf(
-            UnifiedRoutineBlock(
-                type = UnifiedRoutineBlockType.CARDIO,
-                title = name,
-                cardioRoutineId = id,
-                targetMinutes = targetDurationMinutes,
-            )
-        )
-    )
-
-fun StretchRoutine.toUnifiedRoutine(): UnifiedRoutine =
-    UnifiedRoutine(
-        name = name,
-        blocks = listOf(
-            UnifiedRoutineBlock(
-                type = UnifiedRoutineBlockType.STRETCH,
-                title = name,
-                stretchRoutineId = id,
-                stretchHoldSecondsPerStretch = holdSecondsPerStretch,
-            )
-        )
-    )

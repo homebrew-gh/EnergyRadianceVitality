@@ -109,14 +109,6 @@
                 android:value="Ongoing cardio timer session: notification and optional bubble to return to the live cardio timer." />
         </service>
         <service
-            android:name=".unifiedroutines.UnifiedRoutineForegroundService"
-            android:exported="false"
-            android:foregroundServiceType="specialUse">
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Ongoing unified workout session: notification to return to the active unified routine." />
-        </service>
-        <service
             android:name=".fasting.FastingForegroundService"
             android:exported="false"
             android:foregroundServiceType="specialUse">

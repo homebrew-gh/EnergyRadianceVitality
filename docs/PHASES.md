@@ -59,7 +59,7 @@ Status per `START9_COMPANION_V1.md` (owner):
 | MVP week grid: assign saved workouts to weekdays on web, publish `workout` blocks (`workoutId`) | Shipped |
 | Android: show synced saved-workout blocks in Programs / Launch Pad, launch live runner | Shipped |
 | Week grid: drop exercises, routines, templates, and saved workouts onto days | Planned |
-| Android: merge Programs + Unified Workouts → single Planner tile (Training is the hub) | Planned |
+| Android: remove Unified Workouts (Training workouts replace them; old sessions stay in each log) | Shipped |
 | Plan strategy, habits, rest notes (3b) | Planned |
 
 **Acceptance test:** Assign two different workouts to two days on web → sync →

@@ -39,7 +39,6 @@
     <string name="settings_live_weight_workout_notifications_denied">Notifications are off—live workout timer and return-to-workout actions may not work. Enable in system Settings.</string>
     <string name="live_workout_in_progress_banner">Live workout in progress — tap to resume</string>
     <string name="live_cardio_in_progress_banner">Cardio timer running — tap to resume</string>
-    <string name="live_unified_in_progress_banner">Unified workout in progress — tap to resume</string>
 
     <!-- Cardio live timer — foreground service & bubble (same pattern as weight) -->
     <string name="cardio_live_notification_channel_name">Live cardio workout</string>

@@ -10,9 +10,9 @@ The app is no longer just a prototype shell. The current Android build includes 
 - **Nostr-native identity** — Sign in with your Nostr key (nsec) or use a remote signer (e.g. [Amber](https://github.com/greenart7c3/Amber))
 - **NIP-42 authentication** — Works with private relays that require authentication
 - **NIP-44 encryption** — All health data encrypted before leaving your device
-- **Live workouts and timers** — Weight training, cardio, and unified routine sessions with foreground-service continuity
+- **Live workouts and timers** — Weight training, cardio, and mixed workout sessions with foreground-service continuity
 - **Bluetooth sensor support** — Heart rate monitors plus cycling speed/cadence sensor support for live workouts
-- **Programs and unified workouts** — Plan sessions by day, launch them from the dashboard, and track completion
+- **Programs and workouts** — Plan sessions by day, launch them from the dashboard, and track completion
 - **Data control** — Export, backup/restore, per-silo delete, and full reset flows with privacy-first copy
 - **Explicit export / restore flows** — Separate data-interchange files from ERV backup JSON used for migration and restore
 - **Sun-themed UI** — Muted warm palette (reds, yellows, oranges)

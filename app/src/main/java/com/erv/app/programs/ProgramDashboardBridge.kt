@@ -17,12 +17,6 @@ data class ProgramDashboardHeatColdLaunch(
     val durationSeconds: Int
 )
 
-@Serializable
-data class ProgramDashboardUnifiedRoutineLaunch(
-    val routineId: String? = null,
-    val createNew: Boolean = false,
-)
-
 private val bridgeJson = Json {
     ignoreUnknownKeys = true
     encodeDefaults = true
@@ -39,9 +33,3 @@ fun encodeHeatColdLaunch(payload: ProgramDashboardHeatColdLaunch): String =
 
 fun decodeHeatColdLaunch(raw: String): ProgramDashboardHeatColdLaunch? =
     runCatching { bridgeJson.decodeFromString(ProgramDashboardHeatColdLaunch.serializer(), raw) }.getOrNull()
-
-fun encodeUnifiedRoutineLaunch(payload: ProgramDashboardUnifiedRoutineLaunch): String =
-    bridgeJson.encodeToString(ProgramDashboardUnifiedRoutineLaunch.serializer(), payload)
-
-fun decodeUnifiedRoutineLaunch(raw: String): ProgramDashboardUnifiedRoutineLaunch? =
-    runCatching { bridgeJson.decodeFromString(ProgramDashboardUnifiedRoutineLaunch.serializer(), raw) }.getOrNull()

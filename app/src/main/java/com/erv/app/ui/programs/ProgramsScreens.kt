@@ -1792,7 +1792,8 @@ private fun BlockEditorDialog(
                     Spacer(Modifier.height(12.dp))
                     FormSectionLabelMedium("Type")
                     Column {
-                        ProgramBlockKind.entries.forEach { k ->
+                        // Unified workouts were removed; an old block keeps its kind so it can be changed.
+                        ProgramBlockKind.entries.filter { it != ProgramBlockKind.UNIFIED_ROUTINE || it == kind }.forEach { k ->
                             Row(
                                 Modifier
                                     .fillMaxWidth()
@@ -2155,7 +2156,7 @@ private fun BlockEditorDialog(
                             }
                         }
                         Text(
-                            "Unified workouts can combine saved weight, cardio, and stretch segments in one launcher.",
+                            "Unified workouts were removed. Change this block to a Saved Workout.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(top = 8.dp)

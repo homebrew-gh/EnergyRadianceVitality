@@ -122,10 +122,6 @@ import com.erv.app.stretching.StretchSession
 import com.erv.app.programs.decodeStretchLaunch
 import com.erv.app.stretching.StretchingRepository
 import com.erv.app.stretching.StretchingSync
-import com.erv.app.unifiedroutines.UnifiedRoutineBlockType
-import com.erv.app.unifiedroutines.UnifiedRoutineLibraryState
-import com.erv.app.unifiedroutines.UnifiedRoutineRepository
-import com.erv.app.unifiedroutines.linkFor
 import com.erv.app.workouts.WorkoutLoggedItemKind
 import com.erv.app.workouts.WorkoutRepository
 import com.erv.app.workouts.activeWorkoutMobilityLaunch
@@ -449,7 +445,6 @@ private fun resolveStretchEntries(
 @Composable
 fun StretchingCategoryScreen(
     repository: StretchingRepository,
-    unifiedRoutineRepository: UnifiedRoutineRepository,
     workoutRepository: WorkoutRepository,
     userPreferences: UserPreferences,
     relayPool: RelayPool?,
@@ -463,7 +458,6 @@ fun StretchingCategoryScreen(
         initial = StretchGuidedTtsVoice.SYSTEM_DEFAULT
     )
     val state by repository.state.collectAsState(initial = StretchLibraryState())
-    val unifiedState by unifiedRoutineRepository.state.collectAsState(initial = UnifiedRoutineLibraryState())
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     val resolvedInitialTab = StretchTab.entries
@@ -549,19 +543,6 @@ fun StretchingCategoryScreen(
             onFinished = { totalMinutes ->
                 scope.launch {
                     val today = LocalDate.now()
-                    val activeUnifiedSession = unifiedState.activeSession
-                    val activeUnifiedBlockId = activeUnifiedSession?.lastLaunchedBlockId?.takeIf { blockId ->
-                        unifiedState
-                            .routineById(activeUnifiedSession.routineId)
-                            ?.blocks
-                            ?.firstOrNull { it.id == blockId }
-                            ?.type == UnifiedRoutineBlockType.STRETCH
-                    }
-                    val unifiedLink = if (activeUnifiedSession != null && activeUnifiedBlockId != null) {
-                        unifiedState.sessionById(activeUnifiedSession.sessionId)?.linkFor(activeUnifiedBlockId)
-                    } else {
-                        null
-                    }
                     val workoutState = workoutRepository.currentState()
                     val workoutLaunch = workoutState.activeWorkoutMobilityLaunch()
                     val workoutLink = workoutLaunch?.let { launch ->
@@ -573,21 +554,10 @@ fun StretchingCategoryScreen(
                         routineName = routine.name,
                         stretchIds = routine.stretchIds,
                         totalMinutes = totalMinutes,
-                        unifiedLink = unifiedLink,
                         workoutLink = workoutLink,
                     )
                     val log = repository.currentState().logFor(today)
                     val savedId = log?.sessions?.lastOrNull()?.id
-                    if (activeUnifiedSession != null && activeUnifiedBlockId != null) {
-                        if (!savedId.isNullOrBlank()) {
-                            unifiedRoutineRepository.attachLoggedBlock(
-                                routineId = activeUnifiedSession.routineId,
-                                blockId = activeUnifiedBlockId,
-                                logDate = today.toString(),
-                                entryId = savedId
-                            )
-                        }
-                    }
                     if (workoutLaunch != null && !savedId.isNullOrBlank()) {
                         workoutRepository.completeLaunchedItem(
                             logDate = today.toString(),
@@ -596,7 +566,6 @@ fun StretchingCategoryScreen(
                         )
                     }
                     when {
-                        activeUnifiedSession != null && activeUnifiedBlockId != null -> onBack()
                         workoutLaunch != null -> onReturnToWorkoutRun(workoutLaunch.workoutId)
                         else -> snackbarHostState.showSnackbar("Logged stretching session")
                     }
@@ -607,23 +576,11 @@ fun StretchingCategoryScreen(
                 guidedRoutine = null
             },
             onCancel = {
-                val activeUnifiedSession = unifiedState.activeSession
-                val activeUnifiedBlockId = activeUnifiedSession?.lastLaunchedBlockId?.takeIf { blockId ->
-                    unifiedState
-                        .routineById(activeUnifiedSession.routineId)
-                        ?.blocks
-                        ?.firstOrNull { it.id == blockId }
-                        ?.type == UnifiedRoutineBlockType.STRETCH
-                }
                 guidedRoutine = null
-                if (activeUnifiedSession != null && activeUnifiedBlockId != null) {
-                    onBack()
-                } else {
-                    scope.launch {
-                        val workoutLaunch = workoutRepository.currentState().activeWorkoutMobilityLaunch()
-                        if (workoutLaunch != null) {
-                            onReturnToWorkoutRun(workoutLaunch.workoutId)
-                        }
+                scope.launch {
+                    val workoutLaunch = workoutRepository.currentState().activeWorkoutMobilityLaunch()
+                    if (workoutLaunch != null) {
+                        onReturnToWorkoutRun(workoutLaunch.workoutId)
                     }
                 }
             }
