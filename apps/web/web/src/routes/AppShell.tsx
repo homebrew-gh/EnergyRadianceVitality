@@ -10,7 +10,7 @@ import { TrainingProfileProvider } from "../lib/trainingProfileData";
 import { TrainingProvider } from "../lib/trainingData";
 import { ErvLogo, ErvSunMark } from "../components/ErvLogo";
 import { NavIcon, type NavIconName } from "../components/NavIcon";
-import { RelayStatus } from "../components/RelayStatus";
+import { RelaySidebarStatus, RelayStatusBanner, RelayStatusProvider } from "../components/RelayStatus";
 
 type NavItem = { to: string; label: string; icon: NavIconName };
 type NavGroup = { title: string; items: NavItem[] };
@@ -140,6 +140,7 @@ function Sidebar({
       </nav>
 
       <div className="space-y-1 border-t border-white/20 pt-3">
+        <RelaySidebarStatus collapsed={collapsed} />
         {passphraseIsSet(status) ? (
           <button
             type="button"
@@ -192,6 +193,7 @@ export function AppShell() {
         <EquipmentProvider>
           <TrainingProfileProvider>
             <TrainingHistoryProvider>
+              <RelayStatusProvider>
               <div className="flex min-h-full">
                 <aside
                   className={clsx(
@@ -228,12 +230,13 @@ export function AppShell() {
                     </button>
                     <ErvLogo variant="onDark" size="sm" />
                   </header>
-                  <RelayStatus />
+                  <RelayStatusBanner />
                   <main className="w-full flex-1 px-4 py-5 md:px-6">
                     <Outlet />
                   </main>
                 </div>
               </div>
+              </RelayStatusProvider>
             </TrainingHistoryProvider>
           </TrainingProfileProvider>
         </EquipmentProvider>

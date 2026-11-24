@@ -10,6 +10,7 @@ import {
   type MediaLibraryItem,
   type MediaLibraryManifest,
 } from "../lib/mediaLibrary";
+import { PageHeader } from "../components/PageHeader";
 
 type GalleryState =
   | { kind: "loading" }
@@ -68,18 +69,16 @@ export function MediaGalleryTab() {
   }, [manifest]);
 
   return (
-    <div className="mx-auto w-full max-w-6xl space-y-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h2 className="text-2xl font-bold text-heading">Media Gallery</h2>
-          <p className="text-sm text-muted mt-1">
-            Decrypt Blossom-backed ERV media from your encrypted media manifest.
-          </p>
-        </div>
-        <button type="button" className="btn-ghost" onClick={() => void load(true)}>
-          Refresh
-        </button>
-      </div>
+    <div className="space-y-6">
+      <PageHeader
+        title="Media"
+        description="Photos and videos your phone has backed up, decrypted here for viewing."
+        actions={
+          <button type="button" className="btn-ghost text-sm" onClick={() => void load(true)}>
+            Refresh
+          </button>
+        }
+      />
 
       {state.kind === "loading" ? (
         <section className="card p-5 text-sm text-muted">
@@ -95,8 +94,8 @@ export function MediaGalleryTab() {
         <section className="card p-5 space-y-2">
           <SectionHeader>No Media Manifest Yet</SectionHeader>
           <p className="text-sm text-muted">
-            Back up Body Tracker progress photos from Android first. ERV will
-            publish `erv/media/library`, then this gallery can decrypt and show
+            Back up Body Tracker progress photos from your phone first. Once
+            the phone publishes its media list, this page can decrypt and show
             the backed-up images.
           </p>
         </section>

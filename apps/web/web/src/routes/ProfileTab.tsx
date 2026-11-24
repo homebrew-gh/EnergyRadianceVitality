@@ -15,6 +15,7 @@ import {
   TRAINING_STYLE_PRESETS,
   type TrainingProfilePayload,
 } from "../lib/trainingProfile";
+import { PageHeader } from "../components/PageHeader";
 
 export function ProfileTab() {
   const {
@@ -23,7 +24,6 @@ export function ProfileTab() {
     publishing,
     dirty,
     error,
-    lastEventId,
     reload,
     updateProfile,
     publish,
@@ -74,16 +74,11 @@ export function ProfileTab() {
 
   return (
     <div className="space-y-6">
-      <header className="space-y-2">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="space-y-2">
-            <h2 className="text-2xl font-bold text-heading">Training profile</h2>
-            <p className="text-sm text-muted max-w-2xl">
-              Goals, training style, and movement limits for individualized workout planning.
-              Syncs to your relay — the Android app shows a read-only summary after sync.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
+      <PageHeader
+        title="Training Profile"
+        description="Goals, training style and movement limits used for planning. Your phone shows a read-only summary after it syncs."
+        actions={
+          <>
             <button type="button" className="btn-ghost text-sm" onClick={() => void reload(true)}>
               Reload
             </button>
@@ -100,17 +95,15 @@ export function ProfileTab() {
             >
               {publishing ? "Publishing…" : "Publish profile"}
             </button>
-          </div>
-        </div>
+          </>
+        }
+      >
         {dirty ? (
           <p className="text-sm text-amber-700 dark:text-amber-300">Unpublished changes</p>
         ) : null}
         {error ? <p className="text-sm text-red-600">{error}</p> : null}
         {success ? <p className="text-sm text-green-700">{success}</p> : null}
-        {lastEventId ? (
-          <p className="text-xs text-muted font-mono break-all">Last event: {lastEventId}</p>
-        ) : null}
-      </header>
+      </PageHeader>
 
       <section className="card p-5 space-y-4">
         <SectionHeader>Program intent</SectionHeader>

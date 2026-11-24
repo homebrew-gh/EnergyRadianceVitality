@@ -155,8 +155,7 @@ export function WeightRoutinesTab() {
             {editingId ? "Edit weight routine" : "New weight routine"}
           </h3>
           <p className="text-sm text-muted">
-            Add exercises from the library, drag to reorder, then publish to{" "}
-            <code className="text-xs">erv/weight/routines</code>.
+            Add exercises from the library, drag to reorder, then publish.
           </p>
           <div>
             <label className="label" htmlFor="routine-name">

@@ -2,6 +2,7 @@ type RoutineFormAlertsProps = {
   error?: string | null;
   formError?: string | null;
   success?: string | null;
+  /** Accepted for older callers; relay event ids now live in Settings → Advanced. */
   lastEventId?: string | null;
   globalError?: string | null;
 };
@@ -10,7 +11,6 @@ export function RoutineFormAlerts({
   error,
   formError,
   success,
-  lastEventId,
   globalError,
 }: RoutineFormAlertsProps) {
   return (
@@ -26,11 +26,6 @@ export function RoutineFormAlerts({
           role="status"
         >
           {success}
-          {lastEventId ? (
-            <span className="block text-xs text-muted mt-1 font-mono">
-              event {lastEventId.slice(0, 16)}…
-            </span>
-          ) : null}
         </p>
       ) : null}
       {formError ? (

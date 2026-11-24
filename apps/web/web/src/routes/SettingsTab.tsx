@@ -5,7 +5,8 @@ import { BlossomMediaStatus } from "../components/BlossomMediaStatus";
 import { FieldLabel, SectionHeader } from "../components/FieldLabel";
 import { PassphraseFields } from "../components/PassphraseFields";
 import { RemoveAccountForm } from "../components/RemoveAccountForm";
-import { SyncHealthDashboard } from "../components/SyncHealthDashboard";
+import { AdvancedSyncDetails } from "../components/AdvancedSyncDetails";
+import { PageHeader } from "../components/PageHeader";
 import { LocalRelayPicker } from "../components/LocalRelayPicker";
 import { ApiError, api, relayHost, type AuthStatus } from "../lib/api";
 import { invalidateAppDataCache } from "../lib/appDataCache";
@@ -149,13 +150,11 @@ export function SettingsTab() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold text-heading">Settings</h2>
-        <p className="text-sm text-muted mt-1">
-          Account, session, and local key on this StartOS server.
-        </p>
-      </div>
+    <div className="w-full max-w-4xl space-y-6">
+      <PageHeader
+        title="Settings"
+        description="Account, relays, units, passphrase and the key stored on this StartOS server."
+      />
 
       <section className="card p-5 space-y-3">
         <h3 className="font-semibold text-heading">Account</h3>
@@ -271,8 +270,6 @@ export function SettingsTab() {
         </form>
       </section>
 
-      <SyncHealthDashboard />
-
       <BlossomMediaStatus />
 
       <AiSettingsPanel />
@@ -381,6 +378,8 @@ export function SettingsTab() {
           </button>
         </section>
       ) : null}
+
+      <AdvancedSyncDetails />
 
       <section className="card p-5 space-y-3 border-[var(--erv-error)]/40">
         <h3 className="font-semibold text-[var(--erv-error)]">Log out</h3>

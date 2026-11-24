@@ -162,9 +162,7 @@ export function CardioRoutinesTab() {
             {editingId ? "Edit cardio routine" : "New cardio routine"}
           </h3>
           <p className="text-sm text-muted">
-            Build single- or multi-leg cardio templates. Drag legs to reorder.
-            HIIT interval blocks are Phase 2. Publishes to{" "}
-            <code className="text-xs">erv/cardio/routines</code>.
+            Build single- or multi-leg cardio templates. Drag legs to reorder, then publish.
           </p>
           <div>
             <label className="label" htmlFor="cardio-routine-name">

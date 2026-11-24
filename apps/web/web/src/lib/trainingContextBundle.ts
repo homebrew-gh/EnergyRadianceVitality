@@ -134,7 +134,7 @@ function profileSection(profile: TrainingProfilePayload): string {
     return mdListSection(
       "Training Profile",
       [],
-      "No training profile saved. Set goals and style on the Profile tab.",
+      "No training profile saved. Set goals and style on the Training Profile page.",
     );
   }
 
@@ -437,7 +437,7 @@ export function trainingContextCompleteness(
       id: "profile",
       label: "Training profile",
       ok: !isTrainingProfileBlank(input.profile),
-      hint: "Set on Profile tab",
+      hint: "Set on the Training Profile page",
     },
     {
       id: "snapshot",
@@ -449,13 +449,13 @@ export function trainingContextCompleteness(
       id: "equipment",
       label: "Equipment profile",
       ok: input.equipment.gymMembership || input.equipment.equipment.length > 0,
-      hint: "Set on Equipment tab",
+      hint: "Set on the Equipment page",
     },
     {
       id: "workouts",
       label: "Saved workouts",
       ok: input.workouts.length > 0,
-      hint: "Optional — build in Workout Builder",
+      hint: "Optional — build on the Workouts page",
     },
   ];
 }

@@ -71,8 +71,8 @@ export function TrainingContextExportCard({ bundleInput }: TrainingContextExport
       <div className="space-y-1">
         <SectionHeader>Copy training context</SectionHeader>
         <p className="text-sm text-muted">
-          Dry run for Phase 4 AI — bundles profile, baseline, equipment, and library ids. Paste
-          into an external model to generate workouts without in-app AI yet.
+          Bundles your profile, baseline, equipment and library into one block of text. Paste it
+          into an outside AI model to have it suggest workouts.
         </p>
       </div>
 

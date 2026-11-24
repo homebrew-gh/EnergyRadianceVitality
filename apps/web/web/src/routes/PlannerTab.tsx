@@ -11,6 +11,7 @@ import {
   type ProgramMasterPayload,
 } from "../lib/programTraining";
 import { segmentKindLabel, type Workout } from "../lib/workoutTraining";
+import { PageHeader } from "../components/PageHeader";
 
 function fingerprint(master: ProgramMasterPayload): string {
   return JSON.stringify(master);
@@ -67,7 +68,6 @@ export function PlannerTab() {
     saving,
     loading,
     error,
-    lastEventId,
     reload,
   } = useTraining();
   const baseMaster = useMemo(
@@ -195,16 +195,11 @@ export function PlannerTab() {
 
   return (
     <div className="space-y-6">
-      <header className="space-y-2">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="space-y-2">
-            <h2 className="text-2xl font-bold text-heading">Weekly Planner</h2>
-            <p className="text-sm text-muted max-w-2xl">
-              Pick a day, then add workouts from your library. Publish to sync this week to Android,
-              where you can tap a planned workout to run it live.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
+      <PageHeader
+        title="Planner"
+        description="Pick a day, then add workouts from your library. Publish to send the week to your phone, where you can tap a planned workout to run it."
+        actions={
+          <>
             <button type="button" className="btn-ghost text-sm" onClick={() => void reload(true)}>
               Reload
             </button>
@@ -216,16 +211,14 @@ export function PlannerTab() {
             >
               {saving ? "Publishing…" : "Publish planner"}
             </button>
-          </div>
-        </div>
+          </>
+        }
+      >
         {dirty ? <p className="text-sm text-amber-700 dark:text-amber-300">Unpublished changes</p> : null}
         {error ? <p className="text-sm text-red-600">{error}</p> : null}
         {publishError ? <p className="text-sm text-red-600">{publishError}</p> : null}
         {message ? <p className="text-sm text-green-700">{message}</p> : null}
-        {lastEventId ? (
-          <p className="text-xs text-muted font-mono break-all">Last event: {lastEventId}</p>
-        ) : null}
-      </header>
+      </PageHeader>
 
       {/* Week at a glance */}
       <section className="hero-card space-y-3">
@@ -386,7 +379,7 @@ export function PlannerTab() {
 
           {workouts.length === 0 ? (
             <p className="text-sm text-muted">
-              Build and publish at least one workout in Workout Builder before assigning planner days.
+              Build and publish at least one workout on the Workouts page before assigning planner days.
             </p>
           ) : (
             <>

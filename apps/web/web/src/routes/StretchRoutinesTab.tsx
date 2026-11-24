@@ -139,8 +139,7 @@ export function StretchRoutinesTab() {
             {editingId ? "Edit stretch routine" : "New stretch routine"}
           </h3>
           <p className="text-sm text-muted">
-            Order stretches for the guided player. Drag to reorder. Publishes to{" "}
-            <code className="text-xs">erv/stretching/routines</code>.
+            Order stretches for the guided player. Drag to reorder, then publish.
           </p>
           <div>
             <label className="label" htmlFor="stretch-routine-name">
