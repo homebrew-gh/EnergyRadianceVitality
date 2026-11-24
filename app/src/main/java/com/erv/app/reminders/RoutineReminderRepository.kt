@@ -1,5 +1,6 @@
 package com.erv.app.reminders
 
+import com.erv.app.data.preserveUnreadableState
 import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
@@ -79,19 +80,22 @@ class RoutineReminderRepository(context: Context) {
 
     private suspend fun updateState(transform: (RoutineReminderState) -> RoutineReminderState) {
         appContext.routineReminderDataStore.edit { prefs ->
-            val current = decodeState(prefs[Keys.STATE])
+            val raw = prefs[Keys.STATE]
+            val current = decodeState(raw) { prefs.preserveUnreadableState(Keys.STATE, raw) }
             val updated = transform(current)
             prefs[Keys.STATE] = json.encodeToString(RoutineReminderState.serializer(), updated)
         }
     }
 
-    private fun decodeState(raw: String?): RoutineReminderState {
+    private fun decodeState(raw: String?, onUnreadable: () -> Unit = {}): RoutineReminderState {
         if (raw.isNullOrBlank()) return RoutineReminderState()
         return try {
             json.decodeFromString(RoutineReminderState.serializer(), raw)
         } catch (_: SerializationException) {
+            onUnreadable()
             RoutineReminderState()
         } catch (_: IllegalArgumentException) {
+            onUnreadable()
             RoutineReminderState()
         }
     }

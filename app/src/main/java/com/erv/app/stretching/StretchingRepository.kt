@@ -1,5 +1,6 @@
 package com.erv.app.stretching
 
+import com.erv.app.data.preserveUnreadableState
 import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
@@ -129,19 +130,22 @@ class StretchingRepository(context: Context) {
 
     private suspend fun updateState(transform: (StretchLibraryState) -> StretchLibraryState) {
         appContext.stretchingDataStore.edit { prefs ->
-            val current = decodeState(prefs[Keys.STATE])
+            val raw = prefs[Keys.STATE]
+            val current = decodeState(raw) { prefs.preserveUnreadableState(Keys.STATE, raw) }
             val updated = transform(current)
             prefs[Keys.STATE] = json.encodeToString(StretchLibraryState.serializer(), updated)
         }
     }
 
-    private fun decodeState(raw: String?): StretchLibraryState {
+    private fun decodeState(raw: String?, onUnreadable: () -> Unit = {}): StretchLibraryState {
         if (raw.isNullOrBlank()) return StretchLibraryState()
         return try {
             json.decodeFromString(StretchLibraryState.serializer(), raw).withStableSessionIds()
         } catch (_: SerializationException) {
+            onUnreadable()
             StretchLibraryState()
         } catch (_: IllegalArgumentException) {
+            onUnreadable()
             StretchLibraryState()
         }
     }

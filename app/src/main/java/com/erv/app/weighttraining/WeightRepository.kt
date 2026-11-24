@@ -1,5 +1,6 @@
 package com.erv.app.weighttraining
 
+import com.erv.app.data.preserveUnreadableState
 import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
@@ -168,7 +169,8 @@ class WeightRepository(context: Context) {
 
     private suspend fun updateState(transform: (WeightLibraryState) -> WeightLibraryState) {
         appContext.weightTrainingDataStore.edit { prefs ->
-            val current = decodeState(prefs[Keys.STATE])
+            val raw = prefs[Keys.STATE]
+            val current = decodeState(raw) { prefs.preserveUnreadableState(Keys.STATE, raw) }
             val updated = transform(current).withRebuiltExerciseSessionSummaries()
             prefs[Keys.STATE] = json.encodeToString(WeightLibraryState.serializer(), updated)
         }
@@ -179,15 +181,17 @@ class WeightRepository(context: Context) {
         return CatalogStore.get(appContext).effectiveWeightExercisesBlocking()
     }
 
-    private fun decodeState(raw: String?): WeightLibraryState {
+    private fun decodeState(raw: String?, onUnreadable: () -> Unit = {}): WeightLibraryState {
         val base = if (raw.isNullOrBlank()) {
             WeightLibraryState()
         } else {
             try {
                 json.decodeFromString(WeightLibraryState.serializer(), raw)
             } catch (_: SerializationException) {
+                onUnreadable()
                 WeightLibraryState()
             } catch (_: IllegalArgumentException) {
+                onUnreadable()
                 WeightLibraryState()
             }
         }

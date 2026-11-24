@@ -1,5 +1,6 @@
 package com.erv.app.programs
 
+import com.erv.app.data.preserveUnreadableState
 import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
@@ -176,18 +177,21 @@ class ProgramRepository(context: Context) {
 
     private suspend fun updateState(transform: (ProgramsLibraryState) -> ProgramsLibraryState) {
         appContext.programsDataStore.edit { prefs ->
-            val current = decodeState(prefs[Keys.STATE])
+            val raw = prefs[Keys.STATE]
+            val current = decodeState(raw) { prefs.preserveUnreadableState(Keys.STATE, raw) }
             prefs[Keys.STATE] = json.encodeToString(ProgramsLibraryState.serializer(), transform(current).sanitized())
         }
     }
 
-    private fun decodeState(raw: String?): ProgramsLibraryState {
+    private fun decodeState(raw: String?, onUnreadable: () -> Unit = {}): ProgramsLibraryState {
         if (raw.isNullOrBlank()) return ProgramsLibraryState()
         return try {
             json.decodeFromString(ProgramsLibraryState.serializer(), raw).sanitized()
         } catch (_: SerializationException) {
+            onUnreadable()
             ProgramsLibraryState()
         } catch (_: IllegalArgumentException) {
+            onUnreadable()
             ProgramsLibraryState()
         }
     }

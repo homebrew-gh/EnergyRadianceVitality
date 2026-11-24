@@ -1,5 +1,6 @@
 package com.erv.app.workouts
 
+import com.erv.app.data.preserveUnreadableState
 import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
@@ -275,7 +276,8 @@ class WorkoutRepository(context: Context) {
 
     private suspend fun updateState(transform: (WorkoutLibraryState) -> WorkoutLibraryState) {
         appContext.workoutDataStore.edit { prefs ->
-            val current = decodeState(prefs[Keys.STATE])
+            val raw = prefs[Keys.STATE]
+            val current = decodeState(raw) { prefs.preserveUnreadableState(Keys.STATE, raw) }
             prefs[Keys.STATE] = json.encodeToString(
                 WorkoutLibraryState.serializer(),
                 transform(current).sanitized(),
@@ -283,11 +285,12 @@ class WorkoutRepository(context: Context) {
         }
     }
 
-    private fun decodeState(raw: String?): WorkoutLibraryState {
+    private fun decodeState(raw: String?, onUnreadable: () -> Unit = {}): WorkoutLibraryState {
         if (raw.isNullOrBlank()) return WorkoutLibraryState()
         return try {
             json.decodeFromString(WorkoutLibraryState.serializer(), raw).sanitized()
         } catch (_: SerializationException) {
+            onUnreadable()
             WorkoutLibraryState()
         }
     }

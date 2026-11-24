@@ -1,5 +1,6 @@
 package com.erv.app.bodytracker
 
+import com.erv.app.data.preserveUnreadableState
 import android.content.Context
 import android.net.Uri
 import androidx.datastore.core.DataStore
@@ -153,19 +154,22 @@ class BodyTrackerRepository(context: Context) {
 
     private suspend fun updateState(transform: (BodyTrackerLibraryState) -> BodyTrackerLibraryState) {
         appContext.bodyTrackerDataStore.edit { prefs ->
-            val current = decodeState(prefs[Keys.STATE])
+            val raw = prefs[Keys.STATE]
+            val current = decodeState(raw) { prefs.preserveUnreadableState(Keys.STATE, raw) }
             val updated = transform(current)
             prefs[Keys.STATE] = json.encodeToString(BodyTrackerLibraryState.serializer(), updated)
         }
     }
 
-    private fun decodeState(raw: String?): BodyTrackerLibraryState {
+    private fun decodeState(raw: String?, onUnreadable: () -> Unit = {}): BodyTrackerLibraryState {
         if (raw.isNullOrBlank()) return BodyTrackerLibraryState()
         return try {
             json.decodeFromString(BodyTrackerLibraryState.serializer(), raw)
         } catch (_: SerializationException) {
+            onUnreadable()
             BodyTrackerLibraryState()
         } catch (_: IllegalArgumentException) {
+            onUnreadable()
             BodyTrackerLibraryState()
         }
     }
