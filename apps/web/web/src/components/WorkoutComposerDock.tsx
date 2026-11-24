@@ -1,3 +1,8 @@
+import {
+  workoutPublishStateLabel,
+  type WorkoutPublishState,
+} from "../lib/workoutDraftStorage";
+
 type WorkoutComposerDockProps = {
   visible: boolean;
   formId: string;
@@ -7,9 +12,12 @@ type WorkoutComposerDockProps = {
   draftLabel?: string;
   segmentCount: number;
   itemCount: number;
-  /** True while the draft has changes that are not on the relay yet. */
-  unpublished?: boolean;
-  onCancelEdit?: () => void;
+  /** Draft (never published), Unpublished Changes, or Published. */
+  publishState: WorkoutPublishState;
+  /** Throw away this browser's unpublished changes; shown only while there are some. */
+  onDiscardChanges?: () => void;
+  /** Close this workout (it stays in the list) and start a new one. */
+  onNewWorkout?: () => void;
 };
 
 export function WorkoutComposerDock({
@@ -20,8 +28,9 @@ export function WorkoutComposerDock({
   draftLabel,
   segmentCount,
   itemCount,
-  unpublished = false,
-  onCancelEdit,
+  publishState,
+  onDiscardChanges,
+  onNewWorkout,
 }: WorkoutComposerDockProps) {
   if (!visible) return null;
 
@@ -39,8 +48,12 @@ export function WorkoutComposerDock({
     >
       <div className="pointer-events-auto glass-panel rounded-[22px] border border-[var(--erv-outline-variant)]/90 p-3 shadow-[var(--erv-shadow-card)]">
         <div className="mb-2 space-y-0.5">
-          <p className="text-[11px] font-semibold text-[var(--erv-primary)]">
-            {editing ? "Editing" : "Draft"}
+          <p
+            className={`text-[11px] font-semibold ${
+              publishState === "published" ? "text-[var(--erv-primary)]" : "text-[var(--erv-error)]"
+            }`}
+          >
+            {workoutPublishStateLabel(publishState)}
           </p>
           <p
             className="truncate text-sm font-semibold text-heading"
@@ -52,8 +65,8 @@ export function WorkoutComposerDock({
             {segmentCount} segment{segmentCount === 1 ? "" : "s"} · {itemCount} item
             {itemCount === 1 ? "" : "s"}
           </p>
-          {unpublished ? (
-            <p className="text-[11px] font-semibold text-[var(--erv-error)]">Not published yet</p>
+          {publishState !== "published" ? (
+            <p className="text-[11px] text-muted">Saved in this browser. Not on your phone yet.</p>
           ) : null}
         </div>
         <div className="flex flex-col gap-2">
@@ -65,14 +78,24 @@ export function WorkoutComposerDock({
           >
             {publishLabel}
           </button>
-          {editing && onCancelEdit ? (
+          {onDiscardChanges ? (
             <button
               type="button"
               className="btn-ghost w-full text-sm"
-              onClick={onCancelEdit}
+              onClick={onDiscardChanges}
               disabled={saving}
             >
-              Cancel edit
+              Discard changes
+            </button>
+          ) : null}
+          {onNewWorkout ? (
+            <button
+              type="button"
+              className="btn-ghost w-full text-sm"
+              onClick={onNewWorkout}
+              disabled={saving}
+            >
+              New workout
             </button>
           ) : null}
         </div>

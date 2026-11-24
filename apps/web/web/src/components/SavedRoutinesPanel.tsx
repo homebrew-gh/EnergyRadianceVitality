@@ -2,6 +2,8 @@ import type { ReactNode } from "react";
 
 type SavedRoutinesPanelProps<T> = {
   title?: string;
+  /** Line under the title; defaults to the published-routines wording. */
+  description?: string;
   loading: boolean;
   routines: T[];
   editingId?: string | null;
@@ -14,10 +16,15 @@ type SavedRoutinesPanelProps<T> = {
   onDelete: (routine: T) => void;
   onDuplicate?: (routine: T) => void;
   onDuplicateWithProgress?: (routine: T) => void;
+  /** Status badge after the name (e.g. Draft or Published). */
+  getBadge?: (routine: T) => ReactNode;
+  /** Hide the duplicate actions for some rows (e.g. drafts that were never published). */
+  canDuplicate?: (routine: T) => boolean;
 };
 
 export function SavedRoutinesPanel<T>({
   title = "On relay now",
+  description = "Reuse, progress, or edit a session already published to the relay.",
   loading,
   routines,
   editingId,
@@ -30,15 +37,15 @@ export function SavedRoutinesPanel<T>({
   onDelete,
   onDuplicate,
   onDuplicateWithProgress,
+  getBadge,
+  canDuplicate,
 }: SavedRoutinesPanelProps<T>) {
   return (
     <section className="card p-4 space-y-3">
       <div className="flex items-center justify-between gap-3">
         <div>
           <h3 className="font-semibold text-heading">{title}</h3>
-          <p className="text-xs text-muted">
-            Reuse, progress, or edit a session already published to the relay.
-          </p>
+          <p className="text-xs text-muted">{description}</p>
         </div>
         <div className="flex gap-2 shrink-0">
           {headerActions}
@@ -63,6 +70,7 @@ export function SavedRoutinesPanel<T>({
           {routines.map((routine) => {
             const id = getId(routine);
             const isEditing = editingId === id;
+            const duplicable = canDuplicate ? canDuplicate(routine) : true;
             return (
               <li
                 key={id}
@@ -76,6 +84,7 @@ export function SavedRoutinesPanel<T>({
                   <div className="min-w-0 flex-1">
                     <p className="font-semibold text-heading truncate">
                       {getName(routine)}
+                      {getBadge ? getBadge(routine) : null}
                       {isEditing ? (
                         <span className="sun-chip ml-2 py-0.5">Editing</span>
                       ) : null}
@@ -90,7 +99,7 @@ export function SavedRoutinesPanel<T>({
                     >
                       Edit
                     </button>
-                    {onDuplicate ? (
+                    {onDuplicate && duplicable ? (
                       <button
                         type="button"
                         className="btn-ghost text-xs py-1 px-2"
@@ -99,7 +108,7 @@ export function SavedRoutinesPanel<T>({
                         Duplicate
                       </button>
                     ) : null}
-                    {onDuplicateWithProgress ? (
+                    {onDuplicateWithProgress && duplicable ? (
                       <button
                         type="button"
                         className="btn-ghost text-xs py-1 px-2"

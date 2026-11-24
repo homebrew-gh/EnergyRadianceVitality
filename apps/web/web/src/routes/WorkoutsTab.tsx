@@ -27,8 +27,15 @@ import { useUnsavedChangesWarning } from "../hooks/useUnsavedChangesWarning";
 import {
   clearStoredWorkoutDraft,
   readStoredWorkoutDraft,
+  readWorkoutDrafts,
   workoutDraftFingerprint,
+  workoutLibraryRows,
+  workoutPublishStateLabel,
   writeStoredWorkoutDraft,
+  writeWorkoutDrafts,
+  type WorkoutDrafts,
+  type WorkoutLibraryRow,
+  type WorkoutPublishState,
 } from "../lib/workoutDraftStorage";
 import {
   applyBaselineLoadsToWorkout,
@@ -89,6 +96,22 @@ function copySegments(segments: WorkoutSegment[]): WorkoutSegment[] {
   return segments.map((segment) => ({ ...segment, items: [...(segment.items ?? [])] }));
 }
 
+function formatPublishedAt(epochSeconds: number | undefined): string {
+  if (!epochSeconds) return "";
+  return new Date(epochSeconds * 1000).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function publishStateChipClass(state: WorkoutPublishState): string {
+  return state === "published"
+    ? "rounded-pill bg-[var(--erv-primary-container)] px-2 py-0.5 text-[11px] font-semibold text-heading"
+    : "rounded-pill border border-[var(--erv-error)] px-2 py-0.5 text-[11px] font-semibold text-[var(--erv-error)]";
+}
+
 function moveSegment(segments: WorkoutSegment[], from: number, to: number): WorkoutSegment[] {
   if (from === to || from < 0 || to < 0 || from >= segments.length || to >= segments.length) {
     return segments;
@@ -133,7 +156,26 @@ export function WorkoutsTab() {
   const progressIncrementKg = progressionIncrementKg(profile.progressionStyle, weightLoadUnit);
   const progressIncrementLabel = `+${formatWeightLoadNumber(progressIncrementKg, weightLoadUnit)} ${weightLoadUnitSuffix(weightLoadUnit)}`;
 
+  /** Published workout open in the editor, or null for a workout that was never published. */
   const [editingId, setEditingId] = useState<string | null>(null);
+  /** Id a never-published workout's draft is kept under; it becomes the workout id on publish. */
+  const [newDraftId, setNewDraftId] = useState<string>(() => crypto.randomUUID());
+  const draftId = editingId ?? newDraftId;
+  // Unpublished versions of every workout changed in this browser, tied to the account they belong to.
+  const [draftStore, setDraftStore] = useState<{ account: string; drafts: WorkoutDrafts }>(() => ({
+    account: draftAccountKey,
+    drafts: readWorkoutDrafts(draftAccountKey),
+  }));
+  const drafts = draftStore.account === draftAccountKey ? draftStore.drafts : {};
+  const updateDrafts = (change: (prev: WorkoutDrafts) => WorkoutDrafts) =>
+    setDraftStore((prev) => ({ account: prev.account, drafts: change(prev.drafts) }));
+  const removeDraft = (id: string) =>
+    updateDrafts((prev) => {
+      if (!(id in prev)) return prev;
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
   const [name, setName] = useState("");
   const [segments, setSegments] = useState<WorkoutSegment[]>([]);
   const [activeSegmentIndex, setActiveSegmentIndex] = useState<number | null>(null);
@@ -151,12 +193,25 @@ export function WorkoutsTab() {
   const draftDirty = workoutDraftFingerprint(name, segments) !== draftBaseline;
   useUnsavedChangesWarning(draftDirty, UNPUBLISHED_DRAFT_MESSAGE);
 
+  useEffect(() => {
+    setDraftStore((prev) =>
+      prev.account === draftAccountKey
+        ? prev
+        : { account: draftAccountKey, drafts: readWorkoutDrafts(draftAccountKey) },
+    );
+  }, [draftAccountKey]);
+
+  useEffect(() => {
+    writeWorkoutDrafts(draftStore.account, draftStore.drafts);
+  }, [draftStore]);
+
   // Bring back an unpublished draft kept in this browser (after a reload or closed tab).
   useEffect(() => {
     setDraftRestored(false);
     const stored = readStoredWorkoutDraft(draftAccountKey);
     if (stored) {
       setEditingId(stored.editingId);
+      if (stored.editingId == null && stored.draftId) setNewDraftId(stored.draftId);
       setName(stored.name);
       setSegments(copySegments(stored.segments));
       setActiveSegmentIndex(stored.segments.length > 0 ? 0 : null);
@@ -166,21 +221,32 @@ export function WorkoutsTab() {
     setDraftRestored(true);
   }, [draftAccountKey]);
 
-  // Keep the draft in this browser while it has unpublished changes.
+  // Keep the draft in this browser while it has unpublished changes: the open one (to reopen it
+  // after a reload) and in the drafts list (so switching workouts keeps it).
   useEffect(() => {
     if (!draftRestored) return;
     if (!draftDirty) {
       clearStoredWorkoutDraft(draftAccountKey);
+      removeDraft(draftId);
       return;
     }
+    const savedAtMs = Date.now();
     writeStoredWorkoutDraft(draftAccountKey, {
       editingId,
+      draftId,
       name,
       segments,
       baseline: draftBaseline,
-      savedAtMs: Date.now(),
+      savedAtMs,
     });
-  }, [draftRestored, draftDirty, draftAccountKey, editingId, name, segments, draftBaseline]);
+    updateDrafts((prev) => ({ ...prev, [draftId]: { id: draftId, name, segments, savedAtMs } }));
+  }, [draftRestored, draftDirty, draftAccountKey, editingId, draftId, name, segments, draftBaseline]);
+
+  const libraryRows = useMemo(() => workoutLibraryRows(workouts, drafts), [workouts, drafts]);
+  const publishedWorkout = editingId ? workouts.find((w) => w.id === editingId) ?? null : null;
+  const publishState: WorkoutPublishState =
+    publishedWorkout == null ? "draft" : draftDirty ? "unpublished_changes" : "published";
+  const hasDraftContent = name.trim().length > 0 || segments.length > 0;
 
   const catalogExercises = exercises;
   const activeSegmentIndexResolved =
@@ -237,6 +303,7 @@ export function WorkoutsTab() {
 
   const resetForm = () => {
     setEditingId(null);
+    setNewDraftId(crypto.randomUUID());
     setName("");
     setSegments([]);
     setActiveSegmentIndex(null);
@@ -244,35 +311,80 @@ export function WorkoutsTab() {
     setDraftBaseline(EMPTY_DRAFT_FINGERPRINT);
   };
 
-  /** Asks before throwing away unpublished changes. Returns true when it is fine to continue. */
-  const confirmDiscardDraft = (action: string): boolean => {
-    if (!draftDirty) return true;
-    const label = name.trim() ? `"${name.trim()}"` : "this workout";
-    return window.confirm(`${action} will discard the unpublished changes to ${label}. Continue?`);
+  /** Note that the open workout's edits stay as a draft when another one is opened. */
+  const keptDraftNotice = (): string | null => {
+    if (!draftDirty) return null;
+    const label = name.trim() ? `"${name.trim()}"` : "your untitled workout";
+    return `Your changes to ${label} are kept as a draft in this browser.`;
   };
 
-  const cancelEdit = () => {
-    if (!confirmDiscardDraft("Cancelling")) return;
+  /** Close the editor and start a new workout; the open one stays in the list as a draft. */
+  const startNewWorkout = () => {
+    const notice = keptDraftNotice();
     resetForm();
+    setSuccess(notice);
   };
 
-  const startEdit = (workout: Workout) => {
-    if (editingId === workout.id) return;
-    if (!confirmDiscardDraft(`Opening "${workout.name}"`)) return;
-    const segmentsCopy = copySegments(workout.segments);
-    setEditingId(workout.id);
-    setName(workout.name);
+  /** Open a workout from the list: its draft when this browser has one, else the published version. */
+  const openWorkout = (row: WorkoutLibraryRow, notice: string | null = keptDraftNotice()) => {
+    const source = row.draft ?? row.published;
+    if (!source) return;
+    const segmentsCopy = copySegments(source.segments);
+    setEditingId(row.published ? row.id : null);
+    if (!row.published) setNewDraftId(row.id);
+    setName(source.name);
     setSegments(segmentsCopy);
-    setActiveSegmentIndex(workout.segments.length > 0 ? 0 : null);
-    setDraftBaseline(workoutDraftFingerprint(workout.name, segmentsCopy));
+    setActiveSegmentIndex(segmentsCopy.length > 0 ? 0 : null);
+    setDraftBaseline(
+      row.published
+        ? workoutDraftFingerprint(row.published.name, copySegments(row.published.segments))
+        : EMPTY_DRAFT_FINGERPRINT,
+    );
     setFormError(null);
-    setSuccess(null);
+    setSuccess(notice);
   };
 
-  const onDelete = async (workout: Workout) => {
+  const startEdit = (row: WorkoutLibraryRow) => {
+    if (row.id === draftId) return;
+    openWorkout(row);
+  };
+
+  /** Throw away this browser's unpublished changes to the open workout. */
+  const discardChanges = () => {
+    const label = name.trim() ? `"${name.trim()}"` : "this workout";
+    const detail = publishedWorkout
+      ? "The published version stays on the relay and opens again."
+      : "It was never published, so the draft is deleted.";
+    if (!window.confirm(`Discard the unpublished changes to ${label}? ${detail}`)) return;
+    removeDraft(draftId);
+    clearStoredWorkoutDraft(draftAccountKey);
+    if (publishedWorkout) {
+      openWorkout(
+        { id: publishedWorkout.id, name: publishedWorkout.name, segments: publishedWorkout.segments, state: "published", published: publishedWorkout, draft: null },
+        "Discarded the unpublished changes.",
+      );
+    } else {
+      resetForm();
+      setSuccess("Deleted the draft.");
+    }
+  };
+
+  const onDelete = async (row: WorkoutLibraryRow) => {
+    const label = row.name.trim() || "Untitled workout";
+    if (!row.published) {
+      if (!window.confirm(`Delete the draft "${label}"? It was never published.`)) return;
+      removeDraft(row.id);
+      if (draftId === row.id) {
+        clearStoredWorkoutDraft(draftAccountKey);
+        resetForm();
+      }
+      setFormError(null);
+      setSuccess(`Deleted the draft "${label}".`);
+      return;
+    }
     if (
       !window.confirm(
-        `Delete "${workout.name}"? This publishes an updated library to the relay.`,
+        `Delete "${row.published.name}"? This publishes an updated library to the relay.`,
       )
     ) {
       return;
@@ -280,9 +392,13 @@ export function WorkoutsTab() {
     setFormError(null);
     setSuccess(null);
     try {
-      await saveWorkouts(workouts.filter((w) => w.id !== workout.id));
-      if (editingId === workout.id) resetForm();
-      setSuccess(`Deleted "${workout.name}".`);
+      await saveWorkouts(workouts.filter((w) => w.id !== row.id));
+      removeDraft(row.id);
+      if (draftId === row.id) {
+        clearStoredWorkoutDraft(draftAccountKey);
+        resetForm();
+      }
+      setSuccess(`Deleted "${row.published.name}".`);
     } catch (err) {
       setFormError(err instanceof Error ? err.message : "Delete failed.");
     }
@@ -476,7 +592,7 @@ export function WorkoutsTab() {
           lastModifiedEpochSeconds: now,
         }
       : {
-          id: editingId ?? crypto.randomUUID(),
+          id: editingId ?? newDraftId,
           name: trimmed,
           segments: normalizedSegments,
           sourceLabel: "Start9",
@@ -485,11 +601,18 @@ export function WorkoutsTab() {
         };
 
     try {
-      const wasEditing = editingId != null;
+      const wasPublished = publishedWorkout != null;
       await saveWorkouts(upsertWorkout(workouts, workout));
-      resetForm();
+      // Keep the editor open on what was just published, with nothing left unpublished.
+      const publishedSegments = copySegments(normalizedSegments);
+      removeDraft(workout.id);
+      clearStoredWorkoutDraft(draftAccountKey);
+      setEditingId(workout.id);
+      setName(trimmed);
+      setSegments(publishedSegments);
+      setDraftBaseline(workoutDraftFingerprint(trimmed, publishedSegments));
       setSuccess(
-        wasEditing
+        wasPublished
           ? "Workout updated on the relay. Open ERV on your phone and sync to use it."
           : "Workout published to the relay. Open ERV on your phone and sync to use it.",
       );
@@ -504,8 +627,13 @@ export function WorkoutsTab() {
     ? `${segmentKindLabel(activeSegment.kind)}${activeSegment.title ? ` - ${activeSegment.title}` : ""}`
     : "Choose a segment";
   const baselineLabel = hasBaseline ? "Baseline loads ready" : "Sync logs for load hints";
-  const showComposerDock =
-    editingId != null || name.trim().length > 0 || segments.length > 0;
+  const showComposerDock = editingId != null || hasDraftContent;
+  const publishStatusText =
+    publishState === "published"
+      ? `Published ${formatPublishedAt(publishedWorkout?.lastModifiedEpochSeconds)}. Your phone gets it on its next sync.`
+      : publishState === "unpublished_changes"
+        ? `Unpublished changes, saved in this browser. Your phone still has the version published ${formatPublishedAt(publishedWorkout?.lastModifiedEpochSeconds)}.`
+        : "Draft, saved in this browser. Not published, so your phone won't see it until you publish.";
 
   const segmentChoice = (
     kind: WorkoutSegmentKind,
@@ -588,17 +716,24 @@ export function WorkoutsTab() {
 
       <SavedRoutinesPanel
         title="Saved workouts"
+        description="Drafts stay in this browser until you publish them. Published workouts reach your phone on its next sync."
         loading={loading}
-        routines={workouts}
-        editingId={editingId}
+        routines={libraryRows}
+        editingId={hasDraftContent || editingId != null ? draftId : null}
         onReload={() => void reload(true)}
-        getId={(w) => w.id}
-        getName={(w) => w.name}
-        getDetail={(w) =>
-          w.segments
+        getId={(row) => row.id}
+        getName={(row) => row.name.trim() || "Untitled workout"}
+        getDetail={(row) =>
+          row.segments
             .map((s) => `${segmentKindLabel(s.kind)} (${segmentItems(s).length})`)
             .join(" · ")
         }
+        getBadge={(row) => (
+          <span className={`ml-2 ${publishStateChipClass(row.state)}`}>
+            {workoutPublishStateLabel(row.state)}
+          </span>
+        )}
+        canDuplicate={(row) => row.published != null}
         headerActions={
           <button
             type="button"
@@ -610,11 +745,15 @@ export function WorkoutsTab() {
           </button>
         }
         onEdit={startEdit}
-        onDelete={(w) => void onDelete(w)}
-        onDuplicate={(w) => void onDuplicate(w)}
+        onDelete={(row) => void onDelete(row)}
+        onDuplicate={(row) => {
+          if (row.published) void onDuplicate(row.published);
+        }}
         onDuplicateWithProgress={
           weightLogs.length > 0 || hasBaseline
-            ? (w) => void onDuplicateWithProgress(w)
+            ? (row) => {
+                if (row.published) void onDuplicateWithProgress(row.published);
+              }
             : undefined
         }
       />
@@ -678,12 +817,13 @@ export function WorkoutsTab() {
               visible
               formId={WORKOUT_COMPOSER_FORM_ID}
               saving={saving}
-              editing={editingId != null}
+              editing={publishedWorkout != null}
               draftLabel={name}
               segmentCount={segments.length}
               itemCount={draftItemCount}
-              unpublished={draftDirty}
-              onCancelEdit={cancelEdit}
+              publishState={publishState}
+              onDiscardChanges={draftDirty ? discardChanges : undefined}
+              onNewWorkout={startNewWorkout}
             />
           ) : undefined
         }
@@ -699,9 +839,17 @@ export function WorkoutsTab() {
                 <h3 className="text-lg font-semibold text-heading">
                   {editingId ? "Edit Workout" : "Compose Workout"}
                 </h3>
-                {draftDirty ? (
-                  <p className="mt-1 text-xs font-semibold text-[var(--erv-error)]">
-                    Not published yet. Your phone won't see these changes until you publish.
+                {hasDraftContent || publishedWorkout ? (
+                  <p
+                    className={`mt-1 flex flex-wrap items-center gap-2 text-xs ${
+                      publishState === "published" ? "text-muted" : "font-semibold text-[var(--erv-error)]"
+                    }`}
+                    role="status"
+                  >
+                    <span className={publishStateChipClass(publishState)}>
+                      {workoutPublishStateLabel(publishState)}
+                    </span>
+                    <span>{publishStatusText}</span>
                   </p>
                 ) : null}
                 <p className="mt-1 text-sm text-muted">
@@ -855,9 +1003,9 @@ export function WorkoutsTab() {
               <button type="submit" className="btn-primary" disabled={saving}>
                 {saving ? "Publishing…" : editingId ? "Publish update" : "Publish to relay"}
               </button>
-              {editingId ? (
-                <button type="button" className="btn-ghost" onClick={cancelEdit}>
-                  Cancel edit
+              {draftDirty ? (
+                <button type="button" className="btn-ghost" onClick={discardChanges}>
+                  Discard changes
                 </button>
               ) : null}
             </div>
