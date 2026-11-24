@@ -10,6 +10,7 @@ import {
   type WorkoutImportWorkoutPreview,
 } from "../lib/workoutImport";
 import type { Workout } from "../lib/workoutTraining";
+import { phoneCompatibilityWarnings } from "../lib/phoneCompatibility";
 import {
   formatWeightLoadNumber,
   weightLoadUnitSuffix,
@@ -83,7 +84,16 @@ export function WorkoutImportPreviewDialog({
     const formatWeight = (kg: number) =>
       `${formatWeightLoadNumber(kg, weightLoadUnit)} ${weightLoadUnitSuffix(weightLoadUnit)}`;
     const parsed = parseWorkoutImportEnvelope(raw, catalogs);
-    setIssues(parsed.issues);
+    const exerciseName = (id: string) => exercises.find((exercise) => exercise.id === id)?.name;
+    // Phone check: things the phone runs differently, flagged before the import is published.
+    const phoneIssues: WorkoutImportIssue[] = parsed.workouts.flatMap((workout) =>
+      phoneCompatibilityWarnings(workout.segments, { exerciseName }).map((warning) => ({
+        severity: "warning" as const,
+        path: `${workout.name} › phone check`,
+        message: warning.message,
+      })),
+    );
+    setIssues([...parsed.issues, ...phoneIssues]);
     setImported(parsed.workouts);
     setPreviews(
       parsed.workouts.length > 0
