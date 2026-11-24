@@ -290,6 +290,8 @@ data class WorkoutActiveRun(
     val session: WorkoutSessionState? = null,
     /** When the session's current step came on screen; rests and timed holds count down from it. */
     val sessionStepStartedAtEpochSeconds: Long? = null,
+    /** Exercises swapped in for today, keyed by [sessionItemKey]; the logs use these. */
+    val sessionExerciseSwaps: Map<String, String> = emptyMap(),
 )
 
 fun WorkoutActiveRun.isStarted(): Boolean = startedAtEpochSeconds != null

@@ -125,15 +125,46 @@ class WorkoutRepository(context: Context) {
     suspend fun startSession(workoutId: String) {
         updateState { state ->
             val run = state.activeRun?.takeIf { it.workoutId == workoutId } ?: return@updateState state
-            state.copy(activeRun = run.withSessionStarted(nowWorkoutEpochSeconds()))
+            state.copy(activeRun = run.withSessionStartedAtPosition(nowWorkoutEpochSeconds()))
         }
     }
 
-    /** Applies [event] to the active run's session; does nothing when no session is running. */
-    suspend fun applySessionEvent(event: WorkoutSessionEvent) {
+    /**
+     * Applies [event] to the active run's session; does nothing when no session is running. With
+     * [atStepIndex], only while that step is still on screen, so a late or doubled tap (a rest
+     * ending as Skip Rest is pressed) can't act on the step after it.
+     */
+    suspend fun applySessionEvent(event: WorkoutSessionEvent, atStepIndex: Int? = null) {
         updateState { state ->
             val run = state.activeRun ?: return@updateState state
-            state.copy(activeRun = run.withSessionEvent(event, nowWorkoutEpochSeconds()))
+            if (atStepIndex != null && run.session?.stepIndex != atStepIndex) return@updateState state
+            state.copy(activeRun = run.applyingSessionEvent(event, nowWorkoutEpochSeconds()))
+        }
+    }
+
+    /** Links a lifting section to the weight log entry saved for it (see [sessionLiftSectionsToLog]). */
+    suspend fun recordSessionLiftLog(section: WorkoutSessionLiftSection, logDate: String, entryId: String) {
+        updateState { state ->
+            val run = state.activeRun ?: return@updateState state
+            state.copy(activeRun = run.withSessionLiftLogged(section, logDate, entryId, nowWorkoutEpochSeconds()))
+        }
+    }
+
+    /** Does [exerciseId] in place of the planned exercise for this item, for today only. */
+    suspend fun swapSessionExercise(segmentId: String, itemId: String, exerciseId: String) {
+        updateState { state ->
+            val run = state.activeRun ?: return@updateState state
+            val key = sessionItemKey(segmentId, itemId)
+            state.copy(activeRun = run.copy(sessionExerciseSwaps = run.sessionExerciseSwaps + (key to exerciseId)))
+        }
+    }
+
+    /** Adds [seconds] to the rest or timed step on screen. */
+    suspend fun extendSessionCountdown(seconds: Int) {
+        updateState { state ->
+            val run = state.activeRun ?: return@updateState state
+            val started = run.sessionStepStartedAtEpochSeconds ?: return@updateState state
+            state.copy(activeRun = run.copy(sessionStepStartedAtEpochSeconds = started + seconds))
         }
     }
 
@@ -220,6 +251,19 @@ class WorkoutRepository(context: Context) {
                     return@updateState state
                 }
             val now = nowWorkoutEpochSeconds()
+            if (run.session != null) {
+                // The single-screen session: mark the item's steps done and follow the session.
+                val updated = run.withSessionItemLoggedElsewhere(segmentId, itemId, kind, logDate, entryId, now)
+                val plan = updated.sessionPlan()
+                val segmentDone = WorkoutSessionEngine.isSectionFinished(plan, updated.session!!, run.position.segmentIndex)
+                result = WorkoutItemCompletionResult(
+                    segmentJustCompleted = segmentDone,
+                    completedSegmentId = if (segmentDone) workout.segments.getOrNull(run.position.segmentIndex)?.id else null,
+                    workoutComplete = updated.isSessionComplete(plan),
+                    nextSegmentTitle = null,
+                )
+                return@updateState state.copy(activeRun = updated)
+            }
             val recap = WorkoutItemRecap(
                 segmentId = segmentId,
                 itemId = itemId,
@@ -294,6 +338,18 @@ class WorkoutRepository(context: Context) {
         var result: WorkoutItemCompletionResult? = null
         updateState { state ->
             val run = state.activeRun ?: return@updateState state
+            if (run.session != null) {
+                val plan = run.sessionPlan()
+                if (run.isSessionComplete(plan)) return@updateState state
+                val ended = run.applyingSessionEvent(WorkoutSessionEvent.EndWorkout, nowWorkoutEpochSeconds())
+                result = WorkoutItemCompletionResult(
+                    segmentJustCompleted = true,
+                    completedSegmentId = null,
+                    workoutComplete = true,
+                    nextSegmentTitle = null,
+                )
+                return@updateState state.copy(activeRun = ended)
+            }
             val outcome = run.endingEarly() ?: return@updateState state
             result = outcome.result
             state.copy(activeRun = outcome.run)
@@ -303,6 +359,8 @@ class WorkoutRepository(context: Context) {
 
     suspend fun clearActiveRun() {
         updateState { state -> state.copy(activeRun = null) }
+        // Whichever screen ended the run, its notification and rest alarm go with it.
+        if (WorkoutSessionForegroundService.isRunning) WorkoutSessionNotifier.stop(appContext)
     }
 
     private suspend fun updateState(transform: (WorkoutLibraryState) -> WorkoutLibraryState) {
