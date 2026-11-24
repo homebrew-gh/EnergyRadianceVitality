@@ -376,7 +376,7 @@ export function PlannerTab() {
         </section>
 
         {/* Workout library */}
-        <aside ref={libraryRef} className="card p-4 space-y-3 lg:sticky lg:top-24 scroll-mt-24">
+        <aside ref={libraryRef} className="card p-4 space-y-3 lg:sticky lg:top-5 scroll-mt-24">
           <div className="space-y-1">
             <SectionHeader>Workout Library</SectionHeader>
             <p className="text-sm text-muted">

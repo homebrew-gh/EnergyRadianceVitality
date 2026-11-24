@@ -118,7 +118,7 @@ export function WeightRoutinesTab() {
       {catalogs.weight.length === 0 ? (
         <p className="text-sm text-muted card p-3">
           Sync ERV on your phone to load the full exercise catalog, or{" "}
-          <Link to="/app/catalog" className="underline text-heading">
+          <Link to="/app/exercises" className="underline text-heading">
             edit the catalog
           </Link>
           .

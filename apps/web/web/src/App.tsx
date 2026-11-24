@@ -53,7 +53,9 @@ function Gate() {
           <Route path="stretch" element={<StretchRoutinesTab />} />
           <Route path="cardio" element={<CardioRoutinesTab />} />
         </Route>
-        <Route path="catalog" element={<CatalogEditorTab />} />
+        <Route path="exercises" element={<CatalogEditorTab />} />
+        {/* Old address from before the sidebar; kept so bookmarks still work. */}
+        <Route path="catalog" element={<Navigate to="/app/exercises" replace />} />
         <Route path="equipment" element={<EquipmentTab />} />
         <Route path="media" element={<MediaGalleryTab />} />
         <Route path="planner" element={<PlannerTab />} />

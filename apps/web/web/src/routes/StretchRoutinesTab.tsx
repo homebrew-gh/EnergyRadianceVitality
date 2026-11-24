@@ -109,7 +109,7 @@ export function StretchRoutinesTab() {
       {catalog.length === 0 ? (
         <p className="text-sm text-muted card p-3">
           No stretch catalog on relay yet. Sync ERV on your phone or{" "}
-          <Link to="/app/catalog" className="underline text-heading">
+          <Link to="/app/exercises" className="underline text-heading">
             edit the catalog
           </Link>
           .
