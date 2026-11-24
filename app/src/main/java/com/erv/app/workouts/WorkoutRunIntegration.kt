@@ -303,6 +303,10 @@ data class ComposedWorkoutHrSummary(
     val workoutId: String? = null,
     /** Target weights that today's lifting would change, for "Save today's weights". */
     val weightTargetChanges: List<WorkoutTargetWeightChange> = emptyList(),
+    /** The workout as run today (swaps, additions, removals, order), for "Save Changes to Workout". */
+    val adjustedWorkout: Workout? = null,
+    /** One line per change today made to the workout, such as "Added Lat pulldown". */
+    val workoutAdjustments: List<String> = emptyList(),
 ) {
     val hasAnyHeartRate: Boolean
         get() = wholeRun != null || sections.any { it.heartRate != null }

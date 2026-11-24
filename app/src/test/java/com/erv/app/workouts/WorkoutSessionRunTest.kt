@@ -416,4 +416,152 @@ class WorkoutSessionRunTest {
         assertEquals(110, section.minBpm)
         assertNull(trace.between(2_000, 3_000))
     }
+
+    private fun WorkoutActiveRun.itemIds(segment: Int) = workoutSnapshot.segments[segment].items.map { it.id }
+
+    @Test
+    fun an_exercise_added_today_comes_right_after_the_one_on_screen() {
+        val run = started("example-strength-day")
+        val added = run.withSessionItemAdded(WorkoutSessionAddition.Lift("erv-weight-exercise-bb-barbell-curl-v1"), newItemId = "added")
+        assertEquals(
+            listOf("strength-squat", "added", "strength-rest", "strength-bench", "strength-row", "strength-note"),
+            added.itemIds(0),
+        )
+        // Still on the first squat set, and the new lift is the next exercise after the squat.
+        assertEquals(run.step(), added.step())
+        val plan = added.sessionPlan()
+        val nextLift = plan.steps.filterIsInstance<WorkoutSessionStep.LiftSet>().first { it.itemId != "strength-squat" }
+        assertEquals("added", nextLift.itemId)
+        assertEquals(3, nextLift.setCount)
+        val lift = added.workoutSnapshot.segments[0].items[1] as WorkoutItem.Weight
+        assertEquals(120, lift.prescription.restAfterExerciseSeconds)
+        // Today only: the library copy is untouched.
+        assertEquals(5, examples.getValue("example-strength-day").segments[0].items.size)
+    }
+
+    @Test
+    fun an_exercise_added_mid_superset_joins_from_the_current_round() {
+        val roundTwo = started("example-pairs-and-circuit").play(
+            1_060,
+            WorkoutSessionEvent.SetLogged(set(8)),
+            WorkoutSessionEvent.StepDone,
+            WorkoutSessionEvent.SetLogged(set(6)),
+            WorkoutSessionEvent.StepDone,
+        )
+        val onScreen = roundTwo.step() as WorkoutSessionStep.LiftSet
+        assertEquals(2, onScreen.round)
+        val added = roundTwo.withSessionItemAdded(WorkoutSessionAddition.Lift("erv-weight-exercise-bb-barbell-curl-v1"), newItemId = "added")
+        assertEquals(onScreen, added.step())
+        val plan = added.sessionPlan()
+        val state = added.session!!
+        // Its lift sets only: the rest after it in each round carries its id too.
+        val addedSteps = plan.steps.indices.filter {
+            val step = plan.steps[it]
+            step is WorkoutSessionStep.LiftSet && step.itemId == "added"
+        }
+        assertEquals(3, addedSteps.size)
+        // Round 1 had already passed, so the new lift counts as skipped there.
+        val roundOne = addedSteps.first { plan.steps[it].round == 1 }
+        assertTrue(roundOne < state.stepIndex)
+        assertEquals(WorkoutStepOutcome.SKIPPED, state.recordFor(roundOne)?.outcome)
+        val after = plan.steps.drop(state.stepIndex + 1).filterIsInstance<WorkoutSessionStep.LiftSet>().first()
+        assertEquals("added", after.itemId)
+        assertEquals(2, after.round)
+    }
+
+    @Test
+    fun cardio_added_during_lifting_becomes_its_own_section_after_this_one() {
+        val run = started("example-strength-day")
+        val added = run.withSessionItemAdded(
+            WorkoutSessionAddition.Cardio("BIKE", 10),
+            newItemId = "added-bike",
+            newSegmentId = "added-section",
+        )
+        assertEquals(
+            listOf("strength-main", "added-section", "strength-accessories"),
+            added.workoutSnapshot.segments.map { it.id },
+        )
+        assertEquals(WorkoutSegmentKind.CARDIO, added.workoutSnapshot.segments[1].kind)
+        val leg = added.sessionPlan().steps.filterIsInstance<WorkoutSessionStep.CardioLeg>().single()
+        assertEquals(600, leg.targetSeconds)
+        assertEquals(run.step(), added.step())
+
+        val stretch = run.withSessionItemAdded(WorkoutSessionAddition.Stretch("hamstring", 30, perSide = true))
+        val holds = stretch.sessionPlan().steps.filterIsInstance<WorkoutSessionStep.StretchHold>()
+        assertEquals(2, holds.size)
+        assertEquals(listOf(30, 30), holds.map { it.holdSeconds })
+    }
+
+    @Test
+    fun only_items_still_to_come_can_be_removed() {
+        val run = started("example-strength-day")
+        assertFalse(run.canRemoveSessionItem("strength-main", "strength-squat"))
+        assertFalse(run.canRemoveSessionItem("strength-main", "strength-rest"))
+        assertTrue(run.canRemoveSessionItem("strength-main", "strength-bench"))
+
+        val noBench = run.withSessionItemRemoved("strength-main", "strength-bench")
+        assertEquals(listOf("strength-squat", "strength-rest", "strength-row", "strength-note"), noBench.itemIds(0))
+        assertEquals(run.step(), noBench.step())
+        assertEquals(run, run.withSessionItemRemoved("strength-main", "strength-squat"))
+
+        // Taking out everything in a section takes out the section.
+        val noAccessories = listOf("strength-split-squat", "strength-plank", "strength-dips")
+            .fold(run) { acc, id -> acc.withSessionItemRemoved("strength-accessories", id) }
+        assertEquals(listOf("strength-main"), noAccessories.workoutSnapshot.segments.map { it.id })
+    }
+
+    @Test
+    fun items_and_sections_still_to_come_can_be_reordered() {
+        val run = started("example-strength-day")
+        assertFalse(run.canMoveSessionItem("strength-main", "strength-squat", 1))
+        // The rest before the bench hasn't started either, so they can trade places.
+        assertTrue(run.canMoveSessionItem("strength-main", "strength-bench", -1))
+        assertFalse(run.canMoveSessionItem("strength-main", "strength-rest", 1))
+
+        val rowFirst = run.withSessionItemMoved("strength-main", "strength-row", -1)
+        assertEquals(listOf("strength-squat", "strength-rest", "strength-row", "strength-bench", "strength-note"), rowFirst.itemIds(0))
+        assertEquals(run.step(), rowFirst.step())
+
+        assertFalse(run.canMoveSessionSection("strength-accessories", -1))
+        val cardio = started("example-cardio-and-mobility")
+        assertTrue(cardio.canMoveSessionSection("cardio-stretch", -1))
+        val moved = cardio.withSessionSectionMoved("cardio-stretch", -1)
+        assertEquals(
+            listOf("cardio-warmup", "cardio-steady", "cardio-stretch", "cardio-intervals"),
+            moved.workoutSnapshot.segments.map { it.id },
+        )
+        assertEquals(cardio.step(), moved.step())
+    }
+
+    @Test
+    fun todays_changes_can_be_written_back_to_the_workout() {
+        val original = examples.getValue("example-strength-day")
+        val run = started("example-strength-day")
+            .copy(sessionExerciseSwaps = mapOf(sessionItemKey("strength-main", "strength-squat") to "front-squat"))
+            .withSessionSetCountChanged(1)
+            .withSessionItemAdded(WorkoutSessionAddition.Lift("curl"), newItemId = "added")
+            .withSessionItemRemoved("strength-accessories", "strength-dips")
+        val adjusted = run.adjustedWorkout()
+        val squat = adjusted.segments[0].items[0] as WorkoutItem.Weight
+        assertEquals("front-squat", squat.exerciseId)
+        assertTrue("erv-weight-exercise-squat-v1" in squat.alternativeExerciseIds)
+        assertNull(squat.title)
+
+        val names = { item: WorkoutItem -> (item as? WorkoutItem.Weight)?.exerciseId ?: item.id }
+        assertEquals(
+            listOf(
+                "Swapped erv-weight-exercise-squat-v1 for front-squat",
+                "front-squat: 3 → 4 sets",
+                "Added curl",
+                "Removed erv-weight-exercise-bw-dip-v1",
+            ),
+            adjusted.describeAdjustmentsFrom(original, names),
+        )
+        assertEquals(listOf("Order changed"), started("example-strength-day")
+            .withSessionItemMoved("strength-main", "strength-row", -1)
+            .adjustedWorkout()
+            .describeAdjustmentsFrom(original, names))
+        assertTrue(started("example-strength-day").adjustedWorkout().describeAdjustmentsFrom(original, names).isEmpty())
+    }
+
 }

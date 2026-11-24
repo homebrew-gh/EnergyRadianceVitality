@@ -359,6 +359,8 @@ internal fun WorkoutSessionSwapDialog(
     currentExerciseId: String,
     onDismiss: () -> Unit,
     onPick: (String) -> Unit,
+    /** Opens the whole exercise library instead of the builder's alternatives. */
+    onChooseFromLibrary: () -> Unit,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -372,6 +374,9 @@ internal fun WorkoutSessionSwapDialog(
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }
+                }
+                OutlinedButton(onClick = onChooseFromLibrary, modifier = Modifier.fillMaxWidth()) {
+                    Text("Choose From Library")
                 }
             }
         },
