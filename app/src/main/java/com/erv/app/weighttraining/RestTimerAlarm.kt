@@ -33,6 +33,7 @@ object RestTimerAlarm {
     private const val TAG = "RestTimerAlarm"
     private const val ACTION_REST_OVER = "com.erv.app.rest.ACTION_REST_OVER"
     private const val EXTRA_TEXT = "text"
+    private const val EXTRA_TITLE = "title"
     private const val EXTRA_OPEN_WEIGHT_LIVE = "openWeightLive"
     private const val REQUEST_CODE = 30079
     const val CHANNEL_ID = "erv_rest_timer_v1"
@@ -45,10 +46,17 @@ object RestTimerAlarm {
      * [text] says what is next ("Next set: Bench Press"). [openWeightLive] reopens the live
      * lifting screen from the notification instead of the app's last screen.
      */
-    fun schedule(context: Context, endsAtEpochSeconds: Long, text: String, openWeightLive: Boolean) {
+    fun schedule(
+        context: Context,
+        endsAtEpochSeconds: Long,
+        text: String,
+        openWeightLive: Boolean,
+        /** In place of "Rest over", for a cardio leg or a stretch hold that ends. */
+        title: String? = null,
+    ) {
         val app = context.applicationContext
         val alarmManager = app.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
-        val pending = alarmPendingIntent(app, text, openWeightLive)
+        val pending = alarmPendingIntent(app, text, openWeightLive, title)
         val triggerAtMs = endsAtEpochSeconds * 1000L
         try {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || alarmManager.canScheduleExactAlarms()) {
@@ -70,13 +78,19 @@ object RestTimerAlarm {
         NotificationManagerCompat.from(app).cancel(NOTIFICATION_ID)
     }
 
-    private fun alarmPendingIntent(context: Context, text: String, openWeightLive: Boolean): PendingIntent =
+    private fun alarmPendingIntent(
+        context: Context,
+        text: String,
+        openWeightLive: Boolean,
+        title: String? = null,
+    ): PendingIntent =
         PendingIntent.getBroadcast(
             context,
             REQUEST_CODE,
             Intent(context, RestTimerAlarmReceiver::class.java).apply {
                 action = ACTION_REST_OVER
                 putExtra(EXTRA_TEXT, text)
+                title?.let { putExtra(EXTRA_TITLE, it) }
                 putExtra(EXTRA_OPEN_WEIGHT_LIVE, openWeightLive)
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
@@ -92,6 +106,7 @@ object RestTimerAlarm {
             app,
             text = intent.getStringExtra(EXTRA_TEXT).orEmpty(),
             openWeightLive = intent.getBooleanExtra(EXTRA_OPEN_WEIGHT_LIVE, false),
+            title = intent.getStringExtra(EXTRA_TITLE),
         )
     }
 
@@ -101,7 +116,7 @@ object RestTimerAlarm {
         return info.importance <= ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND
     }
 
-    private fun showRestOverNotification(context: Context, text: String, openWeightLive: Boolean) {
+    private fun showRestOverNotification(context: Context, text: String, openWeightLive: Boolean, title: String? = null) {
         if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) return
         ensureChannel(context)
         val open = PendingIntent.getActivity(
@@ -115,7 +130,7 @@ object RestTimerAlarm {
         )
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_erv)
-            .setContentTitle(context.getString(R.string.rest_timer_over_title))
+            .setContentTitle(title?.takeIf { it.isNotBlank() } ?: context.getString(R.string.rest_timer_over_title))
             .setContentText(text.ifBlank { null })
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)

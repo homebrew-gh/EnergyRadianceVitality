@@ -379,3 +379,139 @@ internal fun WorkoutSessionSwapDialog(
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
+
+/** The big clock shared by the cardio and stretch cards: a countdown, or time so far. */
+@Composable
+private fun SessionStepClock(seconds: Int, caption: String) {
+    Text(clockText(seconds), style = MaterialTheme.typography.displayMedium, fontSize = 56.sp)
+    Text(caption, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+}
+
+/**
+ * One cardio leg: a steady effort, or one work or recovery leg of intervals. A new cardio item
+ * waits for Start so there is time to get set; after that the clock runs by itself.
+ */
+@Composable
+internal fun WorkoutSessionCardioCard(
+    step: WorkoutSessionStep.CardioLeg,
+    title: String,
+    /** "Zone 2 · 130–145 bpm" or "170 bpm", when the builder set one. */
+    heartRateTarget: String?,
+    awaitingStart: Boolean,
+    /** Seconds left when the leg has a target, otherwise seconds so far. */
+    clockSeconds: Int,
+    onStart: () -> Unit,
+    onFinish: () -> Unit,
+    onSkipLeg: () -> Unit,
+    onSkipCardio: () -> Unit,
+    onOpenCardioScreen: () -> Unit,
+    modifier: Modifier = Modifier,
+    /** The Concept2 or cycling sensor: connect before Start, live numbers while it runs. */
+    sensors: @Composable () -> Unit = {},
+) {
+    val timed = (step.targetSeconds ?: 0) > 0
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = if (step.isRecovery) {
+            CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+        } else {
+            CardDefaults.cardColors()
+        },
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(title, style = MaterialTheme.typography.titleLarge)
+            val legLine = when {
+                step.legCount <= 1 -> step.targetSeconds?.let { "${formatStepSeconds(it)} steady" } ?: "Open-ended"
+                step.isRecovery -> "Recovery · leg ${step.legIndex + 1} of ${step.legCount}"
+                else -> listOfNotNull(step.label?.takeIf { it.isNotBlank() }, "Leg ${step.legIndex + 1} of ${step.legCount}")
+                    .joinToString(" · ")
+            }
+            Text(legLine, style = MaterialTheme.typography.titleMedium)
+            heartRateTarget?.takeIf { !step.isRecovery }?.let {
+                Text("Target $it", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            sensors()
+            if (awaitingStart) {
+                Button(onClick = onStart, modifier = Modifier.fillMaxWidth()) { Text("Start") }
+                TextButton(onClick = onOpenCardioScreen, modifier = Modifier.fillMaxWidth()) {
+                    Text("Use Cardio Screen (GPS, Sensors)")
+                }
+            } else {
+                SessionStepClock(clockSeconds, if (timed) "left" else "so far")
+                Button(onClick = onFinish, modifier = Modifier.fillMaxWidth()) {
+                    Text(if (timed) "Finish Leg Now" else "Finish")
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                if (step.legCount > 1) {
+                    TextButton(onClick = onSkipLeg, modifier = Modifier.weight(1f)) {
+                        Text("Skip Leg", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                TextButton(onClick = onSkipCardio, modifier = Modifier.weight(1f)) {
+                    Text("Skip Cardio", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+    }
+}
+
+/** One stretch hold, a side at a time for a per-side stretch. */
+@Composable
+internal fun WorkoutSessionStretchCard(
+    step: WorkoutSessionStep.StretchHold,
+    name: String,
+    procedure: String?,
+    awaitingStart: Boolean,
+    secondsLeft: Int,
+    onStart: () -> Unit,
+    onDone: () -> Unit,
+    onSkipHold: () -> Unit,
+    onSkipStretch: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Card(modifier = modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(name, style = MaterialTheme.typography.titleLarge)
+            Text(
+                text = when (step.side) {
+                    com.erv.app.workouts.WorkoutStretchSide.LEFT -> "Left side · ${formatStepSeconds(step.holdSeconds)}"
+                    com.erv.app.workouts.WorkoutStretchSide.RIGHT -> "Right side · ${formatStepSeconds(step.holdSeconds)}"
+                    null -> "Hold ${formatStepSeconds(step.holdSeconds)}"
+                },
+                style = MaterialTheme.typography.titleMedium,
+            )
+            procedure?.takeIf { it.isNotBlank() }?.let {
+                Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (awaitingStart) {
+                Button(onClick = onStart, modifier = Modifier.fillMaxWidth()) { Text("Start") }
+            } else {
+                SessionStepClock(secondsLeft, "left")
+                OutlinedButton(onClick = onDone, modifier = Modifier.fillMaxWidth()) { Text("Done") }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                if (step.side != null) {
+                    TextButton(onClick = onSkipHold, modifier = Modifier.weight(1f)) {
+                        Text("Skip Side", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                TextButton(onClick = onSkipStretch, modifier = Modifier.weight(1f)) {
+                    Text("Skip Stretch", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+    }
+}

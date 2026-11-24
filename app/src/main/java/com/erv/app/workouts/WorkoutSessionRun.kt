@@ -27,7 +27,7 @@ fun WorkoutActiveRun.sessionExerciseFor(step: WorkoutSessionStep.LiftSet): Strin
 fun WorkoutActiveRun.withSessionStartedAtPosition(nowEpochSeconds: Long): WorkoutActiveRun {
     if (session != null) return this
     val started = withSessionStarted(nowEpochSeconds)
-    if (startedAtEpochSeconds == null || position == WorkoutRunPosition()) return started
+    if (startedAtEpochSeconds == null || position == WorkoutRunPosition()) return started.withStartGate()
     val plan = sessionPlan()
     val segments = workoutSnapshot.segments
     val current = segments.getOrNull(position.segmentIndex)
@@ -44,19 +44,25 @@ fun WorkoutActiveRun.withSessionStartedAtPosition(nowEpochSeconds: Long): Workou
             }
         }
     }
-    if (handled.isEmpty()) return started
+    if (handled.isEmpty()) return started.withStartGate()
     val records = handled.map { WorkoutStepRecord(it, WorkoutStepOutcome.SKIPPED) }
     var next = 0
     val recorded = handled.toSet()
     while (next < plan.size && next in recorded) next++
-    return started.copy(session = WorkoutSessionState(stepIndex = next, records = records))
+    return started.copy(session = WorkoutSessionState(stepIndex = next, records = records)).withStartGate()
+}
+
+/** The step the session opens on waits for Start when it is cardio or a stretch. */
+private fun WorkoutActiveRun.withStartGate(): WorkoutActiveRun {
+    val first = session?.let { WorkoutSessionEngine.currentStep(sessionPlan(), it) }
+    return copy(sessionStepAwaitingStart = first.waitsForStart(null, newItem = true))
 }
 
 /**
  * [event] applied to this run, with the bookkeeping kept in step: the storyboard position follows
  * the session, items skipped in a finished section get a "skipped" recap, finished sections are
- * listed, and moving onto a cardio or stretch step asks the run screen to open it (those still run
- * on their own screens).
+ * listed, a new cardio item or stretch waits for Start, and moving onto a saved cardio routine
+ * asks the run screen to open the cardio screen, which still runs those.
  */
 fun WorkoutActiveRun.applyingSessionEvent(event: WorkoutSessionEvent, nowEpochSeconds: Long): WorkoutActiveRun {
     val before = session ?: return this
@@ -89,8 +95,10 @@ internal fun WorkoutActiveRun.withSessionBookkeeping(
     val step = WorkoutSessionEngine.currentStep(plan, state)
     val previousStep = WorkoutSessionEngine.currentStep(plan, before)
     val stepChanged = state.stepIndex != before.stepIndex
-    val opensOwnScreen = step is WorkoutSessionStep.CardioLeg || step is WorkoutSessionStep.StretchHold
     val newItem = step?.itemId != previousStep?.itemId || step?.segmentId != previousStep?.segmentId
+    // A saved cardio routine still runs on the cardio screen; everything else stays here.
+    val opensOwnScreen = step is WorkoutSessionStep.CardioLeg && step.cardioRoutineId != null
+    val waitsForStart = step.waitsForStart(previousStep, newItem)
     return copy(
         position = plan.positionFor(workout, state),
         itemRecaps = itemRecaps + skippedRecaps,
@@ -102,8 +110,20 @@ internal fun WorkoutActiveRun.withSessionBookkeeping(
         pendingNextSegmentTitle = null,
         pendingCompletedSegmentTitle = null,
         autoAdvanceRequested = if (stepChanged) opensOwnScreen && newItem else autoAdvanceRequested,
+        sessionStepAwaitingStart = if (stepChanged) waitsForStart else sessionStepAwaitingStart,
     )
 }
+
+/**
+ * A new cardio item waits for Start, and so does a stretch that doesn't follow another hold; the
+ * legs of one cardio item and a run of stretches flow on by themselves.
+ */
+internal fun WorkoutSessionStep?.waitsForStart(previousStep: WorkoutSessionStep?, newItem: Boolean): Boolean =
+    when (this) {
+        is WorkoutSessionStep.CardioLeg -> cardioRoutineId == null && newItem
+        is WorkoutSessionStep.StretchHold -> previousStep !is WorkoutSessionStep.StretchHold
+        else -> false
+    }
 
 /** The record (or null while open) of every step of one item. */
 private fun WorkoutSessionPlan.itemRecords(

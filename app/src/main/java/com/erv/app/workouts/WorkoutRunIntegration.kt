@@ -531,6 +531,43 @@ suspend fun publishComposedWorkoutNote(
     )
 }
 
+/** The stretch of a heart rate trace between two times, or null when no samples fall inside it. */
+fun CardioHrScaffolding.between(fromEpochSeconds: Long, toEpochSeconds: Long): CardioHrScaffolding? {
+    val inWindow = samples.filter { it.epochSeconds in fromEpochSeconds..toEpochSeconds && it.bpm > 0 }
+    if (inWindow.isEmpty()) return null
+    return CardioHrScaffolding(
+        avgBpm = inWindow.sumOf { it.bpm } / inWindow.size,
+        maxBpm = inWindow.maxOf { it.bpm },
+        minBpm = inWindow.minOf { it.bpm },
+        samples = inWindow,
+    )
+}
+
+/**
+ * Gives each lifting section the session screen logged its own heart rate, cut from the
+ * whole-workout trace by the section's start and end (the weight screen used to record one per
+ * section). A section that already has one keeps it.
+ */
+suspend fun attachSectionHeartRateToLiftLogs(
+    run: WorkoutActiveRun,
+    wholeRun: CardioHrScaffolding,
+    weightRepository: WeightRepository,
+) {
+    val state = weightRepository.currentState()
+    run.itemRecaps
+        .filter { !it.skipped && it.kind == WorkoutLoggedItemKind.WEIGHT && it.linkedEntryId != null }
+        .distinctBy { it.linkedEntryId }
+        .forEach { recap ->
+            val logDate = recap.linkedLogDate?.let { runCatching { LocalDate.parse(it) }.getOrNull() } ?: return@forEach
+            val session = state.logFor(logDate)?.workouts?.firstOrNull { it.id == recap.linkedEntryId } ?: return@forEach
+            if (session.heartRate != null || session.workoutLink?.sessionId != run.sessionId) return@forEach
+            val from = session.startedAtEpochSeconds ?: return@forEach
+            val to = session.finishedAtEpochSeconds ?: return@forEach
+            val slice = wholeRun.between(from, to) ?: return@forEach
+            weightRepository.updateWorkout(logDate, session.copy(heartRate = slice))
+        }
+}
+
 /** Stamp the full-workout HR summary onto every silo log entry linked to this run. */
 suspend fun attachComposedWorkoutHeartRateToLinkedLogs(
     run: WorkoutActiveRun,
