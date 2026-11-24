@@ -135,6 +135,8 @@ export function WorkoutsTab() {
   const [importOpen, setImportOpen] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  /** Short note shown in the composer when a library pick was not added. */
+  const [pickNotice, setPickNotice] = useState<string | null>(null);
   const [weightPickerFilter, setWeightPickerFilter] =
     useState<WeightExercisePickerFilter>("ALL");
   const alertsRef = useRef<HTMLDivElement>(null);
@@ -324,7 +326,14 @@ export function WorkoutsTab() {
     });
   };
 
+  useEffect(() => {
+    if (!pickNotice) return;
+    const timer = window.setTimeout(() => setPickNotice(null), 6000);
+    return () => window.clearTimeout(timer);
+  }, [pickNotice]);
+
   const addCatalogPick = (kind: LibraryItemKind, id: string) => {
+    setPickNotice(null);
     const index = activeSegmentIndexResolved;
     if (index == null) {
       setFormError("Add a segment first, then pick items from the library.");
@@ -334,8 +343,13 @@ export function WorkoutsTab() {
     if (!segment) return;
 
     if (kind === "weight") {
-      if (weightItems(segment).some((item) => item.exerciseId === id)) return;
       const exercise = catalogExercises.find((ex) => ex.id === id);
+      if (weightItems(segment).some((item) => item.exerciseId === id)) {
+        setPickNotice(
+          `${exercise?.name ?? "That exercise"} is already in this segment. Add sets to it there, or select another segment.`,
+        );
+        return;
+      }
       const item = newWeightItem(id, segment.kind, exercise);
       const suggested = suggestedTargetWeightKg(id, snapshot);
       if (suggested != null) {
@@ -348,7 +362,10 @@ export function WorkoutsTab() {
       return;
     }
     if (kind === "stretch") {
-      if (activeStretchIds.has(id)) return;
+      if (activeStretchIds.has(id)) {
+        setPickNotice("That stretch is already in this segment.");
+        return;
+      }
       updateSegment(index, {
         ...segment,
         items: [...segmentItems(segment), newMobilityItem(id)],
@@ -356,7 +373,10 @@ export function WorkoutsTab() {
       return;
     }
     if (kind === "cardio") {
-      if (activeCardioIds.has(id)) return;
+      if (activeCardioIds.has(id)) {
+        setPickNotice("That activity is already in this segment.");
+        return;
+      }
       updateSegment(index, {
         ...segment,
         items: [
@@ -685,6 +705,11 @@ export function WorkoutsTab() {
               </div>
               <span className="sun-chip">{activeSegmentLabel}</span>
             </div>
+            {pickNotice ? (
+              <p className="mt-2 text-sm text-[var(--erv-error)]" role="status">
+                {pickNotice}
+              </p>
+            ) : null}
           </div>
 
           <div className="space-y-4 p-4">
