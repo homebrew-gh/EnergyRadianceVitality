@@ -18,6 +18,10 @@
     <string name="weight_live_notification_action_open">Open workout</string>
     <string name="weight_live_notification_rest_title">Resting</string>
     <string name="rest_timer_over_title">Rest over</string>
+    <string name="workout_session_notification_channel_name">Live workout</string>
+    <string name="workout_session_notification_channel_desc">Ongoing workout clock, the current step and rest countdowns while a workout runs.</string>
+    <string name="workout_session_notification_title">Workout</string>
+    <string name="workout_session_notification_action_open">Open workout</string>
     <string name="rest_timer_channel_name">Rest timer</string>
     <string name="rest_timer_channel_desc">Sounds and vibrates when a rest between sets or sections ends while ERV is in the background.</string>
     <string name="weight_live_bubble_shortcut_short">Workout</string>

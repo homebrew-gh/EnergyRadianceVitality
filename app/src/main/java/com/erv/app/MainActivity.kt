@@ -54,6 +54,7 @@ import com.erv.app.weighttraining.WeightLiveWorkoutConstants
 import com.erv.app.weighttraining.WeightRepository
 import com.erv.app.weighttraining.WeightSync
 import com.erv.app.unifiedroutines.UnifiedRoutineRepository
+import com.erv.app.workouts.WorkoutSessionForegroundService
 import com.erv.app.workouts.WorkoutRepository
 import com.erv.app.workouts.WorkoutSync
 import com.erv.app.lighttherapy.LightSync
@@ -134,6 +135,7 @@ class MainActivity : AppCompatActivity() {
     private val navigateToWeightLiveWorkout = MutableStateFlow(false)
     private val navigateToCardioLiveWorkout = MutableStateFlow(false)
     private val navigateToFasting = MutableStateFlow(false)
+    private val navigateToWorkoutRun = MutableStateFlow<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -148,6 +150,9 @@ class MainActivity : AppCompatActivity() {
         }
         if (intent.getBooleanExtra(FastingConstants.EXTRA_OPEN_FASTING, false)) {
             navigateToFasting.value = true
+        }
+        intent.getStringExtra(WorkoutSessionForegroundService.EXTRA_OPEN_WORKOUT_RUN_ID)?.let { workoutId ->
+            navigateToWorkoutRun.value = workoutId
         }
 
         setContent {
@@ -171,6 +176,7 @@ class MainActivity : AppCompatActivity() {
                         navigateToWeightLiveWorkout = navigateToWeightLiveWorkout,
                         navigateToCardioLiveWorkout = navigateToCardioLiveWorkout,
                         navigateToFasting = navigateToFasting,
+                        navigateToWorkoutRun = navigateToWorkoutRun,
                     )
                 }
             }
@@ -189,6 +195,9 @@ class MainActivity : AppCompatActivity() {
         }
         if (intent.getBooleanExtra(FastingConstants.EXTRA_OPEN_FASTING, false)) {
             navigateToFasting.value = true
+        }
+        intent.getStringExtra(WorkoutSessionForegroundService.EXTRA_OPEN_WORKOUT_RUN_ID)?.let { workoutId ->
+            navigateToWorkoutRun.value = workoutId
         }
     }
 
@@ -213,6 +222,7 @@ private fun ErvApp(
     navigateToWeightLiveWorkout: MutableStateFlow<Boolean>,
     navigateToCardioLiveWorkout: MutableStateFlow<Boolean>,
     navigateToFasting: MutableStateFlow<Boolean>,
+    navigateToWorkoutRun: MutableStateFlow<String?>,
 ) {
     val context = LocalContext.current
     var appState by remember {
@@ -361,6 +371,7 @@ private fun ErvApp(
                 navigateToWeightLiveWorkout = navigateToWeightLiveWorkout,
                 navigateToCardioLiveWorkout = navigateToCardioLiveWorkout,
                 navigateToFasting = navigateToFasting,
+                navigateToWorkoutRun = navigateToWorkoutRun,
                 onRequestNostrLogin = {
                     scope.launch {
                         userPreferences.setUseAppWithoutNostrAccount(false)
@@ -420,6 +431,7 @@ private fun MainAppShell(
     navigateToWeightLiveWorkout: MutableStateFlow<Boolean>,
     navigateToCardioLiveWorkout: MutableStateFlow<Boolean>,
     navigateToFasting: MutableStateFlow<Boolean>,
+    navigateToWorkoutRun: MutableStateFlow<String?>,
     onRequestNostrLogin: () -> Unit,
     onLogout: () -> Unit,
     onAllDataDeleted: () -> Unit,
@@ -929,6 +941,7 @@ private fun MainAppShell(
                     navigateToWeightLiveWorkout = navigateToWeightLiveWorkout,
                     navigateToCardioLiveWorkout = navigateToCardioLiveWorkout,
                     navigateToFasting = navigateToFasting,
+                    navigateToWorkoutRun = navigateToWorkoutRun,
                     onRelaysChanged = { relayUrlsVersion++ },
                     onPullRelayData = {
                         val pool = relayPool ?: return@ErvNavHost

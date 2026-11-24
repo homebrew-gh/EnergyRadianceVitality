@@ -109,6 +109,14 @@
                 android:value="Ongoing cardio timer session: notification and optional bubble to return to the live cardio timer." />
         </service>
         <service
+            android:name=".workouts.WorkoutSessionForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Ongoing workout session: notification with the workout clock, the current step and rest countdowns." />
+        </service>
+        <service
             android:name=".fasting.FastingForegroundService"
             android:exported="false"
             android:foregroundServiceType="specialUse">
