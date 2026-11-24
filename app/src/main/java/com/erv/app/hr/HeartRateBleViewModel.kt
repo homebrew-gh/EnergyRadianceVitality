@@ -131,21 +131,21 @@ class HeartRateBleViewModel(application: Application) : AndroidViewModel(applica
     private val workoutHrSamples = mutableListOf<CardioHrSample>()
 
     @Volatile
-    private var unifiedWorkoutRecording = false
+    private var composedRunRecording = false
 
     @Volatile
-    private var unifiedWorkoutSamples = 0
+    private var composedRunSamples = 0
 
     @Volatile
-    private var unifiedWorkoutBpmSum = 0L
+    private var composedRunBpmSum = 0L
 
     @Volatile
-    private var unifiedWorkoutMinBpm: Int? = null
+    private var composedRunMinBpm: Int? = null
 
     @Volatile
-    private var unifiedWorkoutMaxBpm: Int? = null
+    private var composedRunMaxBpm: Int? = null
 
-    private val unifiedWorkoutHrSamples = mutableListOf<CardioHrSample>()
+    private val composedRunHrSamples = mutableListOf<CardioHrSample>()
 
     val bleHardwareAvailable: Boolean
         get() = getApplication<Application>().packageManager.hasSystemFeature(PackageManager.FEATURE_BLUETOOTH_LE) &&
@@ -239,16 +239,6 @@ class HeartRateBleViewModel(application: Application) : AndroidViewModel(applica
         workoutHrSamples.clear()
     }
 
-    fun startUnifiedWorkoutRecording() {
-        if (unifiedWorkoutRecording) return
-        unifiedWorkoutRecording = true
-        unifiedWorkoutSamples = 0
-        unifiedWorkoutBpmSum = 0L
-        unifiedWorkoutMinBpm = null
-        unifiedWorkoutMaxBpm = null
-        unifiedWorkoutHrSamples.clear()
-    }
-
     /**
      * Continuous HR across all storyboard sections in Training → Workout live run.
      *
@@ -258,37 +248,36 @@ class HeartRateBleViewModel(application: Application) : AndroidViewModel(applica
      * a fresh run always starts from an empty buffer.
      */
     fun startComposedWorkoutRunRecording() {
-        startUnifiedWorkoutRecording()
+        if (composedRunRecording) return
+        composedRunRecording = true
+        composedRunSamples = 0
+        composedRunBpmSum = 0L
+        composedRunMinBpm = null
+        composedRunMaxBpm = null
+        composedRunHrSamples.clear()
     }
 
     fun discardComposedWorkoutRunRecording() {
-        discardUnifiedWorkoutRecording()
+        composedRunRecording = false
+        composedRunSamples = 0
+        composedRunBpmSum = 0L
+        composedRunMinBpm = null
+        composedRunMaxBpm = null
+        composedRunHrSamples.clear()
     }
 
-    fun takeComposedWorkoutRunHeartRateSummary(): CardioHrScaffolding? =
-        takeUnifiedWorkoutHeartRateSummary()
-
-    fun discardUnifiedWorkoutRecording() {
-        unifiedWorkoutRecording = false
-        unifiedWorkoutSamples = 0
-        unifiedWorkoutBpmSum = 0L
-        unifiedWorkoutMinBpm = null
-        unifiedWorkoutMaxBpm = null
-        unifiedWorkoutHrSamples.clear()
-    }
-
-    fun takeUnifiedWorkoutHeartRateSummary(): CardioHrScaffolding? {
-        unifiedWorkoutRecording = false
-        val n = unifiedWorkoutSamples
-        val sum = unifiedWorkoutBpmSum
-        val minB = unifiedWorkoutMinBpm
-        val maxB = unifiedWorkoutMaxBpm
-        val samplesCopy = unifiedWorkoutHrSamples.toList()
-        unifiedWorkoutSamples = 0
-        unifiedWorkoutBpmSum = 0L
-        unifiedWorkoutMinBpm = null
-        unifiedWorkoutMaxBpm = null
-        unifiedWorkoutHrSamples.clear()
+    fun takeComposedWorkoutRunHeartRateSummary(): CardioHrScaffolding? {
+        composedRunRecording = false
+        val n = composedRunSamples
+        val sum = composedRunBpmSum
+        val minB = composedRunMinBpm
+        val maxB = composedRunMaxBpm
+        val samplesCopy = composedRunHrSamples.toList()
+        composedRunSamples = 0
+        composedRunBpmSum = 0L
+        composedRunMinBpm = null
+        composedRunMaxBpm = null
+        composedRunHrSamples.clear()
         if (n <= 0 || minB == null || maxB == null) return null
         return CardioHrScaffolding(
             avgBpm = (sum / n).toInt(),
@@ -673,12 +662,12 @@ class HeartRateBleViewModel(application: Application) : AndroidViewModel(applica
                         CardioHrSample(epochSeconds = System.currentTimeMillis() / 1000, bpm = bpm)
                     )
                 }
-                if (unifiedWorkoutRecording) {
-                    unifiedWorkoutSamples++
-                    unifiedWorkoutBpmSum += bpm
-                    unifiedWorkoutMinBpm = unifiedWorkoutMinBpm?.let { min(it, bpm) } ?: bpm
-                    unifiedWorkoutMaxBpm = unifiedWorkoutMaxBpm?.let { max(it, bpm) } ?: bpm
-                    unifiedWorkoutHrSamples.add(
+                if (composedRunRecording) {
+                    composedRunSamples++
+                    composedRunBpmSum += bpm
+                    composedRunMinBpm = composedRunMinBpm?.let { min(it, bpm) } ?: bpm
+                    composedRunMaxBpm = composedRunMaxBpm?.let { max(it, bpm) } ?: bpm
+                    composedRunHrSamples.add(
                         CardioHrSample(epochSeconds = System.currentTimeMillis() / 1000, bpm = bpm)
                     )
                 }

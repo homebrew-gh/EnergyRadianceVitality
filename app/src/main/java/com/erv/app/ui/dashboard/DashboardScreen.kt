@@ -36,7 +36,6 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.automirrored.filled.DirectionsRun
-import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.FitnessCenter
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Medication
@@ -155,14 +154,12 @@ import com.erv.app.programs.ProgramBlockKind
 import com.erv.app.programs.ProgramDayBlock
 import com.erv.app.programs.ProgramDashboardHeatColdLaunch
 import com.erv.app.programs.ProgramDashboardStretchLaunch
-import com.erv.app.programs.ProgramDashboardUnifiedRoutineLaunch
 import com.erv.app.programs.ProgramRepository
 import com.erv.app.programs.ProgramSync
 import com.erv.app.programs.ProgramsLibraryState
 import com.erv.app.programs.cardioTimerSessionForProgramBlock
 import com.erv.app.programs.encodeHeatColdLaunch
 import com.erv.app.programs.encodeStretchLaunch
-import com.erv.app.programs.encodeUnifiedRoutineLaunch
 import com.erv.app.programs.launchPadLabelsForBlocks
 import com.erv.app.programs.programBlockCompletionKey
 import com.erv.app.programs.programBlocksForDate
@@ -177,8 +174,6 @@ import com.erv.app.ui.cardio.CardioMultiLegTimerFullScreen
 import com.erv.app.ui.cardio.CardioWorkoutSummaryFullScreen
 import com.erv.app.ui.cardio.OutdoorRuckPackWeightDialog
 import com.erv.app.ui.lighttherapy.LightTherapyTimerFullScreen
-import com.erv.app.unifiedroutines.UnifiedRoutineRepository
-import com.erv.app.unifiedroutines.UnifiedRoutine
 import com.erv.app.lighttherapy.LightTimeOfDay
 import com.erv.app.lighttherapy.lightActivityFor
 import com.erv.app.ui.theme.ErvDarkTherapyRedDark
@@ -235,7 +230,6 @@ fun DashboardScreen(
     onNavigateToSettings: () -> Unit,
     onNavigateToEditGoals: () -> Unit,
     onNavigateToCategory: (Category) -> Unit,
-    onOpenUnifiedRun: (String) -> Unit,
     onOpenWorkoutRun: (String) -> Unit,
     onOpenCardioNewWorkout: () -> Unit,
     /** Cardio manual log: opens cardio log with calendar (dashboard date pre-selected). */
@@ -254,7 +248,6 @@ fun DashboardScreen(
     stretchingRepository: StretchingRepository,
     programRepository: ProgramRepository,
     workoutRepository: WorkoutRepository,
-    unifiedRoutineRepository: UnifiedRoutineRepository,
     weightLiveWorkoutViewModel: WeightLiveWorkoutViewModel,
     cardioLiveWorkoutViewModel: CardioLiveWorkoutViewModel,
     userPreferences: UserPreferences,
@@ -287,7 +280,6 @@ fun DashboardScreen(
     val stretchState by stretchingRepository.state.collectAsState(initial = StretchLibraryState())
     val programsState by programRepository.state.collectAsState(initial = ProgramsLibraryState())
     val workoutState by workoutRepository.state.collectAsState(initial = WorkoutLibraryState())
-    val unifiedRoutineState by unifiedRoutineRepository.state.collectAsState(initial = com.erv.app.unifiedroutines.UnifiedRoutineLibraryState())
     val weightKg by userPreferences.fallbackBodyWeightKg.collectAsState(initial = null)
     val cardioDistanceUnit by userPreferences.cardioDistanceUnit.collectAsState(initial = CardioDistanceUnit.MILES)
     val cardioGpsPreferred by userPreferences.cardioGpsRecordingPreferred.collectAsState(initial = true)
@@ -358,14 +350,10 @@ fun DashboardScreen(
         )
     }
     val weightTrainingCategory = remember { categories.first { it.id == "weight_training" } }
-    val unifiedCategory = remember {
-        Category("unified_routines", "Unified Workouts", Icons.AutoMirrored.Filled.PlaylistPlay, "category/unified_routines")
-    }
     val cardioCategory = remember { categories.first { it.id == "cardio" } }
     val liveWeightDraft by weightLiveWorkoutViewModel.activeDraft.collectAsState()
     val cardioActiveTimer by cardioLiveWorkoutViewModel.activeTimer.collectAsState()
     val cardioLiveUiExpanded by cardioLiveWorkoutViewModel.cardioLiveUiExpanded.collectAsState()
-    val activeUnifiedSession = unifiedRoutineState.activeSession
     val heatColdCategory = remember { categories.first { it.id == "heat_cold" } }
     val fastingCategory = remember { categories.first { it.id == "fasting" } }
     val stretchingCategory = remember { categories.first { it.id == "stretching" } }
@@ -554,18 +542,8 @@ fun DashboardScreen(
                 }
             }
             ProgramBlockKind.UNIFIED_ROUTINE -> {
-                val routineId = block.unifiedRoutineId?.takeIf { it.isNotBlank() }
-                if (routineId == null || unifiedRoutineState.routines.none { it.id == routineId }) {
-                    scope.launch {
-                        snackbarHostState.showSnackbar("No unified workout linked — edit this block in Weekly Planner.")
-                    }
-                    return
-                }
                 scope.launch {
-                    userPreferences.setProgramDashboardUnifiedRoutineLaunchJson(
-                        encodeUnifiedRoutineLaunch(ProgramDashboardUnifiedRoutineLaunch(routineId = routineId))
-                    )
-                    onNavigateToCategory(unifiedCategory)
+                    snackbarHostState.showSnackbar("Unified workouts were removed. Change this block to a Saved Workout in Weekly Planner.")
                 }
             }
             ProgramBlockKind.OTHER -> {
@@ -850,14 +828,6 @@ fun DashboardScreen(
                         )
                     }
 
-                    activeUnifiedSession?.let { unifiedSession ->
-                        LiveWorkoutInProgressBanner(
-                            onClick = { onOpenUnifiedRun(unifiedSession.routineId) },
-                            modifier = Modifier.padding(bottom = 8.dp),
-                            text = stringResource(R.string.live_unified_in_progress_banner)
-                        )
-                    }
-
                     DateNavigator(
                         selectedDate = selectedDate,
                         onPreviousDay = viewModel::previousDay,
@@ -920,7 +890,6 @@ fun DashboardScreen(
                                     onProgramBlockStart = { block -> startProgramBlockFromLaunchPad(block) },
                                     supplementRoutines = supplementState.routines,
                                     lightRoutines = lightState.routines,
-                                    unifiedRoutines = unifiedRoutineState.routines,
                                     cardioRoutines = cardioState.routines,
                                     cardioQuickLaunches = cardioState.quickLaunches,
                                     cardioDistanceUnit = cardioDistanceUnit,
@@ -934,16 +903,6 @@ fun DashboardScreen(
                                     onLightRoutineSelected = { lightRoutinePreview = it },
                                     onOpenSupplementCategory = { onNavigateToCategory(supplementCategory) },
                                     onOpenLightTherapyCategory = { onNavigateToCategory(lightTherapyCategory) },
-                                    onUnifiedRoutineSelected = { routine ->
-                                        scope.launch {
-                                            userPreferences.setProgramDashboardUnifiedRoutineLaunchJson(
-                                                encodeUnifiedRoutineLaunch(
-                                                    ProgramDashboardUnifiedRoutineLaunch(routineId = routine.id)
-                                                )
-                                            )
-                                            onNavigateToCategory(unifiedCategory)
-                                        }
-                                    },
                                     onCardioRoutineSelected = { cardioRoutinePreview = it },
                                     onCardioQuickLaunchSelected = { ql ->
                                         if (ql.needsOutdoorRuckWeightPrompt()) {
@@ -958,16 +917,6 @@ fun DashboardScreen(
                                     },
                                     onOpenCardioNewWorkout = onOpenCardioNewWorkout,
                                     onOpenCardioLogBackfill = onOpenCardioLogBackfill,
-                                    onOpenUnifiedNewWorkout = {
-                                        scope.launch {
-                                            userPreferences.setProgramDashboardUnifiedRoutineLaunchJson(
-                                                encodeUnifiedRoutineLaunch(
-                                                    ProgramDashboardUnifiedRoutineLaunch(createNew = true)
-                                                )
-                                            )
-                                            onNavigateToCategory(unifiedCategory)
-                                        }
-                                    },
                                     onOpenWeightNewWorkout = {
                                         when {
                                             cardioLiveWorkoutViewModel.hasActiveTimer -> {
@@ -2161,7 +2110,6 @@ private fun RoutinesSection(
     onProgramBlockStart: (ProgramDayBlock) -> Unit,
     supplementRoutines: List<SupplementRoutine>,
     lightRoutines: List<LightRoutine>,
-    unifiedRoutines: List<UnifiedRoutine>,
     cardioRoutines: List<CardioRoutine>,
     cardioQuickLaunches: List<CardioQuickLaunch>,
     cardioDistanceUnit: CardioDistanceUnit,
@@ -2175,12 +2123,10 @@ private fun RoutinesSection(
     onLightRoutineSelected: (LightRoutine) -> Unit,
     onOpenSupplementCategory: () -> Unit,
     onOpenLightTherapyCategory: () -> Unit,
-    onUnifiedRoutineSelected: (UnifiedRoutine) -> Unit,
     onCardioRoutineSelected: (CardioRoutine) -> Unit,
     onCardioQuickLaunchSelected: (CardioQuickLaunch) -> Unit,
     onOpenCardioNewWorkout: () -> Unit,
     onOpenCardioLogBackfill: (LocalDate) -> Unit,
-    onOpenUnifiedNewWorkout: () -> Unit,
     onOpenWeightNewWorkout: () -> Unit,
     onOpenWeightLogBackfill: (LocalDate) -> Unit,
     onOpenWeightExercisesTab: () -> Unit,
@@ -2207,7 +2153,6 @@ private fun RoutinesSection(
     val keyManager = LocalKeyManager.current
     var showSupplementPicker by remember { mutableStateOf(false) }
     var showLightPicker by remember { mutableStateOf(false) }
-    var showWorkoutLauncherSheet by remember { mutableStateOf(false) }
     var showCardioPicker by remember { mutableStateOf(false) }
     var showWeightPicker by remember { mutableStateOf(false) }
     var showHeatColdSheet by remember { mutableStateOf(false) }
@@ -2900,20 +2845,6 @@ private fun RoutinesSection(
             }
         )
     }
-    if (showWorkoutLauncherSheet) {
-        UnifiedRoutinePickerSheet(
-            routines = unifiedRoutines,
-            onDismiss = { showWorkoutLauncherSheet = false },
-            onNewWorkout = {
-                onOpenUnifiedNewWorkout()
-                showWorkoutLauncherSheet = false
-            },
-            onSelectRoutine = { routine ->
-                onUnifiedRoutineSelected(routine)
-                showWorkoutLauncherSheet = false
-            }
-        )
-    }
     if (showCardioPicker) {
         CardioRoutinePickerSheet(
             routines = cardioRoutines,
@@ -2963,89 +2894,6 @@ private fun RoutinesSection(
                 showWeightPicker = false
             }
         )
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun UnifiedRoutinePickerSheet(
-    routines: List<UnifiedRoutine>,
-    onDismiss: () -> Unit,
-    onNewWorkout: () -> Unit,
-    onSelectRoutine: (UnifiedRoutine) -> Unit,
-) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp)
-                .padding(bottom = 24.dp)
-        ) {
-            Text(
-                "Unified Workouts",
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(bottom = 12.dp)
-            )
-            Text(
-                "Build mixed workouts here. Single cardio quick starts stay on the Cardio tile.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(bottom = 12.dp)
-            )
-            Surface(
-                onClick = onNewWorkout,
-                modifier = Modifier.fillMaxWidth(),
-                shape = MaterialTheme.shapes.medium,
-                color = MaterialTheme.colorScheme.primaryContainer
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    FormSectionLabelSmall("New Workout")
-                    Text(
-                        "Build a mixed weight, cardio, and stretching workout on the fly, then save it later if you want to repeat it",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-            if (routines.isNotEmpty()) {
-                HorizontalDivider(
-                    modifier = Modifier.padding(top = 16.dp, bottom = 8.dp),
-                    color = MaterialTheme.colorScheme.outlineVariant
-                )
-                Text(
-                    "Saved mixed workouts",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(bottom = 8.dp)
-                )
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 400.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    items(routines.sortedBy { it.name.lowercase() }, key = { it.id }) { routine ->
-                        Surface(
-                            onClick = { onSelectRoutine(routine) },
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = MaterialTheme.shapes.medium
-                        ) {
-                            Column(modifier = Modifier.padding(16.dp)) {
-                                Text(
-                                    routine.name.ifBlank { "Workout" },
-                                    style = MaterialTheme.typography.bodyLarge
-                                )
-                                Text(
-                                    if (routine.blocks.size == 1) "1 block" else "${routine.blocks.size} blocks",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
     }
 }
 

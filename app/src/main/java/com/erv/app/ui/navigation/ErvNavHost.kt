@@ -75,9 +75,6 @@ import com.erv.app.ui.workouts.WorkoutLibraryScreen
 import com.erv.app.ui.workouts.WorkoutLiveRunScreen
 import com.erv.app.workouts.WorkoutLibraryState
 import com.erv.app.workouts.WorkoutRepository
-import com.erv.app.ui.unifiedroutines.UnifiedRoutineCategoryScreen
-import com.erv.app.ui.unifiedroutines.UnifiedRoutineRunScreen
-import com.erv.app.ui.unifiedroutines.UnifiedWorkoutSummaryScreen
 import com.erv.app.workouts.isStarted
 import java.time.LocalDate
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -111,11 +108,6 @@ object Routes {
     const val workoutComposerNew = "category/training/workouts/edit/new"
     const val workoutRunRoute = "category/training/workouts/run/{workoutId}"
     fun workoutRun(workoutId: String) = "category/training/workouts/run/$workoutId"
-    const val unifiedRoutinesCategory = "category/unified_routines"
-    const val unifiedRoutineRunRoute = "category/unified_routines/run/{routineId}"
-    fun unifiedRoutineRun(routineId: String) = "category/unified_routines/run/$routineId"
-    const val unifiedWorkoutSummaryRoute = "category/unified_routines/summary/{sessionId}"
-    fun unifiedWorkoutSummary(sessionId: String) = "category/unified_routines/summary/$sessionId"
     const val weightTrainingLog = "category/weight_training/log"
     const val weightTrainingLogOpenCalendarRoute = "category/weight_training/log/open/{logDate}"
     fun weightTrainingLogOpenCalendar(logDateIso: String) = "category/weight_training/log/open/$logDateIso"
@@ -167,7 +159,6 @@ fun ErvNavHost(
     consumePendingReminderRoutineId: () -> Unit,
     navigateToWeightLiveWorkout: MutableStateFlow<Boolean>,
     navigateToCardioLiveWorkout: MutableStateFlow<Boolean>,
-    navigateToUnifiedLiveWorkout: MutableStateFlow<String?>,
     navigateToFasting: MutableStateFlow<Boolean>,
     onRelaysChanged: () -> Unit = {},
     onPullRelayData: suspend () -> Unit = {},
@@ -180,7 +171,6 @@ fun ErvNavHost(
     val pendingRoutineId = pendingReminderRoutineId.collectAsState(initial = null).value
     val openWeightLive by navigateToWeightLiveWorkout.collectAsState()
     val openCardioLive by navigateToCardioLiveWorkout.collectAsState()
-    val openUnifiedLiveRoutineId by navigateToUnifiedLiveWorkout.collectAsState()
     val openFasting by navigateToFasting.collectAsState()
     LaunchedEffect(pendingRoutineId) {
         if (pendingRoutineId != null) {
@@ -206,13 +196,6 @@ fun ErvNavHost(
             }
             navigateToCardioLiveWorkout.value = false
         }
-    }
-    LaunchedEffect(openUnifiedLiveRoutineId) {
-        val routineId = openUnifiedLiveRoutineId ?: return@LaunchedEffect
-        navController.navigate(Routes.unifiedRoutineRun(routineId)) {
-            launchSingleTop = true
-        }
-        navigateToUnifiedLiveWorkout.value = null
     }
     LaunchedEffect(openFasting) {
         if (openFasting) {
@@ -277,11 +260,6 @@ fun ErvNavHost(
                 onOpenHeatColdLog = {
                     navController.navigate(Routes.heatColdLog) { launchSingleTop = true }
                 },
-                onOpenUnifiedRun = { routineId ->
-                    navController.navigate(Routes.unifiedRoutineRun(routineId)) {
-                        launchSingleTop = true
-                    }
-                },
                 onOpenWorkoutRun = { workoutId ->
                     navController.navigate(Routes.workoutRun(workoutId)) {
                         launchSingleTop = true
@@ -291,7 +269,6 @@ fun ErvNavHost(
                 stretchingRepository = stretchingRepository,
                 programRepository = programRepository,
                 workoutRepository = workoutRepository,
-                unifiedRoutineRepository = unifiedRoutineRepository,
                 viewModel = dashboardViewModel
             )
         }
@@ -384,7 +361,6 @@ fun ErvNavHost(
         composable(Routes.cardioCategoryNewWorkout) {
             CardioCategoryScreen(
                 repository = cardioRepository,
-                unifiedRoutineRepository = unifiedRoutineRepository,
                 workoutRepository = workoutRepository,
                 userPreferences = userPreferences,
                 cardioLiveWorkoutViewModel = cardioLiveWorkoutViewModel,
@@ -392,11 +368,6 @@ fun ErvNavHost(
                 relayPool = relayPool,
                 signer = signer,
                 onBack = { navController.popBackStack() },
-                onReturnToUnifiedRun = { routineId ->
-                    if (!navController.popBackStack(Routes.unifiedRoutineRun(routineId), false)) {
-                        navController.navigate(Routes.unifiedRoutineRun(routineId)) { launchSingleTop = true }
-                    }
-                },
                 onReturnToWorkoutRun = { workoutId ->
                     if (!navController.popBackStack(Routes.workoutRun(workoutId), false)) {
                         navController.navigate(Routes.workoutRun(workoutId)) { launchSingleTop = true }
@@ -420,7 +391,6 @@ fun ErvNavHost(
             val initialTab = backStackEntry.arguments?.getString("tab") ?: "Activities"
             CardioCategoryScreen(
                 repository = cardioRepository,
-                unifiedRoutineRepository = unifiedRoutineRepository,
                 workoutRepository = workoutRepository,
                 userPreferences = userPreferences,
                 cardioLiveWorkoutViewModel = cardioLiveWorkoutViewModel,
@@ -428,11 +398,6 @@ fun ErvNavHost(
                 relayPool = relayPool,
                 signer = signer,
                 onBack = { navController.popBackStack() },
-                onReturnToUnifiedRun = { routineId ->
-                    if (!navController.popBackStack(Routes.unifiedRoutineRun(routineId), false)) {
-                        navController.navigate(Routes.unifiedRoutineRun(routineId)) { launchSingleTop = true }
-                    }
-                },
                 onReturnToWorkoutRun = { workoutId ->
                     if (!navController.popBackStack(Routes.workoutRun(workoutId), false)) {
                         navController.navigate(Routes.workoutRun(workoutId)) { launchSingleTop = true }
@@ -514,7 +479,6 @@ fun ErvNavHost(
             val initialTab = backStackEntry.arguments?.getString("tab") ?: "Exercises"
             WeightTrainingCategoryScreen(
                 repository = weightRepository,
-                unifiedRoutineRepository = unifiedRoutineRepository,
                 workoutRepository = workoutRepository,
                 liveWorkoutViewModel = weightLiveWorkoutViewModel,
                 cardioLiveWorkoutViewModel = cardioLiveWorkoutViewModel,
@@ -523,11 +487,6 @@ fun ErvNavHost(
                 relayPool = relayPool,
                 signer = signer,
                 onBack = { navController.popBackStack() },
-                onReturnToUnifiedRun = { routineId ->
-                    if (!navController.popBackStack(Routes.unifiedRoutineRun(routineId), false)) {
-                        navController.navigate(Routes.unifiedRoutineRun(routineId)) { launchSingleTop = true }
-                    }
-                },
                 onReturnToWorkoutRun = { workoutId ->
                     if (!navController.popBackStack(Routes.workoutRun(workoutId), false)) {
                         navController.navigate(Routes.workoutRun(workoutId)) { launchSingleTop = true }
@@ -695,28 +654,6 @@ fun ErvNavHost(
             )
         }
 
-        composable(Routes.unifiedRoutinesCategory) {
-            val unifiedState by unifiedRoutineRepository.state.collectAsState(initial = UnifiedRoutineLibraryState())
-            val weightState by weightRepository.state.collectAsState(initial = WeightLibraryState())
-            val cardioState by cardioRepository.state.collectAsState(initial = CardioLibraryState())
-            val stretchState by stretchingRepository.state.collectAsState(initial = StretchLibraryState())
-            UnifiedRoutineCategoryScreen(
-                repository = unifiedRoutineRepository,
-                weightRepository = weightRepository,
-                stretchingRepository = stretchingRepository,
-                unifiedState = unifiedState,
-                weightState = weightState,
-                cardioState = cardioState,
-                stretchState = stretchState,
-                stretchCatalog = stretchingRepository.catalog,
-                userPreferences = userPreferences,
-                onBack = { navController.popBackStack() },
-                onOpenRun = { routineId ->
-                    navController.navigate(Routes.unifiedRoutineRun(routineId)) { launchSingleTop = true }
-                }
-            )
-        }
-
         composable(Routes.weightTrainingLog) {
             WeightTrainingLogScreen(
                 repository = weightRepository,
@@ -780,7 +717,6 @@ fun ErvNavHost(
             val initialTab = backStackEntry.arguments?.getString("tab") ?: "Stretches"
             StretchingCategoryScreen(
                 repository = stretchingRepository,
-                unifiedRoutineRepository = unifiedRoutineRepository,
                 workoutRepository = workoutRepository,
                 userPreferences = userPreferences,
                 relayPool = relayPool,
@@ -926,68 +862,6 @@ fun ErvNavHost(
                 relayPool = relayPool,
                 signer = signer,
                 onBack = { navController.popBackStack() }
-            )
-        }
-
-        composable(
-            route = Routes.unifiedRoutineRunRoute,
-            arguments = listOf(navArgument("routineId") { type = NavType.StringType })
-        ) { backStackEntry ->
-            val routineId = backStackEntry.arguments?.getString("routineId").orEmpty()
-            val unifiedState by unifiedRoutineRepository.state.collectAsState(initial = UnifiedRoutineLibraryState())
-            val weightState by weightRepository.state.collectAsState(initial = WeightLibraryState())
-            val cardioState by cardioRepository.state.collectAsState(initial = CardioLibraryState())
-            val stretchState by stretchingRepository.state.collectAsState(initial = StretchLibraryState())
-            UnifiedRoutineRunScreen(
-                routineId = routineId,
-                repository = unifiedRoutineRepository,
-                unifiedState = unifiedState,
-                weightState = weightState,
-                cardioState = cardioState,
-                stretchState = stretchState,
-                stretchCatalog = stretchingRepository.catalog,
-                userPreferences = userPreferences,
-                weightLiveWorkoutViewModel = weightLiveWorkoutViewModel,
-                cardioLiveWorkoutViewModel = cardioLiveWorkoutViewModel,
-                onBack = { navController.popBackStack() },
-                onOpenSummary = { sessionId ->
-                    navController.navigate(Routes.unifiedWorkoutSummary(sessionId)) {
-                        launchSingleTop = true
-                        popUpTo(Routes.unifiedRoutineRunRoute) { inclusive = true }
-                    }
-                },
-                onOpenWeightCategory = {
-                    navController.navigate(Routes.weightTrainingCategory) { launchSingleTop = true }
-                },
-                onOpenCardioCategory = {
-                    navController.navigate(Routes.cardioCategory) { launchSingleTop = true }
-                },
-                onOpenStretchCategory = {
-                    navController.navigate(Routes.category("stretching")) { launchSingleTop = true }
-                }
-            )
-        }
-
-        composable(
-            route = Routes.unifiedWorkoutSummaryRoute,
-            arguments = listOf(navArgument("sessionId") { type = NavType.StringType })
-        ) { backStackEntry ->
-            val sessionId = backStackEntry.arguments?.getString("sessionId").orEmpty()
-            val unifiedState by unifiedRoutineRepository.state.collectAsState(initial = UnifiedRoutineLibraryState())
-            val weightState by weightRepository.state.collectAsState(initial = WeightLibraryState())
-            val cardioState by cardioRepository.state.collectAsState(initial = CardioLibraryState())
-            UnifiedWorkoutSummaryScreen(
-                sessionId = sessionId,
-                repository = unifiedRoutineRepository,
-                unifiedState = unifiedState,
-                weightState = weightState,
-                cardioState = cardioState,
-                userPreferences = userPreferences,
-                relayPool = relayPool,
-                signer = signer,
-                onDone = {
-                    navController.popBackStack()
-                }
             )
         }
 

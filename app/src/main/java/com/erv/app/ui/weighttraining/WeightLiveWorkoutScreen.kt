@@ -115,7 +115,6 @@ fun WeightLiveWorkoutScreen(
     library: WeightLibraryState,
     loadUnit: BodyWeightUnit,
     userPreferences: UserPreferences,
-    unifiedWorkoutStartedAtEpochSeconds: Long? = null,
     composedWorkoutStartedAtEpochSeconds: Long? = null,
     /** Section progress label like "Section 2 of 5" when run from a composed workout. */
     composedSectionLabel: String? = null,
@@ -362,15 +361,14 @@ fun WeightLiveWorkoutScreen(
     val darkTheme = isSystemInDarkTheme()
     val headerMid = ErvSessionRed
     val headerDark = if (darkTheme) ErvDarkTherapyRedDark else ErvLightTherapyRedDark
-    // When this weight session is part of a larger workout (composed run or unified routine),
+    // When this weight session is part of a larger workout (a composed run),
     // default to showing the total workout clock so it keeps counting across sections instead
     // of appearing to reset each time a new section starts. The athlete can still swipe to the
     // per-section "Weight session" clock.
     val hasTotalWorkoutClock =
-        unifiedWorkoutStartedAtEpochSeconds != null || composedWorkoutStartedAtEpochSeconds != null
+        composedWorkoutStartedAtEpochSeconds != null
     var timerDisplayMode by rememberSaveable(
         draft.startedAtEpochSeconds,
-        unifiedWorkoutStartedAtEpochSeconds,
         composedWorkoutStartedAtEpochSeconds,
     ) {
         mutableStateOf(
@@ -716,27 +714,22 @@ fun WeightLiveWorkoutScreen(
             val elapsedSec = remember(tick, draft.startedAtEpochSeconds) {
                 (weightNowEpochSeconds() - draft.startedAtEpochSeconds).coerceAtLeast(0)
             }
-            val unifiedElapsedSec = remember(tick, unifiedWorkoutStartedAtEpochSeconds) {
-                unifiedWorkoutStartedAtEpochSeconds?.let {
-                    (weightNowEpochSeconds() - it).coerceAtLeast(0)
-                }
-            }
             val composedElapsedSec = remember(tick, composedWorkoutStartedAtEpochSeconds) {
                 composedWorkoutStartedAtEpochSeconds?.let {
                     (weightNowEpochSeconds() - it).coerceAtLeast(0)
                 }
             }
-            val totalElapsedSource = unifiedElapsedSec ?: composedElapsedSec
-            val showingUnifiedTotal =
+            val totalElapsedSource = composedElapsedSec
+            val showingWorkoutTotal =
                 totalElapsedSource != null && timerDisplayMode == WorkoutTimerDisplayMode.TOTAL
             WeightLiveRestTimerHeaderRow(
                 restMode = restTimerMode,
-                workoutElapsedLabel = if (showingUnifiedTotal) "Total workout" else "Weight session",
+                workoutElapsedLabel = if (showingWorkoutTotal) "Total workout" else "Weight session",
                 workoutElapsedText = formatElapsed(
-                    if (showingUnifiedTotal) totalElapsedSource ?: elapsedSec else elapsedSec,
+                    if (showingWorkoutTotal) totalElapsedSource ?: elapsedSec else elapsedSec,
                 ),
                 workoutElapsedHint = if (totalElapsedSource != null) {
-                    if (showingUnifiedTotal) "Swipe to view weight session"
+                    if (showingWorkoutTotal) "Swipe to view weight session"
                     else "Swipe to view total workout"
                 } else {
                     null
