@@ -25,6 +25,10 @@ import {
   cardioItemSummary,
   readOptionalNonNegativeInt,
   readOptionalPositiveInt,
+  addIntervalLeg,
+  removeIntervalLeg,
+  updateIntervalLeg,
+  DEFAULT_INTERVAL_LEG,
   prescriptionSummary,
   prescriptionUsesPerSide,
   segmentAllowsInlineNotes,
@@ -1183,104 +1187,112 @@ export function WorkoutSegmentEditor({
                                 </label>
                               </div>
                             ) : null}
-                            {(item.cardio.mode ?? "steady") === "interval_template" ? (
-                              <div className="grid grid-cols-3 gap-2">
-                                <label className="text-xs space-y-1">
-                                  <FieldLabel>Outer rounds</FieldLabel>
-                                  <input
-                                    className="input w-full"
-                                    type="number"
-                                    min={1}
-                                    value={item.cardio.outerRounds ?? ""}
-                                    onChange={(e) =>
-                                      onUpdate(
-                                        updateWorkoutItem(segment, itemKey, {
-                                          ...item,
-                                          cardio: {
-                                            ...item.cardio,
-                                            outerRounds:
-                                              readOptionalPositiveInt(
-                                                e.target.value,
-                                                item.cardio.outerRounds,
-                                              ) ?? undefined,
-                                          },
-                                        }),
-                                      )
-                                    }
-                                  />
-                                </label>
-                                <label className="text-xs space-y-1">
-                                  <FieldLabel>Work (s)</FieldLabel>
-                                  <input
-                                    className="input w-full"
-                                    type="number"
-                                    min={1}
-                                    value={
-                                      (item.cardio.legs?.[0]?.workSeconds ?? 0) > 0
-                                        ? item.cardio.legs?.[0]?.workSeconds
-                                        : ""
-                                    }
-                                    onChange={(e) => {
-                                      const leg = item.cardio.legs?.[0] ?? {
-                                        workSeconds: 240,
-                                        restSeconds: 240,
-                                      };
-                                      onUpdate(
-                                        updateWorkoutItem(segment, itemKey, {
-                                          ...item,
-                                          cardio: {
-                                            ...item.cardio,
-                                            legs: [
-                                              {
-                                                ...leg,
+                            {(item.cardio.mode ?? "steady") === "interval_template" ? (() => {
+                              const legs = item.cardio.legs?.length
+                                ? item.cardio.legs
+                                : [DEFAULT_INTERVAL_LEG];
+                              const setLegs = (next: typeof legs) =>
+                                onUpdate(
+                                  updateWorkoutItem(segment, itemKey, {
+                                    ...item,
+                                    cardio: { ...item.cardio, legs: next },
+                                  }),
+                                );
+                              return (
+                                <div className="space-y-2">
+                                  <label className="block max-w-[10rem] text-xs space-y-1">
+                                    <FieldLabel>Outer rounds</FieldLabel>
+                                    <input
+                                      className="input w-full"
+                                      type="number"
+                                      min={1}
+                                      value={item.cardio.outerRounds ?? ""}
+                                      onChange={(e) =>
+                                        onUpdate(
+                                          updateWorkoutItem(segment, itemKey, {
+                                            ...item,
+                                            cardio: {
+                                              ...item.cardio,
+                                              outerRounds:
+                                                readOptionalPositiveInt(
+                                                  e.target.value,
+                                                  item.cardio.outerRounds,
+                                                ) ?? undefined,
+                                            },
+                                          }),
+                                        )
+                                      }
+                                    />
+                                  </label>
+                                  {legs.map((leg, legIndex) => (
+                                    <div
+                                      key={legIndex}
+                                      className="grid grid-cols-[auto_1fr_1fr_auto] items-end gap-2"
+                                    >
+                                      <span className="pb-2 text-xs text-muted">
+                                        {leg.label?.trim() || `Leg ${legIndex + 1}`}
+                                      </span>
+                                      <label className="text-xs space-y-1">
+                                        <FieldLabel>Work (s)</FieldLabel>
+                                        <input
+                                          className="input w-full"
+                                          type="number"
+                                          min={1}
+                                          value={leg.workSeconds > 0 ? leg.workSeconds : ""}
+                                          onChange={(e) =>
+                                            setLegs(
+                                              updateIntervalLeg(legs, legIndex, {
                                                 workSeconds:
                                                   readOptionalPositiveInt(
                                                     e.target.value,
                                                     leg.workSeconds,
                                                   ) ?? 0,
-                                              },
-                                            ],
-                                          },
-                                        }),
-                                      );
-                                    }}
-                                  />
-                                </label>
-                                <label className="text-xs space-y-1">
-                                  <FieldLabel>Rest (s)</FieldLabel>
-                                  <input
-                                    className="input w-full"
-                                    type="number"
-                                    min={0}
-                                    value={item.cardio.legs?.[0]?.restSeconds ?? ""}
-                                    onChange={(e) => {
-                                      const leg = item.cardio.legs?.[0] ?? {
-                                        workSeconds: 240,
-                                        restSeconds: 240,
-                                      };
-                                      onUpdate(
-                                        updateWorkoutItem(segment, itemKey, {
-                                          ...item,
-                                          cardio: {
-                                            ...item.cardio,
-                                            legs: [
-                                              {
-                                                ...leg,
+                                              }),
+                                            )
+                                          }
+                                        />
+                                      </label>
+                                      <label className="text-xs space-y-1">
+                                        <FieldLabel>Rest (s)</FieldLabel>
+                                        <input
+                                          className="input w-full"
+                                          type="number"
+                                          min={0}
+                                          value={leg.restSeconds ?? ""}
+                                          onChange={(e) =>
+                                            setLegs(
+                                              updateIntervalLeg(legs, legIndex, {
                                                 restSeconds:
                                                   readOptionalNonNegativeInt(
                                                     e.target.value,
                                                     leg.restSeconds,
                                                   ) ?? undefined,
-                                              },
-                                            ],
-                                          },
-                                        }),
-                                      );
-                                    }}
-                                  />
-                                </label>
-                              </div>
-                            ) : null}
+                                              }),
+                                            )
+                                          }
+                                        />
+                                      </label>
+                                      <button
+                                        type="button"
+                                        className="btn-ghost px-2 py-1 text-xs"
+                                        disabled={legs.length <= 1}
+                                        onClick={() => setLegs(removeIntervalLeg(legs, legIndex))}
+                                        aria-label={`Remove leg ${legIndex + 1}`}
+                                      >
+                                        Remove
+                                      </button>
+                                    </div>
+                                  ))}
+                                  <button
+                                    type="button"
+                                    className="btn-ghost px-2 py-1 text-xs"
+                                    onClick={() => setLegs(addIntervalLeg(legs))}
+                                  >
+                                    Add leg
+                                  </button>
+                                </div>
+                              );
+                            })() : null}
                               </>
                             )}
                           </div>
