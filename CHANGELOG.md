@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Weight and RPE fields keep what you type, so decimals like 2.5 or 137.25 can be entered. Whole pounds no longer show as "145.0", quarter values keep both decimals, and a comma decimal separator is accepted.
+
 ## [2026.06.20] - 2026-06-20
 
 ### Added

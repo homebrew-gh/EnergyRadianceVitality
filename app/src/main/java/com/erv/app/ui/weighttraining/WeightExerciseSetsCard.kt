@@ -69,7 +69,9 @@ import com.erv.app.weighttraining.formatHoldDuration
 import com.erv.app.weighttraining.formatRpeFieldForSets
 import com.erv.app.weighttraining.formatSetSummaryLine
 import com.erv.app.weighttraining.formatWeightLoadNumber
+import com.erv.app.weighttraining.parseDecimalInput
 import com.erv.app.weighttraining.parseWeightInputToKg
+import com.erv.app.ui.components.rememberNumericFieldDraft
 import com.erv.app.weighttraining.repsShadowText
 import com.erv.app.weighttraining.weightLoadUnitSuffix
 
@@ -480,9 +482,12 @@ fun WeightExerciseInlineSetsCard(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.padding(bottom = 4.dp)
                                 )
+                                val weightText = weightFieldText(set, loadUnit)
+                                val weightDraft = rememberNumericFieldDraft(weightText)
                                 ShadowOutlinedNumberField(
-                                    value = weightFieldText(set, loadUnit),
+                                    value = weightDraft.display(weightText),
                                     onValueChange = { t ->
+                                        weightDraft.onEdit(t)
                                         onSetsChange(
                                             sets.replaceAt(
                                                 idx,
@@ -514,13 +519,16 @@ fun WeightExerciseInlineSetsCard(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.padding(bottom = 4.dp)
                                 )
+                                val rpeText = rpeFieldText(set)
+                                val rpeDraft = rememberNumericFieldDraft(rpeText)
                                 OutlinedTextField(
-                                    value = rpeFieldText(set),
+                                    value = rpeDraft.display(rpeText),
                                     onValueChange = { t ->
+                                        rpeDraft.onEdit(t)
                                         onSetsChange(
                                             sets.replaceAt(
                                                 idx,
-                                                set.copy(rpe = t.trim().toDoubleOrNull())
+                                                set.copy(rpe = parseDecimalInput(t))
                                             )
                                         )
                                     },
@@ -710,9 +718,12 @@ private fun WeightTimePerSetRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(bottom = 4.dp)
             )
+            val weightText = weightFieldText(set, loadUnit)
+            val weightDraft = rememberNumericFieldDraft(weightText)
             ShadowOutlinedNumberField(
-                value = weightFieldText(set, loadUnit),
+                value = weightDraft.display(weightText),
                 onValueChange = { t ->
+                    weightDraft.onEdit(t)
                     onChange(set.copy(weightKg = parseWeightInputToKg(t, loadUnit)))
                 },
                 shadowText = weightShadowText(set, loadUnit),
@@ -739,9 +750,14 @@ private fun WeightTimePerSetRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(bottom = 4.dp)
             )
+            val rpeText = rpeFieldText(set)
+            val rpeDraft = rememberNumericFieldDraft(rpeText)
             OutlinedTextField(
-                value = rpeFieldText(set),
-                onValueChange = { t -> onChange(set.copy(rpe = t.trim().toDoubleOrNull())) },
+                value = rpeDraft.display(rpeText),
+                onValueChange = { t ->
+                    rpeDraft.onEdit(t)
+                    onChange(set.copy(rpe = parseDecimalInput(t)))
+                },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                 modifier = Modifier.fillMaxWidth()

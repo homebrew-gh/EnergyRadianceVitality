@@ -115,7 +115,7 @@ fun WeightHiitIntervalTimerOverlay(
             confirmButton = {
                 Button(
                     onClick = {
-                        val rpe = rpeText.trim().toDoubleOrNull()
+                        val rpe = com.erv.app.weighttraining.parseDecimalInput(rpeText)
                         onFinished(
                             WeightHiitBlockLog(
                                 intervals = plan.intervals,

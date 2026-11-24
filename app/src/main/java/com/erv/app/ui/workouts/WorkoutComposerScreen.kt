@@ -1,5 +1,6 @@
 package com.erv.app.ui.workouts
 
+import com.erv.app.ui.components.rememberNumericFieldDraft
 import com.erv.app.ui.theme.ervTopAppBarColors
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -963,15 +964,19 @@ private fun WeightPrescriptionFields(
             )
         }
         if (!timedPrescription && !isMaxReps && !showPerSetEditor) {
+            val targetWeightText = prescription.targetWeightKg?.let { formatWeightLoadNumber(it, loadUnit) }.orEmpty()
+            val targetWeightDraft = rememberNumericFieldDraft(targetWeightText)
             OutlinedTextField(
-                value = prescription.targetWeightKg?.let { formatWeightLoadNumber(it, loadUnit) }.orEmpty(),
+                value = targetWeightDraft.display(targetWeightText),
                 onValueChange = { raw ->
+                    targetWeightDraft.onEdit(raw)
                     val kg = parseWeightInputToKg(raw, loadUnit)
                     onUpdate(prescription.copy(targetWeightKg = kg))
                 },
                 label = { FieldLabel("Target weight ($loadSuffix)") },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
             )
         }
         if (!timedPrescription && !isMaxReps && !perSide && !showPerSetEditor) {
@@ -1112,9 +1117,12 @@ private fun WeightPrescriptionFields(
                             singleLine = true,
                         )
                     }
+                    val setWeightText = (set.targetWeightKg ?: set.weightKg)?.let { formatWeightLoadNumber(it, loadUnit) }.orEmpty()
+                    val setWeightDraft = rememberNumericFieldDraft(setWeightText)
                     OutlinedTextField(
-                        value = (set.targetWeightKg ?: set.weightKg)?.let { formatWeightLoadNumber(it, loadUnit) }.orEmpty(),
+                        value = setWeightDraft.display(setWeightText),
                         onValueChange = { raw ->
+                            setWeightDraft.onEdit(raw)
                             val kg = parseWeightInputToKg(raw, loadUnit)
                             val sets = prescription.ensureSetRows().toMutableList()
                             sets[index] = set.copy(targetWeightKg = kg, weightKg = kg)
@@ -1123,6 +1131,7 @@ private fun WeightPrescriptionFields(
                         label = { FieldLabel("Weight ($loadSuffix)") },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     )
                 }
             }
