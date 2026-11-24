@@ -113,6 +113,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.erv.app.ui.components.FieldLabel
 import com.erv.app.cardio.CardioActivitySnapshot
+import com.erv.app.cardio.formatCardioLegSeconds
+import com.erv.app.cardio.targetLegSeconds
 import com.erv.app.cardio.CardioBuiltinActivity
 import com.erv.app.cardio.cardioBuiltinActivitiesForUserSelection
 import com.erv.app.cardio.cardioBuiltinHiitSectionOrder
@@ -925,7 +927,8 @@ fun CardioCategoryScreen(
                                     durationMinutes,
                                     end,
                                     repository.currentState(),
-                                    weightKg
+                                    weightKg,
+                                    legDurationSeconds = elapsedSeconds,
                                 )
                                 if (session != null) {
                                     val completionCtx = resolveCardioParentRunContext(unifiedState, workoutState)
@@ -4901,8 +4904,8 @@ fun CardioMultiLegTimerFullScreen(
             ergConnectionState == Concept2BleConnectionState.Connected
         val cscLegConnected = currentLegIsCycling &&
             cyclingConnectionState == CyclingCscBleConnectionState.Connected
-        val targetMinutes = state.currentLeg.targetDurationMinutes?.takeIf { it > 0 }
-        val guided = targetMinutes != null
+        val legTargetSeconds = state.currentLeg.targetLegSeconds()
+        val guided = legTargetSeconds != null
         val awaitingStart = state.isPendingStart()
         val bikeErgEnabled = remember(state.legs) {
             state.legs.any { it.activity.supportsBikeErgSensorConnect() }
@@ -4924,7 +4927,7 @@ fun CardioMultiLegTimerFullScreen(
             mutableIntStateOf(
                 when {
                     initialPrep -> CardioIntervalWorkoutPrepSeconds
-                    guided -> targetMinutes!! * 60
+                    guided -> legTargetSeconds!!
                     else -> 0
                 }
             )
@@ -4934,8 +4937,7 @@ fun CardioMultiLegTimerFullScreen(
         if (guided) {
             LaunchedEffect(stateKey) {
                 if (state.isPendingStart()) return@LaunchedEffect
-                val targetMin = state.currentLeg.targetDurationMinutes?.takeIf { it > 0 } ?: return@LaunchedEffect
-                val targetSec = targetMin * 60
+                val targetSec = state.currentLeg.targetLegSeconds() ?: return@LaunchedEffect
                 val prepFirst = state.currentLegIndex == 0 && state.completedSegments.isEmpty()
                 if (prepFirst) {
                     guidedInPrep = true
@@ -5063,9 +5065,9 @@ fun CardioMultiLegTimerFullScreen(
                             color = Color.White.copy(alpha = 0.72f)
                         )
                     } else {
-                        state.currentLeg.targetDurationMinutes?.takeIf { it > 0 }?.let { target ->
+                        state.currentLeg.targetLegSeconds()?.let { target ->
                             Text(
-                                "Suggested target: $target min — tap stop when this leg is done",
+                                "Suggested target: ${formatCardioLegSeconds(target)} — tap stop when this leg is done",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = Color.White.copy(alpha = 0.72f)
                             )

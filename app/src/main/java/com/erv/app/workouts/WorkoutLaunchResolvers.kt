@@ -116,6 +116,7 @@ internal fun buildSprintIntervalState(
                     treadmill = null,
                     targetDurationMinutes = workMinutes,
                     orderIndex = order++,
+                    targetDurationSeconds = workSeconds,
                 ),
             )
             if (restSeconds > 0 && roundIndex < rounds - 1) {
@@ -126,6 +127,7 @@ internal fun buildSprintIntervalState(
                         treadmill = null,
                         targetDurationMinutes = restMinutes,
                         orderIndex = order++,
+                        targetDurationSeconds = restSeconds,
                     ),
                 )
             }
@@ -160,6 +162,7 @@ internal fun buildIntervalTemplateState(
                         treadmill = null,
                         targetDurationMinutes = secondsToGuidedMinutes(leg.workSeconds),
                         orderIndex = order++,
+                        targetDurationSeconds = leg.workSeconds,
                     ),
                 )
                 val isLastLeg = legIndex >= legs.lastIndex
@@ -172,6 +175,7 @@ internal fun buildIntervalTemplateState(
                             treadmill = null,
                             targetDurationMinutes = secondsToGuidedMinutes(leg.restSeconds),
                             orderIndex = order++,
+                            targetDurationSeconds = leg.restSeconds,
                         ),
                     )
                 }
@@ -197,5 +201,6 @@ private fun activeRecoverySnapshot(): CardioActivitySnapshot =
         displayLabel = CardioBuiltinActivity.ACTIVE_RECOVERY.displayName(),
     )
 
+/** Whole minutes for readers that only know minutes; the guided timer uses the exact seconds. */
 internal fun secondsToGuidedMinutes(seconds: Int): Int =
     max(1, (seconds + 59) / 60)

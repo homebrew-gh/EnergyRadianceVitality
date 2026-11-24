@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { phoneCompatibilityWarnings, phoneIntervalMinutes } from "./phoneCompatibility";
+import { phoneCompatibilityWarnings } from "./phoneCompatibility";
 import type { WorkoutSegment } from "./workoutTraining";
 
 const names: Record<string, string> = { bench: "Bench Press", row: "Barbell Row" };
@@ -80,7 +80,7 @@ describe("phone check", () => {
     expect(warnings[0].message).toContain("has no lifts");
   });
 
-  it("flags interval legs that are not whole minutes", () => {
+  it("leaves interval legs in seconds alone, since the phone times them exactly", () => {
     const segments: WorkoutSegment[] = [
       {
         kind: "interval",
@@ -92,26 +92,11 @@ describe("phone check", () => {
           },
           {
             type: "cardio",
-            cardio: {
-              activity: "BIKE",
-              mode: "interval_template",
-              legs: [{ workSeconds: 240, restSeconds: 120 }],
-            },
+            cardio: { activity: "BIKE", mode: "interval_template", legs: [{ workSeconds: 45, restSeconds: 15 }] },
           },
         ],
       },
     ];
-    const warnings = phoneCompatibilityWarnings(segments, options);
-    expect(warnings).toHaveLength(1);
-    expect(warnings[0].itemIndex).toBe(0);
-    expect(warnings[0].message).toContain("Hill Sprints");
-    expect(warnings[0].message).toContain("30 s becomes 1 min, 90 s becomes 2 min");
-  });
-
-  it("rounds legs up to whole minutes like the phone", () => {
-    expect(phoneIntervalMinutes(1)).toBe(1);
-    expect(phoneIntervalMinutes(60)).toBe(1);
-    expect(phoneIntervalMinutes(61)).toBe(2);
-    expect(phoneIntervalMinutes(90)).toBe(2);
+    expect(phoneCompatibilityWarnings(segments, options)).toEqual([]);
   });
 });
