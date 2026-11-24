@@ -1,6 +1,6 @@
 export const short = {
   en_US:
-    'Desktop companion for the ERV Android app — edit exercise catalogs and training routines, then sync privately over your Nostr relay.',
+    'Desktop companion for the ERV Android app: build workouts and catalogs, then sync them privately over your Nostr relay.',
 }
 
 export const long = {
