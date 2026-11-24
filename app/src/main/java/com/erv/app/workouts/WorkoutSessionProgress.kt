@@ -31,8 +31,18 @@ fun WorkoutActiveRun.withSessionStarted(nowEpochSeconds: Long): WorkoutActiveRun
  */
 fun WorkoutActiveRun.withSessionEvent(event: WorkoutSessionEvent, nowEpochSeconds: Long): WorkoutActiveRun {
     val current = session ?: return this
-    val next = WorkoutSessionEngine.reduce(sessionPlan(), current, event)
-    if (next == current) return this
+    val reduced = WorkoutSessionEngine.reduce(sessionPlan(), current, event)
+    if (reduced == current) return this
+    // Stamp each newly finished step, so a section's log gets its start and end times.
+    val next = reduced.copy(
+        records = reduced.records.map { record ->
+            if (record.atEpochSeconds == null && current.recordFor(record.stepIndex) == null) {
+                record.copy(atEpochSeconds = nowEpochSeconds)
+            } else {
+                record
+            }
+        },
+    )
     return copy(
         session = next,
         sessionStepStartedAtEpochSeconds = if (next.stepIndex != current.stepIndex) {
@@ -108,14 +118,12 @@ fun WorkoutActiveRun.sessionNotificationContent(
         )
     val stepText = when (step) {
         is WorkoutSessionStep.Rest -> {
-            val after = ((state.stepIndex + 1) until plan.size)
-                .firstOrNull { plan.steps[it] !is WorkoutSessionStep.Rest && state.recordFor(it) == null }
-                ?.let { plan.steps[it] }
             val label = when (step.kind) {
                 WorkoutSessionRestKind.AFTER_SECTION -> "Rest before the next section"
                 else -> "Rest"
             }
-            if (after == null) label else "$label · Next: ${describe(after, names, loadUnit)}"
+            val after = sessionUpNextLabel(names, loadUnit, plan)
+            if (after == null) label else "$label · Next: $after"
         }
         else -> describe(step, names, loadUnit)
     }
@@ -130,6 +138,19 @@ fun WorkoutActiveRun.sessionNotificationContent(
         complete = false,
         workoutStartedAtEpochSeconds = workoutStart,
     )
+}
+
+/** The next step still to do after the one on screen, rests left out: "Bench Press · Set 1 of 3 · 8 reps at 135 lb". */
+fun WorkoutActiveRun.sessionUpNextLabel(
+    names: WorkoutSessionNames,
+    loadUnit: BodyWeightUnit,
+    plan: WorkoutSessionPlan = sessionPlan(),
+): String? {
+    val state = session ?: return null
+    val next = ((state.stepIndex + 1) until plan.size)
+        .firstOrNull { plan.steps[it] !is WorkoutSessionStep.Rest && state.recordFor(it) == null }
+        ?: return null
+    return describe(plan.steps[next], names, loadUnit)
 }
 
 private fun WorkoutSessionStep.isWork(): Boolean =

@@ -182,13 +182,13 @@ fun WorkoutActiveRun.advancedTo(
     )
 }
 
-private fun WorkoutItem.loggedKind(): WorkoutLoggedItemKind = when (this) {
+internal fun WorkoutItem.loggedKind(): WorkoutLoggedItemKind = when (this) {
     is WorkoutItem.Cardio -> WorkoutLoggedItemKind.CARDIO
     is WorkoutItem.Mobility -> WorkoutLoggedItemKind.MOBILITY
     else -> WorkoutLoggedItemKind.WEIGHT
 }
 
-private fun skippedRecap(segmentId: String, item: WorkoutItem, now: Long): WorkoutItemRecap =
+internal fun skippedRecap(segmentId: String, item: WorkoutItem, now: Long): WorkoutItemRecap =
     WorkoutItemRecap(
         segmentId = segmentId,
         itemId = item.id,

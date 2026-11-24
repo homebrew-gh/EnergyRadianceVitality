@@ -133,6 +133,8 @@ data class WorkoutStepRecord(
     val outcome: WorkoutStepOutcome,
     val set: WeightSet? = null,
     val elapsedSeconds: Int? = null,
+    /** When the step was finished or skipped; the saved run stamps it (see [withSessionEvent]). */
+    val atEpochSeconds: Long? = null,
 )
 
 /**
@@ -169,6 +171,15 @@ sealed class WorkoutSessionEvent {
 
     /** Correct a lift set already logged. Does not move the session. */
     data class EditSet(val stepIndex: Int, val set: WeightSet) : WorkoutSessionEvent()
+
+    /**
+     * Another screen logged this whole item (a cardio or stretch section, until the session
+     * screen draws those itself): every step of it still open is done.
+     */
+    data class ItemLoggedElsewhere(val segmentId: String, val itemId: String) : WorkoutSessionEvent()
+
+    /** End the whole workout now: every step still open is skipped. */
+    data object EndWorkout : WorkoutSessionEvent()
 }
 
 object WorkoutSessionEngine {
@@ -222,14 +233,21 @@ object WorkoutSessionEngine {
                 if (itemId == null) {
                     state.finish(plan, WorkoutStepRecord(index, WorkoutStepOutcome.SKIPPED))
                 } else {
-                    state.skipWhere(plan) { it.segmentIndex == step.segmentIndex && it.itemId == itemId }
+                    state.markWhere(plan, WorkoutStepOutcome.SKIPPED) {
+                        it.segmentIndex == step.segmentIndex && it.itemId == itemId
+                    }
                 }
             }
             WorkoutSessionEvent.EndSection ->
-                state.skipWhere(plan) {
+                state.markWhere(plan, WorkoutStepOutcome.SKIPPED) {
                     it.segmentIndex == step.segmentIndex &&
                         !(it is WorkoutSessionStep.Rest && it.kind == WorkoutSessionRestKind.AFTER_SECTION)
                 }
+            is WorkoutSessionEvent.ItemLoggedElsewhere ->
+                state.markWhere(plan, WorkoutStepOutcome.DONE) {
+                    it.segmentId == event.segmentId && it.itemId == event.itemId
+                }
+            WorkoutSessionEvent.EndWorkout -> state.markWhere(plan, WorkoutStepOutcome.SKIPPED) { true }
             is WorkoutSessionEvent.EditSet -> state
         }
     }
@@ -277,16 +295,17 @@ object WorkoutSessionEngine {
         return updated.copy(stepIndex = updated.nextOpenStep(plan, after = record.stepIndex))
     }
 
-    private fun WorkoutSessionState.skipWhere(
+    private fun WorkoutSessionState.markWhere(
         plan: WorkoutSessionPlan,
+        outcome: WorkoutStepOutcome,
         predicate: (WorkoutSessionStep) -> Boolean,
     ): WorkoutSessionState {
         val start = stepIndex
-        val skipped = (start until plan.size)
+        val marked = (start until plan.size)
             .filter { recordFor(it) == null && predicate(plan.steps[it]) }
-            .map { WorkoutStepRecord(it, WorkoutStepOutcome.SKIPPED) }
-        if (skipped.isEmpty()) return this
-        val updated = copy(records = records + skipped)
+            .map { WorkoutStepRecord(it, outcome) }
+        if (marked.isEmpty()) return this
+        val updated = copy(records = records + marked)
         return updated.copy(stepIndex = updated.nextOpenStep(plan, after = start - 1))
     }
 
