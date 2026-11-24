@@ -211,6 +211,31 @@ export function nextWorkoutDeleteMarkers(
   return markers;
 }
 
+/**
+ * Replays a save on top of the library as it is on the relay now.
+ *
+ * [next] is the caller's whole list, built from what this page loaded ([loadedById], workout JSON
+ * by id). Only what the caller changed is applied: workouts it added or edited replace the relay
+ * copy, and workouts it removed are dropped. Everything else comes from [remote], so a workout
+ * made or deleted on the phone after the page loaded is not undone by a save from a stale tab.
+ */
+export function rebaseWorkoutSave(
+  loadedById: ReadonlyMap<string, string>,
+  next: Workout[],
+  remote: Workout[],
+): Workout[] {
+  const nextIds = new Set(next.map((workout) => workout.id));
+  const removed = new Set([...loadedById.keys()].filter((id) => !nextIds.has(id)));
+  const merged = new Map<string, Workout>();
+  for (const workout of remote) {
+    if (!removed.has(workout.id)) merged.set(workout.id, workout);
+  }
+  for (const workout of next) {
+    if (loadedById.get(workout.id) !== JSON.stringify(workout)) merged.set(workout.id, workout);
+  }
+  return [...merged.values()];
+}
+
 function parseDeleteMarkers(raw: unknown): WorkoutDeleteMarkers {
   if (raw == null || typeof raw !== "object" || Array.isArray(raw)) return {};
   const markers: WorkoutDeleteMarkers = {};
