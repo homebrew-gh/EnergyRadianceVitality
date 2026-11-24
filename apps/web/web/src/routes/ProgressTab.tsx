@@ -6,6 +6,7 @@ import { CoachReviewCard } from "../components/CoachReviewCard";
 import { TrainingContextExportCard } from "../components/TrainingContextExportCard";
 import { FieldLabel, SectionHeader } from "../components/FieldLabel";
 import { useAuth } from "../lib/auth";
+import { useWeightLoadUnit } from "../lib/weightLoadUnit";
 import { useEquipment } from "../lib/equipmentData";
 import { useTrainingProfile } from "../lib/trainingProfileData";
 import { useTraining } from "../lib/trainingData";
@@ -691,6 +692,7 @@ function formatElapsedSeconds(seconds: number | null | undefined): string | null
 
 export function ProgressTab() {
   const { status } = useAuth();
+  const [weightLoadUnit] = useWeightLoadUnit();
   const {
     exercises,
     stretchCatalog,
@@ -1162,7 +1164,7 @@ export function ProgressTab() {
                           />
                         </div>
                         <span className="text-right font-medium tabular-nums">
-                          {formatWeightKg(b.maxKg ?? 0)}
+                          {formatWeightKg(b.maxKg ?? 0, weightLoadUnit)}
                         </span>
                       </div>
                     ))}
@@ -1193,7 +1195,7 @@ export function ProgressTab() {
                               HIIT {row.entry.hiitBlock.intervals}×
                               {row.entry.hiitBlock.workSeconds}s
                               {row.entry.hiitBlock.weightKg
-                                ? ` @ ${formatWeightKg(row.entry.hiitBlock.weightKg)}`
+                                ? ` @ ${formatWeightKg(row.entry.hiitBlock.weightKg, weightLoadUnit)}`
                                 : ""}
                             </span>
                           ) : (

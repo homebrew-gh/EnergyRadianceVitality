@@ -1117,11 +1117,9 @@ export function maxWeightByRepBucketKg(
 }
 
 export function formatWeightKg(kg: number, unit: "KG" | "LB" = "LB"): string {
-  if (unit === "KG") {
-    return kg % 1 === 0 ? `${kg} kg` : `${kg.toFixed(1)} kg`;
-  }
-  const lb = kg * 2.2046226218;
-  return lb % 1 < 0.05 ? `${Math.round(lb)} lb` : `${lb.toFixed(1)} lb`;
+  const v = unit === "KG" ? kg : kg * 2.2046226218;
+  const rounded = Math.round(v * 10) / 10;
+  return `${rounded} ${unit === "KG" ? "kg" : "lb"}`;
 }
 
 export function formatDistanceMeters(meters: number, unit: "MI" | "KM" = "MI"): string {

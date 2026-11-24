@@ -625,7 +625,7 @@ private fun SegmentEditorCard(
                 segment.weightItems().forEach { item ->
                     val exerciseName = weightState.exerciseById(item.exerciseId)?.name ?: item.exerciseId
                     Text(
-                        text = "· $exerciseName (${item.prescription.displaySummary()})",
+                        text = "· $exerciseName (${item.prescription.displaySummary(loadUnit)})",
                         style = MaterialTheme.typography.bodyMedium,
                     )
                 }
@@ -663,7 +663,7 @@ private fun StraightSetsItemEditor(
         is WorkoutItem.Mobility -> item.title?.takeIf { it.isNotBlank() } ?: "Mobility"
     }
     val itemSummary = when (item) {
-        is WorkoutItem.Weight -> item.prescription.displaySummary()
+        is WorkoutItem.Weight -> item.prescription.displaySummary(loadUnit)
         is WorkoutItem.Rest -> "${item.durationSeconds}s"
         is WorkoutItem.Note -> item.text.takeIf { it.isNotBlank() } ?: "No note text"
         is WorkoutItem.Cardio -> item.cardio.mode.replace('_', ' ')

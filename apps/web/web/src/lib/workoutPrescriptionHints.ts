@@ -5,6 +5,7 @@
 import type { TrainingProgressionStyle, TrainingProfilePayload } from "./trainingProfile";
 import { addDays, formatIsoDate, type WeightDayLog, type WeightSet } from "./trainingHistory";
 import type { TrainingSnapshot } from "./trainingSnapshot";
+import { lbToKg, type BodyWeightUnit } from "./fitnessEquipment";
 import {
   duplicateWorkout,
   segmentItems,
@@ -12,21 +13,29 @@ import {
   type WorkoutWeightPrescription,
 } from "./workoutTraining";
 
-export function roundWeightKg(kg: number): number {
+/** Rounds to a loadable step in the unit you lift in: 0.5 kg, or 2.5 lb (stored back as kg). */
+export function roundWeightKg(kg: number, unit: BodyWeightUnit = "KG"): number {
+  if (unit === "LB") return lbToKg(Math.round(kg / lbToKg(2.5)) * 2.5);
   return Math.round(kg * 2) / 2;
 }
 
+/**
+ * Load added per progression step, in kg. In pounds the steps are 2.5, 5 and 10 lb, which plates
+ * can actually make, instead of 1.25, 2.5 and 5 kg (2.8, 5.5 and 11 lb).
+ */
 export function progressionIncrementKg(
   progressionStyle?: TrainingProgressionStyle | null,
+  unit: BodyWeightUnit = "KG",
 ): number {
+  const steps = unit === "LB" ? [2.5, 5, 10].map(lbToKg) : [1.25, 2.5, 5];
   switch (progressionStyle) {
     case "conservative":
-      return 1.25;
+      return steps[0]!;
     case "aggressive":
-      return 5;
+      return steps[2]!;
     case "moderate":
     default:
-      return 2.5;
+      return steps[1]!;
   }
 }
 
@@ -61,12 +70,11 @@ export function suggestedTargetWeightKg(
   exerciseId: string,
   snapshot: TrainingSnapshot | null | undefined,
   incrementKg = 0,
+  unit: BodyWeightUnit = "KG",
 ): number | null {
   const entry = workingWeightForExercise(exerciseId, snapshot);
   if (!entry) return null;
-  const base = entry.weightKg;
-  if (incrementKg <= 0) return roundWeightKg(base);
-  return roundWeightKg(base + incrementKg);
+  return roundWeightKg(entry.weightKg + Math.max(0, incrementKg), unit);
 }
 
 export function setPrescriptionTargetWeightKg(
@@ -131,11 +139,12 @@ function resolveProgressedTargetKg(
   incrementKg: number,
   snapshot: TrainingSnapshot | null | undefined,
   lastWeekWeights: Map<string, number> | null,
+  unit: BodyWeightUnit,
 ): number | null {
   const lastWeekKg = lastWeekWeights?.get(exerciseId);
-  if (lastWeekKg != null) return roundWeightKg(lastWeekKg + incrementKg);
+  if (lastWeekKg != null) return roundWeightKg(lastWeekKg + incrementKg, unit);
 
-  const fromSnapshot = suggestedTargetWeightKg(exerciseId, snapshot, incrementKg);
+  const fromSnapshot = suggestedTargetWeightKg(exerciseId, snapshot, incrementKg, unit);
   if (fromSnapshot != null) return fromSnapshot;
 
   const existing =
@@ -143,7 +152,7 @@ function resolveProgressedTargetKg(
     prescription?.sets?.find((s) => (s.targetWeightKg ?? s.weightKg ?? 0) > 0)?.targetWeightKg ??
     prescription?.sets?.find((s) => (s.weightKg ?? 0) > 0)?.weightKg ??
     null;
-  if (existing != null && existing > 0) return roundWeightKg(existing + incrementKg);
+  if (existing != null && existing > 0) return roundWeightKg(existing + incrementKg, unit);
   return null;
 }
 
@@ -172,9 +181,10 @@ export function applyBaselineLoadsToWorkout(
   workout: Workout,
   snapshot: TrainingSnapshot,
   incrementKg = 0,
+  unit: BodyWeightUnit = "KG",
 ): Workout {
   return applyLoadsToWorkout(workout, (exerciseId) =>
-    suggestedTargetWeightKg(exerciseId, snapshot, incrementKg),
+    suggestedTargetWeightKg(exerciseId, snapshot, incrementKg, unit),
   );
 }
 
@@ -186,9 +196,11 @@ export function duplicateWorkoutWithProgression(
     profile?: TrainingProfilePayload | null;
     computedAtMs?: number;
     nameSuffix?: string;
+    weightLoadUnit?: BodyWeightUnit;
   },
 ): Workout {
-  const increment = progressionIncrementKg(options.profile?.progressionStyle);
+  const unit = options.weightLoadUnit ?? "KG";
+  const increment = progressionIncrementKg(options.profile?.progressionStyle, unit);
   const copy = duplicateWorkout(workout, options.nameSuffix ?? " (+ progress)");
   const lastWeekWeights =
     options.weightLogs != null
@@ -202,6 +214,7 @@ export function duplicateWorkoutWithProgression(
       increment,
       options.snapshot,
       lastWeekWeights,
+      unit,
     ),
   );
 }

@@ -755,6 +755,8 @@ export function WorkoutSegmentEditor({
                             suggestedTargetKg={suggestedTargetWeightKg(
                               item.exerciseId,
                               trainingSnapshot,
+                              0,
+                              weightLoadUnit,
                             )}
                             loggingStyle={exerciseSetLoggingStyle(
                               catalogExercises.find((ex) => ex.id === item.exerciseId) ?? {

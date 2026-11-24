@@ -79,6 +79,7 @@ import java.time.LocalTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.launch
+import java.util.Locale
 
 private enum class ExerciseProgressMetric { EstimatedOneRm, Volume }
 
@@ -195,13 +196,12 @@ fun WeightExerciseDetailScreen(
                                 Text(
                                     buildString {
                                         append("Total volume (reps × weight): ")
-                                        append("%.0f".format(totalVolKg))
-                                        append(" kg·reps")
-                                        if (loadUnit == BodyWeightUnit.LB) {
-                                            append(" (~")
-                                            append("%.0f".format(kgToPounds(totalVolKg)))
-                                            append(" lb·reps)")
+                                        val volume = when (loadUnit) {
+                                            BodyWeightUnit.KG -> totalVolKg
+                                            BodyWeightUnit.LB -> kgToPounds(totalVolKg)
                                         }
+                                        append("%,.0f".format(Locale.US, volume))
+                                        append(" $loadSuffix·reps")
                                     },
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
