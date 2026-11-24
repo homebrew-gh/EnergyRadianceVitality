@@ -520,6 +520,9 @@ fun WeightTrainingCategoryScreen(
                 activeWorkoutWeightLaunch != null || expandedDraft.circuitRun != null
             }
             val isUnifiedBlock = activeUnifiedSession != null && activeUnifiedWeightBlockId != null
+            val isComposedWorkoutSection = activeUnifiedSession == null &&
+                (activeWorkoutWeightLaunch != null ||
+                    (expandedDraft.circuitRun != null && activeWorkoutRun != null))
             val composedSectionLabel = composedRun?.takeIf { !isUnifiedBlock }?.sectionProgressLabel()
             val weightFinishLabel = when {
                 isUnifiedBlock -> "Finish"
@@ -590,11 +593,24 @@ fun WeightTrainingCategoryScreen(
                         }
                     }
                 },
+                onDiscardSection = if (isComposedWorkoutSection) {
+                    {
+                        // Drop this section only: record it as skipped and return to the run,
+                        // the same path a section with nothing logged takes on Finish.
+                        val returnWorkoutId = activeWorkoutWeightLaunch?.workoutId
+                            ?: activeWorkoutRun?.workoutId
+                        heartRateBle.discardWorkoutRecording()
+                        scope.launch {
+                            workoutRepository.skipLaunchedSection()
+                            liveWorkoutViewModel.clearDraft()
+                            returnWorkoutId?.let(onReturnToWorkoutRun)
+                        }
+                    }
+                } else {
+                    null
+                },
                 onDiscardWorkout = {
-                    val isComposedWorkout = activeUnifiedSession == null &&
-                        (activeWorkoutWeightLaunch != null ||
-                            (expandedDraft.circuitRun != null && activeWorkoutRun != null))
-                    if (isComposedWorkout) {
+                    if (isComposedWorkoutSection) {
                         // Composed-workout weight section: abandon the run and go straight to the
                         // workout library in a single pop. The draft is cleared on dispose (see
                         // clearDraftOnDispose) so the live overlay covers the navigation transition.

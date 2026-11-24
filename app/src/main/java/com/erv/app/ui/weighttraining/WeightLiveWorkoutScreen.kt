@@ -20,8 +20,11 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -129,6 +132,11 @@ fun WeightLiveWorkoutScreen(
     onLeaveWorkoutUi: () -> Unit,
     /** User explicitly abandons the live session (top bar Discard). */
     onDiscardWorkout: () -> Unit,
+    /**
+     * Composed-workout section only: drop this section's sets, mark it skipped and go back to the
+     * workout, which keeps running. Null outside a composed workout.
+     */
+    onDiscardSection: (() -> Unit)? = null,
     /** Called when Finish is tapped but nothing is logged yet (parent may show a snackbar). */
     onCannotFinishNothingLogged: () -> Unit = {},
     onFinish: () -> Unit,
@@ -147,6 +155,7 @@ fun WeightLiveWorkoutScreen(
     var showPickExercise by remember { mutableStateOf(false) }
     var showExerciseCreator by remember { mutableStateOf(false) }
     var showDiscardConfirm by remember { mutableStateOf(false) }
+    var showOverflowMenu by remember { mutableStateOf(false) }
     var showFinishBlocked by remember { mutableStateOf(false) }
     var pendingSkipExerciseId by remember { mutableStateOf<String?>(null) }
     // Start every exercise collapsed (e.g. routine load) so the list is compact until the user expands.
@@ -363,22 +372,54 @@ fun WeightLiveWorkoutScreen(
     }
 
     if (showDiscardConfirm) {
-        AlertDialog(
-            onDismissRequest = { showDiscardConfirm = false },
-            title = { Text("Discard workout?") },
-            text = { Text("Your session will not be saved.") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showDiscardConfirm = false
-                        onDiscardWorkout()
+        val discardSection = onDiscardSection
+        if (discardSection != null) {
+            AlertDialog(
+                onDismissRequest = { showDiscardConfirm = false },
+                title = { Text("Discard this section?") },
+                text = {
+                    Text(
+                        "Discard Section drops the sets in this section, marks it skipped and " +
+                            "returns to the workout, which keeps running. Discard Workout ends the " +
+                            "whole workout without a summary."
+                    )
+                },
+                confirmButton = {
+                    Column(horizontalAlignment = Alignment.End) {
+                        TextButton(
+                            onClick = {
+                                showDiscardConfirm = false
+                                discardSection()
+                            }
+                        ) { Text("Discard Section") }
+                        TextButton(
+                            onClick = {
+                                showDiscardConfirm = false
+                                onDiscardWorkout()
+                            }
+                        ) { Text("Discard Workout", color = MaterialTheme.colorScheme.error) }
+                        TextButton(onClick = { showDiscardConfirm = false }) { Text("Cancel") }
                     }
-                ) { Text("Discard") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDiscardConfirm = false }) { Text("Cancel") }
-            }
-        )
+                }
+            )
+        } else {
+            AlertDialog(
+                onDismissRequest = { showDiscardConfirm = false },
+                title = { Text("Discard workout?") },
+                text = { Text("Your session will not be saved.") },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            showDiscardConfirm = false
+                            onDiscardWorkout()
+                        }
+                    ) { Text("Discard") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showDiscardConfirm = false }) { Text("Cancel") }
+                }
+            )
+        }
     }
 
     recentWorkoutsExerciseId?.let { id ->
@@ -574,12 +615,6 @@ fun WeightLiveWorkoutScreen(
                 }
                 if (!isEditingExercise) {
                     TextButton(
-                        onClick = { showDiscardConfirm = true },
-                        modifier = Modifier.padding(end = 4.dp)
-                    ) {
-                        Text("Discard", color = Color.White.copy(alpha = 0.92f))
-                    }
-                    TextButton(
                         onClick = {
                             val hasLogged = draft.exerciseOrder.any { id ->
                                 draft.hiitBlocksByExerciseId[id] != null ||
@@ -595,6 +630,30 @@ fun WeightLiveWorkoutScreen(
                         modifier = Modifier.padding(end = 4.dp)
                     ) {
                         Text(finishLabel, color = Color.White)
+                    }
+                    // Discard sits in a menu, away from Finish / Next section.
+                    Box {
+                        IconButton(onClick = { showOverflowMenu = true }) {
+                            Icon(
+                                Icons.Filled.MoreVert,
+                                contentDescription = "More options",
+                                tint = Color.White,
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = showOverflowMenu,
+                            onDismissRequest = { showOverflowMenu = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = {
+                                    Text(if (onDiscardSection != null) "Discard…" else "Discard Workout")
+                                },
+                                onClick = {
+                                    showOverflowMenu = false
+                                    showDiscardConfirm = true
+                                },
+                            )
+                        }
                     }
                 }
             },

@@ -78,6 +78,7 @@ import com.erv.app.workouts.WorkoutRepository
 import com.erv.app.ui.unifiedroutines.UnifiedRoutineCategoryScreen
 import com.erv.app.ui.unifiedroutines.UnifiedRoutineRunScreen
 import com.erv.app.ui.unifiedroutines.UnifiedWorkoutSummaryScreen
+import com.erv.app.workouts.isStarted
 import java.time.LocalDate
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -660,6 +661,9 @@ fun ErvNavHost(
                 weightRepository = weightRepository,
                 stretchingRepository = stretchingRepository,
                 activeRun = workoutState.activeRun?.takeIf { it.workoutId == workoutId },
+                otherRunInProgress = workoutState.activeRun?.takeIf {
+                    it.workoutId != workoutId && it.isStarted()
+                },
                 workout = workoutState.workoutById(workoutId),
                 weightState = weightState,
                 cardioState = cardioState,
@@ -669,6 +673,12 @@ fun ErvNavHost(
                 relayPool = relayPool,
                 signer = signer,
                 onBack = { navController.popBackStack() },
+                onResumeOtherRun = { otherWorkoutId ->
+                    navController.navigate(Routes.workoutRun(otherWorkoutId)) {
+                        popUpTo(Routes.workoutRunRoute) { inclusive = true }
+                        launchSingleTop = true
+                    }
+                },
                 onOpenWeightCategory = {
                     navController.navigate(Routes.weightTrainingCategory) { launchSingleTop = true }
                 },

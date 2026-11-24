@@ -1,5 +1,6 @@
 package com.erv.app.ui.workouts
 
+import androidx.activity.compose.BackHandler
 import com.erv.app.ui.theme.ervTopAppBarColors
 import com.erv.app.ui.theme.ervSessionTopAppBarColors
 import com.erv.app.hr.HeartRatePill
@@ -139,6 +140,8 @@ fun WorkoutLiveRunScreen(
     weightRepository: WeightRepository,
     stretchingRepository: StretchingRepository,
     activeRun: WorkoutActiveRun?,
+    /** A started run of a different workout; this screen must not replace it without asking. */
+    otherRunInProgress: WorkoutActiveRun? = null,
     workout: Workout?,
     weightState: WeightLibraryState,
     cardioState: CardioLibraryState,
@@ -148,6 +151,8 @@ fun WorkoutLiveRunScreen(
     relayPool: RelayPool? = null,
     signer: EventSigner? = null,
     onBack: () -> Unit,
+    /** Open the run screen of the workout already in progress. */
+    onResumeOtherRun: (String) -> Unit = {},
     onOpenWeightCategory: () -> Unit,
     onOpenCardioCategory: () -> Unit,
     onOpenStretchCategory: () -> Unit,
@@ -176,6 +181,7 @@ fun WorkoutLiveRunScreen(
     var sectionTransition by remember { mutableStateOf<WorkoutSectionTransition?>(null) }
     // Label of the step the athlete asked to skip; non-null while the confirmation dialog is up.
     var pendingSkipLabel by remember { mutableStateOf<String?>(null) }
+    var showLeaveDialog by remember { mutableStateOf(false) }
 
     pendingSkipLabel?.let { label ->
         AlertDialog(
@@ -218,10 +224,56 @@ fun WorkoutLiveRunScreen(
         repository.clearAutoAdvance()
     }
 
-    LaunchedEffect(workoutId, workout) {
-        if (!finishingRun && workout != null && (activeRun == null || activeRun.workoutId != workoutId)) {
+    LaunchedEffect(workoutId, workout, otherRunInProgress?.sessionId) {
+        if (
+            !finishingRun &&
+            workout != null &&
+            otherRunInProgress == null &&
+            (activeRun == null || activeRun.workoutId != workoutId)
+        ) {
             repository.startRun(workoutId)
         }
+    }
+
+    // Opening a workout while a different one is running used to replace it silently.
+    if (otherRunInProgress != null && activeRun == null && !finishingRun) {
+        val otherName = otherRunInProgress.workoutSnapshot.name.ifBlank { "Another workout" }
+        AlertDialog(
+            onDismissRequest = onBack,
+            title = { Text("Workout in progress") },
+            text = {
+                Text(
+                    "“$otherName” is still running. Resume it, or discard it and start " +
+                        "${workout?.name?.let { "“$it”" } ?: "this workout"}. Sections already " +
+                        "logged in it stay in your history.",
+                )
+            },
+            confirmButton = {
+                Column(horizontalAlignment = Alignment.End) {
+                    TextButton(onClick = { onResumeOtherRun(otherRunInProgress.workoutId) }) {
+                        Text("Resume $otherName")
+                    }
+                    TextButton(
+                        onClick = {
+                            scope.launch {
+                                if (
+                                    otherRunInProgress.lastLaunchedSegmentId != null &&
+                                    weightLiveWorkoutViewModel.hasLiveSession
+                                ) {
+                                    // The open weight session belongs to the run being discarded.
+                                    weightLiveWorkoutViewModel.clearDraft()
+                                }
+                                heartRateBle.discardComposedWorkoutRunRecording()
+                                repository.clearActiveRun()
+                            }
+                        },
+                    ) {
+                        Text("Discard It and Start This One")
+                    }
+                    TextButton(onClick = onBack) { Text("Cancel") }
+                }
+            },
+        )
     }
 
     LaunchedEffect(activeRun?.startedAtEpochSeconds, workoutId) {
@@ -668,6 +720,81 @@ fun WorkoutLiveRunScreen(
         launchCurrentStepSilo()
     }
 
+    fun discardRunAndLeave() {
+        scope.launch {
+            activeRest = null
+            heartRateBle.discardComposedWorkoutRunRecording()
+            repository.clearActiveRun()
+            onBack()
+        }
+    }
+
+    // A started run is never thrown away by a stray back tap: the arrow and the system back
+    // gesture both ask first. Before Start nothing has been recorded, so they just leave.
+    fun requestLeave() {
+        if (runStarted && !isComplete) {
+            showLeaveDialog = true
+        } else {
+            discardRunAndLeave()
+        }
+    }
+
+    BackHandler(enabled = runStarted && !isComplete) { showLeaveDialog = true }
+
+    if (showLeaveDialog) {
+        val siloSessionOpen =
+            weightLiveWorkoutViewModel.hasLiveSession || cardioLiveWorkoutViewModel.hasActiveTimer
+        AlertDialog(
+            onDismissRequest = { showLeaveDialog = false },
+            title = { Text("Leave this workout?") },
+            text = {
+                Text(
+                    buildString {
+                        append("Keep Running leaves it in progress; open it again from Training to continue. ")
+                        if (siloSessionOpen) {
+                            append("To end it now, finish or discard the open section first. ")
+                        } else {
+                            append("End Workout Now marks the remaining steps as skipped and shows the summary. ")
+                        }
+                        append("Discard stops it without a summary; sections already logged stay in your history.")
+                    },
+                )
+            },
+            confirmButton = {
+                Column(horizontalAlignment = Alignment.End) {
+                    TextButton(
+                        onClick = {
+                            showLeaveDialog = false
+                            onBack()
+                        },
+                    ) {
+                        Text("Keep Running")
+                    }
+                    if (!siloSessionOpen) {
+                        TextButton(
+                            onClick = {
+                                showLeaveDialog = false
+                                activeRest = null
+                                scope.launch { repository.endRunEarly() }
+                            },
+                        ) {
+                            Text("End Workout Now")
+                        }
+                    }
+                    TextButton(
+                        onClick = {
+                            showLeaveDialog = false
+                            discardRunAndLeave()
+                        },
+                    ) {
+                        Text("Discard Workout", color = MaterialTheme.colorScheme.error)
+                    }
+                    TextButton(onClick = { showLeaveDialog = false }) { Text("Cancel") }
+                }
+            },
+        )
+    }
+
     Box(modifier = modifier.fillMaxSize()) {
     Scaffold(
         modifier = Modifier.fillMaxSize(),
@@ -676,14 +803,7 @@ fun WorkoutLiveRunScreen(
             TopAppBar(
                 title = { Text(workout.name) },
                 navigationIcon = {
-                    IconButton(onClick = {
-                        scope.launch {
-                            activeRest = null
-                            heartRateBle.discardComposedWorkoutRunRecording()
-                            repository.clearActiveRun()
-                            onBack()
-                        }
-                    }) {
+                    IconButton(onClick = { requestLeave() }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },

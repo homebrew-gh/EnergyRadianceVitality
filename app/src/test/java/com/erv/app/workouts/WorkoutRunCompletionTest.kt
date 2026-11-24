@@ -409,6 +409,68 @@ class WorkoutRunCompletionTest {
         ),
     )
 
+    @Test
+    fun ending_early_skips_every_remaining_step_and_keeps_logged_recaps() {
+        val workout = sampleTwoSegmentWorkout()
+        val warmup = workout.segments[0]
+        val loggedWarmup = WorkoutItemRecap(
+            segmentId = warmup.id,
+            itemId = warmup.items[0].id,
+            kind = WorkoutLoggedItemKind.CARDIO,
+            linkedLogDate = "2026-11-24",
+            linkedEntryId = "cardio-1",
+            finishedAtEpochSeconds = 150L,
+        )
+        val run = WorkoutActiveRun(
+            workoutId = workout.id,
+            workoutSnapshot = workout,
+            startedAtEpochSeconds = 100L,
+            position = WorkoutRunPosition(segmentIndex = 1),
+            itemRecaps = listOf(loggedWarmup),
+        )
+        val outcome = run.endingEarly(nowEpochSeconds = 300L)!!
+        val ended = outcome.run
+        assertTrue(WorkoutRunEngine.isWorkoutComplete(workout, ended.position))
+        assertTrue(outcome.result.workoutComplete)
+        assertFalse(ended.autoAdvanceRequested)
+        assertNull(ended.pendingNextSegmentTitle)
+        assertEquals(2, ended.itemRecaps.size)
+        assertEquals(loggedWarmup, ended.itemRecaps.first { it.segmentId == warmup.id })
+        val skipped = ended.itemRecaps.single { it.segmentId == workout.segments[1].id }
+        assertTrue(skipped.skipped)
+        assertEquals(300L, skipped.finishedAtEpochSeconds)
+    }
+
+    @Test
+    fun ending_early_steps_over_empty_segments() {
+        val workout = Workout(
+            name = "With empty",
+            segments = listOf(
+                WorkoutSegment(kind = WorkoutSegmentKind.STRAIGHT_SETS, title = "Empty"),
+                WorkoutSegment(
+                    kind = WorkoutSegmentKind.STRAIGHT_SETS,
+                    items = listOf(WorkoutItem.Weight(exerciseId = "squat")),
+                ),
+            ),
+        )
+        val run = WorkoutActiveRun(workoutId = workout.id, workoutSnapshot = workout, startedAtEpochSeconds = 1L)
+        val ended = run.endingEarly(nowEpochSeconds = 2L)!!.run
+        assertTrue(WorkoutRunEngine.isWorkoutComplete(workout, ended.position))
+        assertEquals(1, ended.itemRecaps.count { it.skipped })
+    }
+
+    @Test
+    fun ending_early_returns_null_when_already_complete() {
+        val workout = sampleTwoSegmentWorkout()
+        val run = WorkoutActiveRun(
+            workoutId = workout.id,
+            workoutSnapshot = workout,
+            startedAtEpochSeconds = 1L,
+            position = WorkoutRunPosition(segmentIndex = 2),
+        )
+        assertNull(run.endingEarly())
+    }
+
     private fun sampleTwoSegmentWorkout(): Workout = Workout(
         name = "Two-part",
         segments = listOf(

@@ -243,6 +243,33 @@ fun WorkoutActiveRun.skippingLaunchedSection(
     return advancedTo(next, batch.map { skippedRecap(segment.id, it, nowEpochSeconds) })
 }
 
+/**
+ * End the run now: every step from the current position on is recapped as skipped and the run
+ * moves to its end, so the finish summary can be built from what was already logged. Returns
+ * null when the run is already complete.
+ */
+fun WorkoutActiveRun.endingEarly(
+    nowEpochSeconds: Long = nowWorkoutEpochSeconds(),
+): WorkoutRunAdvanceOutcome? {
+    val workout = workoutSnapshot
+    if (WorkoutRunEngine.isWorkoutComplete(workout, position)) return null
+    var current = this
+    var outcome: WorkoutRunAdvanceOutcome? = null
+    var guard = 0
+    while (!WorkoutRunEngine.isWorkoutComplete(workout, current.position) && guard < 10_000) {
+        val step = current.skippingCurrentStep(nowEpochSeconds)
+            // An empty plain segment has no item to skip; step over it.
+            ?: current.advancedTo(
+                WorkoutRunPosition(segmentIndex = current.position.segmentIndex + 1),
+                emptyList(),
+            )
+        outcome = step
+        current = step.run
+        guard++
+    }
+    return outcome
+}
+
 /** Section progress label like "Section 2 of 5". */
 fun WorkoutActiveRun.sectionProgressLabel(): String {
     val total = workoutSnapshot.segments.size.coerceAtLeast(1)
