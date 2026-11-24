@@ -65,6 +65,13 @@ import com.erv.app.R
 import com.erv.app.ui.components.WorkoutKind1SharePreviewDialog
 import com.erv.app.hr.LocalHeartRateBle
 import com.erv.app.ui.theme.ErvSessionRed
+import com.erv.app.ui.weighttraining.WeightWorkoutSummaryFullScreen
+import com.erv.app.ui.theme.ErvDarkTherapyRedDark
+import com.erv.app.ui.theme.ErvDarkTherapyRedGlow
+import com.erv.app.ui.theme.ErvDarkTherapyRedMid
+import com.erv.app.ui.theme.ErvLightTherapyRedDark
+import com.erv.app.ui.theme.ErvLightTherapyRedGlow
+import com.erv.app.ui.theme.ErvLightTherapyRedMid
 import com.erv.app.ui.weighttraining.WeightExerciseRecentWorkoutsDialog
 import com.erv.app.ui.weighttraining.WeightLiveWorkoutFgsDisclosureDialog
 import com.erv.app.ui.weighttraining.WeightLiveWorkoutViewModel
@@ -209,6 +216,8 @@ import com.erv.app.ui.weighttraining.WeightExerciseEditorDialog
 import com.erv.app.weighttraining.WeightSync
 import com.erv.app.weighttraining.recentExerciseIds
 import java.time.LocalDate
+import androidx.compose.foundation.isSystemInDarkTheme
+import com.erv.app.workouts.WorkoutLoggedItemKind
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.delay
@@ -237,6 +246,8 @@ fun WorkoutLiveRunScreen(
     /** Open the run screen of the workout already in progress. */
     onResumeOtherRun: (String) -> Unit = {},
     onOpenWeightCategory: () -> Unit,
+    /** Opens the weight log, from a Quick Start workout's summary. */
+    onOpenWeightLog: () -> Unit = onOpenWeightCategory,
     onOpenCardioCategory: () -> Unit,
     onOpenStretchCategory: () -> Unit,
     modifier: Modifier = Modifier,
@@ -265,6 +276,8 @@ fun WorkoutLiveRunScreen(
     var showRestSettings by remember { mutableStateOf(false) }
     var confirmFinish by remember { mutableStateOf(false) }
     var composedSummary by remember { mutableStateOf<ComposedWorkoutHrSummary?>(null) }
+    // A Quick Start workout that was only lifting finishes on the weight screen's summary.
+    var weightSummary by remember { mutableStateOf<StandaloneWeightSummary?>(null) }
     var runFinalized by remember { mutableStateOf(false) }
     var finishingRun by remember { mutableStateOf(false) }
     // Set if building the finish summary failed, so the screen offers a way out instead.
@@ -673,6 +686,23 @@ fun WorkoutLiveRunScreen(
                 weightRepository = weightRepository,
             )
         }
+        // A Quick Start workout that was only lifting is one weight workout: it gets the weight
+        // screen's summary, with calories, Update Routine, Remove from Log and Open Log.
+        if (run.standalone != null) {
+            val logged = run.itemRecaps.filter { !it.skipped && it.linkedEntryId != null }
+            val entryIds = logged.mapNotNull { it.linkedEntryId }.distinct()
+            if (logged.isNotEmpty() && logged.all { it.kind == WorkoutLoggedItemKind.WEIGHT } && entryIds.size == 1) {
+                val logDate = logged.first().linkedLogDate?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+                val session = logDate?.let { date ->
+                    weightRepository.currentState().logFor(date)?.workouts?.firstOrNull { it.id == entryIds.single() }
+                }
+                if (logDate != null && session != null) {
+                    weightSummary = StandaloneWeightSummary(session, logDate)
+                    runFinalized = true
+                    return@LaunchedEffect
+                }
+            }
+        }
         val built = runCatching {
             buildComposedWorkoutHrSummary(
                 run = run,
@@ -707,7 +737,7 @@ fun WorkoutLiveRunScreen(
     LaunchedEffect(isComplete) {
         if (!isComplete) return@LaunchedEffect
         delay(15_000L)
-        if (composedSummary == null) finalizeFailed = true
+        if (composedSummary == null && weightSummary == null) finalizeFailed = true
     }
 
     // Keep the ongoing notification in step with the session. Heart rate is folded in every 15
@@ -785,6 +815,54 @@ fun WorkoutLiveRunScreen(
         }
         val atStep = session?.stepIndex
         scope.launch { repository.startSessionStep(atStepIndex = atStep) }
+    }
+
+    weightSummary?.let { finished ->
+        val summaryKeyManager = LocalKeyManager.current
+        val darkTheme = isSystemInDarkTheme()
+
+        /** Clears the finished run, does [first] (still on this screen), then [then]. */
+        fun leave(first: suspend () -> Unit = {}, then: () -> Unit) {
+            finishingRun = true
+            scope.launch {
+                heartRateBle.discardComposedWorkoutRunRecording()
+                repository.clearActiveRun()
+                first()
+                then()
+            }
+        }
+        WeightWorkoutSummaryFullScreen(
+            session = finished.session,
+            logDate = finished.logDate,
+            library = weightState,
+            loadUnit = loadUnit,
+            userPreferences = userPreferences,
+            dark = if (darkTheme) ErvDarkTherapyRedDark else ErvLightTherapyRedDark,
+            mid = if (darkTheme) ErvDarkTherapyRedMid else ErvLightTherapyRedMid,
+            glow = if (darkTheme) ErvDarkTherapyRedGlow else ErvLightTherapyRedGlow,
+            relayPool = relayPool,
+            signer = signer,
+            repository = weightRepository,
+            onAfterRoutineSync = {
+                val pool = relayPool
+                val s = signer
+                if (pool != null && s != null) {
+                    scope.launch {
+                        WeightSync.publishRoutines(
+                            appContext, pool, s, weightRepository.currentState().routines,
+                            summaryKeyManager.relayUrlsForKind30078Publish(),
+                        )
+                    }
+                }
+            },
+            // The weight log queues the day's sync itself.
+            onRemoveFromLog = {
+                leave(first = { weightRepository.deleteWorkout(finished.logDate, finished.session.id) }) { onBack() }
+            },
+            onOpenLog = { leave { onOpenWeightLog() } },
+            onDone = { leave { onBack() } },
+        )
+        return
     }
 
     val summary = composedSummary
@@ -1947,6 +2025,14 @@ private fun ComposedWorkoutSummaryScreen(
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
+                            val liftingKcal = weightSessions.sumOf { it.estimatedKcal ?: 0.0 }
+                            if (liftingKcal > 0.5) {
+                                Text(
+                                    text = "Est. calories from lifting: ~${liftingKcal.toInt()} kcal",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                         }
                         summary.wholeRun?.let { hr ->
                             Text(
@@ -2300,4 +2386,10 @@ private data class SessionIntervalTimer(
     val stepIndex: Int,
     val exerciseName: String,
     val plan: WeightHiitIntervalPlan,
+)
+
+/** The weight workout a Quick Start run was logged as, shown on the weight screen's summary. */
+private data class StandaloneWeightSummary(
+    val session: com.erv.app.weighttraining.WeightWorkoutSession,
+    val logDate: LocalDate,
 )

@@ -656,6 +656,12 @@ fun ErvNavHost(
                 onOpenWeightCategory = {
                     navController.navigate(Routes.weightTrainingCategory) { launchSingleTop = true }
                 },
+                onOpenWeightLog = {
+                    navController.navigate(Routes.weightTrainingLog) {
+                        popUpTo(Routes.workoutRunRoute) { inclusive = true }
+                        launchSingleTop = true
+                    }
+                },
                 onOpenCardioCategory = {
                     navController.navigate(Routes.cardioCategory) { launchSingleTop = true }
                 },
