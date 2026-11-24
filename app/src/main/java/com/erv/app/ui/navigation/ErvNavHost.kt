@@ -553,11 +553,15 @@ fun ErvNavHost(
             val programsState by programRepository.state.collectAsState(initial = com.erv.app.programs.ProgramsLibraryState())
             val workoutState by workoutRepository.state.collectAsState(initial = WorkoutLibraryState())
             val weightState by weightRepository.state.collectAsState(initial = WeightLibraryState())
+            val cardioState by cardioRepository.state.collectAsState(initial = CardioLibraryState())
+            val stretchState by stretchingRepository.state.collectAsState(initial = StretchLibraryState())
             TrainingCategoryScreen(
                 programsState = programsState,
                 workoutState = workoutState,
                 workoutRepository = workoutRepository,
                 weightState = weightState,
+                cardioState = cardioState,
+                stretchState = stretchState,
                 stretchCatalog = stretchingRepository.catalog,
                 keyManager = keyManager,
                 relayPool = relayPool,

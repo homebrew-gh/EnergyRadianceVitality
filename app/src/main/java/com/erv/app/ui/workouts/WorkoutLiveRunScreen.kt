@@ -8,6 +8,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -24,6 +25,7 @@ import com.erv.app.ui.components.FormSectionLabelSmall
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -48,12 +50,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.erv.app.R
 import com.erv.app.ui.components.WorkoutKind1SharePreviewDialog
-import androidx.compose.ui.unit.sp
 import com.erv.app.hr.LocalHeartRateBle
 import com.erv.app.ui.theme.ErvSessionRed
 import com.erv.app.ui.weighttraining.WeightLiveWorkoutFgsDisclosureDialog
@@ -70,6 +70,7 @@ import com.erv.app.workouts.WorkoutSegment
 import com.erv.app.workouts.WorkoutSegmentKind
 import com.erv.app.workouts.displayExerciseName
 import com.erv.app.workouts.displaySummary
+import com.erv.app.workouts.isFreshWithNothingLogged
 import com.erv.app.workouts.isStarted
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -122,7 +123,7 @@ private data class ActiveWorkoutRest(
     val label: String,
 )
 
-/** Between-section splash shown after finishing one section, counting down into the next. */
+/** Between-section banner shown after finishing one section, counting down into the next. */
 private data class WorkoutSectionTransition(
     val finishedTitle: String,
     val nextTitle: String,
@@ -130,7 +131,7 @@ private data class WorkoutSectionTransition(
     val autoAdvance: Boolean,
 )
 
-private const val SECTION_TRANSITION_COUNTDOWN_SECONDS = 5
+private const val SECTION_TRANSITION_COUNTDOWN_SECONDS = 3
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -207,8 +208,8 @@ fun WorkoutLiveRunScreen(
     }
 
     // A finished section leaves both a "next section" title and (when the workout continues) a
-    // "just finished" title. Turn that into a full-screen transition splash that counts down into
-    // the next section instead of a quick snackbar + instant auto-advance.
+    // "just finished" title. Turn that into a short banner that counts down into the next section
+    // instead of a quick snackbar + instant auto-advance.
     LaunchedEffect(activeRun?.pendingNextSegmentTitle) {
         val nextTitle = activeRun?.pendingNextSegmentTitle ?: return@LaunchedEffect
         sectionTransition = WorkoutSectionTransition(
@@ -218,19 +219,21 @@ fun WorkoutLiveRunScreen(
             autoAdvance = activeRun.autoAdvanceRequested,
         )
         // Consume the prompt + auto-advance flag now; the countdown drives the launch itself so
-        // the auto-advance effect below does not fire underneath the splash.
+        // the auto-advance effect below does not fire underneath the banner.
         repository.clearPendingNextSegmentPrompt()
         repository.clearAutoAdvance()
     }
 
+    // Tapping Start Workout on the Training tab is the start: opening the run begins the clock
+    // and heart-rate recording, with no second Start tap on this screen.
     LaunchedEffect(workoutId, workout, otherRunInProgress?.sessionId) {
         if (
             !finishingRun &&
             workout != null &&
             otherRunInProgress == null &&
-            (activeRun == null || activeRun.workoutId != workoutId)
+            (activeRun == null || activeRun.workoutId != workoutId || !activeRun.isStarted())
         ) {
-            repository.startRun(workoutId)
+            repository.beginRun(workoutId)
         }
     }
 
@@ -684,7 +687,7 @@ fun WorkoutLiveRunScreen(
     }
 
     // Launch the silo screen for the current step. Shared by continuous auto-advance and by the
-    // section-transition splash once its countdown reaches zero.
+    // section-transition banner once its countdown reaches zero.
     fun launchCurrentStepSilo() {
         if (!runStarted || isResting || isComplete) return
         if (weightLiveWorkoutViewModel.hasLiveSession || cardioLiveWorkoutViewModel.hasActiveTimer) return
@@ -702,7 +705,7 @@ fun WorkoutLiveRunScreen(
         }
     }
 
-    // Drive the between-section splash countdown, then continue into the next section.
+    // Drive the between-section banner countdown, then continue into the next section.
     LaunchedEffect(sectionTransition?.secondsRemaining) {
         val transition = sectionTransition ?: return@LaunchedEffect
         if (transition.secondsRemaining <= 0) {
@@ -748,7 +751,7 @@ fun WorkoutLiveRunScreen(
         position.round,
     ) {
         if (activeRun?.autoAdvanceRequested != true) return@LaunchedEffect
-        // Section boundaries are handled by the transition splash, which launches the next
+        // Section boundaries are handled by the transition banner, which launches the next
         // section when its countdown finishes; skip the instant auto-advance in that case.
         if (activeRun.pendingNextSegmentTitle != null || sectionTransition != null) {
             return@LaunchedEffect
@@ -766,17 +769,22 @@ fun WorkoutLiveRunScreen(
         }
     }
 
-    // A started run is never thrown away by a stray back tap: the arrow and the system back
-    // gesture both ask first. Before Start nothing has been recorded, so they just leave.
+    // A run under way is never thrown away by a stray back tap: the arrow and the system back
+    // gesture both ask first. Backing out within a minute of opening, before anything is logged,
+    // is a quick look and just leaves.
     fun requestLeave() {
-        if (runStarted && !isComplete) {
-            showLeaveDialog = true
-        } else {
-            discardRunAndLeave()
+        val quickLook = activeRun?.isFreshWithNothingLogged() != false &&
+            !weightLiveWorkoutViewModel.hasLiveSession &&
+            !cardioLiveWorkoutViewModel.hasActiveTimer
+        when {
+            runStarted && !isComplete && !quickLook -> showLeaveDialog = true
+            // Nothing of this workout's is running (another run is waiting): leave it alone.
+            activeRun == null -> onBack()
+            else -> discardRunAndLeave()
         }
     }
 
-    BackHandler(enabled = runStarted && !isComplete) { showLeaveDialog = true }
+    BackHandler(enabled = runStarted && !isComplete) { requestLeave() }
 
     if (showLeaveDialog) {
         val siloSessionOpen =
@@ -865,42 +873,13 @@ fun WorkoutLiveRunScreen(
             item {
                 Text(
                     text = when {
-                        !runStarted -> "Ready to start"
+                        !runStarted -> "Starting…"
                         isComplete -> "Workout complete"
                         isResting -> activeRest!!.label
                         else -> currentStep?.label ?: "Ready"
                     },
                     style = MaterialTheme.typography.titleMedium,
                 )
-            }
-            if (!runStarted) {
-                item {
-                    Card(modifier = Modifier.fillMaxWidth()) {
-                        Column(
-                            modifier = Modifier.padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            Text(
-                                text = workout.name,
-                                style = MaterialTheme.typography.titleLarge,
-                            )
-                            Text(
-                                text = "${workout.segments.size} section(s). Start begins the overall workout clock and heart-rate recording.",
-                                style = MaterialTheme.typography.bodyMedium,
-                            )
-                            Button(
-                                onClick = {
-                                    scope.launch {
-                                        repository.beginRun(workoutId)
-                                    }
-                                },
-                                modifier = Modifier.fillMaxWidth(),
-                            ) {
-                                Text("Start Workout")
-                            }
-                        }
-                    }
-                }
             }
             if (isResting) {
                 item {
@@ -1273,13 +1252,20 @@ fun WorkoutLiveRunScreen(
         }
     }
     sectionTransition?.let { transition ->
-        WorkoutSectionTransitionSplash(
+        WorkoutSectionTransitionBanner(
             finishedTitle = transition.finishedTitle,
             nextTitle = transition.nextTitle,
             secondsRemaining = transition.secondsRemaining,
+            autoAdvance = transition.autoAdvance,
             onStartNow = {
-                sectionTransition = transition.copy(secondsRemaining = 0)
+                sectionTransition = transition.copy(secondsRemaining = 0, autoAdvance = true)
             },
+            onNotYet = {
+                sectionTransition = transition.copy(secondsRemaining = 0, autoAdvance = false)
+            },
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(16.dp),
         )
     }
     }
@@ -1648,62 +1634,59 @@ private fun ComposedWorkoutSectionLogCard(
     }
 }
 
+/**
+ * A short card over the bottom of the run screen after a section finishes: what was finished,
+ * what's next, and a few seconds' countdown before the next section opens. Not Yet stays on the
+ * run screen so the next section can be opened when ready.
+ */
 @Composable
-private fun WorkoutSectionTransitionSplash(
+private fun WorkoutSectionTransitionBanner(
     finishedTitle: String,
     nextTitle: String,
     secondsRemaining: Int,
+    autoAdvance: Boolean,
     onStartNow: () -> Unit,
+    onNotYet: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(ErvSessionRed),
-        contentAlignment = Alignment.Center,
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = ErvSessionRed, contentColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(32.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             Text(
                 text = "$finishedTitle finished",
-                style = MaterialTheme.typography.headlineSmall,
-                color = Color.White,
-                fontWeight = FontWeight.SemiBold,
-                textAlign = TextAlign.Center,
-            )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                text = "Next section",
                 style = MaterialTheme.typography.labelLarge,
-                color = Color.White.copy(alpha = 0.8f),
+                color = Color.White.copy(alpha = 0.85f),
             )
             Text(
-                text = nextTitle,
-                style = MaterialTheme.typography.headlineMedium,
-                color = Color.White,
-                fontWeight = FontWeight.Bold,
-                textAlign = TextAlign.Center,
-            )
-            Spacer(Modifier.height(16.dp))
-            Text(
-                text = secondsRemaining.coerceAtLeast(0).toString(),
-                style = MaterialTheme.typography.displayLarge,
-                fontSize = 96.sp,
-                fontWeight = FontWeight.Bold,
+                text = "Next: $nextTitle",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
                 color = Color.White,
             )
-            Text(
-                text = "Starts in ${secondsRemaining.coerceAtLeast(0)}s",
-                style = MaterialTheme.typography.bodyLarge,
-                color = Color.White.copy(alpha = 0.8f),
-            )
-            Spacer(Modifier.height(16.dp))
-            TextButton(onClick = onStartNow) {
-                Text("Start now", color = Color.White)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = if (autoAdvance) "Starts in ${secondsRemaining.coerceAtLeast(0)}s" else "",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color.White.copy(alpha = 0.85f),
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = onNotYet) {
+                    Text(if (autoAdvance) "Not Yet" else "OK", color = Color.White)
+                }
+                if (autoAdvance) {
+                    TextButton(onClick = onStartNow) {
+                        Text("Start Now", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+                }
             }
         }
     }
