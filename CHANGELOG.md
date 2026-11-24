@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Drafts in the web builder: every workout you change is saved as a draft in the browser, so you can switch between workouts, or start a new one, without publishing or losing edits. The saved-workouts list and the editor mark each workout Draft (never published), Unpublished Changes, or Published with its time. Publishing is a separate step, it keeps the editor open, and Discard Changes goes back to the published version.
 - Phone check in the web builder: the workout preview shows a badge with how many places the phone runs the workout differently from what's written, and lists each under its section. It covers superset and circuit lifts whose set count, per-set targets or own rest the phone ignores, non-lift items in a superset or circuit, and interval legs the phone rounds up to whole minutes. JSON import shows the same warnings before publishing.
 - Android release GitHub Actions workflow: builds, signs and publishes a release from the Actions tab so devices can update through Obtainium.
 - Start9 release GitHub Actions workflow: builds, bumps, signs and publishes the StartOS `.s9pk` as a `start9-v*` release from the Actions tab.
