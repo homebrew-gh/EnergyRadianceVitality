@@ -70,6 +70,23 @@ import com.erv.app.ui.weighttraining.WeightLiveWorkoutFgsDisclosureDialog
 import com.erv.app.ui.weighttraining.WeightLiveWorkoutViewModel
 import com.erv.app.weighttraining.WeightLibraryState
 import com.erv.app.weighttraining.historyForExercise
+import com.erv.app.ui.weighttraining.PlateCalculatorUiState
+import com.erv.app.ui.weighttraining.WeightHiitIntervalTimerOverlay
+import com.erv.app.ui.weighttraining.WeightTimedSetTimerOverlay
+import com.erv.app.weighttraining.PlateLoadingStyle
+import com.erv.app.weighttraining.WeightExercise
+import com.erv.app.weighttraining.WeightHiitIntervalPlan
+import com.erv.app.weighttraining.WeightSet
+import com.erv.app.weighttraining.WeightSetLoggingStyle
+import com.erv.app.weighttraining.defaultBarForExercise
+import com.erv.app.weighttraining.displayLabel
+import com.erv.app.weighttraining.plateCalculatorBars
+import com.erv.app.weighttraining.plateCalculatorPlates
+import com.erv.app.weighttraining.plateLoading
+import com.erv.app.weighttraining.setLoggingStyle
+import com.erv.app.weighttraining.usesTimedHoldCountdownBeeps
+import com.erv.app.workouts.DEFAULT_TIMED_PREP_SECONDS
+import com.erv.app.workouts.canLogSessionHiitBlock
 import com.erv.app.workouts.Workout
 import com.erv.app.workouts.WorkoutActiveRun
 import com.erv.app.workouts.WorkoutItem
@@ -258,6 +275,29 @@ fun WorkoutLiveRunScreen(
     var showLeaveDialog by remember { mutableStateOf(false) }
     // Storyboard item (segment id to item id) being swapped, or picked from the whole library.
     var swapItem by remember { mutableStateOf<Pair<String, String>?>(null) }
+    // The full-screen hold timer for a timed set, and the interval timer, while one is open.
+    var holdTimer by remember { mutableStateOf<SessionHoldTimer?>(null) }
+    var intervalTimer by remember { mutableStateOf<SessionIntervalTimer?>(null) }
+    val ownedEquipment by userPreferences.ownedEquipment.collectAsState(initial = emptyList())
+    val plateBarByExercise by userPreferences.plateBarByExercise.collectAsState(initial = emptyMap())
+    val plateBars = remember(ownedEquipment, loadUnit) { plateCalculatorBars(ownedEquipment, loadUnit) }
+    val platePlates = remember(ownedEquipment, loadUnit) { plateCalculatorPlates(ownedEquipment, loadUnit) }
+
+    /** Plates per side for a plate-loaded lift, as the weight screen shows them; null otherwise. */
+    fun plateCalculatorFor(exercise: WeightExercise?): PlateCalculatorUiState? {
+        if (exercise == null) return null
+        val loading = exercise.plateLoading() ?: return null
+        if (loading == PlateLoadingStyle.NONE) return null
+        val bar = defaultBarForExercise(exercise.name, plateBars.bars, plateBarByExercise[exercise.id]) ?: return null
+        return PlateCalculatorUiState(
+            loading = loading,
+            bars = plateBars.bars,
+            selectedBar = bar,
+            plates = platePlates.plates,
+            assumedInventory = plateBars.assumed || platePlates.assumed,
+            onSelectBar = { barId -> scope.launch { userPreferences.setPlateBarForExercise(exercise.id, barId) } },
+        )
+    }
     var swapFromLibrary by remember { mutableStateOf<Pair<String, String>?>(null) }
     var addKind by remember { mutableStateOf<WorkoutSessionAddKind?>(null) }
     // Name typed in the picker for a new exercise, and the item it swaps in for (null: add it).
@@ -931,6 +971,39 @@ fun WorkoutLiveRunScreen(
         )
     }
 
+    holdTimer?.let { timer ->
+        WeightTimedSetTimerOverlay(
+            exerciseName = timer.exerciseName,
+            goalSeconds = timer.goalSeconds,
+            prepSeconds = timer.prepSeconds,
+            countdownBeeps = timer.countdownBeeps,
+            onFinished = { seconds ->
+                holdTimer = null
+                val set = timer.base.copy(reps = 0, durationSeconds = seconds.coerceAtLeast(1), done = null)
+                scope.launch {
+                    repository.applySessionEvent(WorkoutSessionEvent.SetLogged(set), atStepIndex = timer.stepIndex)
+                    logFinishedSections()
+                }
+            },
+            onDismiss = { holdTimer = null },
+        )
+    }
+
+    intervalTimer?.let { timer ->
+        WeightHiitIntervalTimerOverlay(
+            exerciseName = timer.exerciseName,
+            plan = timer.plan,
+            onFinished = { block ->
+                intervalTimer = null
+                scope.launch {
+                    if (session?.stepIndex == timer.stepIndex) repository.logSessionHiitBlock(block)
+                    logFinishedSections()
+                }
+            },
+            onDismiss = { intervalTimer = null },
+        )
+    }
+
     if (showRestSettings) {
         WorkoutSessionRestSettingsDialog(
             initialMode = (restTimerMode ?: WeightLiveRestTimerMode.AUTO).toSessionRestMode(),
@@ -1243,6 +1316,9 @@ fun WorkoutLiveRunScreen(
                             }
                             val segment = runWorkout.segments.getOrNull(step.segmentIndex)
                             val exerciseId = activeRun?.sessionExerciseFor(step) ?: step.exerciseId
+                            val exercise = weightState.exerciseById(exerciseId)
+                            val stepIndex = session?.stepIndex
+                            val goalSeconds = step.target.targetDurationSeconds?.takeIf { it > 0 && (step.target.targetReps ?: 0) <= 0 }
                             WorkoutSessionLiftCard(
                                 step = step,
                                 exerciseName = liftName(step),
@@ -1273,6 +1349,34 @@ fun WorkoutLiveRunScreen(
                                     } else {
                                         changeSetCount(-1)
                                     }
+                                },
+                                equipmentLabel = exercise?.equipment?.displayLabel(),
+                                plateCalculator = plateCalculatorFor(exercise),
+                                onStartTimer = if (goalSeconds != null && stepIndex != null) {
+                                    { base ->
+                                        holdTimer = SessionHoldTimer(
+                                            stepIndex = stepIndex,
+                                            exerciseName = liftName(step),
+                                            goalSeconds = goalSeconds,
+                                            // The workout's get-ready time, else the weight screen's for a hold.
+                                            prepSeconds = item?.prescription?.timedPrepSeconds
+                                                ?: if (exercise?.setLoggingStyle() == WeightSetLoggingStyle.TIME_ONLY) DEFAULT_TIMED_PREP_SECONDS else 0,
+                                            countdownBeeps = exercise?.usesTimedHoldCountdownBeeps() == true,
+                                            base = base,
+                                        )
+                                    }
+                                } else {
+                                    null
+                                },
+                                onStartIntervals = if (
+                                    exercise?.hiitCapable == true && stepIndex != null && plan != null &&
+                                    activeRun?.canLogSessionHiitBlock(plan) == true
+                                ) {
+                                    { intervals ->
+                                        intervalTimer = SessionIntervalTimer(stepIndex, liftName(step), intervals)
+                                    }
+                                } else {
+                                    null
                                 },
                             )
                         }
@@ -2180,3 +2284,20 @@ private fun WorkoutSessionRestMode.toSavedRestMode(): WeightLiveRestTimerMode = 
     WorkoutSessionRestMode.AUTO -> WeightLiveRestTimerMode.AUTO
     WorkoutSessionRestMode.MANUAL -> WeightLiveRestTimerMode.MANUAL
 }
+
+/** The hold timer open for the timed set at [stepIndex]; [base] has the weight and RPE typed. */
+private data class SessionHoldTimer(
+    val stepIndex: Int,
+    val exerciseName: String,
+    val goalSeconds: Int,
+    val prepSeconds: Int,
+    val countdownBeeps: Boolean,
+    val base: WeightSet,
+)
+
+/** The interval timer open for the exercise on screen at [stepIndex]. */
+private data class SessionIntervalTimer(
+    val stepIndex: Int,
+    val exerciseName: String,
+    val plan: WeightHiitIntervalPlan,
+)

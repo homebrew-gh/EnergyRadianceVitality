@@ -145,6 +145,14 @@ class WorkoutRepository(context: Context) {
         }
     }
 
+    /** The exercise on screen done on the interval timer (see [withSessionHiitBlockLogged]). */
+    suspend fun logSessionHiitBlock(block: com.erv.app.weighttraining.WeightHiitBlockLog) {
+        updateState { state ->
+            val run = state.activeRun ?: return@updateState state
+            state.copy(activeRun = run.withSessionHiitBlockLogged(block, nowWorkoutEpochSeconds()))
+        }
+    }
+
     suspend fun updateRunPosition(position: WorkoutRunPosition) {
         updateState { state ->
             val run = state.activeRun ?: return@updateState state
