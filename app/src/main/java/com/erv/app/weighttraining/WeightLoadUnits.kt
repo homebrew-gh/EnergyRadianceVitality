@@ -1,11 +1,47 @@
 package com.erv.app.weighttraining
 
 import com.erv.app.data.BodyWeightUnit
+import java.math.BigDecimal
+import java.math.RoundingMode
 import java.time.LocalDate
+import kotlin.math.abs
 
-fun formatRpeFieldForSets(v: Double): String =
-    if (v == v.toLong().toDouble()) v.toLong().toString()
-    else String.format("%.1f", v)
+fun formatRpeFieldForSets(v: Double): String = formatDecimalForField(v, maxDecimals = 1)
+
+/**
+ * Formats a number for a text field or summary: at most [maxDecimals] places, trailing zeros
+ * dropped, always with a `.` separator regardless of locale (so it parses back with
+ * [parseDecimalInput]). `145.00000001` becomes `145`, `1.25` stays `1.25`.
+ */
+fun formatDecimalForField(value: Double, maxDecimals: Int = 2): String {
+    if (!value.isFinite()) return ""
+    return BigDecimal.valueOf(value)
+        .setScale(maxDecimals, RoundingMode.HALF_UP)
+        .stripTrailingZeros()
+        .toPlainString()
+}
+
+/** Parses typed decimal text, accepting `,` as the separator (some keyboards send it). */
+fun parseDecimalInput(raw: String): Double? {
+    val t = raw.trim().replace(',', '.')
+    if (t.isEmpty()) return null
+    return t.toDoubleOrNull()?.takeIf { it.isFinite() }
+}
+
+/**
+ * True when the text being typed in a numeric field ([draft], e.g. `2.` or `1.25`) already stands
+ * for the stored value's text ([stored]), so the field should keep showing the draft instead of
+ * replacing it. Both blank or both unparseable (e.g. a lone `.`) also count as a match.
+ */
+fun numericTextMatches(draft: String, stored: String): Boolean {
+    val a = parseDecimalInput(draft)
+    val b = parseDecimalInput(stored)
+    if (a == null || b == null) return a == null && b == null
+    return abs(a - b) < NUMERIC_DRAFT_TOLERANCE
+}
+
+/** Half a unit in the last displayed place (2 decimals), plus float slack. */
+private const val NUMERIC_DRAFT_TOLERANCE = 0.0051
 
 /** Hold duration as `45s` (under a minute) or `M:SS` (e.g. `1:30`). */
 fun formatHoldDuration(seconds: Int): String =
@@ -85,8 +121,7 @@ fun formatWeightLoadNumber(kg: Double, unit: BodyWeightUnit): String {
         BodyWeightUnit.KG -> kg
         BodyWeightUnit.LB -> kgToPounds(kg)
     }
-    return if (v == v.toLong().toDouble()) v.toLong().toString()
-    else String.format("%.1f", v)
+    return formatDecimalForField(v)
 }
 
 fun weightLoadUnitSuffix(unit: BodyWeightUnit): String = when (unit) {
@@ -96,9 +131,7 @@ fun weightLoadUnitSuffix(unit: BodyWeightUnit): String = when (unit) {
 
 /** Parse user input in the chosen unit to stored kg, or `null` if blank/invalid. */
 fun parseWeightInputToKg(raw: String, unit: BodyWeightUnit): Double? {
-    val t = raw.trim()
-    if (t.isEmpty()) return null
-    val v = t.toDoubleOrNull() ?: return null
+    val v = parseDecimalInput(raw) ?: return null
     return when (unit) {
         BodyWeightUnit.KG -> v
         BodyWeightUnit.LB -> poundsToKg(v)
