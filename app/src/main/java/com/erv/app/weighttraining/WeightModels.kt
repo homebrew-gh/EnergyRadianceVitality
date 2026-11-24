@@ -397,6 +397,15 @@ data class WeightWorkoutDraft(
      * Used so a composed-workout section can mark the matching storyboard items as skipped.
      */
     val skippedExerciseIds: List<String> = emptyList(),
+    /**
+     * When the running rest countdown ends. Kept in the draft (not screen memory) so rest keeps
+     * counting through rotation, leaving the screen, or the app being killed.
+     */
+    val restEndsAtEpochSeconds: Long? = null,
+    /** Manual rest mode: a set was logged and the countdown waits for the athlete to start it. */
+    val restManualPending: Boolean = false,
+    /** Exercise whose set started the current rest. */
+    val restExerciseId: String? = null,
 )
 
 /** Get-ready seconds before a timed set; falls back to [DEFAULT_TIMED_PREP_SECONDS] for time-only exercises. */

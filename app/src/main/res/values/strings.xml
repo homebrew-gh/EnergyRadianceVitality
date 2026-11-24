@@ -16,6 +16,10 @@
     <!-- Shown with notification chronometer (elapsed updates without re-posting the notification). -->
     <string name="weight_live_notification_chronometer_line">Session timer · tap to return</string>
     <string name="weight_live_notification_action_open">Open workout</string>
+    <string name="weight_live_notification_rest_title">Resting</string>
+    <string name="rest_timer_over_title">Rest over</string>
+    <string name="rest_timer_channel_name">Rest timer</string>
+    <string name="rest_timer_channel_desc">Sounds and vibrates when a rest between sets or sections ends while ERV is in the background.</string>
     <string name="weight_live_bubble_shortcut_short">Workout</string>
     <string name="weight_live_bubble_shortcut_long">Live weight workout</string>
     <string name="weight_live_screen_title">Live Lift</string>

@@ -546,6 +546,9 @@ fun WeightTrainingCategoryScreen(
                 composedSectionLabel = composedSectionLabel,
                 finishLabel = weightFinishLabel,
                 onRecordExerciseActivity = { id -> liveWorkoutViewModel.recordExerciseFocus(id) },
+                onRestChange = { endsAt, manualPending, exerciseId, nextLabel ->
+                    liveWorkoutViewModel.setRest(endsAt, manualPending, exerciseId, nextLabel)
+                },
                 onAfterCircuitSetLogged = {
                     scope.launch {
                         val advance = liveWorkoutViewModel.tryAdvanceCircuitAfterSlotComplete() ?: return@launch

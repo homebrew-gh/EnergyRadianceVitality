@@ -598,4 +598,46 @@ class WeightModelsSerializationTest {
         )
         assertEquals(0, draft.timedPrepSecondsFor("carry", WeightSetLoggingStyle.REPS))
     }
+
+    @Test
+    fun draft_keeps_rest_countdown_through_save_and_reads_old_drafts() {
+        val resting = WeightWorkoutDraft(
+            startedAtEpochSeconds = 1_000L,
+            exerciseOrder = listOf("bench"),
+            restEndsAtEpochSeconds = 1_090L,
+            restExerciseId = "bench",
+        )
+        val decoded = json.decodeFromString(
+            WeightWorkoutDraft.serializer(),
+            json.encodeToString(WeightWorkoutDraft.serializer(), resting),
+        )
+        assertEquals(1_090L, decoded.restEndsAtEpochSeconds)
+        assertEquals("bench", decoded.restExerciseId)
+        assertFalse(decoded.restManualPending)
+
+        val old = json.decodeFromString(
+            WeightWorkoutDraft.serializer(),
+            """{"startedAtEpochSeconds":1000,"exerciseOrder":["bench"]}""",
+        )
+        assertNull(old.restEndsAtEpochSeconds)
+        assertFalse(old.restManualPending)
+        assertNull(old.restExerciseId)
+    }
+
+    @Test
+    fun rest_remaining_comes_from_the_wall_clock() {
+        assertNull(restSecondsRemaining(null, 1_000L))
+        assertEquals(90, restSecondsRemaining(1_090L, 1_000L))
+        assertEquals(1, restSecondsRemaining(1_090L, 1_089L))
+        assertNull(restSecondsRemaining(1_090L, 1_090L))
+        assertNull(restSecondsRemaining(1_090L, 1_400L))
+    }
+
+    @Test
+    fun rest_end_cue_stays_quiet_after_a_rest_that_ended_in_the_background() {
+        assertTrue(restEndCueIsFresh(1_090L, 1_090L))
+        assertTrue(restEndCueIsFresh(1_090L, 1_090L + REST_END_CUE_GRACE_SECONDS))
+        assertFalse(restEndCueIsFresh(1_090L, 1_090L + REST_END_CUE_GRACE_SECONDS + 1))
+        assertFalse(restEndCueIsFresh(1_090L, 1_400L))
+    }
 }
