@@ -9,6 +9,9 @@ import java.util.UUID
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonClassDiscriminator
+import com.erv.app.weighttraining.weightLoadUnitSuffix
+import com.erv.app.weighttraining.formatWeightLoadNumber
+import com.erv.app.data.BodyWeightUnit
 
 @Serializable
 enum class WorkoutSegmentKind {
@@ -483,7 +486,7 @@ fun WorkoutWeightPrescription.resolvedSets(loggingStyle: WeightSetLoggingStyle =
 fun WorkoutWeightPrescription.usesPerSideReps(): Boolean =
     sets.any { (it.repsPerSide ?: 0) > 0 }
 
-fun WorkoutWeightPrescription.displaySummary(): String {
+fun WorkoutWeightPrescription.displaySummary(loadUnit: BodyWeightUnit): String {
     val setTotal = setCount ?: sets.size.takeIf { it > 0 } ?: 1
     val repPart = when {
         mode == WorkoutWeightPrescriptionMode.TIME_BASED && durationSeconds != null ->
@@ -524,7 +527,9 @@ fun WorkoutWeightPrescription.displaySummary(): String {
     return buildString {
         append("$setTotal sets")
         repPart?.let { append(" · $it") }
-        effectiveTargetWeightKg()?.let { append(" · ${it.toInt()} kg") }
+        effectiveTargetWeightKg()?.let {
+            append(" · ${formatWeightLoadNumber(it, loadUnit)} ${weightLoadUnitSuffix(loadUnit)}")
+        }
         targetRir?.let { append(" · $it RIR") }
         restBetweenSetsSeconds?.takeIf { it > 0 }?.let { append(" · ${it}s between sets") }
         effectiveTimedPrepSeconds().takeIf { it > 0 }?.let { append(" · ${it}s get-ready") }

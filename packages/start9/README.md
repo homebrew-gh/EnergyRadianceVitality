@@ -68,6 +68,8 @@ make verify               # optional sanity check
 
 **Sideload (recommended first time):** StartOS web UI → **Sideload** → upload `erv-web_x86_64.s9pk`.
 
+**Build on GitHub instead:** Actions > **Start9 release** > Run workflow builds, bumps and publishes the `.s9pk` as a GitHub release. See [docs/release/GITHUB_RELEASES_AND_OBTAINIUM.md](../../docs/release/GITHUB_RELEASES_AND_OBTAINIUM.md#startos-releases).
+
 **Update an existing install:** Build with `./packages/start9/build.sh` (auto-bumps version), then sideload the new `.s9pk` — no uninstall needed. Or via CLI:
 
 ```bash

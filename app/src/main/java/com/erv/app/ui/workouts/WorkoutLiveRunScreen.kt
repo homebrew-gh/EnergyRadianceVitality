@@ -947,7 +947,7 @@ fun WorkoutLiveRunScreen(
                             )
                             circuitSegment.weightItems().forEach { item ->
                                 val name = weightState.exerciseById(item.exerciseId)?.name ?: item.exerciseId
-                                Text("· $name (${item.prescription.displaySummary()})", style = MaterialTheme.typography.bodySmall)
+                                Text("· $name (${item.prescription.displaySummary(loadUnit)})", style = MaterialTheme.typography.bodySmall)
                             }
                             Button(
                                 onClick = {
@@ -993,7 +993,7 @@ fun WorkoutLiveRunScreen(
                                 style = MaterialTheme.typography.titleLarge,
                             )
                             Text(
-                                text = weightItem.prescription.displaySummary(),
+                                text = weightItem.prescription.displaySummary(loadUnit),
                                 style = MaterialTheme.typography.bodyMedium,
                             )
                             if (extraInSection > 0) {
@@ -1200,7 +1200,7 @@ fun WorkoutLiveRunScreen(
                                         val name = weightState.exerciseById(item.exerciseId)?.name
                                             ?: item.exerciseId
                                         Text(
-                                            text = prefix + name + " (${item.prescription.displaySummary()})" + skippedSuffix,
+                                            text = prefix + name + " (${item.prescription.displaySummary(loadUnit)})" + skippedSuffix,
                                             style = MaterialTheme.typography.bodyMedium,
                                             color = if (isCurrentItem) {
                                                 MaterialTheme.colorScheme.primary

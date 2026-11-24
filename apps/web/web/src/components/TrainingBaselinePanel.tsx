@@ -1,6 +1,7 @@
 import { SectionHeader } from "../components/FieldLabel";
 import { exerciseLabel } from "../lib/weightTraining";
 import { formatWeightKg } from "../lib/trainingHistory";
+import { useWeightLoadUnit } from "../lib/weightLoadUnit";
 import {
   formatDaysSince,
   formatRelativeTime,
@@ -32,6 +33,7 @@ export function TrainingBaselinePanel({
   exercises,
   dataLoadedAtMs,
 }: TrainingBaselinePanelProps) {
+  const [weightLoadUnit] = useWeightLoadUnit();
   const stale = stalenessHint(dataLoadedAtMs, snapshot.computedAtEpochSeconds);
   const topWorking = snapshot.workingWeights.slice(0, 12);
   const topMuscleRecency = snapshot.muscleGroupRecency.slice(0, 8);
@@ -83,10 +85,10 @@ export function TrainingBaselinePanel({
                   {exerciseLabel(row.exerciseId, exercises)}
                 </span>
                 <span className="text-muted tabular-nums">
-                  {row.reps} @ {formatWeightKg(row.weightKg)}
+                  {row.reps} @ {formatWeightKg(row.weightKg, weightLoadUnit)}
                   {row.estimatedOneRepMaxKg != null ? (
                     <span className="text-xs ml-1">
-                      (est. 1RM {formatWeightKg(row.estimatedOneRepMaxKg)})
+                      (est. 1RM {formatWeightKg(row.estimatedOneRepMaxKg, weightLoadUnit)})
                     </span>
                   ) : null}
                   <span className="text-xs ml-2">{row.lastDate}</span>
