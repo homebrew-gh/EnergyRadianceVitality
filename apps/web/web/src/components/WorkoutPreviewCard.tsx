@@ -16,6 +16,7 @@ import {
   weightLoadUnitSuffix,
 } from "../lib/weightLoadUnit";
 import type { WorkoutSegment } from "../lib/workoutTraining";
+import { phoneCompatibilityWarnings } from "../lib/phoneCompatibility";
 
 type WorkoutPreviewCardProps = {
   name: string;
@@ -49,6 +50,21 @@ export function WorkoutPreviewCard({
     [cardioCatalog, cardioRoutines, exercises, segments, stretchCatalog, weightLoadUnit],
   );
 
+  const phoneWarnings = useMemo(
+    () =>
+      phoneCompatibilityWarnings(segments, {
+        exerciseName: (id) => exercises.find((exercise) => exercise.id === id)?.name,
+      }),
+    [exercises, segments],
+  );
+  const warningsBySegment = useMemo(() => {
+    const map = new Map<number, string[]>();
+    for (const warning of phoneWarnings) {
+      map.set(warning.segmentIndex, [...(map.get(warning.segmentIndex) ?? []), warning.message]);
+    }
+    return map;
+  }, [phoneWarnings]);
+
   const hasDraft = preview.segmentCount > 0;
   const restMinutes = Math.round(preview.restSeconds / 60);
 
@@ -61,8 +77,21 @@ export function WorkoutPreviewCard({
             {name.trim() || "Untitled Session"}
           </h4>
           <p className="text-sm text-muted">
-            Android-style read-through with an estimated time budget before you publish.
+            Read-through with an estimated time budget before you publish.
           </p>
+          {hasDraft ? (
+            <p
+              className={`mt-2 inline-block rounded-full px-3 py-1 text-xs font-semibold ${
+                phoneWarnings.length > 0
+                  ? "border border-[var(--erv-error)] text-error"
+                  : "bg-[var(--erv-primary-container)] text-heading"
+              }`}
+            >
+              {phoneWarnings.length === 0
+                ? "Phone check: runs as written"
+                : `Phone check: ${phoneWarnings.length} difference${phoneWarnings.length === 1 ? "" : "s"}`}
+            </p>
+          ) : null}
         </div>
         <div className="rounded-[18px] bg-[var(--erv-primary-container)] px-4 py-3 text-right">
           <p className="text-xs text-muted">Estimated Duration</p>
@@ -110,6 +139,14 @@ export function WorkoutPreviewCard({
                 </div>
                 <span className="sun-chip">{formatDuration(segment.estimatedSeconds)}</span>
               </div>
+
+              {(warningsBySegment.get(index) ?? []).length > 0 ? (
+                <ul className="mt-2 space-y-1 rounded-card border border-[var(--erv-error)] p-2 text-xs text-error">
+                  {(warningsBySegment.get(index) ?? []).map((message) => (
+                    <li key={message}>On the phone: {message}</li>
+                  ))}
+                </ul>
+              ) : null}
 
               {segment.items.length > 0 ? (
                 <ul className="mt-3 space-y-2">
