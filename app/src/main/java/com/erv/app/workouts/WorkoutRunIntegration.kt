@@ -19,6 +19,7 @@ import com.erv.app.stretching.StretchSession
 import com.erv.app.stretching.StretchingRepository
 import com.erv.app.weighttraining.WeightLibraryState
 import com.erv.app.weighttraining.WeightRepository
+import com.erv.app.weighttraining.buildWeightExerciseHrSegments
 import com.erv.app.weighttraining.WeightWorkoutSession
 import com.erv.app.weighttraining.totalSetCount
 import java.time.LocalDate
@@ -568,7 +569,24 @@ suspend fun attachSectionHeartRateToLiftLogs(
             val from = session.startedAtEpochSeconds ?: return@forEach
             val to = session.finishedAtEpochSeconds ?: return@forEach
             val slice = wholeRun.between(from, to) ?: return@forEach
-            weightRepository.updateWorkout(logDate, session.copy(heartRate = slice))
+            // Heart rate per exercise too, as the weight screen logged it.
+            val perExercise = if (run.session != null) {
+                buildWeightExerciseHrSegments(
+                    run.sessionExerciseFocusMarks(recap.segmentId),
+                    from,
+                    to,
+                    slice.samples,
+                )
+            } else {
+                emptyList()
+            }
+            weightRepository.updateWorkout(
+                logDate,
+                session.copy(
+                    heartRate = slice,
+                    heartRateExerciseSegments = perExercise.ifEmpty { session.heartRateExerciseSegments },
+                ),
+            )
         }
 }
 

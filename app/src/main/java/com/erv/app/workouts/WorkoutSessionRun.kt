@@ -1,5 +1,7 @@
 package com.erv.app.workouts
 
+import com.erv.app.weighttraining.WeightExerciseFocusMark
+import com.erv.app.weighttraining.WeightHiitBlockLog
 import com.erv.app.weighttraining.WeightSet
 import com.erv.app.weighttraining.WeightWorkoutEntry
 import com.erv.app.weighttraining.WeightWorkoutSession
@@ -174,6 +176,8 @@ data class WorkoutSessionLiftEntry(
     val itemId: String,
     val exerciseId: String,
     val sets: List<WeightSet>,
+    /** Set when the exercise was done on the interval timer; [sets] is then empty. */
+    val hiitBlock: WeightHiitBlockLog? = null,
 )
 
 /**
@@ -190,13 +194,18 @@ fun WorkoutActiveRun.sessionLiftSectionsToLog(plan: WorkoutSessionPlan = session
         val entries = segment.items.filterIsInstance<WorkoutItem.Weight>()
             .filter { (segment.id to it.id) !in linked }
             .mapNotNull { item ->
-                val sets = WorkoutSessionEngine.loggedSets(plan, state, segment.id, item.id)
-                    .map { it.copy(done = null) }
-                if (sets.isEmpty()) return@mapNotNull null
+                val hiitBlock = sessionHiitBlocks[sessionItemKey(segment.id, item.id)]
+                val sets = if (hiitBlock != null) {
+                    emptyList()
+                } else {
+                    WorkoutSessionEngine.loggedSets(plan, state, segment.id, item.id).map { it.copy(done = null) }
+                }
+                if (sets.isEmpty() && hiitBlock == null) return@mapNotNull null
                 WorkoutSessionLiftEntry(
                     itemId = item.id,
                     exerciseId = sessionExerciseSwaps[sessionItemKey(segment.id, item.id)] ?: item.exerciseId,
                     sets = sets,
+                    hiitBlock = hiitBlock,
                 )
             }
         if (entries.isEmpty()) return@mapIndexedNotNull null
@@ -232,9 +241,36 @@ fun WorkoutActiveRun.weightSessionFor(section: WorkoutSessionLiftSection): Weigh
         // A workout started from a weight routine logs like the weight screen did, under the routine.
         routineId = standalone?.routineId,
         routineName = standalone?.routineName,
-        entries = section.entries.map { WeightWorkoutEntry(exerciseId = it.exerciseId, sets = it.sets) },
+        entries = section.entries.map { WeightWorkoutEntry(exerciseId = it.exerciseId, sets = it.sets, hiitBlock = it.hiitBlock) },
         workoutLink = linkFor(section.segmentId, section.entries.first().itemId),
     )
+}
+
+/**
+ * When each exercise of a lifting section began, for heart rate per exercise as the weight
+ * screen kept it: an exercise begins when the step before its first one was finished (or when
+ * the workout began). Exercises with nothing logged are left out.
+ */
+fun WorkoutActiveRun.sessionExerciseFocusMarks(
+    segmentId: String,
+    plan: WorkoutSessionPlan = sessionPlan(),
+): List<WeightExerciseFocusMark> {
+    val state = session ?: return emptyList()
+    val segment = workoutSnapshot.segments.firstOrNull { it.id == segmentId } ?: return emptyList()
+    return segment.weightItems().mapNotNull { item ->
+        val steps = plan.steps.indices.filter {
+            plan.steps[it] is WorkoutSessionStep.LiftSet && plan.steps[it].segmentId == segmentId && plan.steps[it].itemId == item.id
+        }
+        val first = steps.minOrNull() ?: return@mapNotNull null
+        if (steps.none { state.recordFor(it)?.outcome == WorkoutStepOutcome.DONE }) return@mapNotNull null
+        val began = state.records.filter { it.stepIndex < first }.mapNotNull { it.atEpochSeconds }.maxOrNull()
+            ?: startedAtEpochSeconds
+            ?: return@mapNotNull null
+        WeightExerciseFocusMark(
+            exerciseId = sessionExerciseSwaps[sessionItemKey(segmentId, item.id)] ?: item.exerciseId,
+            epochSeconds = began,
+        )
+    }.sortedBy { it.epochSeconds }
 }
 
 /** Links the section's items to the weight log entry just saved for it. */
@@ -286,6 +322,31 @@ fun WorkoutActiveRun.withSessionItemLoggedElsewhere(
         lastLaunchedItemIds = emptyList(),
     )
     val moved = linked.withSessionEvent(WorkoutSessionEvent.ItemLoggedElsewhere(segmentId, itemId), nowEpochSeconds)
+    return moved.withSessionBookkeeping(before, nowEpochSeconds)
+}
+
+/**
+ * True when the exercise on screen can be done on the interval timer instead: a plain (not
+ * superset or circuit) exercise with no set logged yet.
+ */
+fun WorkoutActiveRun.canLogSessionHiitBlock(plan: WorkoutSessionPlan = sessionPlan()): Boolean {
+    val state = session ?: return false
+    val step = WorkoutSessionEngine.currentStep(plan, state) as? WorkoutSessionStep.LiftSet ?: return false
+    if (step.inRounds) return false
+    return WorkoutSessionEngine.loggedSets(plan, state, step.segmentId, step.itemId).isEmpty()
+}
+
+/**
+ * The exercise on screen done on the interval timer: [block] stands in for its sets, every step
+ * of it is done, and the run moves on.
+ */
+fun WorkoutActiveRun.withSessionHiitBlockLogged(block: WeightHiitBlockLog, nowEpochSeconds: Long): WorkoutActiveRun {
+    val plan = sessionPlan()
+    if (!canLogSessionHiitBlock(plan)) return this
+    val before = session ?: return this
+    val step = WorkoutSessionEngine.currentStep(plan, before) as WorkoutSessionStep.LiftSet
+    val logged = copy(sessionHiitBlocks = sessionHiitBlocks + (sessionItemKey(step.segmentId, step.itemId) to block))
+    val moved = logged.withSessionEvent(WorkoutSessionEvent.ItemLoggedElsewhere(step.segmentId, step.itemId), nowEpochSeconds)
     return moved.withSessionBookkeeping(before, nowEpochSeconds)
 }
 

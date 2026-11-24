@@ -10,6 +10,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -28,6 +29,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.erv.app.data.BodyWeightUnit
 import com.erv.app.ui.components.FieldLabel
+import com.erv.app.ui.weighttraining.PlateCalculatorUiState
+import com.erv.app.ui.weighttraining.PlateLoadLine
+import com.erv.app.weighttraining.WeightHiitIntervalPlan
 import com.erv.app.weighttraining.WeightExerciseHistoryRow
 import com.erv.app.weighttraining.WeightSet
 import com.erv.app.weighttraining.formatRpeFieldForSets
@@ -129,6 +133,10 @@ private class SetInputState(initial: WeightSet, timed: Boolean, loadUnit: BodyWe
     /** False while the RPE field holds something that isn't 1 to 10. */
     val rpeValid: Boolean get() = rpe.isBlank() || parseSessionRpe(rpe) != null
 
+    /** The weight typed, in kilograms, or null while blank. */
+    fun loadKg(loadUnit: BodyWeightUnit): Double? =
+        load.takeIf { it.isNotBlank() }?.let { parseWeightInputToKg(it, loadUnit) }
+
     /** The set these fields describe, or null while the reps or seconds are missing. */
     fun toSet(base: WeightSet, timed: Boolean, loadUnit: BodyWeightUnit): WeightSet? {
         val value = amount.trim().toIntOrNull()?.takeIf { it > 0 } ?: return null
@@ -200,8 +208,20 @@ internal fun WorkoutSessionLiftCard(
     canRemoveSet: Boolean = false,
     onAddSet: () -> Unit = {},
     onRemoveSet: () -> Unit = {},
+    /** "Barbell", "Dumbbell" and so on, under the name. */
+    equipmentLabel: String? = null,
+    /** Plates per side under the weight typed, for a plate-loaded lift. */
+    plateCalculator: PlateCalculatorUiState? = null,
+    /**
+     * Opens the full-screen hold timer for a timed set, with the weight and RPE typed so far;
+     * null when the set has no target time.
+     */
+    onStartTimer: ((WeightSet) -> Unit)? = null,
+    /** Runs the exercise on the interval timer instead of as sets; null when it can't. */
+    onStartIntervals: ((WeightHiitIntervalPlan) -> Unit)? = null,
 ) {
     val timed = step.target.isTimedTarget()
+    var intervalsMode by remember(step.segmentId, step.itemId) { mutableStateOf(false) }
     val last = loggedSets.lastOrNull()?.set
     // New fields for every step, so the next set never inherits a half-typed value.
     val inputs = remember(step.segmentId, step.itemId, step.setIndex, step.round) {
@@ -224,6 +244,19 @@ internal fun WorkoutSessionLiftCard(
                 Text(it, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Text(exerciseName, style = MaterialTheme.typography.titleLarge)
+            equipmentLabel?.let {
+                Text(it, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (onStartIntervals != null) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(selected = !intervalsMode, onClick = { intervalsMode = false }, label = { Text("Sets") })
+                    FilterChip(selected = intervalsMode, onClick = { intervalsMode = true }, label = { Text("Intervals") })
+                }
+            }
+            if (intervalsMode && onStartIntervals != null) {
+                IntervalTimerSetup(loadUnit = loadUnit, onStart = onStartIntervals)
+                return@Column
+            }
             Text(
                 text = when {
                     step.inRounds -> "Round ${step.round} of ${step.setCount}"
@@ -239,13 +272,43 @@ internal fun WorkoutSessionLiftCard(
                 Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             SetInputsRow(inputs, timed, loadUnit)
+            if (plateCalculator != null) {
+                PlateLoadLine(
+                    weightKg = inputs.loadKg(loadUnit),
+                    loadUnit = loadUnit,
+                    calc = plateCalculator,
+                    onUseWeightKg = { kg -> inputs.load = formatWeightLoadNumber(kg, loadUnit) },
+                )
+            }
             val set = inputs.toSet(step.target, timed, loadUnit)
-            Button(
-                onClick = { set?.let(onLog) },
-                enabled = set != null,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text("Log Set")
+            if (timed && onStartTimer != null) {
+                // The hold timer counts the time; typing the seconds stays for a hold done without it.
+                Button(
+                    onClick = {
+                        onStartTimer(
+                            step.target.copy(weightKg = inputs.loadKg(loadUnit), rpe = parseSessionRpe(inputs.rpe), done = null),
+                        )
+                    },
+                    enabled = inputs.rpeValid,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Start Timer")
+                }
+                OutlinedButton(
+                    onClick = { set?.let(onLog) },
+                    enabled = set != null,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Log Set")
+                }
+            } else {
+                Button(
+                    onClick = { set?.let(onLog) },
+                    enabled = set != null,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Log Set")
+                }
             }
             if (loggedSets.isNotEmpty()) {
                 loggedSets.forEachIndexed { index, logged ->
@@ -291,6 +354,71 @@ internal fun WorkoutSessionLiftCard(
                 }
             }
         }
+    }
+}
+
+/** How many work and rest intervals to run, and at what weight, before the interval timer starts. */
+@Composable
+private fun IntervalTimerSetup(loadUnit: BodyWeightUnit, onStart: (WeightHiitIntervalPlan) -> Unit) {
+    var intervals by remember { mutableStateOf("8") }
+    var work by remember { mutableStateOf("30") }
+    var rest by remember { mutableStateOf("30") }
+    var load by remember { mutableStateOf("") }
+    val count = intervals.toIntOrNull()?.takeIf { it in 1..99 }
+    val workSeconds = work.toIntOrNull()?.takeIf { it > 0 }
+    val restSeconds = rest.toIntOrNull()?.takeIf { it >= 0 }
+    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+        OutlinedTextField(
+            value = intervals,
+            onValueChange = { text -> intervals = text.filter { it.isDigit() }.take(2) },
+            label = { FieldLabel("Intervals") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            modifier = Modifier.weight(1f),
+        )
+        OutlinedTextField(
+            value = work,
+            onValueChange = { text -> work = text.filter { it.isDigit() }.take(4) },
+            label = { FieldLabel("Work (s)") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            modifier = Modifier.weight(1f),
+        )
+        OutlinedTextField(
+            value = rest,
+            onValueChange = { text -> rest = text.filter { it.isDigit() }.take(4) },
+            label = { FieldLabel("Rest (s)") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            modifier = Modifier.weight(1f),
+        )
+    }
+    OutlinedTextField(
+        value = load,
+        onValueChange = { text -> load = text.filter { it.isDigit() || it == '.' || it == ',' }.take(7) },
+        label = { FieldLabel("Weight (optional)") },
+        trailingIcon = { Text(weightLoadUnitSuffix(loadUnit), style = MaterialTheme.typography.bodyMedium) },
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+        modifier = Modifier.fillMaxWidth(),
+    )
+    Button(
+        onClick = {
+            if (count != null && workSeconds != null && restSeconds != null) {
+                onStart(
+                    WeightHiitIntervalPlan(
+                        intervals = count,
+                        workSeconds = workSeconds,
+                        restSeconds = restSeconds,
+                        weightKg = load.takeIf { it.isNotBlank() }?.let { parseWeightInputToKg(it, loadUnit) },
+                    ),
+                )
+            }
+        },
+        enabled = count != null && workSeconds != null && restSeconds != null,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Text("Start Interval Timer")
     }
 }
 

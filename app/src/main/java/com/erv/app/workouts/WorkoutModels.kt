@@ -307,6 +307,11 @@ data class WorkoutActiveRun(
     val standalone: WorkoutStandaloneStart? = null,
     /** A standalone run keeps going when its steps run out, until the athlete taps Finish. */
     val sessionFinishRequested: Boolean = false,
+    /**
+     * Exercises done on the interval timer instead of as sets, keyed by [sessionItemKey]. Each is
+     * logged as the weight log's interval block for that exercise.
+     */
+    val sessionHiitBlocks: Map<String, com.erv.app.weighttraining.WeightHiitBlockLog> = emptyMap(),
 )
 
 /** Where a standalone run came from. */
