@@ -730,7 +730,7 @@ fun WorkoutLiveRunScreen(
                 null
             },
             onSaveWorkoutChanges = adjustedWorkout?.let { adjusted ->
-                { alsoTodaysWeights: Boolean ->
+                val save: suspend (Boolean) -> Boolean = { alsoTodaysWeights ->
                     updateLibraryWorkout { current ->
                         val changed = current.copy(segments = adjusted.segments)
                         // Saving the changes replaces the sections, so weights already saved
@@ -738,6 +738,7 @@ fun WorkoutLiveRunScreen(
                         if (alsoTodaysWeights) changed.withTodaysWeights(summary.weightTargetChanges) else changed
                     }
                 }
+                save
             },
             onDone = {
                 finishingRun = true
