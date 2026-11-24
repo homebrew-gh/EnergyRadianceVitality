@@ -80,4 +80,46 @@ class CardioMetEstimatorTest {
         assertEquals(360.0, estimated.segments[1].estimatedKcal ?: 0.0, 0.001)
         assertEquals(580.4, estimated.estimatedKcal ?: 0.0, 0.001)
     }
+
+    @Test
+    fun guided_interval_session_totals_exact_seconds() {
+        val run = CardioActivitySnapshot(builtin = CardioBuiltinActivity.RUN, displayLabel = "Running")
+        val walk = CardioActivitySnapshot(builtin = CardioBuiltinActivity.ACTIVE_RECOVERY, displayLabel = "Active recovery")
+        // 4 x 30 s sprints with 90 s walks between: 2 min of sprints and 4.5 min of walking.
+        val legs = buildList {
+            repeat(4) { round ->
+                add(CardioRoutineStep(activity = run, targetDurationMinutes = 1, targetDurationSeconds = 30, orderIndex = size))
+                if (round < 3) add(CardioRoutineStep(activity = walk, targetDurationMinutes = 2, targetDurationSeconds = 90, orderIndex = size))
+            }
+        }
+        var state: CardioMultiLegTimerState? = CardioMultiLegTimerState(
+            routineId = null,
+            routineName = "Sprints",
+            legs = legs,
+            completedSegments = emptyList(),
+            currentLegIndex = 0,
+            workoutStartEpoch = 1_000L,
+            legStartedEpoch = 1_000L,
+        )
+        var session: CardioSession? = null
+        var now = 1_000L
+        while (state != null) {
+            val seconds = state.currentLeg.targetLegSeconds()!!
+            now += seconds
+            val (next, done) = CardioMetEstimator.advanceMultiLegTimer(
+                state,
+                legDurationMinutes = (seconds + 59) / 60,
+                legEndEpoch = now,
+                library = CardioLibraryState(),
+                weightKg = 80.0,
+                legDurationSeconds = seconds,
+            )
+            state = next
+            session = done
+        }
+        assertNotNull(session)
+        assertEquals(listOf(30, 90, 30, 90, 30, 90, 30), session!!.segments.map { it.durationSeconds })
+        // 390 s is 6.5 min, rounded to 7; the old sum of rounded-up legs said 10.
+        assertEquals(7, session.durationMinutes)
+    }
 }

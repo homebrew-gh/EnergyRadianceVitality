@@ -1633,7 +1633,8 @@ fun DashboardScreen(
                                     durationMinutes,
                                     end,
                                     cardioRepository.currentState(),
-                                    weightKg
+                                    weightKg,
+                                    legDurationSeconds = elapsedSeconds,
                                 )
                                 if (session != null) {
                                     val hrSummary = heartRateBle.takeWorkoutHeartRateSummary()

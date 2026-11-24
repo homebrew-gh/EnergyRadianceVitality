@@ -8,8 +8,9 @@
  *   targets: `WorkoutCircuitLive.kt` (`toCircuitSlots`, `buildCircuitSetsSeed`).
  * - Rest inside supersets and circuits comes from the section's rest policy only:
  *   `WorkoutRunEngine.pendingRestBeforeAdvance`, and no per-lift rest is passed to the session.
- * - Interval legs are timed in whole minutes, rounded up: `secondsToGuidedMinutes` in
- *   `WorkoutLaunchResolvers.kt`.
+ *
+ * Interval legs used to be rounded up to whole minutes on the phone; since P9 it times them in
+ * seconds, so that rule is gone.
  */
 import { prescriptionSetTargets } from "./workoutTraining";
 import type { WorkoutItem, WorkoutPrescriptionSet, WorkoutSegment } from "./workoutTraining";
@@ -50,15 +51,6 @@ function itemLabel(item: WorkoutItem, options: PhoneCheckOptions): string {
 
 function sectionLabel(segment: WorkoutSegment, index: number): string {
   return segment.title?.trim() || `Section ${index + 1}`;
-}
-
-/** Whole minutes the phone times a leg of [seconds] for. */
-export function phoneIntervalMinutes(seconds: number): number {
-  return Math.max(1, Math.ceil(seconds / 60));
-}
-
-function formatSeconds(seconds: number): string {
-  return seconds % 60 === 0 ? `${seconds / 60} min` : `${seconds} s`;
 }
 
 function sameTargets(a: WorkoutPrescriptionSet, b: WorkoutPrescriptionSet): boolean {
@@ -134,38 +126,6 @@ function roundBasedWarnings(
   return warnings;
 }
 
-function intervalWarnings(
-  item: Extract<WorkoutItem, { type: "cardio" }>,
-  segmentIndex: number,
-  itemIndex: number,
-  options: PhoneCheckOptions,
-): PhoneWarning[] {
-  const cardio = item.cardio;
-  const legSeconds: number[] = [];
-  if (cardio.mode === "sprint_intervals") {
-    if ((cardio.workSeconds ?? 0) > 0) legSeconds.push(cardio.workSeconds ?? 0);
-    if ((cardio.restSeconds ?? 0) > 0) legSeconds.push(cardio.restSeconds ?? 0);
-  } else if (cardio.mode === "interval_template") {
-    for (const leg of cardio.legs ?? []) {
-      if (leg.workSeconds > 0) legSeconds.push(leg.workSeconds);
-      if ((leg.restSeconds ?? 0) > 0) legSeconds.push(leg.restSeconds ?? 0);
-    }
-  }
-  const rounded = Array.from(new Set(legSeconds.filter((seconds) => seconds % 60 !== 0)));
-  if (rounded.length === 0) return [];
-  const changes = rounded
-    .map((seconds) => `${formatSeconds(seconds)} becomes ${phoneIntervalMinutes(seconds)} min`)
-    .join(", ");
-  return [
-    {
-      key: `${segmentIndex}:${itemIndex}:interval-minutes`,
-      segmentIndex,
-      itemIndex,
-      message: `${itemLabel(item, options)}: the phone times interval legs in whole minutes, rounded up (${changes}).`,
-    },
-  ];
-}
-
 /** Every phone-check warning for a workout's segments, in section order. */
 export function phoneCompatibilityWarnings(
   segments: WorkoutSegment[],
@@ -176,11 +136,6 @@ export function phoneCompatibilityWarnings(
     if (isRoundBased(segment)) {
       warnings.push(...roundBasedWarnings(segment, segmentIndex, options));
     }
-    (segment.items ?? []).forEach((item, itemIndex) => {
-      if (item.type === "cardio" && !isRoundBased(segment)) {
-        warnings.push(...intervalWarnings(item, segmentIndex, itemIndex, options));
-      }
-    });
   });
   return warnings;
 }

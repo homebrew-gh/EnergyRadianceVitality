@@ -201,7 +201,7 @@
               "type": "cardio",
               "id": "cardio-sprints",
               "title": "Hill Sprints",
-              "cardio": { "activity": "RUN", "mode": "sprint_intervals", "rounds": 8, "workSeconds": 60, "restSeconds": 120, "hrTargetBpm": 170 }
+              "cardio": { "activity": "RUN", "mode": "sprint_intervals", "rounds": 8, "workSeconds": 30, "restSeconds": 90, "hrTargetBpm": 170 }
             },
             {
               "type": "cardio",
@@ -212,7 +212,7 @@
                 "outerRounds": 2,
                 "legs": [
                   { "workSeconds": 240, "restSeconds": 120, "label": "Hard", "hrTargetBpm": 165 },
-                  { "workSeconds": 120, "restSeconds": 60 }
+                  { "workSeconds": 45, "restSeconds": 15 }
                 ]
               }
             }

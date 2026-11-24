@@ -291,7 +291,8 @@ object CardioMetEstimator {
         durationMinutes: Int,
         orderIndex: Int,
         library: CardioLibraryState,
-        weightKg: Double?
+        weightKg: Double?,
+        durationSeconds: Int? = null,
     ): CardioSessionSegment {
         var dist = leg.treadmill?.distanceMeters
         if (dist == null && leg.modality == CardioModality.INDOOR_TREADMILL && leg.treadmill != null) {
@@ -317,6 +318,7 @@ object CardioMetEstimator {
             durationMinutes = durationMinutes,
             distanceMeters = dist,
             estimatedKcal = kcal,
+            durationSeconds = durationSeconds?.takeIf { it > 0 },
             orderIndex = orderIndex
         )
     }
@@ -331,7 +333,13 @@ object CardioMetEstimator {
         weightKg: Double?
     ): CardioSession {
         val ordered = segments.sortedBy { it.orderIndex }
-        val totalMin = ordered.sumOf { it.durationMinutes }
+        // Guided legs carry exact seconds; summing their rounded-up minutes would overstate short intervals.
+        val legSeconds = ordered.map { it.durationSeconds }
+        val totalMin = if (ordered.isNotEmpty() && legSeconds.all { it != null }) {
+            maxOf(1, (legSeconds.sumOf { it ?: 0 } + 30) / 60)
+        } else {
+            ordered.sumOf { it.durationMinutes }
+        }
         val label = ordered.joinToString(" → ") { it.activity.displayLabel }
         val distParts = ordered.mapNotNull { it.distanceMeters }
         val totalDist = distParts.takeIf { it.size == ordered.size }?.sum()
@@ -367,7 +375,9 @@ object CardioMetEstimator {
         legDurationMinutes: Int,
         legEndEpoch: Long,
         library: CardioLibraryState,
-        weightKg: Double?
+        weightKg: Double?,
+        /** Exact leg length when known (the guided timer and the stop button both have it). */
+        legDurationSeconds: Int? = null,
     ): Pair<CardioMultiLegTimerState?, CardioSession?> {
         val leg = state.currentLeg
         val seg = segmentFromLeg(
@@ -375,7 +385,8 @@ object CardioMetEstimator {
             durationMinutes = max(1, legDurationMinutes),
             orderIndex = state.completedSegments.size,
             library = library,
-            weightKg = weightKg
+            weightKg = weightKg,
+            durationSeconds = legDurationSeconds,
         )
         val done = state.completedSegments + seg
         if (state.currentLegIndex < state.legs.lastIndex) {

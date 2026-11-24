@@ -365,7 +365,9 @@ data class CardioSessionSegment(
     val durationMinutes: Int,
     val distanceMeters: Double? = null,
     val estimatedKcal: Double? = null,
-    val orderIndex: Int = 0
+    val orderIndex: Int = 0,
+    /** Exact length of a guided interval leg; [durationMinutes] rounds it up to at least 1. */
+    val durationSeconds: Int? = null,
 )
 
 @Serializable
@@ -474,8 +476,24 @@ data class CardioRoutineStep(
     val modality: CardioModality = CardioModality.OUTDOOR,
     val treadmill: CardioTreadmillParams? = null,
     val targetDurationMinutes: Int? = null,
-    val orderIndex: Int = 0
+    val orderIndex: Int = 0,
+    /**
+     * Exact leg length for workout intervals (30 s sprints and the like). When set, the guided
+     * timer uses it instead of [targetDurationMinutes], which then only rounds it up for older readers.
+     */
+    val targetDurationSeconds: Int? = null,
 )
+
+/** Guided length of this leg in seconds, or null for an open-ended leg. */
+fun CardioRoutineStep.targetLegSeconds(): Int? =
+    targetDurationSeconds?.takeIf { it > 0 } ?: targetDurationMinutes?.takeIf { it > 0 }?.times(60)
+
+/** A leg length for display: "30 s", "1:30" or "4 min". */
+fun formatCardioLegSeconds(seconds: Int): String = when {
+    seconds < 60 -> "$seconds s"
+    seconds % 60 == 0 -> "${seconds / 60} min"
+    else -> "${seconds / 60}:${"%02d".format(seconds % 60)}"
+}
 
 @Serializable
 data class CardioRoutine(
