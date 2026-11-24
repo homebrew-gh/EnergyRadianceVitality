@@ -75,6 +75,7 @@ import com.erv.app.ui.theme.ervSessionTopAppBarColors
 import com.erv.app.hr.HeartRatePill
 import com.erv.app.hr.HeartRateZoneInputs
 import com.erv.app.ui.theme.ErvLightTherapyRedDark
+import com.erv.app.weighttraining.PlateLoadingStyle
 import com.erv.app.weighttraining.WeightEquipment
 import com.erv.app.weighttraining.WeightExercise
 import com.erv.app.weighttraining.WeightHiitBlockLog
@@ -82,10 +83,14 @@ import com.erv.app.weighttraining.WeightHiitIntervalPlan
 import com.erv.app.weighttraining.WeightLibraryState
 import com.erv.app.weighttraining.WeightSet
 import com.erv.app.weighttraining.WeightWorkoutDraft
+import com.erv.app.weighttraining.defaultBarForExercise
 import com.erv.app.weighttraining.displayLabel
 import com.erv.app.weighttraining.formatHiitBlockSummaryLine
 import com.erv.app.weighttraining.formatSetValueLine
 import com.erv.app.weighttraining.isLogged
+import com.erv.app.weighttraining.plateCalculatorBars
+import com.erv.app.weighttraining.plateCalculatorPlates
+import com.erv.app.weighttraining.plateLoading
 import com.erv.app.weighttraining.setLoggingStyle
 import com.erv.app.weighttraining.timedPrepSecondsFor
 import com.erv.app.weighttraining.useTimedSetLogging
@@ -194,6 +199,27 @@ fun WeightLiveWorkoutScreen(
     val heartRateZoneInputs by userPreferences.heartRateZoneInputs.collectAsState(initial = HeartRateZoneInputs())
     val heartRateBle = LocalHeartRateBle.current
     val scope = rememberCoroutineScope()
+    val ownedEquipment by userPreferences.ownedEquipment.collectAsState(initial = emptyList())
+    val plateBarByExercise by userPreferences.plateBarByExercise.collectAsState(initial = emptyMap())
+    val plateBars = remember(ownedEquipment, loadUnit) { plateCalculatorBars(ownedEquipment, loadUnit) }
+    val platePlates = remember(ownedEquipment, loadUnit) { plateCalculatorPlates(ownedEquipment, loadUnit) }
+    fun plateCalculatorFor(exercise: WeightExercise?): PlateCalculatorUiState? {
+        if (exercise == null) return null
+        val loading = exercise.plateLoading() ?: return null
+        if (loading == PlateLoadingStyle.NONE) return null
+        val bar = defaultBarForExercise(exercise.name, plateBars.bars, plateBarByExercise[exercise.id])
+            ?: return null
+        return PlateCalculatorUiState(
+            loading = loading,
+            bars = plateBars.bars,
+            selectedBar = bar,
+            plates = platePlates.plates,
+            assumedInventory = plateBars.assumed || platePlates.assumed,
+            onSelectBar = { barId ->
+                scope.launch { userPreferences.setPlateBarForExercise(exercise.id, barId) }
+            },
+        )
+    }
     val latestCountdownSoundEnabled by rememberUpdatedState(restTimerCountdownSoundEnabled)
     val latestEndSoundEnabled by rememberUpdatedState(restTimerEndSoundEnabled)
     var previousRestRemainingSec by remember(draft.startedAtEpochSeconds) { mutableStateOf<Int?>(null) }
@@ -761,6 +787,7 @@ fun WeightLiveWorkoutScreen(
                     item(key = "edit_${editingId}") {
                         WeightExerciseInlineSetsCard(
                             exerciseName = ex?.name ?: editingId,
+                            plateCalculator = plateCalculatorFor(ex),
                             equipmentLabel = ex?.equipment?.displayLabel(),
                             equipment = ex?.equipment,
                             sets = sets,
@@ -936,6 +963,7 @@ fun WeightLiveWorkoutScreen(
                             val sets = weightSetsInDraft(draft, exerciseId)
                             WeightExerciseInlineSetsCard(
                                 exerciseName = ex?.name ?: exerciseId,
+                                plateCalculator = plateCalculatorFor(ex),
                                 equipmentLabel = ex?.equipment?.displayLabel(),
                                 equipment = ex?.equipment,
                                 sets = sets,

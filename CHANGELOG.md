@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 
 - Android release GitHub Actions workflow: builds, signs and publishes a release from the Actions tab so devices can update through Obtainium.
+- Plate calculator on barbell lifts, using the bars and plates under Equipment (a standard gym set until you add yours). The phone shows plates per side under each set with a bar picker that remembers your bar per exercise; the web builder shows them under the target weight. Weights you can't load offer the nearest loadable weights. Both read one shared file of test cases so they always agree.
 
 ### Fixed
 
