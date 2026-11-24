@@ -1,0 +1,175 @@
+# Build a signed ERV release APK and publish it as a GitHub Release.
+#
+# Run it from the Actions tab: Android release > Run workflow. Obtainium watches this repo's
+# releases and offers the APK as an update on each Android device.
+#
+# The version is worked out from the UTC date and the existing tags: the first release of a day
+# is vYYYY.MM.DD and later ones that day are vYYYY.MM.DD.1, .2 and so on (see
+# scripts/ci/next-release-version.sh and docs/release/GITHUB_RELEASES_AND_OBTAINIUM.md).
+#
+# Required repository secrets (Settings > Secrets and variables > Actions):
+#   ERV_RELEASE_KEYSTORE_BASE64  the release keystore (.jks), base64-encoded
+#   ERV_RELEASE_STORE_PASSWORD   keystore password
+#   ERV_RELEASE_KEY_ALIAS        key alias, e.g. erv
+#   ERV_RELEASE_KEY_PASSWORD     key password
+
+name: Android release
+
+on:
+  workflow_dispatch:
+    inputs:
+      notes:
+        description: "Release notes (leave blank to list the merged pull requests since the last release)"
+        required: false
+        default: ""
+      prerelease:
+        description: "Mark as a pre-release (Obtainium skips these unless told to include them)"
+        type: boolean
+        default: false
+
+# One release at a time, so two runs can never pick the same version.
+concurrency:
+  group: android-release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Check signing secrets
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ERV_RELEASE_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ERV_RELEASE_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ERV_RELEASE_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ERV_RELEASE_KEY_PASSWORD }}
+        run: |
+          missing=()
+          [[ -n "$KEYSTORE_BASE64" ]] || missing+=(ERV_RELEASE_KEYSTORE_BASE64)
+          [[ -n "$STORE_PASSWORD" ]] || missing+=(ERV_RELEASE_STORE_PASSWORD)
+          [[ -n "$KEY_ALIAS" ]] || missing+=(ERV_RELEASE_KEY_ALIAS)
+          [[ -n "$KEY_PASSWORD" ]] || missing+=(ERV_RELEASE_KEY_PASSWORD)
+          if (( ${#missing[@]} > 0 )); then
+            echo "::error::Missing repository secrets: ${missing[*]}. See docs/release/GITHUB_RELEASES_AND_OBTAINIUM.md."
+            exit 1
+          fi
+
+      - name: Restore keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ERV_RELEASE_KEYSTORE_BASE64 }}
+        run: |
+          keystore="$RUNNER_TEMP/erv-release.jks"
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$keystore"
+          echo "ERV_RELEASE_STORE_FILE=$keystore" >> "$GITHUB_ENV"
+
+      - name: Work out version
+        id: version
+        run: |
+          chmod +x scripts/ci/next-release-version.sh
+          scripts/ci/next-release-version.sh | tee -a "$GITHUB_ENV"
+          eval "$(scripts/ci/next-release-version.sh)"
+          d="$ERV_VERSION_DATE"
+          name="${d:0:4}.${d:4:2}.${d:6:2}"
+          if [[ "$ERV_VERSION_SEQUENCE" != "0" ]]; then name="$name.$ERV_VERSION_SEQUENCE"; fi
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "tag=v$name" >> "$GITHUB_OUTPUT"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: gradle
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Check Gradle version matches
+        run: |
+          out="$(./gradlew :app:printReleaseVersion --quiet --no-daemon)"
+          printf '%s\n' "$out"
+          grep -qx "ERV versionName=${{ steps.version.outputs.name }}" <<<"$out" || {
+            echo "::error::Gradle resolved a different versionName than ${{ steps.version.outputs.name }}."
+            exit 1
+          }
+
+      - name: Run unit tests
+        run: ./gradlew testDebugUnitTest --no-daemon
+
+      - name: Build signed release APK
+        env:
+          ERV_RELEASE_STORE_PASSWORD: ${{ secrets.ERV_RELEASE_STORE_PASSWORD }}
+          ERV_RELEASE_KEY_ALIAS: ${{ secrets.ERV_RELEASE_KEY_ALIAS }}
+          ERV_RELEASE_KEY_PASSWORD: ${{ secrets.ERV_RELEASE_KEY_PASSWORD }}
+        run: ./gradlew assembleRelease --no-daemon
+
+      - name: Verify signature and stage assets
+        id: apk
+        run: |
+          src=app/build/outputs/apk/release/app-release.apk
+          if [[ ! -f "$src" ]]; then
+            echo "::error::No signed APK at $src. Gradle writes app-release-unsigned.apk when signing is not configured."
+            exit 1
+          fi
+          apksigner="$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)apksigner"
+          "$apksigner" verify --print-certs "$src" | tee "$RUNNER_TEMP/certs.txt"
+          cert_sha256="$(awk -F': ' '/certificate SHA-256 digest/{print $2; exit}' "$RUNNER_TEMP/certs.txt")"
+          mkdir -p dist
+          apk="dist/erv-${{ steps.version.outputs.tag }}.apk"
+          cp "$src" "$apk"
+          (cd dist && sha256sum "$(basename "$apk")" > "$(basename "$apk").sha256")
+          echo "path=$apk" >> "$GITHUB_OUTPUT"
+          echo "cert_sha256=$cert_sha256" >> "$GITHUB_OUTPUT"
+          echo "apk_sha256=$(cut -d' ' -f1 "$apk.sha256")" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NOTES_INPUT: ${{ inputs.notes }}
+          TAG: ${{ steps.version.outputs.tag }}
+          NAME: ${{ steps.version.outputs.name }}
+          APK: ${{ steps.apk.outputs.path }}
+          CERT_SHA256: ${{ steps.apk.outputs.cert_sha256 }}
+          APK_SHA256: ${{ steps.apk.outputs.apk_sha256 }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          {
+            if [[ -n "$NOTES_INPUT" ]]; then
+              printf '%s\n\n' "$NOTES_INPUT"
+            fi
+            echo "APK SHA-256: \`$APK_SHA256\`"
+            echo
+            echo "Signing certificate SHA-256: \`$CERT_SHA256\`"
+          } > "$RUNNER_TEMP/notes.md"
+
+          args=(release create "$TAG" "$APK" "$APK.sha256"
+            --target "$GITHUB_SHA"
+            --title "ERV $NAME"
+            --notes-file "$RUNNER_TEMP/notes.md")
+          if [[ -z "$NOTES_INPUT" ]]; then
+            args+=(--generate-notes)
+          fi
+          if [[ "$PRERELEASE" == "true" ]]; then
+            args+=(--prerelease)
+          fi
+          gh "${args[@]}"
+
+          {
+            echo "### Released ERV $NAME"
+            echo
+            echo "- Tag: \`$TAG\`"
+            echo "- APK SHA-256: \`$APK_SHA256\`"
+            echo "- Signing certificate SHA-256: \`$CERT_SHA256\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/erv-release.jks"
