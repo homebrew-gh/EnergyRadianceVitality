@@ -41,7 +41,8 @@ internal data class WorkoutSegmentShardPayload(
 
 object WorkoutSync {
 
-    private val json = Json {
+    /** Relay JSON settings; tests use it to check the shared workout examples. */
+    internal val json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = true
         coerceInputValues = true

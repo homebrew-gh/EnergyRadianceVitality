@@ -1,0 +1,233 @@
+{
+  "about": "Example workouts that the phone (WorkoutSharedExamplesTest.kt) and the web builder (workoutExamples.test.ts) must both read and write back unchanged. Add a workout here whenever either side gains a workout field. segmentKinds are the kinds both sides build and run; reservedSegmentKinds are planned in docs/import/workouts_import_schema.md, and the phone can read them but nothing builds or runs them yet. setTargets are the targets each side shows for a prescription set.",
+  "ervWorkoutImportVersion": 1,
+  "segmentKinds": ["straight_sets", "superset", "circuit", "composite", "cardio", "mobility", "interval"],
+  "reservedSegmentKinds": ["recovery", "freestyle"],
+  "setTargets": [
+    { "name": "reps and weight", "set": { "reps": 8, "weightKg": 60 }, "reps": 8, "weightKg": 60, "durationSeconds": null },
+    { "name": "target fields", "set": { "targetReps": 8, "targetWeightKg": 60 }, "reps": 8, "weightKg": 60, "durationSeconds": null },
+    { "name": "target wins over plain value", "set": { "reps": 8, "targetReps": 10, "weightKg": 60, "targetWeightKg": 62.5 }, "reps": 10, "weightKg": 62.5, "durationSeconds": null },
+    { "name": "zero reps is no target", "set": { "reps": 0, "targetReps": 8 }, "reps": 8, "weightKg": null, "durationSeconds": null },
+    { "name": "empty row", "set": { "reps": 0 }, "reps": null, "weightKg": null, "durationSeconds": null },
+    { "name": "timed hold", "set": { "durationSeconds": 45, "targetWeightKg": 10 }, "reps": null, "weightKg": 10, "durationSeconds": 45 },
+    { "name": "target hold wins", "set": { "durationSeconds": 30, "targetDurationSeconds": 60 }, "reps": null, "weightKg": null, "durationSeconds": 60 }
+  ],
+  "workouts": [
+    {
+      "id": "example-strength-day",
+      "name": "Strength Day",
+      "description": "Squat and bench with accessories.",
+      "sourceLabel": "Shared example",
+      "tags": ["strength", "upper", "lower"],
+      "createdAtEpochSeconds": 1764000000,
+      "lastModifiedEpochSeconds": 1764003600,
+      "segments": [
+        {
+          "id": "strength-main",
+          "kind": "straight_sets",
+          "title": "Main Work",
+          "notes": "Brace before every rep.",
+          "rounds": 1,
+          "restAfterSeconds": 120,
+          "items": [
+            {
+              "type": "weight",
+              "id": "strength-squat",
+              "exerciseId": "erv-weight-exercise-squat-v1",
+              "prescription": {
+                "mode": "straight",
+                "setCount": 3,
+                "targetReps": 5,
+                "targetWeightKg": 102.0582,
+                "targetRir": 2,
+                "restBetweenSetsSeconds": 180,
+                "restAfterExerciseSeconds": 120
+              }
+            },
+            { "type": "rest", "id": "strength-rest", "title": "Walk It Off", "durationSeconds": 90 },
+            {
+              "type": "weight",
+              "id": "strength-bench",
+              "title": "Paused Bench",
+              "exerciseId": "erv-weight-exercise-bench-v1",
+              "alternativeExerciseIds": ["erv-weight-exercise-ohp-v1"],
+              "prescription": {
+                "mode": "straight",
+                "restBetweenSetsSeconds": 120,
+                "sets": [
+                  { "reps": 8, "targetReps": 8, "weightKg": 61.235, "targetWeightKg": 61.235 },
+                  { "reps": 8, "targetReps": 8, "weightKg": 61.235, "targetWeightKg": 61.235 },
+                  { "reps": 6, "targetReps": 6, "weightKg": 65.7709, "targetWeightKg": 65.7709, "rir": 1, "rpe": 8.5 }
+                ]
+              }
+            },
+            {
+              "type": "weight",
+              "id": "strength-row",
+              "exerciseId": "erv-weight-exercise-bb-bent-over-row-v1",
+              "prescription": { "mode": "straight", "setCount": 3, "repRangeMin": 8, "repRangeMax": 12 }
+            },
+            { "type": "note", "id": "strength-note", "text": "Write down how the last set felt." }
+          ]
+        },
+        {
+          "id": "strength-accessories",
+          "kind": "straight_sets",
+          "title": "Accessories",
+          "items": [
+            {
+              "type": "weight",
+              "id": "strength-split-squat",
+              "exerciseId": "erv-weight-exercise-bb-bulgarian-split-v1",
+              "prescription": {
+                "mode": "straight",
+                "sets": [
+                  { "repsPerSide": 10, "side": "each", "targetWeightKg": 20.4117 },
+                  { "repsPerSide": 10, "side": "each", "targetWeightKg": 20.4117 }
+                ]
+              }
+            },
+            {
+              "type": "weight",
+              "id": "strength-plank",
+              "exerciseId": "erv-weight-exercise-bw-plank-v1",
+              "prescription": { "mode": "time_based", "setCount": 2, "durationSeconds": 45, "timedPrepSeconds": 10 }
+            },
+            {
+              "type": "weight",
+              "id": "strength-dips",
+              "exerciseId": "erv-weight-exercise-bw-dip-v1",
+              "prescription": { "mode": "max_reps", "setCount": 1 }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "example-pairs-and-circuit",
+      "name": "Pairs and Circuit",
+      "createdAtEpochSeconds": 1764100000,
+      "lastModifiedEpochSeconds": 1764100000,
+      "segments": [
+        {
+          "id": "pairs-superset",
+          "kind": "superset",
+          "title": "Upper Pair",
+          "rounds": 3,
+          "restPolicy": { "restBetweenItemsSeconds": 30, "restAfterRoundSeconds": 90 },
+          "items": [
+            {
+              "type": "weight",
+              "id": "pairs-ohp",
+              "exerciseId": "erv-weight-exercise-ohp-v1",
+              "prescription": { "mode": "straight", "setCount": 3, "targetReps": 8, "targetWeightKg": 40.8233 }
+            },
+            {
+              "type": "weight",
+              "id": "pairs-pullup",
+              "exerciseId": "erv-weight-exercise-bw-pullup-v1",
+              "prescription": { "mode": "straight", "setCount": 3, "targetReps": 6 }
+            }
+          ]
+        },
+        {
+          "id": "pairs-circuit",
+          "kind": "circuit",
+          "title": "Finisher",
+          "rounds": 2,
+          "restPolicy": { "restBetweenItemsSeconds": 0, "restAfterRoundSeconds": 60 },
+          "items": [
+            {
+              "type": "weight",
+              "id": "pairs-curl",
+              "exerciseId": "erv-weight-exercise-bb-barbell-curl-v1",
+              "prescription": { "mode": "straight", "setCount": 2, "targetReps": 12, "targetWeightKg": 27.2155 }
+            },
+            {
+              "type": "weight",
+              "id": "pairs-lunge",
+              "exerciseId": "erv-weight-exercise-bb-lunge-walk-v1",
+              "prescription": { "mode": "straight", "setCount": 2, "targetReps": 20 }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "example-cardio-and-mobility",
+      "name": "Cardio and Mobility",
+      "description": "Warm-up, steady run, intervals and stretching.",
+      "tags": ["conditioning"],
+      "createdAtEpochSeconds": 1764200000,
+      "lastModifiedEpochSeconds": 1764200500,
+      "segments": [
+        {
+          "id": "cardio-warmup",
+          "kind": "composite",
+          "title": "Warm-Up",
+          "items": [
+            { "type": "cardio", "id": "cardio-warmup-bike", "cardio": { "activity": "BIKE", "mode": "steady", "targetMinutes": 5 } },
+            { "type": "mobility", "id": "cardio-warmup-neck", "mobility": { "catalogId": "builtin_neck_rotation", "holdSeconds": 30 } }
+          ]
+        },
+        {
+          "id": "cardio-steady",
+          "kind": "cardio",
+          "title": "Zone 2",
+          "items": [
+            {
+              "type": "cardio",
+              "id": "cardio-steady-run",
+              "title": "Easy Run",
+              "cardio": {
+                "activity": "RUN",
+                "mode": "steady",
+                "targetMinutes": 30,
+                "hrTargetMinBpm": 130,
+                "hrTargetMaxBpm": 145,
+                "hrZoneLabel": "Zone 2",
+                "logFields": ["DISTANCE", "NOTES"]
+              }
+            }
+          ]
+        },
+        {
+          "id": "cardio-intervals",
+          "kind": "interval",
+          "title": "Intervals",
+          "restAfterSeconds": 180,
+          "items": [
+            {
+              "type": "cardio",
+              "id": "cardio-sprints",
+              "title": "Hill Sprints",
+              "cardio": { "activity": "RUN", "mode": "sprint_intervals", "rounds": 8, "workSeconds": 60, "restSeconds": 120, "hrTargetBpm": 170 }
+            },
+            {
+              "type": "cardio",
+              "id": "cardio-ladder",
+              "cardio": {
+                "activity": "ROWING",
+                "mode": "interval_template",
+                "outerRounds": 2,
+                "legs": [
+                  { "workSeconds": 240, "restSeconds": 120, "label": "Hard", "hrTargetBpm": 165 },
+                  { "workSeconds": 120, "restSeconds": 60 }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "id": "cardio-stretch",
+          "kind": "mobility",
+          "title": "Cool-Down",
+          "items": [
+            { "type": "mobility", "id": "cardio-stretch-side", "title": "Neck Side Stretch", "mobility": { "catalogId": "builtin_neck_side", "holdSecondsPerSide": 30 } },
+            { "type": "mobility", "id": "cardio-stretch-chin", "mobility": { "catalogId": "builtin_chin_tuck" } }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -40,7 +40,8 @@ import {
 
 const IMPORT_VERSION = 1;
 
-const SEGMENT_KINDS = [
+/** Segment kinds the builder and phone both build and run; see shared/test-cases/workout_examples.json. */
+export const SEGMENT_KINDS = [
   "straight_sets",
   "superset",
   "circuit",

@@ -11,6 +11,7 @@
  * - Interval legs are timed in whole minutes, rounded up: `secondsToGuidedMinutes` in
  *   `WorkoutLaunchResolvers.kt`.
  */
+import { prescriptionSetTargets } from "./workoutTraining";
 import type { WorkoutItem, WorkoutPrescriptionSet, WorkoutSegment } from "./workoutTraining";
 
 export type PhoneWarning = {
@@ -61,11 +62,12 @@ function formatSeconds(seconds: number): string {
 }
 
 function sameTargets(a: WorkoutPrescriptionSet, b: WorkoutPrescriptionSet): boolean {
+  const left = prescriptionSetTargets(a);
+  const right = prescriptionSetTargets(b);
   return (
-    (a.targetReps ?? a.reps ?? null) === (b.targetReps ?? b.reps ?? null) &&
-    (a.targetWeightKg ?? a.weightKg ?? null) === (b.targetWeightKg ?? b.weightKg ?? null) &&
-    (a.targetDurationSeconds ?? a.durationSeconds ?? null) ===
-      (b.targetDurationSeconds ?? b.durationSeconds ?? null)
+    left.reps === right.reps &&
+    left.weightKg === right.weightKg &&
+    left.durationSeconds === right.durationSeconds
   );
 }
 
