@@ -50,6 +50,7 @@ import {
   buildWorkoutLibraryPublishEntries,
   nextWorkoutDeleteMarkers,
   parseWorkoutLibraryFromAppDataRecords,
+  rebaseWorkoutSave,
   WorkoutLibraryPublishError,
   type Workout,
   type WorkoutDeleteMarkers,
@@ -314,20 +315,33 @@ export function TrainingProvider({ children }: { children: ReactNode }) {
     setSaving(true);
     setError(null);
     try {
-      const sorted = [...nextWorkouts].sort((a, b) => a.name.localeCompare(b.name));
+      // Re-read the library first so a tab left open cannot drop or hide a workout made
+      // elsewhere since it loaded. If the read fails, publish from what this page has.
+      let toSave = nextWorkouts;
+      let published = relayWorkoutsRef.current;
+      let previousMarkers = deletedWorkoutsRef.current;
+      try {
+        const { records } = await getAppData({ force: true });
+        const remote = parseWorkoutLibraryFromAppDataRecords(records);
+        toSave = rebaseWorkoutSave(relayWorkoutsRef.current, nextWorkouts, remote.workouts);
+        published = workoutSnapshotById(remote.workouts);
+        previousMarkers = remote.deletedWorkouts;
+      } catch {
+        // Fall through with the loaded library.
+      }
+      const sorted = [...toSave].sort((a, b) => a.name.localeCompare(b.name));
       const now = Math.floor(Date.now() / 1000);
       const stamped = sorted.map((workout) => ({
         ...workout,
         lastModifiedEpochSeconds: workout.lastModifiedEpochSeconds ?? now,
       }));
-      const published = relayWorkoutsRef.current;
       const changedIds = new Set(
         stamped
           .filter((workout) => published.get(workout.id) !== JSON.stringify(workout))
           .map((workout) => workout.id),
       );
       const deletedWorkouts = nextWorkoutDeleteMarkers(
-        deletedWorkoutsRef.current,
+        previousMarkers,
         published.keys(),
         stamped,
         now,

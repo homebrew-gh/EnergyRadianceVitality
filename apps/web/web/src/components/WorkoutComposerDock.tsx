@@ -7,6 +7,8 @@ type WorkoutComposerDockProps = {
   draftLabel?: string;
   segmentCount: number;
   itemCount: number;
+  /** True while the draft has changes that are not on the relay yet. */
+  unpublished?: boolean;
   onCancelEdit?: () => void;
 };
 
@@ -18,6 +20,7 @@ export function WorkoutComposerDock({
   draftLabel,
   segmentCount,
   itemCount,
+  unpublished = false,
   onCancelEdit,
 }: WorkoutComposerDockProps) {
   if (!visible) return null;
@@ -49,6 +52,9 @@ export function WorkoutComposerDock({
             {segmentCount} segment{segmentCount === 1 ? "" : "s"} · {itemCount} item
             {itemCount === 1 ? "" : "s"}
           </p>
+          {unpublished ? (
+            <p className="text-[11px] font-semibold text-[var(--erv-error)]">Not published yet</p>
+          ) : null}
         </div>
         <div className="flex flex-col gap-2">
           <button

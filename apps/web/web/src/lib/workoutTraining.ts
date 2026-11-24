@@ -211,6 +211,31 @@ export function nextWorkoutDeleteMarkers(
   return markers;
 }
 
+/**
+ * Replays a save on top of the library as it is on the relay now.
+ *
+ * [next] is the caller's whole list, built from what this page loaded ([loadedById], workout JSON
+ * by id). Only what the caller changed is applied: workouts it added or edited replace the relay
+ * copy, and workouts it removed are dropped. Everything else comes from [remote], so a workout
+ * made or deleted on the phone after the page loaded is not undone by a save from a stale tab.
+ */
+export function rebaseWorkoutSave(
+  loadedById: ReadonlyMap<string, string>,
+  next: Workout[],
+  remote: Workout[],
+): Workout[] {
+  const nextIds = new Set(next.map((workout) => workout.id));
+  const removed = new Set([...loadedById.keys()].filter((id) => !nextIds.has(id)));
+  const merged = new Map<string, Workout>();
+  for (const workout of remote) {
+    if (!removed.has(workout.id)) merged.set(workout.id, workout);
+  }
+  for (const workout of next) {
+    if (loadedById.get(workout.id) !== JSON.stringify(workout)) merged.set(workout.id, workout);
+  }
+  return [...merged.values()];
+}
+
 function parseDeleteMarkers(raw: unknown): WorkoutDeleteMarkers {
   if (raw == null || typeof raw !== "object" || Array.isArray(raw)) return {};
   const markers: WorkoutDeleteMarkers = {};
@@ -729,10 +754,17 @@ export function cardioItemSummary(
     if (item.cardio.outerRounds != null && item.cardio.outerRounds > 0) {
       parts.push(`${item.cardio.outerRounds} outer rounds`);
     }
-    const leg = item.cardio.legs?.[0];
-    if (leg != null) {
+    const legs = item.cardio.legs ?? [];
+    if (legs.length === 1) {
+      const leg = legs[0]!;
       parts.push(`${leg.workSeconds}s work`);
       if ((leg.restSeconds ?? 0) > 0) parts.push(`${leg.restSeconds}s rest`);
+    } else if (legs.length > 1) {
+      parts.push(
+        `${legs.length} legs: ${legs
+          .map((leg) => `${leg.workSeconds}s/${leg.restSeconds ?? 0}s`)
+          .join(", ")}`,
+      );
     }
   } else if (item.cardio.targetMinutes != null && item.cardio.targetMinutes > 0) {
     parts.push(`${item.cardio.targetMinutes} min`);
@@ -998,6 +1030,37 @@ export function readOptionalNonNegativeInt(
 }
 
 /** Controlled numeric input: empty clears; invalid text keeps the current value. */
+export const DEFAULT_INTERVAL_LEG: WorkoutCardioIntervalLeg = { workSeconds: 240, restSeconds: 240 };
+
+/** Changes one leg of an interval template and keeps every other leg as it was. */
+export function updateIntervalLeg(
+  legs: WorkoutCardioIntervalLeg[] | undefined,
+  index: number,
+  patch: Partial<WorkoutCardioIntervalLeg>,
+): WorkoutCardioIntervalLeg[] {
+  const current = legs?.length ? legs : [DEFAULT_INTERVAL_LEG];
+  return current.map((leg, i) => (i === index ? { ...leg, ...patch } : leg));
+}
+
+/** Adds a leg that copies the last one, so a repeated pattern is one click. */
+export function addIntervalLeg(
+  legs: WorkoutCardioIntervalLeg[] | undefined,
+): WorkoutCardioIntervalLeg[] {
+  const current = legs?.length ? legs : [DEFAULT_INTERVAL_LEG];
+  const last = current[current.length - 1]!;
+  return [...current, { workSeconds: last.workSeconds, restSeconds: last.restSeconds }];
+}
+
+/** Removes one leg, never the last remaining one. */
+export function removeIntervalLeg(
+  legs: WorkoutCardioIntervalLeg[] | undefined,
+  index: number,
+): WorkoutCardioIntervalLeg[] {
+  const current = legs?.length ? legs : [DEFAULT_INTERVAL_LEG];
+  if (current.length <= 1) return current;
+  return current.filter((_, i) => i !== index);
+}
+
 export function readOptionalPositiveInt(
   raw: string,
   current: number | null | undefined,

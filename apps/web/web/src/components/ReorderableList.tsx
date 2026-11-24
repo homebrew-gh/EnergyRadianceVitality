@@ -36,22 +36,22 @@ export function ReorderableList<T>({
         return (
           <li
             key={getKey(item, index)}
-            draggable
-            onDragStart={() => setDragIndex(index)}
-            onDragEnd={() => {
-              setDragIndex(null);
-              setOverIndex(null);
-            }}
             onDragOver={(e) => {
+              // Only accept drags that started on this list's own handles, so a nested list
+              // (items inside a segment) never moves the outer rows.
+              if (dragIndex == null) return;
               e.preventDefault();
+              e.stopPropagation();
               setOverIndex(index);
             }}
             onDragLeave={() => {
               if (overIndex === index) setOverIndex(null);
             }}
             onDrop={(e) => {
+              if (dragIndex == null) return;
               e.preventDefault();
-              if (dragIndex != null) moveItem(dragIndex, index);
+              e.stopPropagation();
+              moveItem(dragIndex, index);
               setDragIndex(null);
               setOverIndex(null);
             }}
@@ -59,7 +59,22 @@ export function ReorderableList<T>({
               isDragging ? "opacity-50 border-dashed" : "border-outline/30"
             } ${isOver ? "border-[var(--erv-primary)]" : ""}`}
           >
+            {/* Only the handle starts a drag, so selecting text in a field never does. */}
             <span
+              draggable
+              onDragStart={(e) => {
+                e.stopPropagation();
+                e.dataTransfer.effectAllowed = "move";
+                e.dataTransfer.setData("text/plain", getKey(item, index));
+                const row = e.currentTarget.closest("li");
+                if (row) e.dataTransfer.setDragImage(row, 16, 16);
+                setDragIndex(index);
+              }}
+              onDragEnd={(e) => {
+                e.stopPropagation();
+                setDragIndex(null);
+                setOverIndex(null);
+              }}
               className="cursor-grab active:cursor-grabbing text-muted select-none px-0.5"
               title="Drag to reorder"
               aria-hidden
