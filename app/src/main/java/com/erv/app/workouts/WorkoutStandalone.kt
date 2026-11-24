@@ -3,6 +3,7 @@ package com.erv.app.workouts
 import com.erv.app.weighttraining.WeightExercise
 import com.erv.app.weighttraining.WeightRoutine
 import com.erv.app.weighttraining.WeightSetLoggingStyle
+import com.erv.app.weighttraining.historyForExercise
 import com.erv.app.weighttraining.setLoggingStyle
 import java.util.UUID
 
@@ -81,3 +82,20 @@ fun standaloneRun(
         sessionRestOptions = restOptions,
         standalone = WorkoutStandaloneStart(routineId = routine?.id, routineName = routine?.name),
     ).withSessionStartedAtPosition(nowEpochSeconds)
+
+/**
+ * Starts a standalone workout (empty, or from [routine]) as the active run, with each exercise
+ * set to as many sets as last time. Returns its workout id for the run screen, or null when
+ * another workout is already under way.
+ */
+suspend fun WorkoutRepository.startQuickStart(
+    routine: WeightRoutine?,
+    weightState: com.erv.app.weighttraining.WeightLibraryState,
+): String? {
+    val workout = standaloneWorkout(
+        routine = routine,
+        exerciseById = weightState::exerciseById,
+        lastSetCount = { id -> weightState.historyForExercise(id).firstOrNull()?.entry?.sets?.size },
+    )
+    return if (startStandaloneRun(standaloneRun(workout, routine, restOptions = null))) workout.id else null
+}

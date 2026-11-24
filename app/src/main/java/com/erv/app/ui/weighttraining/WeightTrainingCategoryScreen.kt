@@ -115,6 +115,8 @@ import java.time.LocalDate
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import androidx.compose.material3.SnackbarResult
+import com.erv.app.workouts.startQuickStart
 
 private enum class WeightTrainingTab { Exercises, Routines }
 
@@ -177,6 +179,35 @@ fun WeightTrainingCategoryScreen(
     var showWeightFgsDialog by remember { mutableStateOf(false) }
     var pendingWeightBlankStart by remember { mutableStateOf(false) }
     var pendingWeightRoutine by remember { mutableStateOf<WeightRoutine?>(null) }
+
+    /**
+     * Start (empty) and a routine's Start both open the workout session screen now. A workout
+     * already under way there is offered instead; one still open on this screen's own live view
+     * has to be finished first.
+     */
+    fun startOnSessionScreen(routine: WeightRoutine?) {
+        if (cardioLiveWorkoutViewModel.hasActiveTimer) {
+            scope.launch { snackbarHostState.showSnackbar("Finish or cancel your cardio timer first.") }
+            return
+        }
+        if (liveWorkoutViewModel.activeDraft.value != null) {
+            scope.launch { snackbarHostState.showSnackbar("Finish or cancel your live workout first.") }
+            return
+        }
+        scope.launch {
+            val id = workoutRepository.startQuickStart(routine, state)
+            if (id != null) {
+                onReturnToWorkoutRun(id)
+                return@launch
+            }
+            val running = workoutRepository.currentState().activeRun
+            val result = snackbarHostState.showSnackbar(
+                message = "“${running?.workoutSnapshot?.name?.ifBlank { null } ?: "A workout"}” is still running.",
+                actionLabel = if (running != null) "Resume" else null,
+            )
+            if (result == SnackbarResult.ActionPerformed && running != null) onReturnToWorkoutRun(running.workoutId)
+        }
+    }
 
     val darkTheme = isSystemInDarkTheme()
     val headerDark = if (darkTheme) ErvDarkTherapyRedDark else ErvLightTherapyRedDark
@@ -272,25 +303,8 @@ fun WeightTrainingCategoryScreen(
                     },
                     actions = {
                         if (liveDraft == null) {
-                            IconButton(onClick = {
-                                when {
-                                    cardioLiveWorkoutViewModel.hasActiveTimer -> {
-                                        scope.launch {
-                                            snackbarHostState.showSnackbar("Finish or cancel your cardio timer first.")
-                                        }
-                                    }
-                                    !fgsDisclosureSeen -> {
-                                        pendingWeightBlankStart = true
-                                        pendingWeightRoutine = null
-                                        showWeightFgsDialog = true
-                                    }
-                                    !liveWorkoutViewModel.tryStartBlank() -> {
-                                        scope.launch {
-                                            snackbarHostState.showSnackbar("Finish or cancel your live workout first.")
-                                        }
-                                    }
-                                }
-                            }) {
+                            // The session screen asks for the notification disclosure itself.
+                            IconButton(onClick = { startOnSessionScreen(null) }) {
                                 Icon(Icons.Default.PlayArrow, contentDescription = "Start workout")
                             }
                         }
@@ -337,25 +351,7 @@ fun WeightTrainingCategoryScreen(
                         state = state,
                         onEdit = { routineBeingEdited = it },
                         onDeleteRequest = { routinePendingDelete = it },
-                        onStartRoutine = { routine ->
-                            when {
-                                cardioLiveWorkoutViewModel.hasActiveTimer -> {
-                                    scope.launch {
-                                        snackbarHostState.showSnackbar("Finish or cancel your cardio timer first.")
-                                    }
-                                }
-                                !fgsDisclosureSeen -> {
-                                    pendingWeightRoutine = routine
-                                    pendingWeightBlankStart = false
-                                    showWeightFgsDialog = true
-                                }
-                                !liveWorkoutViewModel.tryStartFromRoutine(routine, state) -> {
-                                    scope.launch {
-                                        snackbarHostState.showSnackbar("Finish or cancel your live workout first.")
-                                    }
-                                }
-                            }
-                        }
+                        onStartRoutine = { routine -> startOnSessionScreen(routine) }
                     )
                 }
             }
@@ -632,22 +628,8 @@ fun WeightTrainingCategoryScreen(
                 pendingWeightBlankStart = false
                 pendingWeightRoutine = null
                 when {
-                    blank -> {
-                        when {
-                            cardioLiveWorkoutViewModel.hasActiveTimer ->
-                                snackbarHostState.showSnackbar("Finish or cancel your cardio timer first.")
-                            !liveWorkoutViewModel.tryStartBlank() ->
-                                snackbarHostState.showSnackbar("Finish or cancel your live workout first.")
-                        }
-                    }
-                    pendingRoutine != null -> {
-                        when {
-                            cardioLiveWorkoutViewModel.hasActiveTimer ->
-                                snackbarHostState.showSnackbar("Finish or cancel your cardio timer first.")
-                            !liveWorkoutViewModel.tryStartFromRoutine(pendingRoutine, state) ->
-                                snackbarHostState.showSnackbar("Finish or cancel your live workout first.")
-                        }
-                    }
+                    blank -> startOnSessionScreen(null)
+                    pendingRoutine != null -> startOnSessionScreen(pendingRoutine)
                 }
             }
         }
