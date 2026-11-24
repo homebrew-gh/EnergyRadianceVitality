@@ -3,9 +3,12 @@
 //! - KEK = Argon2id(passphrase, salt) into 32 bytes.
 //! - Ciphertext = XChaCha20-Poly1305(KEK, nonce, plaintext).
 //!
-//! The sealed blob is the only secret material persisted to disk. The
-//! plaintext nsec only exists in memory inside [`Zeroizing`] containers, and
-//! is wiped on lock / idle timeout / drop.
+//! When a user passphrase is set, the sealed blob is the only secret material
+//! persisted to disk. The plaintext nsec then exists in memory inside
+//! [`Zeroizing`] containers, and is wiped on lock / idle timeout / drop.
+//!
+//! If the operator skips a passphrase, the nsec is stored unencrypted in
+//! `state.json` (no user KEK and no fake KEK on the same volume).
 
 use anyhow::anyhow;
 use argon2::{Algorithm, Argon2, Params, Version};
