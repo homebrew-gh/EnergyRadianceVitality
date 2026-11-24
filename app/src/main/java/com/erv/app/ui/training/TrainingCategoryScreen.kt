@@ -36,6 +36,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.AlertDialog
@@ -64,6 +66,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.erv.app.cardio.CardioBuiltinActivity
+import com.erv.app.cardio.CardioLibraryState
 import com.erv.app.cardio.displayName
 import com.erv.app.nostr.EventSigner
 import com.erv.app.nostr.KeyManager
@@ -74,15 +77,22 @@ import com.erv.app.programs.ProgramsLibraryState
 import com.erv.app.programs.isoDayOfWeekLabel
 import com.erv.app.programs.programBlocksForDate
 import com.erv.app.stretching.StretchCatalogEntry
+import com.erv.app.stretching.StretchLibraryState
 import com.erv.app.ui.workouts.WorkoutLibraryListContent
 import com.erv.app.weighttraining.WeightLibraryState
+import com.erv.app.workouts.TrainingDayActivity
 import com.erv.app.workouts.Workout
+import com.erv.app.workouts.WorkoutActiveRun
 import com.erv.app.workouts.WorkoutLibraryState
 import com.erv.app.workouts.WorkoutPlannedItemLabelContext
 import com.erv.app.workouts.WorkoutRepository
 import com.erv.app.workouts.WorkoutSync
 import com.erv.app.workouts.plannedExerciseLabels
 import com.erv.app.workouts.duplicateCopy
+import com.erv.app.workouts.isStarted
+import com.erv.app.workouts.trainingDayActivity
+import java.time.Instant
+import java.time.ZoneId
 import java.time.LocalDate
 import kotlinx.coroutines.launch
 
@@ -95,6 +105,8 @@ fun TrainingCategoryScreen(
     workoutState: WorkoutLibraryState,
     workoutRepository: WorkoutRepository,
     weightState: WeightLibraryState,
+    cardioState: CardioLibraryState,
+    stretchState: StretchLibraryState,
     stretchCatalog: List<StretchCatalogEntry>,
     keyManager: KeyManager,
     relayPool: RelayPool?,
@@ -118,6 +130,10 @@ fun TrainingCategoryScreen(
         programsState.safeProgramBlocksForDate(selectedDate)
     }
     val workoutById = remember(workoutState) { workoutState.workouts.associateBy { it.id } }
+    val startedRun = workoutState.activeRun?.takeIf { it.isStarted() }
+    val weekActivity = remember(weekDates, weightState, cardioState, stretchState) {
+        weekDates.associateWith { date -> trainingDayActivity(date, weightState, cardioState, stretchState) }
+    }
     val plannedItemContext = remember(weightState, stretchCatalog) {
         WorkoutPlannedItemLabelContext(
             weightExerciseName = { id -> weightState.exercises.firstOrNull { it.id == id }?.name },
@@ -255,6 +271,8 @@ fun TrainingCategoryScreen(
                         selectedBlocks = selectedBlocks,
                         workoutById = workoutById,
                         plannedItemContext = plannedItemContext,
+                        startedRun = startedRun,
+                        dayActivity = { date -> weekActivity[date] ?: TrainingDayActivity() },
                         onRunWorkout = onRunWorkout,
                         onOpenWeeklyPlanner = onOpenWeeklyPlanner,
                     )
@@ -279,7 +297,13 @@ fun TrainingCategoryScreen(
 }
 
 private val heroDateFormatter = DateTimeFormatter.ofPattern("EEE, MMM d", Locale.getDefault())
+private val runStartTimeFormatter = DateTimeFormatter.ofPattern("h:mm a", Locale.getDefault())
 private const val HERO_EXERCISE_PREVIEW_LIMIT = 6
+
+private fun runStartedLabel(run: WorkoutActiveRun): String? =
+    run.startedAtEpochSeconds?.let { started ->
+        "Started " + Instant.ofEpochSecond(started).atZone(ZoneId.systemDefault()).format(runStartTimeFormatter)
+    }
 
 @Composable
 private fun ScheduleTabBody(
@@ -291,6 +315,8 @@ private fun ScheduleTabBody(
     selectedBlocks: List<ProgramDayBlock>,
     workoutById: Map<String, Workout>,
     plannedItemContext: WorkoutPlannedItemLabelContext,
+    startedRun: WorkoutActiveRun?,
+    dayActivity: (LocalDate) -> TrainingDayActivity,
     onRunWorkout: (String) -> Unit,
     onOpenWeeklyPlanner: () -> Unit,
 ) {
@@ -315,7 +341,16 @@ private fun ScheduleTabBody(
                 plannedWorkoutCount = { date ->
                     programsState.safeProgramBlocksForDate(date).count { it.kind == ProgramBlockKind.WORKOUT }
                 },
+                trained = { date -> dayActivity(date).trained },
             )
+        }
+
+        // A run in progress that isn't on the selected day's card still needs a way back in.
+        val runShownOnCard = startedRun != null && selectedBlocks.any {
+            it.kind == ProgramBlockKind.WORKOUT && it.workoutId == startedRun.workoutId
+        }
+        if (startedRun != null && !runShownOnCard) {
+            InProgressRunCard(run = startedRun, onResume = { onRunWorkout(startedRun.workoutId) })
         }
 
         DayOverview(
@@ -324,6 +359,8 @@ private fun ScheduleTabBody(
             blocks = selectedBlocks,
             workoutById = workoutById,
             plannedItemContext = plannedItemContext,
+            startedRun = startedRun,
+            loggedWorkoutIds = dayActivity(selectedDate).loggedWorkoutIds,
             onRunWorkout = onRunWorkout,
             onOpenWeeklyPlanner = onOpenWeeklyPlanner,
         )
@@ -338,6 +375,7 @@ private fun WeekStrip(
     selectedDate: LocalDate,
     onSelectDate: (LocalDate) -> Unit,
     plannedWorkoutCount: (LocalDate) -> Int,
+    trained: (LocalDate) -> Boolean,
 ) {
     val scheme = MaterialTheme.colorScheme
     Row(
@@ -348,6 +386,7 @@ private fun WeekStrip(
             val selected = date == selectedDate
             val isToday = date == today
             val workouts = plannedWorkoutCount(date)
+            val trainedOnDay = trained(date)
             val shape = RoundedCornerShape(16.dp)
             val contentColor = if (selected) scheme.onPrimary else scheme.onSurface
             Column(
@@ -371,6 +410,7 @@ private fun WeekStrip(
                                     else -> ", $workouts workouts"
                                 }
                             )
+                            if (trainedOnDay) append(", trained")
                         }
                     }
                     .padding(vertical = 10.dp),
@@ -390,11 +430,18 @@ private fun WeekStrip(
                     color = contentColor,
                 )
                 Row(
-                    modifier = Modifier.height(6.dp),
+                    modifier = Modifier.height(12.dp),
                     horizontalArrangement = Arrangement.spacedBy(3.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    repeat(workouts.coerceAtMost(3)) {
+                    if (trainedOnDay) {
+                        Icon(
+                            imageVector = Icons.Default.Check,
+                            contentDescription = null,
+                            tint = if (selected) scheme.onPrimary else scheme.primary,
+                            modifier = Modifier.size(12.dp),
+                        )
+                    } else repeat(workouts.coerceAtMost(3)) {
                         Box(
                             modifier = Modifier
                                 .size(5.dp)
@@ -415,6 +462,8 @@ private fun DayOverview(
     blocks: List<ProgramDayBlock>,
     workoutById: Map<String, Workout>,
     plannedItemContext: WorkoutPlannedItemLabelContext,
+    startedRun: WorkoutActiveRun?,
+    loggedWorkoutIds: Set<String>,
     onRunWorkout: (String) -> Unit,
     onOpenWeeklyPlanner: () -> Unit,
 ) {
@@ -441,6 +490,8 @@ private fun DayOverview(
                     block = block,
                     workout = block.workoutId?.let(workoutById::get),
                     plannedItemContext = plannedItemContext,
+                    inProgressRun = startedRun?.takeIf { it.workoutId == block.workoutId },
+                    completed = block.workoutId?.let { it in loggedWorkoutIds } == true,
                     onRunWorkout = onRunWorkout,
                 )
             }
@@ -504,6 +555,10 @@ private fun WorkoutHeroCard(
     block: ProgramDayBlock,
     workout: Workout?,
     plannedItemContext: WorkoutPlannedItemLabelContext,
+    /** This workout's run, when it has been started and not finished. */
+    inProgressRun: WorkoutActiveRun?,
+    /** A section of this workout was logged on the card's day. */
+    completed: Boolean,
     onRunWorkout: (String) -> Unit,
 ) {
     val scheme = MaterialTheme.colorScheme
@@ -525,6 +580,18 @@ private fun WorkoutHeroCard(
             style = MaterialTheme.typography.labelLarge,
             color = onHeroMuted,
         )
+        when {
+            inProgressRun != null -> HeroStatusChip(
+                text = listOfNotNull("In Progress", runStartedLabel(inProgressRun)).joinToString(" · "),
+                icon = Icons.Default.PlayArrow,
+                contentColor = onHero,
+            )
+            completed -> HeroStatusChip(
+                text = "Completed",
+                icon = Icons.Default.Check,
+                contentColor = onHero,
+            )
+        }
         Text(
             text = workout?.name ?: block.title ?: "Missing Workout",
             style = MaterialTheme.typography.headlineSmall,
@@ -602,9 +669,66 @@ private fun WorkoutHeroCard(
                 disabledContentColor = onHero.copy(alpha = 0.7f),
             ),
         ) {
-            Icon(Icons.Default.PlayArrow, contentDescription = null)
+            Icon(
+                if (completed && inProgressRun == null) Icons.Default.Replay else Icons.Default.PlayArrow,
+                contentDescription = null,
+            )
             Spacer(Modifier.width(8.dp))
-            Text("Start Workout", style = MaterialTheme.typography.titleSmall)
+            Text(
+                text = when {
+                    inProgressRun != null -> "Resume Workout"
+                    completed -> "Start Again"
+                    else -> "Start Workout"
+                },
+                style = MaterialTheme.typography.titleSmall,
+            )
+        }
+    }
+}
+
+@Composable
+private fun HeroStatusChip(text: String, icon: ImageVector, contentColor: androidx.compose.ui.graphics.Color) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .background(contentColor.copy(alpha = 0.18f))
+            .padding(horizontal = 10.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Icon(icon, contentDescription = null, tint = contentColor, modifier = Modifier.size(16.dp))
+        Text(text = text, style = MaterialTheme.typography.labelLarge, color = contentColor)
+    }
+}
+
+/** Shown above the day's card when a run is in progress for a workout that isn't on that day. */
+@Composable
+private fun InProgressRunCard(run: WorkoutActiveRun, onResume: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(scheme.secondaryContainer)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                text = listOfNotNull("In Progress", runStartedLabel(run)).joinToString(" · "),
+                style = MaterialTheme.typography.labelMedium,
+                color = scheme.onSecondaryContainer,
+            )
+            Text(
+                text = run.workoutSnapshot.name.ifBlank { "Workout" },
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = scheme.onSecondaryContainer,
+            )
+        }
+        Button(onClick = onResume) {
+            Text("Resume")
         }
     }
 }
