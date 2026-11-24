@@ -17,7 +17,7 @@ For theme/labels see **erv-cross-platform-ui**. For d-tags/JSON see **erv-nostr-
 | `/unlock` | Unlock sealed key |
 | `/app/workouts` | Workout builder (default landing) |
 | `/app/routines/weight\|stretch\|cardio` | Silo routine editors |
-| `/app/catalog` | Catalog editor |
+| `/app/exercises` | Exercise catalog editor (`/app/catalog` redirects here) |
 | `/app/equipment` | Home gym profile |
 | `/app/profile` | Training profile (pre-AI) |
 | `/app/progress` | Training history + charts (read-only) |
@@ -99,7 +99,7 @@ Supporting components:
 
 - CSS variables + components in `src/index.css` (`.card`, `.btn-primary`, `.btn-ghost`, `.input`, `.label`)
 - Use `FieldLabel` / `SectionHeader` from `components/FieldLabel.tsx` for form captions
-- Nav active state: `navLinkClass` pattern in `AppShell.tsx`
+- Navigation: grouped left sidebar from `NAV_GROUPS` in `AppShell.tsx` (Train, Library, You); add new pages there
 
 ## Publish flow checklist
 
