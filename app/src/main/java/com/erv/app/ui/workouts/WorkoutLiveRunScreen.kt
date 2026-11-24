@@ -149,6 +149,7 @@ import com.erv.app.workouts.WorkoutStepOutcome
 import com.erv.app.workouts.displayTitle
 import com.erv.app.workouts.isSessionComplete
 import com.erv.app.workouts.sessionCountdownEndsAtEpochSeconds
+import com.erv.app.workouts.attachSectionHeartRateToLiftLogs
 import com.erv.app.workouts.canAddSessionSet
 import com.erv.app.workouts.countdownSeconds
 import com.erv.app.workouts.cardioSessionFor
@@ -548,6 +549,7 @@ fun WorkoutLiveRunScreen(
                     stretchingRepository = stretchingRepository,
                 )
             }
+            runCatching { attachSectionHeartRateToLiftLogs(run, wholeRunHeartRate, weightRepository) }
         }
         runCatching {
             backupComposedWorkoutSessionMedia(

@@ -398,4 +398,22 @@ class WorkoutSessionRunTest {
         val logged = done.withSessionStretchLogged(section, "2026-11-24", "stretch-log-1", 1_341)
         assertTrue(logged.sessionStretchSectionsToLog().isEmpty())
     }
+
+    @Test
+    fun a_section_heart_rate_is_cut_from_the_whole_workout_trace() {
+        val trace = com.erv.app.cardio.CardioHrScaffolding(
+            avgBpm = 120,
+            maxBpm = 170,
+            minBpm = 90,
+            samples = listOf(90, 110, 150, 170, 100).mapIndexed { i, bpm ->
+                com.erv.app.cardio.CardioHrSample(epochSeconds = 1_000L + i * 60, bpm = bpm)
+            },
+        )
+        val section = trace.between(1_060, 1_180)!!
+        assertEquals(listOf(110, 150, 170), section.samples.map { it.bpm })
+        assertEquals(143, section.avgBpm)
+        assertEquals(170, section.maxBpm)
+        assertEquals(110, section.minBpm)
+        assertNull(trace.between(2_000, 3_000))
+    }
 }
