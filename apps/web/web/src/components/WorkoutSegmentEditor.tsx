@@ -31,6 +31,7 @@ import {
   updateIntervalLeg,
   DEFAULT_INTERVAL_LEG,
   prescriptionSummary,
+  prescriptionSetTargets,
   prescriptionUsesPerSide,
   segmentAllowsInlineNotes,
   segmentItems,
@@ -99,8 +100,8 @@ function WeightPrescriptionFields({
   const [showPerSetEditor, setShowPerSetEditor] = useState(() => {
     const sets = prescription.sets ?? [];
     if (sets.length < 2) return false;
-    const reps = (s: WorkoutPrescriptionSet) => s.reps ?? s.targetReps ?? null;
-    const load = (s: WorkoutPrescriptionSet) => s.targetWeightKg ?? s.weightKg ?? null;
+    const reps = (s: WorkoutPrescriptionSet) => prescriptionSetTargets(s).reps;
+    const load = (s: WorkoutPrescriptionSet) => prescriptionSetTargets(s).weightKg;
     const rir = (s: WorkoutPrescriptionSet) => s.rir ?? null;
     const first = sets[0]!;
     return sets.some(
@@ -425,13 +426,13 @@ function WeightPrescriptionFields({
           {ensurePrescriptionSets(prescription).map((set, index) => (
             <div key={index} className="grid grid-cols-5 gap-2 items-end">
               <span className="text-xs text-muted pb-2">Set {index + 1}</span>
-              {field("Reps", set.reps ?? set.targetReps ?? null, (reps) =>
+              {field("Reps", prescriptionSetTargets(set).reps, (reps) =>
                 updateSetAt(index, { reps, targetReps: reps }),
                 { positive: true },
               )}
               {weightField(
                 `Weight (${loadSuffix})`,
-                set.targetWeightKg ?? set.weightKg ?? null,
+                prescriptionSetTargets(set).weightKg,
                 (weightKg) => updateSetAt(index, { weightKg, targetWeightKg: weightKg }),
               )}
               {field("RIR", set.rir ?? null, (rir) => updateSetAt(index, { rir }))}

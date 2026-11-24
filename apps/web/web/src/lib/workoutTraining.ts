@@ -903,6 +903,24 @@ export function syncPrescriptionSetCount(
   return { ...p, setCount: count, sets };
 }
 
+/**
+ * The targets a prescription set shows, read the way the phone reads them (`seedForLiveWorkout`):
+ * a target field wins over the plain value, and 0 means no target. Checked against
+ * `shared/test-cases/workout_examples.json` (setTargets) on both sides.
+ */
+export function prescriptionSetTargets(set: WorkoutPrescriptionSet): {
+  reps: number | null;
+  weightKg: number | null;
+  durationSeconds: number | null;
+} {
+  const positive = (value: number | null | undefined) => (value != null && value > 0 ? value : null);
+  return {
+    reps: positive(set.targetReps) ?? positive(set.reps),
+    weightKg: positive(set.targetWeightKg) ?? positive(set.weightKg),
+    durationSeconds: positive(set.targetDurationSeconds) ?? positive(set.durationSeconds),
+  };
+}
+
 export function prescriptionUsesPerSide(p: WorkoutWeightPrescription | undefined): boolean {
   return (p?.sets ?? []).some((s) => (s.repsPerSide ?? 0) > 0);
 }
@@ -924,7 +942,9 @@ export function prescriptionSummary(
       repPart = `${first.repsPerSide}/side${first.side ? ` (${first.side})` : ""}`;
     }
   } else if (sets.length > 0 && sets.some((s) => (s.reps ?? 0) > 0 || (s.targetReps ?? 0) > 0)) {
-    const reps = sets.map((s) => s.reps ?? s.targetReps).filter((v) => v != null && v > 0);
+    const reps = sets
+      .map((s) => prescriptionSetTargets(s).reps)
+      .filter((v): v is number => v != null);
     if (reps.length === sets.length && new Set(reps).size === 1) {
       repPart = `${reps[0]} reps`;
     } else if (reps.length > 0) {

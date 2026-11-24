@@ -125,6 +125,8 @@ Unknown top-level keys should be omitted.
 | `recovery` | Sauna, cold plunge, or light therapy | Hot+Cold timer or Light Therapy timer (existing silos) |
 | `freestyle` | User picks weight or cardio at launch | FLEX picker |
 
+**Supported today:** both apps build and run the first seven kinds (`straight_sets` to `mobility`). `emom`, `recovery` and `freestyle` are planned: the web import rejects them, and the phone reads `recovery` and `freestyle` but does not run them. The supported list is pinned in [`shared/test-cases/workout_examples.json`](../../shared/test-cases/workout_examples.json), which both apps' tests read.
+
 **Choosing a kind:** pick the kind that matches **rest and round semantics**, not the sport name. "Core circuit" → `circuit`. "Bench then rows" → `superset`. "Bike then leg swings" → `composite`.
 
 ---
@@ -226,8 +228,9 @@ Red-light / NIR or other light therapy — references the user’s Light Therapy
 | `weightKg` | Null = choose at session time (common for RIR work) |
 | `rpe`, `rir` | Per-set intensity |
 | `durationSeconds` | For `time_based` |
-| `isWarmup`, `isDropSet` | UI flags |
-| `notes` | Tempo, regression, pattern cues |
+| `targetReps`, `targetWeightKg`, `targetDurationSeconds` | Targets the apps write; when both are set, the target wins over `reps`, `weightKg` or `durationSeconds`, and 0 means no target |
+| `isWarmup`, `isDropSet` | Planned UI flags; neither app stores them yet |
+| `notes` | Planned (tempo, regression, pattern cues); neither app stores them yet |
 
 ### 7.2 Minimal weight patterns (copy-paste building blocks)
 
