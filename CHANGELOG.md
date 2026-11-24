@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- Android release GitHub Actions workflow: builds, signs and publishes a release from the Actions tab so devices can update through Obtainium.
+
 ## [2026.06.20] - 2026-06-20
 
 ### Added
