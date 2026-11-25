@@ -18,17 +18,11 @@ import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalList
 import { CSS } from "@dnd-kit/utilities";
 import type { LibraryItemKind } from "../components/LibrarySidebar";
 import { WorkoutPreviewCard } from "../components/WorkoutPreviewCard";
-import { WorkoutSegmentEditor } from "../components/WorkoutSegmentEditor";
 import { LibraryPanel } from "../components/workoutEditor/LibraryPanel";
-import {
-  isLiftingSegment,
-  LiftSegmentCard,
-  type RowDragData,
-  type SegmentEndDropData,
-} from "../components/workoutEditor/LiftSegmentCard";
+import { SegmentCard, type RowDragData, type SegmentEndDropData } from "../components/workoutEditor/SegmentCard";
 import { lastLiftByExercise } from "../lib/lastLift";
 import { applyWeight } from "../lib/liftRowFields";
-import { moveItem, moveItemBetween, swapExercise } from "../lib/segmentRows";
+import { itemLibraryKey, moveItem, moveItemBetween, segmentAcceptsItem, swapExercise } from "../lib/segmentRows";
 import { useAuth } from "../lib/auth";
 import { useEquipment } from "../lib/equipmentData";
 import { phoneCompatibilityWarnings } from "../lib/phoneCompatibility";
@@ -69,9 +63,11 @@ import {
   segmentKindLabel,
   segmentLibraryKinds,
   upsertWorkout,
+  type WorkoutItem,
   type WorkoutSegment,
   type WorkoutSegmentKind,
 } from "../lib/workoutTraining";
+import { cardioActivityLabel, stretchLabel } from "../lib/catalog";
 
 const EMPTY_FINGERPRINT = workoutDraftFingerprint("", []);
 const UNPUBLISHED_MESSAGE =
@@ -336,9 +332,11 @@ export function WorkoutEditorPage() {
   const activeSegment = segments.find((s) => s.id === editor.activeSegmentId) ?? null;
   const swapSegment = swapTarget ? segments.find((s) => s.id === swapTarget.segmentId) ?? null : null;
   const swapItem = swapSegment ? segmentItems(swapSegment).find((item) => item.id === swapTarget?.itemId) ?? null : null;
-  const swapping = swapItem?.type === "weight" ? swapItem : null;
-  const libraryKinds: LibraryItemKind[] = swapping
-    ? ["weight"]
+  const swapping = swapItem && itemLibraryKey(swapItem) ? swapItem : null;
+  const swapKind: LibraryItemKind | null =
+    swapping?.type === "weight" ? "weight" : swapping?.type === "cardio" ? "cardio" : swapping?.type === "mobility" ? "stretch" : null;
+  const libraryKinds: LibraryItemKind[] = swapKind
+    ? [swapKind]
     : activeSegment
       ? segmentLibraryKinds(activeSegment.kind)
       : ["weight", "stretch", "cardio"];
@@ -408,17 +406,27 @@ export function WorkoutEditorPage() {
   /** Add a library pick to the selected segment, or start a segment for it. Returns why not, if not. */
   const onPick = (kind: LibraryItemKind, id: string): string | null => {
     const exercise = exercises.find((ex) => ex.id === id) ?? null;
-    if (swapping && swapSegment?.id) {
-      if (id === swapping.exerciseId) return "That is the exercise already in this row.";
-      if (segmentItems(swapSegment).some((item) => item.type === "weight" && item.exerciseId === id)) {
-        return `${exercise?.name ?? "That exercise"} is already in this segment.`;
+    if (swapping?.id && swapSegment?.id) {
+      const pickKey = kind === "stretch" ? `stretch:${id}` : `${kind}:${id}`;
+      if (pickKey === itemLibraryKey(swapping)) return "That is already in this row.";
+      if (segmentItems(swapSegment).some((item) => itemLibraryKey(item) === pickKey)) {
+        return "That is already in this segment.";
       }
-      // Sets, reps and rest carry over; the weight is the new exercise's own, or blank.
-      const suggested = suggestedTargetWeightKg(id, snapshot, 0, weightLoadUnit);
-      const p = swapping.prescription ?? {};
-      const prescription =
-        suggested != null ? applyTargetWeightToPrescription(applyWeight(p, "", weightLoadUnit), suggested) : applyWeight(p, "", weightLoadUnit);
-      const replacement = { ...swapExercise(swapping, id, exercise?.name?.trim() || null), prescription };
+      let replacement: WorkoutItem;
+      if (swapping.type === "weight") {
+        // Sets, reps and rest carry over; the weight is the new exercise's own, or blank.
+        const suggested = suggestedTargetWeightKg(id, snapshot, 0, weightLoadUnit);
+        const blank = applyWeight(swapping.prescription ?? {}, "", weightLoadUnit);
+        const prescription = suggested != null ? applyTargetWeightToPrescription(blank, suggested) : blank;
+        replacement = { ...swapExercise(swapping, id, exercise?.name?.trim() || null), prescription };
+      } else if (swapping.type === "cardio") {
+        // Same minutes, rounds and heart rate on a different activity.
+        replacement = { ...swapping, title: null, cardio: { ...swapping.cardio, activity: id } };
+      } else if (swapping.type === "mobility") {
+        replacement = { ...swapping, title: null, mobility: { ...swapping.mobility, catalogId: id } };
+      } else {
+        return null;
+      }
       const segmentId = swapSegment.id;
       const itemId = swapping.id;
       dispatch({
@@ -471,6 +479,8 @@ export function WorkoutEditorPage() {
     );
     if (!item) return "Row";
     if (item.type === "weight") return item.title?.trim() || exerciseLabel(item.exerciseId, exercises);
+    if (item.type === "cardio") return item.title?.trim() || cardioActivityLabel(item.cardio.activity, catalogs.cardio);
+    if (item.type === "mobility") return item.title?.trim() || stretchLabel(item.mobility.catalogId, catalogs.stretch);
     return item.type === "rest" ? "Rest" : item.type === "note" ? "Note" : "Item";
   };
 
@@ -500,12 +510,17 @@ export function WorkoutEditorPage() {
     if (!target?.id) return;
     const sameSegment = to.segmentId === from.segmentId;
     if (!sameSegment) {
-      if (!isLiftingSegment(target)) {
-        setMessage({ tone: "error", text: "Lifting rows can only move into Straight Sets, Superset or Circuit segments." });
+      const moving = segmentItems(segments.find((s) => s.id === from.segmentId) ?? target).find((i) => i.id === from.itemId);
+      if (!moving) return;
+      if (!segmentAcceptsItem(target, moving)) {
+        setMessage({
+          tone: "error",
+          text: `A ${segmentKindLabel(target.kind)} segment can't hold that row. Lifts go in lifting segments or a flow block, cardio in cardio or interval segments, stretches in mobility.`,
+        });
         return;
       }
-      const moving = segmentItems(segments.find((s) => s.id === from.segmentId) ?? target).find((i) => i.id === from.itemId);
-      if (moving?.type === "weight" && segmentItems(target).some((i) => i.type === "weight" && i.exerciseId === moving.exerciseId)) {
+      const key = itemLibraryKey(moving);
+      if (key && segmentItems(target).some((i) => itemLibraryKey(i) === key)) {
         setMessage({ tone: "error", text: `${rowLabel(from.segmentId, from.itemId)} is already in that segment.` });
         return;
       }
@@ -722,62 +737,41 @@ export function WorkoutEditorPage() {
               const moveUp = index > 0 ? () => dispatch({ type: "moveSegment", from: index, to: index - 1 }) : undefined;
               const moveDown =
                 index < segments.length - 1 ? () => dispatch({ type: "moveSegment", from: index, to: index + 1 }) : undefined;
-              if (isLiftingSegment(segment)) {
-                return (
-                  <LiftSegmentCard
-                    key={segmentId}
-                    segment={segment}
-                    position={index + 1}
-                    active={segmentId === editor.activeSegmentId}
-                    exercises={exercises}
-                    snapshot={snapshot}
-                    weightLoadUnit={weightLoadUnit}
-                    warnings={segmentWarnings}
-                    onSelect={() => selectSegment(segmentId)}
-                    onChange={(next, separate) => updateSegment(segmentId, next, separate)}
-                    onRemove={() => dispatch({ type: "removeSegment", segmentId })}
-                    onMoveUp={moveUp}
-                    onMoveDown={moveDown}
-                    onOpenLibrary={() => {
-                      selectSegment(segmentId);
-                      setSwapTarget(null);
-                      setLibraryOpen(true);
-                    }}
-                    onEdit={(edit) =>
-                      dispatch({ type: "editSegments", edit: (list) => list.map((s) => (s.id === segmentId ? edit(s) : s)) })
-                    }
-                    onSwapItem={(itemId) => {
-                      selectSegment(segmentId);
-                      setSwapTarget({ segmentId, itemId });
-                      setLibrarySearchFocus(true);
-                      setLibraryOpen(true);
-                    }}
-                    lastLifts={lastLifts}
-                    todayIso={todayIso}
-                  />
-                );
-              }
               return (
-                <div key={segmentId} id={`segment-${segmentId}`} className="scroll-mt-32">
-                  <WorkoutSegmentEditor
-                    segment={segment}
-                    segmentIndex={index}
-                    isActive={segmentId === editor.activeSegmentId}
-                    catalogExercises={exercises}
-                    stretchCatalog={catalogs.stretch}
-                    cardioCatalog={catalogs.cardio}
-                    cardioRoutines={cardioRoutines}
-                    trainingSnapshot={snapshot}
-                    weightLoadUnit={weightLoadUnit}
-                    onSelect={() => selectSegment(segmentId)}
-                    onUpdate={(next) => updateSegment(segmentId, next)}
-                    onRemove={() => dispatch({ type: "removeSegment", segmentId })}
-                    onMoveUp={moveUp}
-                    onMoveDown={moveDown}
-                    canMoveUp={moveUp != null}
-                    canMoveDown={moveDown != null}
-                  />
-                </div>
+                <SegmentCard
+                  key={segmentId}
+                  segment={segment}
+                  position={index + 1}
+                  active={segmentId === editor.activeSegmentId}
+                  exercises={exercises}
+                  snapshot={snapshot}
+                  weightLoadUnit={weightLoadUnit}
+                  warnings={segmentWarnings}
+                  onSelect={() => selectSegment(segmentId)}
+                  onChange={(next, separate) => updateSegment(segmentId, next, separate)}
+                  onRemove={() => dispatch({ type: "removeSegment", segmentId })}
+                  onMoveUp={moveUp}
+                  onMoveDown={moveDown}
+                  onOpenLibrary={() => {
+                    selectSegment(segmentId);
+                    setSwapTarget(null);
+                    setLibraryOpen(true);
+                  }}
+                  onEdit={(edit) =>
+                    dispatch({ type: "editSegments", edit: (list) => list.map((s) => (s.id === segmentId ? edit(s) : s)) })
+                  }
+                  onSwapItem={(itemId) => {
+                    selectSegment(segmentId);
+                    setSwapTarget({ segmentId, itemId });
+                    setLibrarySearchFocus(true);
+                    setLibraryOpen(true);
+                  }}
+                  lastLifts={lastLifts}
+                  todayIso={todayIso}
+                  stretchCatalog={catalogs.stretch}
+                  cardioCatalog={catalogs.cardio}
+                  cardioRoutines={cardioRoutines}
+                />
               );
             })}
           </div>
@@ -798,7 +792,7 @@ export function WorkoutEditorPage() {
         onClose={() => setLibraryOpen(false)}
         targetLabel={
           swapping
-            ? `Swapping ${swapping.title?.trim() || exerciseLabel(swapping.exerciseId, exercises)}`
+            ? `Swapping ${swapping.id ? rowLabel(swapTarget?.segmentId ?? "", swapping.id) : "this row"}`
             : `Adding to ${activeSegment ? activeSegment.title?.trim() || segmentKindLabel(activeSegment.kind) : "a new segment"}`
         }
         kinds={libraryKinds}

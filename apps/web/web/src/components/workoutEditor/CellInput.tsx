@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import clsx from "clsx";
+import { formatClock, parseClock } from "../../lib/liftRowFields";
+import { FieldLabel } from "../FieldLabel";
 
 /**
  * A spreadsheet-style cell: type freely, and the text is read when you leave the cell or press
@@ -28,6 +30,8 @@ export function CellInput({
   /** Text already applied while this cell kept focus (Enter), so leaving does not apply it twice. */
   const applied = useRef<string | null>(null);
   const cancelled = useRef(false);
+  /** Set on focus so the click that focused the cell doesn't undo the select-all. */
+  const justFocused = useRef(false);
 
   useEffect(() => {
     if (!editing.current) setText(value);
@@ -56,7 +60,12 @@ export function CellInput({
         editing.current = true;
         applied.current = null;
         cancelled.current = false;
+        justFocused.current = true;
         e.currentTarget.select();
+      }}
+      onMouseUp={(e) => {
+        if (justFocused.current) e.preventDefault();
+        justFocused.current = false;
       }}
       onChange={(e) => setText(e.target.value)}
       onBlur={(e) => {
@@ -65,6 +74,7 @@ export function CellInput({
         setText(value);
       }}
       onKeyDown={(e) => {
+        justFocused.current = false;
         if (e.key === "Enter") {
           e.preventDefault();
           commit(e.currentTarget.value);
@@ -77,5 +87,33 @@ export function CellInput({
         }
       }}
     />
+  );
+}
+
+/** A labelled m:ss field for settings and details panels. Blank clears it. */
+export function ClockInput({
+  label,
+  seconds,
+  onSeconds,
+}: {
+  label: string;
+  seconds: number | null | undefined;
+  onSeconds: (next: number | null) => void;
+}) {
+  return (
+    <label className="block space-y-1 text-xs">
+      <FieldLabel>{label}</FieldLabel>
+      <div className="rounded-lg border border-[var(--erv-outline-variant)] bg-[var(--erv-input-bg)]">
+        <CellInput
+          value={formatClock(seconds)}
+          placeholder="0:00"
+          ariaLabel={label}
+          onCommit={(text) => {
+            const next = parseClock(text);
+            if (next !== undefined) onSeconds(next);
+          }}
+        />
+      </div>
+    </label>
   );
 }
