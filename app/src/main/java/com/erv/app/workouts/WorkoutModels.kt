@@ -301,6 +301,8 @@ data class WorkoutActiveRun(
     val sessionStepAwaitingStart: Boolean = false,
     /** Set while the step on screen is paused (a cardio leg at a light, say); see [activeSessionPause]. */
     val sessionPause: WorkoutSessionPause? = null,
+    /** Laps tapped on cardio legs (Lap on the card or the notification); see [withSessionLap]. */
+    val sessionCardioLaps: List<WorkoutSessionLap> = emptyList(),
     /** The rest timer setting the plan is built with (see [WorkoutSessionPlan.from]); null runs rests as planned. */
     val sessionRestOptions: WorkoutSessionRestOptions? = null,
     /**

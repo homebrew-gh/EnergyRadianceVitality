@@ -15,6 +15,12 @@ import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import com.erv.app.MainActivity
 import com.erv.app.R
+import com.erv.app.cardio.CardioGpsRecordingHub
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 
 /**
  * One foreground service for the whole single-screen workout session, replacing the separate
@@ -37,6 +43,7 @@ class WorkoutSessionForegroundService : Service() {
     /** The last content shown, so a finished countdown can switch back to the workout clock. */
     private var lastContent: WorkoutSessionNotificationContent? = null
     private var lastWorkoutId: String? = null
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent == null) {
@@ -49,6 +56,25 @@ class WorkoutSessionForegroundService : Service() {
                 stopSelf()
             } else if (last.countDown) {
                 post(last.copy(countDown = false, chronometerEpochSeconds = last.workoutStartedAtEpochSeconds), lastWorkoutId)
+            }
+            return START_NOT_STICKY
+        }
+        if (intent.action == ACTION_TOGGLE_PAUSE || intent.action == ACTION_LAP) {
+            val action = intent.action
+            scope.launch {
+                val repository = WorkoutRepository(applicationContext)
+                if (action == ACTION_LAP) {
+                    repository.markSessionLap()
+                } else {
+                    val paused = repository.toggleSessionStepPaused()
+                    // The GPS drops fixes while paused, even with the app's screen gone.
+                    CardioGpsRecordingHub.paused = paused
+                    val last = lastContent
+                    if (isRunning && last != null && last.cardioControls) {
+                        val text = last.text.removePrefix(PAUSED_PREFIX)
+                        post(last.copy(paused = paused, text = if (paused) PAUSED_PREFIX + text else text), lastWorkoutId)
+                    }
+                }
             }
             return START_NOT_STICKY
         }
@@ -66,6 +92,8 @@ class WorkoutSessionForegroundService : Service() {
             countDown = intent.getBooleanExtra(EXTRA_COUNT_DOWN, false),
             complete = intent.getBooleanExtra(EXTRA_COMPLETE, false),
             workoutStartedAtEpochSeconds = workoutStart,
+            cardioControls = intent.getBooleanExtra(EXTRA_CARDIO_CONTROLS, false),
+            paused = intent.getBooleanExtra(EXTRA_PAUSED, false),
         )
         post(content, intent.getStringExtra(EXTRA_WORKOUT_ID))
         return START_NOT_STICKY
@@ -93,6 +121,7 @@ class WorkoutSessionForegroundService : Service() {
     }
 
     override fun onDestroy() {
+        scope.cancel()
         isRunning = false
         stopForeground(STOP_FOREGROUND_REMOVE)
         super.onDestroy()
@@ -108,7 +137,7 @@ class WorkoutSessionForegroundService : Service() {
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        return NotificationCompat.Builder(this, CHANNEL_ID)
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_erv)
             .setContentTitle(content.title)
             .setContentText(content.text.ifBlank { null })
@@ -124,8 +153,26 @@ class WorkoutSessionForegroundService : Service() {
             .setContentIntent(open)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .addAction(0, getString(R.string.workout_session_notification_action_open), open)
-            .build()
+        if (content.cardioControls) {
+            builder.addAction(
+                0,
+                getString(if (content.paused) R.string.workout_session_notification_action_resume else R.string.workout_session_notification_action_pause),
+                serviceAction(ACTION_TOGGLE_PAUSE, PAUSE_REQUEST_CODE),
+            )
+            if (!content.paused) {
+                builder.addAction(0, getString(R.string.workout_session_notification_action_lap), serviceAction(ACTION_LAP, LAP_REQUEST_CODE))
+            }
+        }
+        return builder.build()
     }
+
+    private fun serviceAction(action: String, requestCode: Int): PendingIntent =
+        PendingIntent.getService(
+            this,
+            requestCode,
+            Intent(this, WorkoutSessionForegroundService::class.java).apply { this.action = action },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
 
     private fun ensureChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
@@ -147,6 +194,13 @@ class WorkoutSessionForegroundService : Service() {
         private const val TAG = "WorkoutSessionFg"
         private const val ACTION_SHOW = "com.erv.app.workout.SESSION_SHOW"
         private const val ACTION_COUNTDOWN_OVER = "com.erv.app.workout.SESSION_COUNTDOWN_OVER"
+        private const val ACTION_TOGGLE_PAUSE = "com.erv.app.workout.SESSION_TOGGLE_PAUSE"
+        private const val ACTION_LAP = "com.erv.app.workout.SESSION_LAP"
+        private const val EXTRA_CARDIO_CONTROLS = "cardioControls"
+        private const val EXTRA_PAUSED = "paused"
+        private const val PAUSE_REQUEST_CODE = 30083
+        private const val LAP_REQUEST_CODE = 30084
+        private const val PAUSED_PREFIX = "Paused · "
         private const val EXTRA_WORKOUT_STARTED_AT_EPOCH_SEC = "workoutStartedAtEpochSec"
         private const val EXTRA_TITLE = "title"
         private const val EXTRA_TEXT = "text"
@@ -180,6 +234,8 @@ class WorkoutSessionForegroundService : Service() {
                 putExtra(EXTRA_COUNT_DOWN, content.countDown)
                 putExtra(EXTRA_COMPLETE, content.complete)
                 putExtra(EXTRA_WORKOUT_STARTED_AT_EPOCH_SEC, content.workoutStartedAtEpochSeconds)
+                putExtra(EXTRA_CARDIO_CONTROLS, content.cardioControls)
+                putExtra(EXTRA_PAUSED, content.paused)
             }
             try {
                 if (isRunning) app.startService(intent) else ContextCompat.startForegroundService(app, intent)

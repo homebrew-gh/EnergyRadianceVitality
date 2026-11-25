@@ -206,6 +206,9 @@ import com.erv.app.workouts.attachSectionHeartRateToLiftLogs
 import com.erv.app.workouts.canAddSessionSet
 import com.erv.app.workouts.countdownSeconds
 import com.erv.app.workouts.cardioSessionFor
+import com.erv.app.workouts.sessionCardioItemElapsedSeconds
+import com.erv.app.workouts.sessionLapSplits
+import com.erv.app.workouts.sessionLapsFor
 import com.erv.app.cardio.CardioModality
 import com.erv.app.workouts.standaloneCardioDraftFor
 import com.erv.app.workouts.isSessionCardioActivity
@@ -400,7 +403,11 @@ fun WorkoutLiveRunScreen(
             )
             val routed = run.cardioSessionFor(item, cardioLibrary, gpsPoints) ?: continue
             val splitMeters = sessionSplitMeters
-            val base = if (splitMeters != null && gpsPoints.size >= 2) {
+            // Laps tapped on the item are its splits; otherwise one per split distance on the route.
+            val laps = run.sessionLapsFor(item.segmentId, item.itemId)
+            val base = if (laps.isNotEmpty()) {
+                routed.copy(splits = sessionLapSplits(laps, item.elapsedSeconds, item.finishedAtEpochSeconds, gpsPoints))
+            } else if (splitMeters != null && gpsPoints.size >= 2) {
                 routed.copy(splits = CardioGpsSplits.fromTrack(gpsPoints, splitMeters))
             } else {
                 routed
@@ -827,6 +834,7 @@ fun WorkoutLiveRunScreen(
         activeRun?.sessionStepStartedAtEpochSeconds,
         activeRun?.sessionStepAwaitingStart,
         activeRun?.sessionExerciseSwaps,
+        activeRun?.sessionPause,
         notifiedBpm,
         fgsDisclosureSeen,
         loadUnit,
@@ -1585,7 +1593,10 @@ fun WorkoutLiveRunScreen(
                                         },
                                         paused = sessionPaused,
                                         onPauseChange = { pause -> scope.launch { repository.setSessionStepPaused(pause) } },
-                                        liveStats = liveCardioStats,
+                                        liveStats = liveCardioStats + listOfNotNull(
+                                            activeRun?.let { run -> sessionLapTile(run, step) },
+                                        ),
+                                        onLap = { scope.launch { repository.markSessionLap() } },
                                         onStart = { startStep(step) },
                                         onFinish = { send(WorkoutSessionEvent.TimedStepDone(stepElapsedSeconds())) },
                                         onSkipLeg = { send(WorkoutSessionEvent.SkipStep) },
@@ -2696,6 +2707,14 @@ private fun sessionCardioLiveStats(
             "Split ${split.orderIndex + 1}" to formatCardioElapsedClock(split.segmentElapsedSeconds)
         },
     )
+}
+
+/** "Lap 3" and the time on the lap so far, once a lap has been tapped on this item. */
+private fun sessionLapTile(run: WorkoutActiveRun, step: WorkoutSessionStep.CardioLeg): Pair<String, String>? {
+    val laps = run.sessionLapsFor(step.segmentId, step.itemId)
+    if (laps.isEmpty()) return null
+    val soFar = run.sessionCardioItemElapsedSeconds(step, nowWorkoutEpochSeconds())
+    return "Lap ${laps.size + 1}" to formatCardioElapsedClock((soFar - laps.last().elapsedSeconds).coerceAtLeast(0))
 }
 
 /** Time between fixes, leaving out gaps (pauses, lost GPS) the way the splits do. */

@@ -129,6 +129,10 @@ data class WorkoutSessionNotificationContent(
     val complete: Boolean,
     /** The workout clock's start, which the notification falls back to when a countdown ends. */
     val workoutStartedAtEpochSeconds: Long,
+    /** A cardio leg is running: the notification offers Pause (or Resume) and Lap. */
+    val cardioControls: Boolean = false,
+    /** The cardio leg is paused: the action reads Resume. */
+    val paused: Boolean = false,
 )
 
 /**
@@ -178,7 +182,11 @@ fun WorkoutActiveRun.sessionNotificationContent(
         }
         else -> describe(step, names, loadUnit)
     }
-    val text = heartRateBpm?.takeIf { it > 0 }?.let { "$stepText · $it bpm" } ?: stepText
+    val paused = activeSessionPause() != null
+    val withHr = heartRateBpm?.takeIf { it > 0 }?.let { "$stepText · $it bpm" } ?: stepText
+    val text = if (paused) "Paused · $withHr" else withHr
+    val cardioControls = step is WorkoutSessionStep.CardioLeg && step.cardioRoutineId == null &&
+        !sessionStepAwaitingStart && sessionStepStartedAtEpochSeconds != null
     val countdownEnd = sessionCountdownEndsAtEpochSeconds(plan)?.takeIf { it > nowEpochSeconds }
     return WorkoutSessionNotificationContent(
         title = title,
@@ -188,6 +196,8 @@ fun WorkoutActiveRun.sessionNotificationContent(
         countDown = countdownEnd != null,
         complete = false,
         workoutStartedAtEpochSeconds = workoutStart,
+        cardioControls = cardioControls,
+        paused = paused,
     )
 }
 
