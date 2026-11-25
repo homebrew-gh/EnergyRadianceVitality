@@ -1,32 +1,20 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="ERV — Energy Radiance Vitality">
   <defs>
-    <linearGradient id="erv-bg" x1="20" y1="12" x2="108" y2="116" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#ef5350"/>
-      <stop offset="45%" stop-color="#c62828"/>
-      <stop offset="100%" stop-color="#7f0000"/>
+    <linearGradient id="erv-bg" x1="11.85" y1="0" x2="116.15" y2="128" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ef5350"/>
+      <stop offset=".45" stop-color="#c62828"/>
+      <stop offset="1" stop-color="#7f0000"/>
     </linearGradient>
-    <radialGradient id="erv-sun" cx="64" cy="64" r="26" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#fff9c4"/>
-      <stop offset="55%" stop-color="#ffd600"/>
-      <stop offset="100%" stop-color="#ff8f00"/>
-    </radialGradient>
-    <radialGradient id="erv-shine" cx="58" cy="58" r="30" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.22"/>
-      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
-    </radialGradient>
   </defs>
   <rect width="128" height="128" rx="28" fill="url(#erv-bg)"/>
-  <rect width="128" height="128" rx="28" fill="url(#erv-shine)"/>
-  <g fill="none" stroke="#ffd600" stroke-linecap="round" stroke-width="5.3" opacity="0.92">
-    <line x1="116" y1="64" x2="103.6" y2="64"/>
-    <line x1="100.77" y1="100.77" x2="91.98" y2="91.98"/>
-    <line x1="64" y1="116" x2="64" y2="103.6"/>
-    <line x1="27.23" y1="100.77" x2="36.02" y2="91.98"/>
-    <line x1="12" y1="64" x2="24.4" y2="64"/>
-    <line x1="27.23" y1="27.23" x2="36.02" y2="36.02"/>
-    <line x1="64" y1="12" x2="64" y2="24.4"/>
-    <line x1="100.77" y1="27.23" x2="91.98" y2="36.02"/>
-  </g>
-  <circle cx="64" cy="64" r="26" fill="url(#erv-sun)"/>
-  <circle cx="64" cy="64" r="26" fill="none" stroke="#ffab00" stroke-opacity="0.35" stroke-width="1.5"/>
+  <defs>
+    <radialGradient id="erv-sun" cx="58.42" cy="61.21" r="41.08" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff9c4"/>
+      <stop offset=".55" stop-color="#ffd600"/>
+      <stop offset="1" stop-color="#ff8f00"/>
+    </radialGradient>
+  </defs>
+  <path fill="none" stroke="#ffd600" stroke-width="6.14" stroke-linecap="round" d="M94.93,76.81 L105.24,81.08 M76.81,94.93 L81.08,105.24 M51.19,94.93 L46.92,105.24 M33.07,76.81 L22.76,81.08 M33.07,51.19 L22.76,46.92 M51.19,33.07 L46.92,22.76 M76.81,33.07 L81.08,22.76 M94.93,51.19 L105.24,46.92"/>
+  <circle cx="64" cy="64" r="26.51" fill="url(#erv-sun)"/>
+  <path fill="none" stroke="#c62828" stroke-width="4.74" stroke-linecap="round" stroke-linejoin="round" d="M37.49,65.39 L51.44,65.39 L57.02,52.84 L64,77.95 L70.28,58.42 L73.77,65.39 L90.5,65.39"/>
 </svg>
