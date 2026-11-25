@@ -69,7 +69,7 @@ import {
 import { CardioDetails } from "./CardioDetails";
 import { FieldLabel } from "../FieldLabel";
 import { PlateLoadHint } from "../PlateLoadHint";
-import { WeightPrescriptionFields } from "../WorkoutSegmentEditor";
+import { WeightPrescriptionFields } from "./WeightPrescriptionFields";
 import { CellInput, ClockInput } from "./CellInput";
 import { RowMenu, type RowMenuAction } from "./RowMenu";
 

@@ -85,7 +85,7 @@ Supporting components:
 
 | Tab | File |
 |-----|------|
-| Workouts | `routes/WorkoutsTab.tsx` |
+| Workouts | `routes/WorkoutsLibraryPage.tsx` (list), `routes/WorkoutEditorPage.tsx` + `components/workoutEditor/` (editor) |
 | Weight routines | `routes/WeightRoutinesTab.tsx` |
 | Stretch routines | `routes/StretchRoutinesTab.tsx` |
 | Cardio routines | `routes/CardioRoutinesTab.tsx` |

@@ -13,7 +13,7 @@ import { CardioRoutinesTab } from "./routes/CardioRoutinesTab";
 import { RoutinesLayout } from "./routes/RoutinesLayout";
 import { StretchRoutinesTab } from "./routes/StretchRoutinesTab";
 import { WeightRoutinesTab } from "./routes/WeightRoutinesTab";
-import { WorkoutsTab } from "./routes/WorkoutsTab";
+import { WorkoutsLibraryPage } from "./routes/WorkoutsLibraryPage";
 import { NewWorkoutRedirect, WorkoutEditorPage } from "./routes/WorkoutEditorPage";
 import { SettingsTab } from "./routes/SettingsTab";
 import { ErvLogo } from "./components/ErvLogo";
@@ -62,7 +62,7 @@ function Gate() {
         <Route path="planner" element={<PlannerTab />} />
         <Route path="profile" element={<ProfileTab />} />
         <Route path="progress" element={<ProgressTab />} />
-        <Route path="workouts" element={<WorkoutsTab />} />
+        <Route path="workouts" element={<WorkoutsLibraryPage />} />
         <Route path="workouts/new" element={<NewWorkoutRedirect />} />
         <Route path="workouts/:workoutId/edit" element={<WorkoutEditorPage />} />
         <Route path="settings" element={<SettingsTab />} />

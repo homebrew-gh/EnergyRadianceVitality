@@ -14,7 +14,18 @@ const MENU_WIDTH = 256;
  * The "⋯" menu at the end of a table row. It opens in a fixed layer so the table's scrolling
  * box does not cut it off, and closes on a pick, a click elsewhere, Escape or scrolling.
  */
-export function RowMenu({ label, actions }: { label: string; actions: RowMenuAction[] }) {
+export function RowMenu({
+  label,
+  actions,
+  buttonText,
+  buttonClassName,
+}: {
+  label: string;
+  actions: RowMenuAction[];
+  /** Text for the button instead of "⋯", for menus outside a table row. */
+  buttonText?: string;
+  buttonClassName?: string;
+}) {
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -69,11 +80,14 @@ export function RowMenu({ label, actions }: { label: string; actions: RowMenuAct
       <button
         ref={buttonRef}
         type="button"
-        tabIndex={-1}
-        className={clsx(
-          "rounded px-2 py-0.5 text-base leading-none hover:bg-[var(--erv-surface-variant)] hover:text-heading",
-          open ? "bg-[var(--erv-surface-variant)] text-heading" : "text-muted",
-        )}
+        tabIndex={buttonText ? undefined : -1}
+        className={
+          buttonClassName ??
+          clsx(
+            "rounded px-2 py-0.5 text-base leading-none hover:bg-[var(--erv-surface-variant)] hover:text-heading",
+            open ? "bg-[var(--erv-surface-variant)] text-heading" : "text-muted",
+          )
+        }
         aria-label={label}
         aria-haspopup="menu"
         aria-expanded={open}
@@ -82,7 +96,7 @@ export function RowMenu({ label, actions }: { label: string; actions: RowMenuAct
           setOpen((v) => !v);
         }}
       >
-        ⋯
+        {buttonText ?? "⋯"}
       </button>
       {open ? (
         <div
