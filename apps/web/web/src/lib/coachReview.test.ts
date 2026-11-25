@@ -26,6 +26,19 @@ describe("parseCoachReviewJson", () => {
     }
   });
 
+  it("ignores a <think> block before the JSON, even one with braces", () => {
+    const parsed = parseCoachReviewJson(`<think>Maybe {bench} first.</think>\n${JSON.stringify(valid)}`);
+    expect(parsed.ok).toBe(true);
+  });
+
+  it("calls an empty or thinking-only reply empty", () => {
+    for (const text of ["", "  \n", "<think>Still working on it {"]) {
+      const parsed = parseCoachReviewJson(text);
+      expect(parsed.ok).toBe(false);
+      if (!parsed.ok) expect(parsed.errors).toEqual(["The reply was empty."]);
+    }
+  });
+
   it("strips Markdown fences and surrounding text", () => {
     const parsed = parseCoachReviewJson(`Here you go:\n\`\`\`json\n${JSON.stringify(valid)}\n\`\`\``);
     expect(parsed.ok).toBe(true);

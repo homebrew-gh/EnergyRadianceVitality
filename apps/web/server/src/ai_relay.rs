@@ -166,6 +166,9 @@ pub async fn stream_ai(
     tokio::spawn(async move {
         let started = Instant::now();
         let mut last_error = None;
+        let mut finish_reason: Option<String> = None;
+        let mut reasoning_chars: usize = 0;
+        let mut content_chars: usize = 0;
         match open_chat_stream(&http, prepared.call).await {
             Ok(response) => {
                 let mut decoder = SseDecoder::default();
@@ -187,6 +190,7 @@ pub async fn stream_ai(
                     for piece in decoder.push(&text) {
                         match piece {
                             StreamPiece::Text(delta) => {
+                                content_chars += delta.chars().count();
                                 if tx
                                     .send(Event::default().event("delta").data(delta))
                                     .await
@@ -196,6 +200,8 @@ pub async fn stream_ai(
                                     break;
                                 }
                             }
+                            StreamPiece::Reasoning(chars) => reasoning_chars += chars,
+                            StreamPiece::Finish(reason) => finish_reason = Some(reason),
                             StreamPiece::Done => {
                                 finished = true;
                                 break;
@@ -220,6 +226,9 @@ pub async fn stream_ai(
                         serde_json::json!({
                             "model": model,
                             "promptVersion": PROMPT_VERSION,
+                            "finishReason": finish_reason,
+                            "reasoningChars": reasoning_chars,
+                            "contentChars": content_chars,
                         })
                         .to_string(),
                     ),
@@ -230,6 +239,9 @@ pub async fn stream_ai(
             task = %task,
             elapsed_ms = started.elapsed().as_millis() as u64,
             outcome = if last_error.is_none() { "ok" } else { "error" },
+            finish_reason = finish_reason.as_deref().unwrap_or(""),
+            reasoning_chars,
+            content_chars,
             "ai stream"
         );
         queue.finish(generation, last_error).await;
@@ -519,7 +531,7 @@ fn task_temperature(task: &str) -> f32 {
 
 fn task_max_tokens(task: &str) -> u32 {
     match task {
-        "analysis" => 3_000,
+        "analysis" => 8_000,
         _ => 6_000,
     }
 }

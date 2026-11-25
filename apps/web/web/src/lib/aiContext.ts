@@ -42,8 +42,14 @@ import {
 import { exerciseLabel } from "./weightTraining";
 import { segmentItems, type Workout, type WorkoutItem } from "./workoutTraining";
 
-const RECENT_SESSION_LIMIT = 8;
-const LIFT_LIMITS = { STANDARD: { lifts: 8, sessions: 3 }, FULL: { lifts: 25, sessions: 5 } } as const;
+/**
+ * How much detail the review gets. Totals (weeklyTraining, weeklySetsByMuscle, lift trend and best
+ * e1RM) always use every session in the period; these limits only cap the per-session rows.
+ */
+const LIFT_LIMITS = {
+  STANDARD: { lifts: 10, sessions: 6, recentSessions: 30 },
+  FULL: { lifts: 25, sessions: 12, recentSessions: 80 },
+} as const;
 
 export type AnalysisContext = {
   context: Record<string, unknown>;
@@ -127,7 +133,12 @@ export function buildAnalysisContext(
     context.progressionGuardrails = guardrailsForReview(
       base.progressionGuardrails as ProgressionGuardrailContext | undefined,
     );
-    context.recentSessionSummaries = recentSessionSummaries(weightLogs, cardioLogs, input.workouts);
+    context.recentSessionSummaries = recentSessionSummaries(
+      weightLogs,
+      cardioLogs,
+      input.workouts,
+      limits.recentSessions,
+    );
   }
 
   const json = JSON.stringify(context);
@@ -357,6 +368,7 @@ function recentSessionSummaries(
   weightLogs: WeightDayLog[],
   cardioLogs: CardioDayLog[],
   workouts: Workout[],
+  limit: number,
 ) {
   const workoutNames = new Map(workouts.map((workout) => [workout.id, workout.name]));
   const rows: {
@@ -400,7 +412,7 @@ function recentSessionSummaries(
   }
   return rows
     .sort((a, b) => b.date.localeCompare(a.date))
-    .slice(0, RECENT_SESSION_LIMIT);
+    .slice(0, limit);
 }
 
 /** Set-by-set text such as "185×8, 185×7, 185×6" in the athlete's unit. */

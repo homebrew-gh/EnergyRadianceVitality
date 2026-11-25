@@ -68,6 +68,10 @@ impl UpstreamFailure {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StreamPiece {
     Text(String),
+    /// Characters of hidden reasoning (`reasoning_content` / `reasoning`). Not forwarded.
+    Reasoning(usize),
+    /// `finish_reason` from the last chunk, such as `stop` or `length`.
+    Finish(String),
     Done,
 }
 
@@ -84,9 +88,7 @@ impl SseDecoder {
         while let Some(split) = self.buffer.find("\n\n") {
             let raw = self.buffer[..split].to_string();
             self.buffer.drain(..split + 2);
-            if let Some(piece) = parse_sse_event(&raw) {
-                pieces.push(piece);
-            }
+            pieces.extend(parse_sse_event(&raw));
         }
         pieces
     }
@@ -211,7 +213,7 @@ async fn send_chat(
     })
 }
 
-fn parse_sse_event(raw: &str) -> Option<StreamPiece> {
+fn parse_sse_event(raw: &str) -> Vec<StreamPiece> {
     let mut data = String::new();
     for line in raw.lines() {
         let Some(rest) = line.strip_prefix("data:") else {
@@ -223,21 +225,38 @@ fn parse_sse_event(raw: &str) -> Option<StreamPiece> {
         data.push_str(rest.trim_start());
     }
     if data.is_empty() {
-        return None;
+        return Vec::new();
     }
     if data.trim() == "[DONE]" {
-        return Some(StreamPiece::Done);
+        return vec![StreamPiece::Done];
     }
-    let parsed: Value = serde_json::from_str(&data).ok()?;
-    let text = parsed
+    let Ok(parsed) = serde_json::from_str::<Value>(&data) else {
+        return Vec::new();
+    };
+    let mut pieces = Vec::new();
+    let reasoning = ["/choices/0/delta/reasoning_content", "/choices/0/delta/reasoning"]
+        .iter()
+        .filter_map(|path| parsed.pointer(path).and_then(Value::as_str))
+        .map(|text| text.chars().count())
+        .sum::<usize>();
+    if reasoning > 0 {
+        pieces.push(StreamPiece::Reasoning(reasoning));
+    }
+    if let Some(text) = parsed
         .pointer("/choices/0/delta/content")
         .and_then(Value::as_str)
-        .unwrap_or("");
-    if text.is_empty() {
-        None
-    } else {
-        Some(StreamPiece::Text(text.to_string()))
+        .filter(|text| !text.is_empty())
+    {
+        pieces.push(StreamPiece::Text(text.to_string()));
     }
+    if let Some(reason) = parsed
+        .pointer("/choices/0/finish_reason")
+        .and_then(Value::as_str)
+        .filter(|reason| !reason.is_empty())
+    {
+        pieces.push(StreamPiece::Finish(reason.to_string()));
+    }
+    pieces
 }
 
 #[cfg(test)]
@@ -255,6 +274,19 @@ mod tests {
         assert_eq!(
             second,
             vec![StreamPiece::Text("Hello".into()), StreamPiece::Done]
+        );
+    }
+
+    #[test]
+    fn sse_decoder_reports_reasoning_and_finish_reason() {
+        let mut decoder = SseDecoder::default();
+        let pieces = decoder.push(
+            "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"thinking\"}}]}\n\n\
+             data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"length\"}]}\n\n",
+        );
+        assert_eq!(
+            pieces,
+            vec![StreamPiece::Reasoning(8), StreamPiece::Finish("length".into())]
         );
     }
 
