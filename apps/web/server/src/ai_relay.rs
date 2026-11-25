@@ -317,6 +317,8 @@ async fn prepare_call(
                 body.user_prompt.trim(),
             ),
             json_object,
+            temperature: Some(task_temperature(task)),
+            max_tokens: Some(task_max_tokens(task)),
             timeout,
         },
     })
@@ -505,6 +507,21 @@ fn looks_like_media(url: &str) -> bool {
     EXTENSIONS.iter().any(|ext| path.ends_with(ext))
         || url.contains("/blossom")
         || url.contains("/blob/")
+}
+
+/// Low temperature keeps reviews consistent between runs and drafts close to the request.
+fn task_temperature(task: &str) -> f32 {
+    match task {
+        "analysis" => 0.3,
+        _ => 0.2,
+    }
+}
+
+fn task_max_tokens(task: &str) -> u32 {
+    match task {
+        "analysis" => 3_000,
+        _ => 6_000,
+    }
 }
 
 fn parse_task(task: &str) -> Result<&str, AppError> {
