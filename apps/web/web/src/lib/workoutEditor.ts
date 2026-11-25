@@ -1,4 +1,4 @@
-import type { Workout, WorkoutItem, WorkoutSegment } from "./workoutTraining";
+import { segmentIsEmpty, type Workout, type WorkoutItem, type WorkoutSegment } from "./workoutTraining";
 
 /**
  * The workout builder's open draft as one value, changed only through [workoutEditorReducer].
@@ -47,6 +47,11 @@ export type WorkoutEditorAction =
   | { type: "removeSegment"; segmentId: string }
   | { type: "moveSegment"; from: number; to: number }
   | { type: "replaceSegments"; segments: WorkoutSegment[] }
+  /**
+   * Change segments from what they are when the action runs, not when it was made, so a row
+   * tool used right after typing in a cell keeps that typing. One undo step. [edit] must be pure.
+   */
+  | { type: "editSegments"; edit: (segments: WorkoutSegment[]) => WorkoutSegment[] }
   | { type: "selectSegment"; segmentId: string | null }
   | { type: "undo" }
   | { type: "redo" };
@@ -187,6 +192,12 @@ export function workoutEditorReducer(
     case "replaceSegments":
       return commit(state, { ...draft, segments: withStableIds(action.segments) }, null, 0);
 
+    case "editSegments": {
+      const segments = action.edit(draft.segments);
+      if (segments === draft.segments) return state;
+      return commit(state, { ...draft, segments: withStableIds(segments) }, null, 0);
+    }
+
     case "selectSegment":
       return { ...state, activeSegmentId: resolveActive(draft.segments, action.segmentId) };
 
@@ -224,4 +235,48 @@ export function canUndo(state: WorkoutEditorState): boolean {
 
 export function canRedo(state: WorkoutEditorState): boolean {
   return state.future.length > 0;
+}
+
+/** Why the draft cannot be published yet, or null when it can. */
+export function draftPublishProblem(draft: EditorDraft): string | null {
+  if (!draft.name.trim()) return "Give the workout a name.";
+  if (draft.segments.length === 0) return "Add at least one segment.";
+  if (draft.segments.some((segment) => segmentIsEmpty(segment))) {
+    return "Each segment needs at least one item.";
+  }
+  return null;
+}
+
+/**
+ * The workout to publish from [draft]. Editing keeps what the editor does not show (description,
+ * tags, created date, source) from [existing], the published version.
+ */
+export function workoutToPublish(
+  draft: EditorDraft,
+  id: string,
+  existing: Workout | undefined,
+  nowEpochSeconds: number,
+): Workout {
+  const segments = draft.segments.map((segment) => ({
+    ...segment,
+    title: segment.title?.trim() || null,
+  }));
+  const name = draft.name.trim();
+  return existing
+    ? {
+        ...existing,
+        name,
+        segments,
+        sourceLabel: existing.sourceLabel ?? "Start9",
+        createdAtEpochSeconds: existing.createdAtEpochSeconds ?? nowEpochSeconds,
+        lastModifiedEpochSeconds: nowEpochSeconds,
+      }
+    : {
+        id,
+        name,
+        segments,
+        sourceLabel: "Start9",
+        lastModifiedEpochSeconds: nowEpochSeconds,
+        createdAtEpochSeconds: nowEpochSeconds,
+      };
 }
