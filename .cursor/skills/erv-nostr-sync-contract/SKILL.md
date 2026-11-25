@@ -44,6 +44,7 @@ relay-safe payloads.
 | Workouts library | `app/.../workouts/WorkoutSync.kt` |
 | Programs | `app/.../programs/ProgramSync.kt` |
 | Training profile | `app/.../nostr/TrainingProfileSync.kt` |
+| Coach review | `app/.../nostr/CoachReviewSync.kt` |
 | Equipment | `app/.../nostr/FitnessEquipmentSync.kt` |
 
 ## Web counterparts

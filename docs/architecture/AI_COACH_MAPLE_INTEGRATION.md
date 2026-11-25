@@ -481,7 +481,10 @@ Captured so they are not lost; none of these ship with M0–M6.
   `ervCoachReviewVersion` 1, `generatedAtEpochSeconds`, `periodLabel`, `periodStart`, `periodEnd`,
   `weightUnit`, `model`, `promptVersion`, `review` (the v3 JSON), and `liftTargets`
   (`exerciseId`, `name`, `trend`, `next`, `why`) for lifts matched back to exercise ids. Android
-  read support is the next step. A daily recap history stays later.
+  reads it on relay sync (`CoachReviewSync.kt`, stored in DataStore): a Coach Review card on the
+  Launch Pad opens the full review, and a live workout shows a read-only "Coach:" line under lifts
+  with a target. Reviews older than 10 days are marked stale and stop adding coach lines. A daily
+  recap history stays later.
 - **Unattended / scheduled generation**: today the nsec lives in memory only while unlocked (15 min
   idle). A nightly job needs either generate-on-open (no security change) or an opt-in operational
   key. Decision deferred.
