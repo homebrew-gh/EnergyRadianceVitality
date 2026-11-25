@@ -108,6 +108,8 @@ class UserPreferences(private val context: Context) {
         val BLE_CSC_DEVICE_ADDRESS = stringPreferencesKey("ble_csc_device_address_v1")
         /** MAC address of preferred Concept2 PM erg monitor (proprietary BLE protocol). */
         val BLE_CONCEPT2_DEVICE_ADDRESS = stringPreferencesKey("ble_concept2_device_address_v1")
+        /** MAC address of preferred FTMS smart trainer or treadmill (Fitness Machine Service). */
+        val BLE_FTMS_DEVICE_ADDRESS = stringPreferencesKey("ble_ftms_device_address_v1")
         /** Saved BLE devices list for quick reconnects from Settings. */
         val BLE_SAVED_DEVICES_JSON_V1 = stringPreferencesKey("ble_saved_devices_json_v1")
         /** Wheel circumference used to convert CSC wheel revolutions into distance and speed. */
@@ -757,6 +759,18 @@ class UserPreferences(private val context: Context) {
         }
     }
 
+    val bleFtmsDeviceAddress: Flow<String?> = context.dataStore.data.map { prefs ->
+        normalizeBluetoothAddressOrNull(prefs[Keys.BLE_FTMS_DEVICE_ADDRESS])
+    }
+
+    suspend fun setBleFtmsDeviceAddress(address: String?) {
+        context.dataStore.edit { prefs ->
+            val normalized = normalizeBluetoothAddressOrNull(address)
+            if (normalized == null) prefs.remove(Keys.BLE_FTMS_DEVICE_ADDRESS)
+            else prefs[Keys.BLE_FTMS_DEVICE_ADDRESS] = normalized
+        }
+    }
+
     val savedBleDevices: Flow<List<SavedBluetoothDevice>> = context.dataStore.data.map { prefs ->
         sanitizeSavedBluetoothDevices(
             decodeSavedBluetoothDevices(prefs[Keys.BLE_SAVED_DEVICES_JSON_V1])
@@ -1115,6 +1129,7 @@ class UserPreferences(private val context: Context) {
             prefs.remove(Keys.COACH_REVIEW_JSON_V1)
             prefs.remove(Keys.BLE_HEART_RATE_DEVICE_ADDRESS)
             prefs.remove(Keys.BLE_CSC_DEVICE_ADDRESS)
+            prefs.remove(Keys.BLE_FTMS_DEVICE_ADDRESS)
             prefs.remove(Keys.BLE_SAVED_DEVICES_JSON_V1)
             prefs.remove(Keys.LOCAL_PROFILE_DISPLAY_NAME_V1)
             prefs.remove(Keys.LOCAL_PROFILE_PICTURE_URL_V1)
