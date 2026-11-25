@@ -162,6 +162,7 @@ import com.erv.app.hr.HeartRateZoneInputs
 import com.erv.app.stretching.StretchingRepository
 import com.erv.app.ui.cardio.CardioBikeErgConnectInlineSection
 import com.erv.app.ui.cardio.CardioLiveWorkoutViewModel
+import com.erv.app.ui.cardio.CardioWorkoutSummaryFullScreen
 import com.erv.app.ui.cardio.supportsBikeErgSensorConnect
 import com.erv.app.weighttraining.WeightEquipment
 import com.erv.app.weighttraining.WeightRepository
@@ -302,6 +303,8 @@ fun WorkoutLiveRunScreen(
     var composedSummary by remember { mutableStateOf<ComposedWorkoutHrSummary?>(null) }
     // A Quick Start workout that was only lifting finishes on the weight screen's summary.
     var weightSummary by remember { mutableStateOf<StandaloneWeightSummary?>(null) }
+    // One started from Cardio finishes on the cardio summary: pace, splits, heart rate, route.
+    var cardioSummary by remember { mutableStateOf<StandaloneCardioSummary?>(null) }
     var runFinalized by remember { mutableStateOf(false) }
     var finishingRun by remember { mutableStateOf(false) }
     // Set if building the finish summary failed, so the screen offers a way out instead.
@@ -757,6 +760,21 @@ fun WorkoutLiveRunScreen(
                     return@LaunchedEffect
                 }
             }
+            if (logged.isNotEmpty() && logged.all { it.kind == WorkoutLoggedItemKind.CARDIO } && entryIds.size == 1) {
+                val logDate = logged.first().linkedLogDate?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+                val session = logDate?.let { date ->
+                    cardioRepository.currentState().logFor(date)?.sessions?.firstOrNull { it.id == entryIds.single() }
+                }
+                if (logDate != null && session != null) {
+                    val elapsed = run.session?.records
+                        ?.filter { it.outcome == WorkoutStepOutcome.DONE }
+                        ?.sumOf { it.elapsedSeconds ?: 0 }
+                        ?.takeIf { it > 0 }
+                    cardioSummary = StandaloneCardioSummary(session, logDate, elapsed)
+                    runFinalized = true
+                    return@LaunchedEffect
+                }
+            }
         }
         val built = runCatching {
             buildComposedWorkoutHrSummary(
@@ -792,7 +810,7 @@ fun WorkoutLiveRunScreen(
     LaunchedEffect(isComplete) {
         if (!isComplete) return@LaunchedEffect
         delay(15_000L)
-        if (composedSummary == null && weightSummary == null) finalizeFailed = true
+        if (composedSummary == null && weightSummary == null && cardioSummary == null) finalizeFailed = true
     }
 
     // Keep the ongoing notification in step with the session. Heart rate is folded in every 15
@@ -930,6 +948,32 @@ fun WorkoutLiveRunScreen(
         if (run.standaloneCardioDraftFor(step.itemId) == null || session?.records?.isNotEmpty() == true) return@LaunchedEffect
         cardioAutoStarted = true
         startStep(step)
+    }
+
+    cardioSummary?.let { finished ->
+        val darkTheme = isSystemInDarkTheme()
+        CardioWorkoutSummaryFullScreen(
+            session = finished.session,
+            logDate = finished.logDate,
+            repository = cardioRepository,
+            elapsedSeconds = finished.elapsedSeconds,
+            distanceUnit = distanceUnit,
+            dark = if (darkTheme) ErvDarkTherapyRedDark else ErvLightTherapyRedDark,
+            mid = if (darkTheme) ErvDarkTherapyRedMid else ErvLightTherapyRedMid,
+            glow = if (darkTheme) ErvDarkTherapyRedGlow else ErvLightTherapyRedGlow,
+            relayPool = relayPool,
+            signer = signer,
+            userPreferences = userPreferences,
+            onDone = {
+                finishingRun = true
+                scope.launch {
+                    heartRateBle.discardComposedWorkoutRunRecording()
+                    repository.clearActiveRun()
+                    onBack()
+                }
+            },
+        )
+        return
     }
 
     weightSummary?.let { finished ->
@@ -2590,6 +2634,12 @@ private data class SessionIntervalTimer(
 )
 
 /** The weight workout a Quick Start run was logged as, shown on the weight screen's summary. */
+private data class StandaloneCardioSummary(
+    val session: com.erv.app.cardio.CardioSession,
+    val logDate: LocalDate,
+    val elapsedSeconds: Int?,
+)
+
 private data class StandaloneWeightSummary(
     val session: com.erv.app.weighttraining.WeightWorkoutSession,
     val logDate: LocalDate,

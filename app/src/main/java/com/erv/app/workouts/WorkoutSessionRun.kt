@@ -356,12 +356,22 @@ fun WorkoutActiveRun.withSessionHiitBlockLogged(block: WeightHiitBlockLog, nowEp
  */
 fun WorkoutActiveRun.isSessionComplete(plan: WorkoutSessionPlan = sessionPlan()): Boolean =
     session?.let { WorkoutSessionEngine.isComplete(plan, it) } == true &&
-        (standalone == null || sessionFinishRequested)
+        (!waitsForFinish() || sessionFinishRequested)
 
 /** A standalone workout with nothing left to do but not finished: it waits for an exercise or Finish. */
 fun WorkoutActiveRun.isSessionWaitingForMore(plan: WorkoutSessionPlan = sessionPlan()): Boolean =
-    standalone != null && !sessionFinishRequested &&
+    waitsForFinish() && !sessionFinishRequested &&
         session?.let { WorkoutSessionEngine.isComplete(plan, it) } == true
+
+/**
+ * A standalone workout waits for Finish when its steps run out. One started from Cardio ends with
+ * its cardio, unless the athlete added something else to it.
+ */
+private fun WorkoutActiveRun.waitsForFinish(): Boolean {
+    val start = standalone ?: return false
+    if (start.cardioDraft == null) return true
+    return workoutSnapshot.segments.any { segment -> segment.items.any { it !is WorkoutItem.Cardio } }
+}
 
 /** True when nothing has been done in the session yet (skips don't count). */
 fun WorkoutActiveRun.sessionHasNothingDone(): Boolean =

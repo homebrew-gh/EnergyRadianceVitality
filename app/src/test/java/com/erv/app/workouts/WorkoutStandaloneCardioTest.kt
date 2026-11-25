@@ -13,6 +13,7 @@ import com.erv.app.cardio.CardioTimerStyle
 import com.erv.app.cardio.CardioTreadmillParams
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -106,6 +107,23 @@ class WorkoutStandaloneCardioTest {
         assertNull(session.gpsTrack)
         // 3.5 mph for 40 minutes.
         assertEquals(3_755.0, session.distanceMeters!!, 15.0)
+    }
+
+    @Test
+    fun aCardioStartEndsWithItsCardio() {
+        val (run, _) = finished(draft())
+        assertTrue(run.isSessionComplete())
+        assertFalse(run.isSessionWaitingForMore())
+        // Something added to it waits for Finish, like any standalone workout.
+        val withLift = run.copy(
+            workoutSnapshot = run.workoutSnapshot.copy(
+                segments = run.workoutSnapshot.segments + WorkoutSegment(
+                    kind = WorkoutSegmentKind.STRAIGHT_SETS,
+                    items = listOf(WorkoutItem.Weight(exerciseId = "squat", prescription = standaloneLiftPrescription(null))),
+                ),
+            ),
+        )
+        assertFalse(withLift.isSessionComplete())
     }
 
     @Test
