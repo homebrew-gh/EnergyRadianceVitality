@@ -268,6 +268,8 @@
     <string name="media_control_cd_play_pause">Play or pause</string>
     <string name="media_control_cd_skip_next">Skip to next</string>
     <string name="media_control_cd_skip_previous">Skip to previous</string>
+    <string name="media_control_cd_seek_back_30">Back 30 seconds</string>
+    <string name="media_control_cd_seek_forward_30">Forward 30 seconds</string>
 
     <!-- Stretching guided session TTS -->
     <string name="settings_stretch_guided_voice_hub_title">Stretching</string>

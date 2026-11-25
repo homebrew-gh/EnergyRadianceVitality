@@ -16,8 +16,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Forward30
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Replay30
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.Button
@@ -268,6 +270,16 @@ fun WorkoutMediaControlPanel(
                         )
                     }
                     IconButton(
+                        onClick = { c?.let { ErvMediaControlHelper.seekBy(it, -ErvMediaControlHelper.SEEK_STEP_MS) } },
+                        enabled = c != null
+                    ) {
+                        Icon(
+                            Icons.Default.Replay30,
+                            contentDescription = stringResource(R.string.media_control_cd_seek_back_30),
+                            tint = onPrimary
+                        )
+                    }
+                    IconButton(
                         onClick = {
                             val tc = c?.transportControls ?: return@IconButton
                             if (playing) tc.pause() else tc.play()
@@ -277,6 +289,16 @@ fun WorkoutMediaControlPanel(
                         Icon(
                             if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
                             contentDescription = stringResource(R.string.media_control_cd_play_pause),
+                            tint = onPrimary
+                        )
+                    }
+                    IconButton(
+                        onClick = { c?.let { ErvMediaControlHelper.seekBy(it, ErvMediaControlHelper.SEEK_STEP_MS) } },
+                        enabled = c != null
+                    ) {
+                        Icon(
+                            Icons.Default.Forward30,
+                            contentDescription = stringResource(R.string.media_control_cd_seek_forward_30),
                             tint = onPrimary
                         )
                     }
@@ -305,7 +327,7 @@ fun WorkoutMediaControlPanel(
 
 /**
  * Single-row media control used as a live-workout overlay: track text on the left (truncated to one
- * line each) and prev / play-pause / next on the right, so stats stay visible behind it.
+ * line each) and prev / back 30s / play-pause / forward 30s / next on the right, so stats stay visible behind it.
  */
 @Composable
 private fun WorkoutMediaControlCompactRow(
@@ -400,6 +422,17 @@ private fun WorkoutMediaControlCompactRow(
             )
         }
         IconButton(
+            onClick = { controller?.let { ErvMediaControlHelper.seekBy(it, -ErvMediaControlHelper.SEEK_STEP_MS) } },
+            enabled = controller != null,
+            modifier = Modifier.size(40.dp)
+        ) {
+            Icon(
+                Icons.Default.Replay30,
+                contentDescription = stringResource(R.string.media_control_cd_seek_back_30),
+                tint = onPrimary
+            )
+        }
+        IconButton(
             onClick = {
                 val tc = controller?.transportControls ?: return@IconButton
                 if (playing) tc.pause() else tc.play()
@@ -410,6 +443,17 @@ private fun WorkoutMediaControlCompactRow(
             Icon(
                 if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
                 contentDescription = stringResource(R.string.media_control_cd_play_pause),
+                tint = onPrimary
+            )
+        }
+        IconButton(
+            onClick = { controller?.let { ErvMediaControlHelper.seekBy(it, ErvMediaControlHelper.SEEK_STEP_MS) } },
+            enabled = controller != null,
+            modifier = Modifier.size(40.dp)
+        ) {
+            Icon(
+                Icons.Default.Forward30,
+                contentDescription = stringResource(R.string.media_control_cd_seek_forward_30),
                 tint = onPrimary
             )
         }
