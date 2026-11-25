@@ -2,6 +2,11 @@ package com.erv.app.ui.workouts
 
 import com.erv.app.data.coachLineFor
 import androidx.activity.compose.BackHandler
+import com.erv.app.cardio.CardioGpsSplits
+import com.erv.app.cardio.formatCardioElapsedClock
+import com.erv.app.data.CardioLiveSplitMode
+import com.erv.app.workouts.activeSessionPause
+import com.erv.app.workouts.sessionStepElapsedSeconds
 import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -364,6 +369,15 @@ fun WorkoutLiveRunScreen(
     val concept2Ble = LocalConcept2Pm.current
     val cyclingCscBle = LocalCyclingCsc.current
 
+    val splitMode by userPreferences.cardioLiveSplitMode.collectAsState(initial = CardioLiveSplitMode.OFF)
+    val autoSplitQuarterMiles by userPreferences.cardioLiveAutoSplitQuarterMiles.collectAsState(initial = 4)
+    // Splits on this screen come from the route: one per split distance, unless splits are Off.
+    val sessionSplitMeters = if (splitMode == CardioLiveSplitMode.OFF) {
+        null
+    } else {
+        CardioGpsSplits.splitMeters(autoSplitQuarterMiles, distanceUnit)
+    }
+
     /**
      * Saves what the session has finished to the silo logs: a weight entry per lifting section, a
      * cardio entry per cardio item, a stretch entry per stretching section.
@@ -379,7 +393,13 @@ fun WorkoutLiveRunScreen(
                 appContext,
                 WorkoutSessionGps.keyFor(run.sessionId, item.segmentId, item.itemId),
             )
-            val base = run.cardioSessionFor(item, cardioLibrary, gpsPoints) ?: continue
+            val routed = run.cardioSessionFor(item, cardioLibrary, gpsPoints) ?: continue
+            val splitMeters = sessionSplitMeters
+            val base = if (splitMeters != null && gpsPoints.size >= 2) {
+                routed.copy(splits = CardioGpsSplits.fromTrack(gpsPoints, splitMeters))
+            } else {
+                routed
+            }
             // The per-item heart rate and sensor totals began when the item's first leg started.
             // Take both erg and cycling summaries to clear their buffers; prefer the erg's, as the
             // cardio screen does.
@@ -834,10 +854,9 @@ fun WorkoutLiveRunScreen(
         clockTick++
     }
 
-    /** Seconds since the step on screen started its clock. */
-    fun stepElapsedSeconds(): Int =
-        activeRun?.sessionStepStartedAtEpochSeconds
-            ?.let { (nowWorkoutEpochSeconds() - it).toInt().coerceAtLeast(0) } ?: 0
+    /** Seconds the step on screen has run, not counting pauses. */
+    fun stepElapsedSeconds(): Int = activeRun?.sessionStepElapsedSeconds(nowWorkoutEpochSeconds()) ?: 0
+    val sessionPaused = activeRun?.activeSessionPause() != null
 
     // GPS for outdoor cardio legs run here: on while a leg of the item runs (recovery legs too),
     // off between items. The route is taken when the item is logged.
@@ -877,12 +896,14 @@ fun WorkoutLiveRunScreen(
             WorkoutSessionGps.stopIfRecording(appContext)
         }
     }
-    val hubPoints by CardioGpsRecordingHub.pointsFlow.collectAsState()
-    val liveGpsLine = if (recordingGpsKey != null && CardioGpsRecordingHub.sessionKey() == recordingGpsKey) {
-        sessionGpsLiveLine(hubPoints, distanceUnit)
-    } else {
-        null
+    // A paused leg drops GPS fixes, so a stop adds no route or distance.
+    LaunchedEffect(sessionPaused, recordingGpsKey) {
+        if (recordingGpsKey != null) CardioGpsRecordingHub.paused = sessionPaused
     }
+    val hubPoints by CardioGpsRecordingHub.pointsFlow.collectAsState()
+    val liveRoute = if (recordingGpsKey != null && CardioGpsRecordingHub.sessionKey() == recordingGpsKey) hubPoints else null
+    val liveGpsLine = liveRoute?.let { sessionGpsLiveLine(it, distanceUnit) }
+    val liveCardioStats = liveRoute?.let { sessionCardioLiveStats(it, distanceUnit, sessionSplitMeters) }.orEmpty()
 
     /** Start on a cardio or stretch step; a new cardio item starts its own heart rate summary. */
     fun startStep(step: WorkoutSessionStep) {
@@ -1497,10 +1518,14 @@ fun WorkoutLiveRunScreen(
                                         heartRateTarget = cardioHeartRateTarget(item, step),
                                         awaitingStart = awaitingStart,
                                         clockSeconds = if ((step.targetSeconds ?: 0) > 0) {
-                                            remaining ?: (step.targetSeconds ?: 0)
+                                            // From the step's own clock, so it holds still while paused.
+                                            ((step.targetSeconds ?: 0) - stepElapsedSeconds()).coerceAtLeast(0)
                                         } else {
                                             stepElapsedSeconds()
                                         },
+                                        paused = sessionPaused,
+                                        onPauseChange = { pause -> scope.launch { repository.setSessionStepPaused(pause) } },
+                                        liveStats = liveCardioStats,
                                         onStart = { startStep(step) },
                                         onFinish = { send(WorkoutSessionEvent.TimedStepDone(stepElapsedSeconds())) },
                                         onSkipLeg = { send(WorkoutSessionEvent.SkipStep) },
@@ -1509,7 +1534,8 @@ fun WorkoutLiveRunScreen(
                                         gpsStatus = when {
                                             !gpsWanted || awaitingStart -> null
                                             !locationGranted -> "GPS off: location not allowed"
-                                            else -> liveGpsLine ?: "GPS: waiting for a fix"
+                                            liveGpsLine == null -> "GPS: waiting for a fix"
+                                            else -> null
                                         },
                                         gpsControls = {
                                             if (gpsAvailable) {
@@ -2558,8 +2584,7 @@ private fun sessionGpsLiveLine(points: List<CardioGpsPoint>, unit: CardioDistanc
     if (points.size < 2) return null
     val meters = CardioGpsMath.pathLengthMeters(points)
     if (meters <= 1.0) return null
-    val seconds = (points.last().epochSeconds - points.first().epochSeconds).toInt()
-    val pace = formatCardioAveragePace(seconds, meters, unit)
+    val pace = formatCardioAveragePace(movingSecondsOf(points), meters, unit)
     return listOfNotNull(formatCardioDistanceFromMeters(meters, unit), pace).joinToString(" · ")
 }
 
@@ -2586,3 +2611,30 @@ private fun SessionGpsControls(
         }
     }
 }
+
+/** Distance, pace and the last split as tiles for the live cardio card, from the route so far. */
+private fun sessionCardioLiveStats(
+    points: List<CardioGpsPoint>,
+    unit: CardioDistanceUnit,
+    splitMeters: Double?,
+): List<Pair<String, String>> {
+    if (points.size < 2) return emptyList()
+    val meters = CardioGpsMath.pathLengthMeters(points)
+    if (meters <= 1.0) return emptyList()
+    val splits = splitMeters?.let { CardioGpsSplits.fromTrack(points, it) }.orEmpty()
+    val movingSeconds = movingSecondsOf(points)
+    return listOfNotNull(
+        "Distance" to formatCardioDistanceFromMeters(meters, unit),
+        formatCardioAveragePace(movingSeconds, meters, unit)?.let { "Avg Pace" to it },
+        splits.lastOrNull()?.let { split ->
+            "Split ${split.orderIndex + 1}" to formatCardioElapsedClock(split.segmentElapsedSeconds)
+        },
+    )
+}
+
+/** Time between fixes, leaving out gaps (pauses, lost GPS) the way the splits do. */
+private fun movingSecondsOf(points: List<CardioGpsPoint>): Int =
+    points.zipWithNext { a, b -> (b.epochSeconds - a.epochSeconds).coerceAtLeast(0L) }
+        .filter { it <= CardioGpsSplits.DEFAULT_MAX_GAP_SECONDS }
+        .sum()
+        .toInt()

@@ -896,6 +896,12 @@ internal fun WorkoutSessionCardioCard(
     gpsStatus: String? = null,
     /** Before Start: the Record GPS Route switch for outdoor activities. */
     gpsControls: @Composable () -> Unit = {},
+    /** True while the leg is paused; its clock holds still. */
+    paused: Boolean = false,
+    /** Pause (true) or Resume (false); no button when null. */
+    onPauseChange: ((Boolean) -> Unit)? = null,
+    /** Live tiles under the clock, label to value: distance, pace, last split. */
+    liveStats: List<Pair<String, String>> = emptyList(),
 ) {
     val timed = (step.targetSeconds ?: 0) > 0
     Card(
@@ -932,12 +938,36 @@ internal fun WorkoutSessionCardioCard(
                     Text("Use Cardio Screen")
                 }
             } else {
-                SessionStepClock(clockSeconds, if (timed) "left" else "so far")
-                gpsStatus?.let {
-                    Text(it, style = MaterialTheme.typography.titleMedium)
+                SessionStepClock(clockSeconds, if (paused) "paused" else if (timed) "left" else "so far")
+                if (liveStats.isNotEmpty()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                    ) {
+                        liveStats.forEach { (label, value) ->
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(value, style = MaterialTheme.typography.headlineSmall)
+                                Text(
+                                    label,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
                 }
-                Button(onClick = onFinish, modifier = Modifier.fillMaxWidth()) {
-                    Text(if (timed) "Finish Leg Now" else "Finish")
+                gpsStatus?.let {
+                    Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    if (onPauseChange != null) {
+                        OutlinedButton(onClick = { onPauseChange(!paused) }, modifier = Modifier.weight(1f)) {
+                            Text(if (paused) "Resume" else "Pause")
+                        }
+                    }
+                    Button(onClick = onFinish, modifier = Modifier.weight(1f)) {
+                        Text(if (timed) "Finish Leg Now" else "Finish")
+                    }
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
