@@ -206,6 +206,7 @@ import com.erv.app.workouts.attachSectionHeartRateToLiftLogs
 import com.erv.app.workouts.canAddSessionSet
 import com.erv.app.workouts.countdownSeconds
 import com.erv.app.workouts.cardioSessionFor
+import com.erv.app.workouts.WorkoutSessionCardioCues
 import com.erv.app.workouts.sessionCardioItemElapsedSeconds
 import com.erv.app.workouts.sessionLapSplits
 import com.erv.app.workouts.sessionLapsFor
@@ -857,6 +858,9 @@ fun WorkoutLiveRunScreen(
     var clockTick by remember { mutableIntStateOf(0) }
     val countdownEnd = if (plan != null) activeRun?.sessionCountdownEndsAtEpochSeconds(plan) else null
     val awaitingStart = activeRun?.sessionStepAwaitingStart == true
+    // Spoken and buzzed cues on cardio legs: route splits, laps, each interval leg, 3-2-1.
+    val cardioCuesOn by userPreferences.workoutSessionCardioCues.collectAsState(initial = true)
+    val cuePlayer = rememberSessionCardioCuePlayer()
     LaunchedEffect(session?.stepIndex, activeRun?.sessionStepStartedAtEpochSeconds, awaitingStart, clockTick) {
         val step = currentStep ?: return@LaunchedEffect
         val clocked = step is WorkoutSessionStep.Rest || step is WorkoutSessionStep.StretchHold ||
@@ -877,6 +881,14 @@ fun WorkoutLiveRunScreen(
         // One beep a second over the last five seconds of a rest.
         if (end != null && step is WorkoutSessionStep.Rest && restCountdownSound && (end - now) in 1..5) {
             playHiitWorkCountdownTickCue(appContext)
+        }
+        // A timed cardio leg: 3-2-1 beeps before it ends, and "Halfway" on a long one.
+        if (cardioCuesOn && step is WorkoutSessionStep.CardioLeg && step.cardioRoutineId == null &&
+            activeRun?.activeSessionPause() == null
+        ) {
+            if (end != null && (end - now) in 1..3) cuePlayer.tick()
+            val half = WorkoutSessionCardioCues.halfwaySecond(step)
+            if (half != null && activeRun?.sessionStepElapsedSeconds(now) == half) cuePlayer.say("Halfway")
         }
         delay(1_000L)
         clockTick++
@@ -935,6 +947,45 @@ fun WorkoutLiveRunScreen(
     val liveRoute = if (recordingGpsKey != null && CardioGpsRecordingHub.sessionKey() == recordingGpsKey) hubPoints else null
     val liveGpsLine = liveRoute?.let { sessionGpsLiveLine(it, distanceUnit) }
     val liveCardioStats = liveRoute?.let { sessionCardioLiveStats(it, distanceUnit, sessionSplitMeters) }.orEmpty()
+
+    // Cue each new route split, lap and interval leg once. The first look after a restart only
+    // counts what is there, so nothing already said is said again.
+    fun cueBpm(): Int? = heartRateBle.displayBpm.value?.takeIf { it > 0 }
+    val cueLeg = (currentStep as? WorkoutSessionStep.CardioLeg)
+        ?.takeIf { it.cardioRoutineId == null && !awaitingStart && !isComplete }
+    val routeSplits = remember(liveRoute, sessionSplitMeters) {
+        val meters = sessionSplitMeters
+        if (meters == null || liveRoute == null) emptyList() else CardioGpsSplits.fromTrack(liveRoute, meters)
+    }
+    var cuedSplitCount by remember(recordingGpsKey) { mutableStateOf<Int?>(null) }
+    LaunchedEffect(routeSplits.size, recordingGpsKey) {
+        val seen = cuedSplitCount
+        cuedSplitCount = routeSplits.size
+        if (seen != null && routeSplits.size > seen && cardioCuesOn) {
+            cuePlayer.say(WorkoutSessionCardioCues.splitCue(routeSplits.last(), distanceUnit, cueBpm()))
+        }
+    }
+    val cueLaps = cueLeg?.let { leg -> activeRun?.sessionLapsFor(leg.segmentId, leg.itemId) }.orEmpty()
+    var cuedLapCount by remember(cueLeg?.segmentId, cueLeg?.itemId) { mutableStateOf<Int?>(null) }
+    LaunchedEffect(cueLaps.size, cueLeg?.itemId) {
+        val seen = cuedLapCount
+        cuedLapCount = cueLaps.size
+        if (seen != null && cueLaps.size > seen && cardioCuesOn) {
+            val last = cueLaps.last()
+            val before = cueLaps.getOrNull(cueLaps.size - 2)?.elapsedSeconds ?: 0
+            cuePlayer.say(WorkoutSessionCardioCues.lapCue(cueLaps.size, last.elapsedSeconds - before, cueBpm()))
+        }
+    }
+    var cuedLegStep by remember { mutableStateOf<Int?>(null) }
+    LaunchedEffect(session?.stepIndex, cueLeg != null) {
+        val leg = cueLeg ?: return@LaunchedEffect
+        val index = session?.stepIndex ?: return@LaunchedEffect
+        if (cuedLegStep == index) return@LaunchedEffect
+        cuedLegStep = index
+        // Only a leg that just started, not one picked up again after a restart.
+        val elapsed = activeRun?.sessionStepElapsedSeconds(nowWorkoutEpochSeconds()) ?: 0
+        if (cardioCuesOn && elapsed <= 3) WorkoutSessionCardioCues.legStartCue(leg)?.let(cuePlayer::say)
+    }
 
     /** Start on a cardio or stretch step; a new cardio item starts its own heart rate summary. */
     fun startStep(step: WorkoutSessionStep) {
@@ -1607,6 +1658,12 @@ fun WorkoutLiveRunScreen(
                                             !locationGranted -> "GPS off: location not allowed"
                                             liveGpsLine == null -> "GPS: waiting for a fix"
                                             else -> null
+                                        },
+                                        cueControls = {
+                                            SessionCueSwitch(
+                                                on = cardioCuesOn,
+                                                onToggle = { on -> scope.launch { userPreferences.setWorkoutSessionCardioCues(on) } },
+                                            )
                                         },
                                         gpsControls = {
                                             if (gpsAvailable) {
@@ -2666,6 +2723,17 @@ private fun sessionGpsLiveLine(points: List<CardioGpsPoint>, unit: CardioDistanc
 }
 
 /** Before Start on an outdoor cardio leg: record the route or not, and the location prompt. */
+@Composable
+private fun SessionCueSwitch(on: Boolean, onToggle: (Boolean) -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        FieldLabel("Voice and vibration cues", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+        Switch(checked = on, onCheckedChange = onToggle)
+    }
+}
+
 @Composable
 private fun SessionGpsControls(
     on: Boolean,
