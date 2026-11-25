@@ -3,6 +3,7 @@
  * targets instead of doing arithmetic on raw logs. All loads are in the athlete's unit.
  */
 
+import type { BodyWeightEntry } from "./bodyWeight";
 import { kgToLb, type BodyWeightUnit } from "./fitnessEquipment";
 import {
   addDays,
@@ -338,6 +339,49 @@ export function buildWeeklySetsByMuscle(input: {
     .map((row) => ({ muscleGroup: row.muscleGroup, setsPerWeek: round1(row.setCount / weeks) }))
     .filter((row) => row.setsPerWeek > 0)
     .sort((a, b) => b.setsPerWeek - a.setsPerWeek);
+}
+
+export type BodyWeightFact = {
+  unit: "lb" | "kg";
+  latest: { date: string; weight: number };
+  entriesInPeriod: number;
+  changeOverPeriod: number | null;
+  /** Newest first: average weight for each recent 7-day week that has an entry. */
+  weeklyAverages: { weekEnd: string; average: number; entries: number }[];
+};
+
+/** Body weight trend for the period, or null when nothing was logged. */
+export function buildBodyWeightTrend(input: {
+  entries: BodyWeightEntry[];
+  today: string;
+  periodStart: string | null;
+  unit: BodyWeightUnit;
+}): BodyWeightFact | null {
+  const start = input.periodStart ?? "0000-01-01";
+  const inPeriod = input.entries
+    .filter((entry) => entry.date >= start && entry.date <= input.today)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  if (inPeriod.length === 0) return null;
+  const toUnit = (kg: number) => round1(input.unit === "KG" ? kg : kgToLb(kg));
+  const latest = inPeriod[inPeriod.length - 1];
+  const weekCount = weeksInPeriod(input.today, input.periodStart);
+  const weeklyAverages: BodyWeightFact["weeklyAverages"] = [];
+  for (let index = 0; index < weekCount; index += 1) {
+    const weekEnd = addDays(input.today, -7 * index);
+    const weekStart = addDays(weekEnd, -6);
+    const week = inPeriod.filter((entry) => entry.date >= weekStart && entry.date <= weekEnd);
+    if (week.length === 0) continue;
+    const average = week.reduce((sum, entry) => sum + entry.weightKg, 0) / week.length;
+    weeklyAverages.push({ weekEnd, average: toUnit(average), entries: week.length });
+  }
+  return {
+    unit: input.unit === "KG" ? "kg" : "lb",
+    latest: { date: latest.date, weight: toUnit(latest.weightKg) },
+    entriesInPeriod: inPeriod.length,
+    changeOverPeriod:
+      inPeriod.length >= 2 ? round1(toUnit(latest.weightKg) - toUnit(inPeriod[0].weightKg)) : null,
+    weeklyAverages,
+  };
 }
 
 function weeksInPeriod(today: string, periodStart: string | null, cap = MAX_WEEKS): number {

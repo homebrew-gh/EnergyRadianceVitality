@@ -8,7 +8,12 @@ import {
   type BodyWeightUnit,
   type FitnessEquipmentPayload,
 } from "./fitnessEquipment";
-import { buildLiftFacts, buildWeeklySetsByMuscle, buildWeeklyTraining } from "./coachFacts";
+import {
+  buildBodyWeightTrend,
+  buildLiftFacts,
+  buildWeeklySetsByMuscle,
+  buildWeeklyTraining,
+} from "./coachFacts";
 import {
   buildTrainingContextJson,
   STYLE_PRESET_AI_HINTS,
@@ -111,6 +116,13 @@ export function buildAnalysisContext(
       today,
       periodStart: start,
     });
+    const bodyWeight = buildBodyWeightTrend({
+      entries: input.bodyWeights ?? [],
+      today,
+      periodStart: start,
+      unit,
+    });
+    if (bodyWeight) context.bodyWeight = bodyWeight;
     context.equipment = equipmentForReview(input.equipment, unit);
     context.progressionGuardrails = guardrailsForReview(
       base.progressionGuardrails as ProgressionGuardrailContext | undefined,

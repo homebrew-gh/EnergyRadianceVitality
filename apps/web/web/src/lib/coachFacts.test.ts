@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { buildLiftFacts, buildWeeklySetsByMuscle, buildWeeklyTraining } from "./coachFacts";
+import { parseBodyWeightLogs } from "./bodyWeight";
+import {
+  buildBodyWeightTrend,
+  buildLiftFacts,
+  buildWeeklySetsByMuscle,
+  buildWeeklyTraining,
+} from "./coachFacts";
 import { lbToKg } from "./fitnessEquipment";
 import type { WeightDayLog, WeightSet } from "./trainingHistory";
 import type { WeightExercise } from "./weightTraining";
@@ -141,5 +147,45 @@ describe("weekly facts", () => {
       { muscleGroup: "Chest", setsPerWeek: 2.3 },
       { muscleGroup: "Legs", setsPerWeek: 1.5 },
     ]);
+  });
+});
+
+describe("buildBodyWeightTrend", () => {
+  it("reports the latest weight, change and weekly averages in pounds", () => {
+    const trend = buildBodyWeightTrend({
+      entries: [
+        { date: "2026-10-01", weightKg: lbToKg(190) },
+        { date: "2026-11-01", weightKg: lbToKg(186) },
+        { date: "2026-11-19", weightKg: lbToKg(184) },
+        { date: "2026-11-23", weightKg: lbToKg(183) },
+      ],
+      today: "2026-11-24",
+      periodStart: "2026-10-28",
+      unit: "LB",
+    });
+    expect(trend).toMatchObject({
+      unit: "lb",
+      latest: { date: "2026-11-23", weight: 183 },
+      entriesInPeriod: 3,
+      changeOverPeriod: -3,
+    });
+    expect(trend?.weeklyAverages[0]).toEqual({ weekEnd: "2026-11-24", average: 183.5, entries: 2 });
+  });
+
+  it("returns null when nothing was logged in the period", () => {
+    expect(
+      buildBodyWeightTrend({ entries: [], today: "2026-11-24", periodStart: null, unit: "LB" }),
+    ).toBeNull();
+  });
+});
+
+describe("parseBodyWeightLogs", () => {
+  it("reads weights from body tracker day logs only", () => {
+    const parsed = parseBodyWeightLogs([
+      { event_id: "1", d_tag: "erv/body_tracker/2026-11-23", ciphertext: "", plaintext: JSON.stringify({ date: "2026-11-23", weightKg: 83 }) },
+      { event_id: "2", d_tag: "erv/body_tracker/2026-11-22", ciphertext: "", plaintext: JSON.stringify({ date: "2026-11-22", weightKg: null }) },
+      { event_id: "3", d_tag: "erv/body_tracker/settings", ciphertext: "", plaintext: "{}" },
+    ]);
+    expect(parsed).toEqual([{ date: "2026-11-23", weightKg: 83 }]);
   });
 });
