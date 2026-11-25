@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import type { LibraryItemKind } from "../components/LibrarySidebar";
 import { RoutineBuilderLayout } from "../components/RoutineBuilderLayout";
@@ -68,6 +68,13 @@ import {
   WORKOUT_SEGMENT_TEMPLATES,
 } from "../lib/segmentTemplates";
 import { PageHeader } from "../components/PageHeader";
+import {
+  canRedo,
+  canUndo,
+  initialWorkoutEditorState,
+  withStableIds,
+  workoutEditorReducer,
+} from "../lib/workoutEditor";
 
 const WORKOUT_COMPOSER_FORM_ID = "workout-composer-form";
 
@@ -110,16 +117,6 @@ function publishStateChipClass(state: WorkoutPublishState): string {
   return state === "published"
     ? "rounded-pill bg-[var(--erv-primary-container)] px-2 py-0.5 text-[11px] font-semibold text-heading"
     : "rounded-pill border border-[var(--erv-error)] px-2 py-0.5 text-[11px] font-semibold text-[var(--erv-error)]";
-}
-
-function moveSegment(segments: WorkoutSegment[], from: number, to: number): WorkoutSegment[] {
-  if (from === to || from < 0 || to < 0 || from >= segments.length || to >= segments.length) {
-    return segments;
-  }
-  const next = [...segments];
-  const [item] = next.splice(from, 1);
-  next.splice(to, 0, item!);
-  return next;
 }
 
 export function WorkoutsTab() {
@@ -176,9 +173,18 @@ export function WorkoutsTab() {
       delete next[id];
       return next;
     });
-  const [name, setName] = useState("");
-  const [segments, setSegments] = useState<WorkoutSegment[]>([]);
-  const [activeSegmentIndex, setActiveSegmentIndex] = useState<number | null>(null);
+  // The open draft: its name and segments, the segment the library adds to, and undo history.
+  const [editor, dispatch] = useReducer(workoutEditorReducer, undefined, () =>
+    initialWorkoutEditorState(),
+  );
+  const { name, segments } = editor.draft;
+  const setName = (next: string) => dispatch({ type: "rename", name: next, atMs: Date.now() });
+  /** Open [nextSegments] as a fresh draft (no undo history); returns them with ids filled in. */
+  const loadDraft = useCallback((nextName: string, nextSegments: WorkoutSegment[], scope: string) => {
+    const withIds = withStableIds(copySegments(nextSegments), scope);
+    dispatch({ type: "load", name: nextName, segments: withIds });
+    return withIds;
+  }, []);
   const [importOpen, setImportOpen] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -212,14 +218,12 @@ export function WorkoutsTab() {
     if (stored) {
       setEditingId(stored.editingId);
       if (stored.editingId == null && stored.draftId) setNewDraftId(stored.draftId);
-      setName(stored.name);
-      setSegments(copySegments(stored.segments));
-      setActiveSegmentIndex(stored.segments.length > 0 ? 0 : null);
+      loadDraft(stored.name, stored.segments, stored.editingId ?? stored.draftId ?? "draft");
       setDraftBaseline(stored.baseline);
       setSuccess("Restored your unpublished workout draft from this browser.");
     }
     setDraftRestored(true);
-  }, [draftAccountKey]);
+  }, [draftAccountKey, loadDraft]);
 
   // Keep the draft in this browser while it has unpublished changes: the open one (to reopen it
   // after a reload) and in the drafts list (so switching workouts keeps it).
@@ -249,23 +253,9 @@ export function WorkoutsTab() {
   const hasDraftContent = name.trim().length > 0 || segments.length > 0;
 
   const catalogExercises = exercises;
-  const activeSegmentIndexResolved =
-    activeSegmentIndex ?? (segments.length > 0 ? 0 : null);
   const activeSegment =
-    activeSegmentIndexResolved != null
-      ? segments[activeSegmentIndexResolved] ?? null
-      : null;
-
-  useEffect(() => {
-    if (segments.length === 0) {
-      if (activeSegmentIndex != null) setActiveSegmentIndex(null);
-      return;
-    }
-    if (activeSegmentIndex == null || activeSegmentIndex >= segments.length) {
-      setActiveSegmentIndex(0);
-    }
-  }, [activeSegmentIndex, segments.length]);
-  const catalogPickEnabled = activeSegmentIndexResolved != null;
+    segments.find((segment) => segment.id === editor.activeSegmentId) ?? null;
+  const catalogPickEnabled = activeSegment != null;
   const pulseSegmentTypes = segments.length === 0;
   const libraryKinds = useMemo((): LibraryItemKind[] => {
     if (!activeSegment) return ["weight"];
@@ -304,9 +294,7 @@ export function WorkoutsTab() {
   const resetForm = () => {
     setEditingId(null);
     setNewDraftId(crypto.randomUUID());
-    setName("");
-    setSegments([]);
-    setActiveSegmentIndex(null);
+    loadDraft("", [], "draft");
     setFormError(null);
     setDraftBaseline(EMPTY_DRAFT_FINGERPRINT);
   };
@@ -329,15 +317,16 @@ export function WorkoutsTab() {
   const openWorkout = (row: WorkoutLibraryRow, notice: string | null = keptDraftNotice()) => {
     const source = row.draft ?? row.published;
     if (!source) return;
-    const segmentsCopy = copySegments(source.segments);
     setEditingId(row.published ? row.id : null);
     if (!row.published) setNewDraftId(row.id);
-    setName(source.name);
-    setSegments(segmentsCopy);
-    setActiveSegmentIndex(segmentsCopy.length > 0 ? 0 : null);
+    loadDraft(source.name, source.segments, row.id);
+    // Ids are filled in the same way as the draft's, so an unchanged workout is not "changed".
     setDraftBaseline(
       row.published
-        ? workoutDraftFingerprint(row.published.name, copySegments(row.published.segments))
+        ? workoutDraftFingerprint(
+            row.published.name,
+            withStableIds(copySegments(row.published.segments), row.id),
+          )
         : EMPTY_DRAFT_FINGERPRINT,
     );
     setFormError(null);
@@ -405,47 +394,39 @@ export function WorkoutsTab() {
   };
 
   const addSegment = (kind: WorkoutSegmentKind) => {
-    setSegments((prev) => {
-      const next = [...prev, newSegment(kind)];
-      setActiveSegmentIndex(next.length - 1);
-      return next;
-    });
+    dispatch({ type: "addSegment", segment: newSegment(kind) });
   };
 
   const addSegmentTemplate = (templateId: string) => {
     const template = WORKOUT_SEGMENT_TEMPLATES.find((t) => t.id === templateId);
     if (!template) return;
-    setSegments((prev) => {
-      const next = [...prev, instantiateSegmentTemplate(template)];
-      setActiveSegmentIndex(next.length - 1);
-      return next;
-    });
+    dispatch({ type: "addSegment", segment: instantiateSegmentTemplate(template) });
   };
 
-  const updateSegment = (index: number, segment: WorkoutSegment) => {
-    setSegments((prev) => prev.map((s, i) => (i === index ? segment : s)));
+  const updateSegment = (segmentId: string, segment: WorkoutSegment) => {
+    dispatch({ type: "updateSegment", segmentId, segment, atMs: Date.now() });
   };
 
-  const removeSegment = (index: number) => {
-    setSegments((prev) => prev.filter((_, i) => i !== index));
-    setActiveSegmentIndex((prev) => {
-      if (prev == null) return null;
-      if (prev === index) return null;
-      if (prev > index) return prev - 1;
-      return prev;
-    });
-  };
+  const undo = () => dispatch({ type: "undo" });
+  const redo = () => dispatch({ type: "redo" });
+  const undoAvailable = canUndo(editor);
+  const redoAvailable = canRedo(editor);
 
-  const moveSegmentByIndex = (from: number, to: number) => {
-    setSegments((prev) => moveSegment(prev, from, to));
-    setActiveSegmentIndex((prev) => {
-      if (prev == null) return null;
-      if (prev === from) return to;
-      if (from < prev && to >= prev) return prev - 1;
-      if (from > prev && to <= prev) return prev + 1;
-      return prev;
-    });
-  };
+  // Ctrl+Z (Cmd+Z on a Mac) undoes the last change to the draft; Ctrl+Shift+Z or Ctrl+Y redoes.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+      const key = event.key.toLowerCase();
+      const isUndo = key === "z" && !event.shiftKey;
+      const isRedo = (key === "z" && event.shiftKey) || key === "y";
+      if (!isUndo && !isRedo) return;
+      if (importOpen) return;
+      event.preventDefault();
+      dispatch({ type: isUndo ? "undo" : "redo" });
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [importOpen]);
 
   useEffect(() => {
     if (!pickNotice) return;
@@ -453,15 +434,19 @@ export function WorkoutsTab() {
     return () => window.clearTimeout(timer);
   }, [pickNotice]);
 
+  /** A library pick is its own undo step, never merged with typing in the segment. */
+  const pickIntoSegment = (segmentId: string, segment: WorkoutSegment) => {
+    dispatch({ type: "updateSegment", segmentId, segment, atMs: Date.now(), separate: true });
+  };
+
   const addCatalogPick = (kind: LibraryItemKind, id: string) => {
     setPickNotice(null);
-    const index = activeSegmentIndexResolved;
-    if (index == null) {
+    const segment = activeSegment;
+    if (!segment?.id) {
       setFormError("Add a segment first, then pick items from the library.");
       return;
     }
-    const segment = segments[index];
-    if (!segment) return;
+    const segmentId = segment.id;
 
     if (kind === "weight") {
       const exercise = catalogExercises.find((ex) => ex.id === id);
@@ -476,7 +461,7 @@ export function WorkoutsTab() {
       if (suggested != null) {
         item.prescription = applyTargetWeightToPrescription(item.prescription, suggested);
       }
-      updateSegment(index, {
+      pickIntoSegment(segmentId, {
         ...segment,
         items: [...segmentItems(segment), item],
       });
@@ -487,7 +472,7 @@ export function WorkoutsTab() {
         setPickNotice("That stretch is already in this segment.");
         return;
       }
-      updateSegment(index, {
+      pickIntoSegment(segmentId, {
         ...segment,
         items: [...segmentItems(segment), newMobilityItem(id)],
       });
@@ -498,7 +483,7 @@ export function WorkoutsTab() {
         setPickNotice("That activity is already in this segment.");
         return;
       }
-      updateSegment(index, {
+      pickIntoSegment(segmentId, {
         ...segment,
         items: [
           ...segmentItems(segment),
@@ -537,7 +522,7 @@ export function WorkoutsTab() {
       createdAtEpochSeconds: 0,
     };
     const updated = applyBaselineLoadsToWorkout(draft, snapshot, incrementKg, weightLoadUnit);
-    setSegments(updated.segments);
+    dispatch({ type: "replaceSegments", segments: updated.segments });
     setSuccess(
       incrementKg > 0
         ? `Applied baseline loads + ${formatWeightLoadNumber(incrementKg, weightLoadUnit)} ${weightLoadUnitSuffix(weightLoadUnit)} progress to weight items.`
@@ -604,12 +589,10 @@ export function WorkoutsTab() {
       const wasPublished = publishedWorkout != null;
       await saveWorkouts(upsertWorkout(workouts, workout));
       // Keep the editor open on what was just published, with nothing left unpublished.
-      const publishedSegments = copySegments(normalizedSegments);
       removeDraft(workout.id);
       clearStoredWorkoutDraft(draftAccountKey);
       setEditingId(workout.id);
-      setName(trimmed);
-      setSegments(publishedSegments);
+      const publishedSegments = loadDraft(trimmed, normalizedSegments, workout.id);
       setDraftBaseline(workoutDraftFingerprint(trimmed, publishedSegments));
       setSuccess(
         wasPublished
@@ -741,9 +724,7 @@ export function WorkoutsTab() {
             await saveWorkouts(mergeImportedWorkouts(workouts, imported));
             const updated = imported.find((workout) => workout.id === editingId);
             if (updated) {
-              const updatedSegments = copySegments(updated.segments);
-              setName(updated.name);
-              setSegments(updatedSegments);
+              const updatedSegments = loadDraft(updated.name, updated.segments, updated.id);
               setDraftBaseline(workoutDraftFingerprint(updated.name, updatedSegments));
             }
             setFormError(null);
@@ -827,7 +808,27 @@ export function WorkoutsTab() {
                   the library.
                 </p>
               </div>
-              <span className="sun-chip">{activeSegmentLabel}</span>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  className="btn-ghost px-3 py-1 text-xs"
+                  onClick={undo}
+                  disabled={!undoAvailable}
+                  title="Undo (Ctrl+Z)"
+                >
+                  Undo
+                </button>
+                <button
+                  type="button"
+                  className="btn-ghost px-3 py-1 text-xs"
+                  onClick={redo}
+                  disabled={!redoAvailable}
+                  title="Redo (Ctrl+Shift+Z)"
+                >
+                  Redo
+                </button>
+                <span className="sun-chip">{activeSegmentLabel}</span>
+              </div>
             </div>
             {pickNotice ? (
               <p className="mt-2 text-sm text-[var(--erv-error)]" role="status">
@@ -933,33 +934,24 @@ export function WorkoutsTab() {
               <ReorderableList
                 items={segments}
                 getKey={(segment, index) => segment.id ?? String(index)}
-                onReorder={(ordered) => {
-                  setSegments(ordered);
-                  setActiveSegmentIndex((prev) => {
-                    if (prev == null) return null;
-                    const activeId = segments[prev]?.id;
-                    if (activeId == null) return prev;
-                    const nextIndex = ordered.findIndex((s) => s.id === activeId);
-                    return nextIndex >= 0 ? nextIndex : null;
-                  });
-                }}
+                onReorder={(ordered) => dispatch({ type: "replaceSegments", segments: ordered })}
                 className="space-y-3"
                 renderItem={(segment, index) => (
                   <WorkoutSegmentEditor
                     segment={segment}
                     segmentIndex={index}
-                    isActive={activeSegmentIndexResolved === index}
+                    isActive={segment.id === editor.activeSegmentId}
                     catalogExercises={catalogExercises}
                     stretchCatalog={catalogs.stretch}
                     cardioCatalog={catalogs.cardio}
                     cardioRoutines={cardioRoutines}
                     trainingSnapshot={snapshot}
                     weightLoadUnit={weightLoadUnit}
-                    onSelect={() => setActiveSegmentIndex(index)}
-                    onUpdate={(updated) => updateSegment(index, updated)}
-                    onRemove={() => removeSegment(index)}
-                    onMoveUp={() => moveSegmentByIndex(index, index - 1)}
-                    onMoveDown={() => moveSegmentByIndex(index, index + 1)}
+                    onSelect={() => dispatch({ type: "selectSegment", segmentId: segment.id ?? null })}
+                    onUpdate={(updated) => updateSegment(segment.id!, updated)}
+                    onRemove={() => dispatch({ type: "removeSegment", segmentId: segment.id! })}
+                    onMoveUp={() => dispatch({ type: "moveSegment", from: index, to: index - 1 })}
+                    onMoveDown={() => dispatch({ type: "moveSegment", from: index, to: index + 1 })}
                     canMoveUp={index > 0}
                     canMoveDown={index < segments.length - 1}
                   />
