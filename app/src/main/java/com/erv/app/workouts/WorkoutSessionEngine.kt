@@ -65,6 +65,8 @@ sealed class WorkoutSessionStep {
         val hrTargetBpm: Int? = null,
         /** Set when the item runs a saved cardio routine, which the screen resolves itself. */
         val cardioRoutineId: String? = null,
+        /** A distance leg: it ends when the route covers this, and counts up until then. */
+        val targetMeters: Double? = null,
     ) : WorkoutSessionStep()
 
     /** One stretch hold; a per-side stretch is two holds, left then right. */
@@ -476,7 +478,13 @@ private fun MutableList<WorkoutSessionStep>.addCardioLegs(
     item: WorkoutItem.Cardio,
 ) {
     val cardio = item.cardio
-    data class Leg(val seconds: Int?, val recovery: Boolean, val label: String? = null, val hr: Int? = null)
+    data class Leg(
+        val seconds: Int?,
+        val recovery: Boolean,
+        val label: String? = null,
+        val hr: Int? = null,
+        val meters: Double? = null,
+    )
     val routineId = cardio.cardioRoutineId?.takeIf { it.isNotBlank() }
     val legs: List<Leg> = when {
         routineId != null -> listOf(Leg(null, false))
@@ -492,19 +500,25 @@ private fun MutableList<WorkoutSessionStep>.addCardioLegs(
             }
         }
         cardio.mode.equals("interval_template", ignoreCase = true) -> {
-            val template = cardio.legs.filter { it.workSeconds > 0 }
+            val template = cardio.legs.filter { it.workSeconds > 0 || (it.distanceMeters ?: 0.0) > 0.0 }
             val outer = cardio.outerRounds?.coerceAtLeast(1) ?: 1
             buildList {
                 repeat(outer) { outerIndex ->
                     template.forEachIndexed { legIndex, leg ->
-                        add(Leg(leg.workSeconds, false, leg.label, leg.hrTargetBpm))
+                        val meters = leg.distanceMeters?.takeIf { it > 0.0 }
+                        // A distance leg counts up until the route covers it.
+                        add(Leg(if (meters != null) null else leg.workSeconds, false, leg.label, leg.hrTargetBpm, meters))
                         val last = legIndex == template.lastIndex && outerIndex == outer - 1
                         if (leg.restSeconds > 0 && !last) add(Leg(leg.restSeconds, true))
                     }
                 }
             }
         }
-        else -> listOf(Leg(cardio.targetMinutes?.takeIf { it > 0 }?.let { it * 60 }, false, hr = cardio.hrTargetBpm))
+        else -> {
+            val meters = cardio.targetDistanceMeters?.takeIf { it > 0.0 }
+            val seconds = if (meters != null) null else cardio.targetMinutes?.takeIf { it > 0 }?.let { it * 60 }
+            listOf(Leg(seconds, false, hr = cardio.hrTargetBpm, meters = meters))
+        }
     }
     legs.forEachIndexed { legIndex, leg ->
         add(
@@ -521,6 +535,7 @@ private fun MutableList<WorkoutSessionStep>.addCardioLegs(
                 label = leg.label,
                 hrTargetBpm = leg.hr,
                 cardioRoutineId = routineId,
+                targetMeters = leg.meters,
             ),
         )
     }
