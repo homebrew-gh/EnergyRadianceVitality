@@ -74,8 +74,11 @@ enum class WorkoutCardioLogField {
 
 @Serializable
 data class WorkoutCardioIntervalLeg(
+    /** 0 for a leg run to [distanceMeters] instead of for a time. */
     val workSeconds: Int,
     val restSeconds: Int = 0,
+    /** A distance leg (8 x 400 m), from the web builder; the session screen ends it on the route. */
+    val distanceMeters: Double? = null,
     val label: String? = null,
     val hrTargetBpm: Int? = null,
 )
@@ -85,6 +88,11 @@ data class WorkoutCardioPrescription(
     val activity: String,
     val mode: String = "steady",
     val targetMinutes: Int? = null,
+    /** Steady: run this far; with GPS the session screen ends the leg there instead of the minutes. */
+    val targetDistanceMeters: Double? = null,
+    /** Pace band from the web builder, seconds per km: fastest and slowest. */
+    val paceTargetFastSecondsPerKm: Double? = null,
+    val paceTargetSlowSecondsPerKm: Double? = null,
     val hrTargetBpm: Int? = null,
     val hrTargetMinBpm: Int? = null,
     val hrTargetMaxBpm: Int? = null,

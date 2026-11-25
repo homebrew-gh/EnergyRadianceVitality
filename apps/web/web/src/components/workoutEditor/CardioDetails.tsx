@@ -1,5 +1,13 @@
 import type { CardioRoutine } from "../../lib/cardioTraining";
 import { cardioMode } from "../../lib/cardioRowFields";
+import {
+  distanceUnitSuffix,
+  formatCardioDistance,
+  formatPaceBand,
+  parseCardioDistance,
+  parsePaceBand,
+  type CardioDistanceUnit,
+} from "../../lib/cardioDistance";
 import { formatClock, parseClock } from "../../lib/liftRowFields";
 import {
   addIntervalLeg,
@@ -26,15 +34,19 @@ const LOG_FIELDS: { value: WorkoutCardioLogField; label: string }[] = [
 export function CardioDetails({
   cardio,
   cardioRoutines,
+  distanceUnit,
   onChange,
 }: {
   cardio: WorkoutCardioPrescription;
   cardioRoutines: CardioRoutine[];
+  /** Miles unless the athlete weighs in kilograms. */
+  distanceUnit: CardioDistanceUnit;
   /** `separate` false lets quick typing (a zone name) merge into one undo step. */
   onChange: (cardio: WorkoutCardioPrescription, separate?: boolean) => void;
 }) {
   const mode = cardioMode(cardio);
   const legs = cardio.legs?.length ? cardio.legs : [DEFAULT_INTERVAL_LEG];
+  const unit = distanceUnitSuffix(distanceUnit);
 
   return (
     <div className="space-y-3 rounded-card border border-[var(--erv-outline-variant)] bg-[var(--erv-surface)] p-3">
@@ -84,6 +96,46 @@ export function CardioDetails({
       </div>
 
       {mode === "steady" && !cardio.cardioRoutineId ? (
+        <div className="grid gap-3 md:grid-cols-2">
+          <label className="block space-y-1 text-xs">
+            <span>
+              <FieldLabel>Target distance</FieldLabel> ({unit})
+            </span>
+            <CellInput
+              value={formatCardioDistance(cardio.targetDistanceMeters, distanceUnit)}
+              ariaLabel="Target distance"
+              placeholder="–"
+              inputMode="text"
+              onCommit={(text) => {
+                const meters = parseCardioDistance(text, distanceUnit);
+                if (meters !== undefined) onChange({ ...cardio, targetDistanceMeters: meters });
+              }}
+            />
+            <span className="block text-muted">
+              With GPS on, the phone ends the run at this distance instead of the minutes. 400m and 5k work too.
+            </span>
+          </label>
+          <label className="block space-y-1 text-xs">
+            <span>
+              <FieldLabel>Target pace</FieldLabel> (per {unit})
+            </span>
+            <CellInput
+              value={formatPaceBand(cardio.paceTargetFastSecondsPerKm, cardio.paceTargetSlowSecondsPerKm, distanceUnit)}
+              ariaLabel="Target pace"
+              placeholder="9:30-10:00"
+              inputMode="text"
+              onCommit={(text) => {
+                const band = parsePaceBand(text, distanceUnit);
+                if (band)
+                  onChange({ ...cardio, paceTargetFastSecondsPerKm: band.fast, paceTargetSlowSecondsPerKm: band.slow });
+              }}
+            />
+            <span className="block text-muted">Shown on the phone while you run. One pace or a range.</span>
+          </label>
+        </div>
+      ) : null}
+
+      {mode === "steady" && !cardio.cardioRoutineId ? (
         <fieldset className="text-xs">
           <legend className="text-muted">
             <FieldLabel>Log during the run</FieldLabel>
@@ -121,6 +173,9 @@ export function CardioDetails({
                 <th className="w-8 px-1 font-medium">#</th>
                 <th className="px-1 font-medium">Label</th>
                 <th className="w-24 px-1 font-medium">Work</th>
+                <th className="w-24 px-1 font-medium">
+                  <FieldLabel>Or distance</FieldLabel> ({unit})
+                </th>
                 <th className="w-24 px-1 font-medium">Rest</th>
                 <th className="w-24 px-1 font-medium">
                   <FieldLabel>Heart rate</FieldLabel>
@@ -147,7 +202,35 @@ export function CardioDetails({
                     <ClockCell
                       label={`Leg ${i + 1} work`}
                       seconds={leg.workSeconds}
-                      onSeconds={(s) => s && onChange({ ...cardio, legs: updateIntervalLeg(cardio.legs, i, { workSeconds: s }) })}
+                      onSeconds={(s) => {
+                        // A time replaces the distance; clearing it is only allowed on a distance leg.
+                        if (s) onChange({ ...cardio, legs: updateIntervalLeg(cardio.legs, i, { workSeconds: s, distanceMeters: null }) });
+                        else if (leg.distanceMeters) onChange({ ...cardio, legs: updateIntervalLeg(cardio.legs, i, { workSeconds: 0 }) });
+                      }}
+                    />
+                  </td>
+                  <td className="px-1">
+                    <CellInput
+                      value={formatCardioDistance(leg.distanceMeters, distanceUnit)}
+                      ariaLabel={`Leg ${i + 1} distance`}
+                      placeholder="–"
+                      inputMode="text"
+                      onCommit={(text) => {
+                        const meters = parseCardioDistance(text, distanceUnit);
+                        if (meters === undefined) return;
+                        if (meters == null) {
+                          // Back to a timed leg; give it a time if it had none.
+                          onChange({
+                            ...cardio,
+                            legs: updateIntervalLeg(cardio.legs, i, {
+                              distanceMeters: null,
+                              workSeconds: leg.workSeconds > 0 ? leg.workSeconds : DEFAULT_INTERVAL_LEG.workSeconds,
+                            }),
+                          });
+                        } else {
+                          onChange({ ...cardio, legs: updateIntervalLeg(cardio.legs, i, { distanceMeters: meters, workSeconds: 0 }) });
+                        }
+                      }}
                     />
                   </td>
                   <td className="px-1">

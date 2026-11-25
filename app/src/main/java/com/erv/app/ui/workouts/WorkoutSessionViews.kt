@@ -906,6 +906,10 @@ internal fun WorkoutSessionCardioCard(
     onLap: (() -> Unit)? = null,
     /** The voice cues switch, before Start and while the leg runs. */
     cueControls: @Composable () -> Unit = {},
+    /** "1 mi" for a distance leg, in the athlete's unit. */
+    targetDistance: String? = null,
+    /** "9:30–10:00 /mi" when the builder set a pace band. */
+    paceTarget: String? = null,
 ) {
     val timed = (step.targetSeconds ?: 0) > 0
     Card(
@@ -925,14 +929,21 @@ internal fun WorkoutSessionCardioCard(
         ) {
             Text(title, style = MaterialTheme.typography.titleLarge)
             val legLine = when {
+                step.legCount <= 1 && targetDistance != null -> targetDistance
                 step.legCount <= 1 -> step.targetSeconds?.let { "${formatStepSeconds(it)} steady" } ?: "Open-ended"
                 step.isRecovery -> "Recovery · leg ${step.legIndex + 1} of ${step.legCount}"
-                else -> listOfNotNull(step.label?.takeIf { it.isNotBlank() }, "Leg ${step.legIndex + 1} of ${step.legCount}")
-                    .joinToString(" · ")
+                else -> listOfNotNull(
+                    step.label?.takeIf { it.isNotBlank() },
+                    targetDistance,
+                    "Leg ${step.legIndex + 1} of ${step.legCount}",
+                ).joinToString(" · ")
             }
             Text(legLine, style = MaterialTheme.typography.titleMedium)
             heartRateTarget?.takeIf { !step.isRecovery }?.let {
                 Text("Target $it", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            paceTarget?.takeIf { !step.isRecovery }?.let {
+                Text("Target pace $it", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             sensors()
             if (awaitingStart) {

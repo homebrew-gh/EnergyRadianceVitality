@@ -39,7 +39,10 @@ export type WorkoutSegmentKind =
 export type WorkoutCardioLogField = "INCLINE" | "SPEED" | "DISTANCE" | "NOTES";
 
 export type WorkoutCardioIntervalLeg = {
+  /** 0 for a leg run to [distanceMeters] instead of for a time. */
   workSeconds: number;
+  /** A distance leg (8 x 400 m): the phone ends it when the route covers this. */
+  distanceMeters?: number | null;
   restSeconds?: number;
   label?: string | null;
   hrTargetBpm?: number | null;
@@ -49,6 +52,11 @@ export type WorkoutCardioPrescription = {
   activity: string;
   mode?: "steady" | "interval_template" | "sprint_intervals";
   targetMinutes?: number | null;
+  /** Steady: run this far (meters); the phone ends the leg there when GPS is on. */
+  targetDistanceMeters?: number | null;
+  /** Pace band, seconds per km: fastest and slowest the athlete should run. */
+  paceTargetFastSecondsPerKm?: number | null;
+  paceTargetSlowSecondsPerKm?: number | null;
   hrTargetBpm?: number | null;
   hrTargetMinBpm?: number | null;
   hrTargetMaxBpm?: number | null;
@@ -755,17 +763,21 @@ export function cardioItemSummary(
       parts.push(`${item.cardio.outerRounds} outer rounds`);
     }
     const legs = item.cardio.legs ?? [];
+    const work = (leg: WorkoutCardioIntervalLeg) =>
+      leg.distanceMeters != null && leg.distanceMeters > 0 ? `${Math.round(leg.distanceMeters)} m` : `${leg.workSeconds}s`;
     if (legs.length === 1) {
       const leg = legs[0]!;
-      parts.push(`${leg.workSeconds}s work`);
+      parts.push(`${work(leg)} work`);
       if ((leg.restSeconds ?? 0) > 0) parts.push(`${leg.restSeconds}s rest`);
     } else if (legs.length > 1) {
       parts.push(
         `${legs.length} legs: ${legs
-          .map((leg) => `${leg.workSeconds}s/${leg.restSeconds ?? 0}s`)
+          .map((leg) => `${work(leg)}/${leg.restSeconds ?? 0}s`)
           .join(", ")}`,
       );
     }
+  } else if (item.cardio.targetDistanceMeters != null && item.cardio.targetDistanceMeters > 0) {
+    parts.push(`${(item.cardio.targetDistanceMeters / 1609.344).toFixed(2).replace(/\.?0+$/, "")} mi`);
   } else if (item.cardio.targetMinutes != null && item.cardio.targetMinutes > 0) {
     parts.push(`${item.cardio.targetMinutes} min`);
   }
@@ -1068,7 +1080,10 @@ export function addIntervalLeg(
 ): WorkoutCardioIntervalLeg[] {
   const current = legs?.length ? legs : [DEFAULT_INTERVAL_LEG];
   const last = current[current.length - 1]!;
-  return [...current, { workSeconds: last.workSeconds, restSeconds: last.restSeconds }];
+  return [
+    ...current,
+    { workSeconds: last.workSeconds, restSeconds: last.restSeconds, ...(last.distanceMeters ? { distanceMeters: last.distanceMeters } : {}) },
+  ];
 }
 
 /** Removes one leg, never the last remaining one. */

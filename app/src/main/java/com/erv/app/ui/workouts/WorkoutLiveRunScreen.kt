@@ -1,5 +1,7 @@
 package com.erv.app.ui.workouts
 
+import kotlin.math.roundToInt
+import com.erv.app.workouts.WorkoutCardioPrescription
 import com.erv.app.data.coachLineFor
 import androidx.activity.compose.BackHandler
 import com.erv.app.cardio.CardioGpsSplits
@@ -976,6 +978,30 @@ fun WorkoutLiveRunScreen(
             cuePlayer.say(WorkoutSessionCardioCues.lapCue(cueLaps.size, last.elapsedSeconds - before, cueBpm()))
         }
     }
+    // A distance leg (a mile, 8 x 400 m) ends when the route covers it. Where the leg began on the
+    // route is fixed once, from the route at the leg's start.
+    val distanceLeg = cueLeg?.takeIf { (it.targetMeters ?: 0.0) > 0.0 }
+    var legStartMeters by remember(session?.stepIndex, recordingGpsKey) { mutableStateOf<Double?>(null) }
+    val legStartedAt = activeRun?.sessionStepStartedAtEpochSeconds
+    if (distanceLeg != null && liveRoute != null && legStartMeters == null && legStartedAt != null) {
+        legStartMeters = CardioGpsSplits.distanceAtEpoch(liveRoute, legStartedAt)
+    }
+    val legMeters = if (distanceLeg != null && liveRoute != null) {
+        legStartMeters?.let { start -> (CardioGpsMath.pathLengthMeters(liveRoute) - start).coerceAtLeast(0.0) }
+    } else {
+        null
+    }
+    LaunchedEffect(legMeters != null && distanceLeg != null && legMeters >= (distanceLeg.targetMeters ?: Double.MAX_VALUE)) {
+        val leg = distanceLeg ?: return@LaunchedEffect
+        val covered = legMeters ?: return@LaunchedEffect
+        if (covered < (leg.targetMeters ?: return@LaunchedEffect) || sessionPaused) return@LaunchedEffect
+        playHiitWorkSegmentEndCue(appContext)
+        RestTimerAlarm.vibrateRestOver(appContext)
+        send(WorkoutSessionEvent.TimedStepDone(stepElapsedSeconds()))
+    }
+    val distanceLegTile = distanceLeg?.targetMeters?.let { target ->
+        legMeters?.let { "To Go" to formatCardioDistanceFromMeters((target - it).coerceAtLeast(0.0), distanceUnit) }
+    }
     var cuedLegStep by remember { mutableStateOf<Int?>(null) }
     LaunchedEffect(session?.stepIndex, cueLeg != null) {
         val leg = cueLeg ?: return@LaunchedEffect
@@ -1644,9 +1670,11 @@ fun WorkoutLiveRunScreen(
                                         },
                                         paused = sessionPaused,
                                         onPauseChange = { pause -> scope.launch { repository.setSessionStepPaused(pause) } },
-                                        liveStats = liveCardioStats + listOfNotNull(
+                                        liveStats = listOfNotNull(distanceLegTile) + liveCardioStats + listOfNotNull(
                                             activeRun?.let { run -> sessionLapTile(run, step) },
                                         ),
+                                        targetDistance = step.targetMeters?.let { formatCardioDistanceFromMeters(it, distanceUnit) },
+                                        paceTarget = sessionPaceBandText(item.cardio, distanceUnit),
                                         onLap = { scope.launch { repository.markSessionLap() } },
                                         onStart = { startStep(step) },
                                         onFinish = { send(WorkoutSessionEvent.TimedStepDone(stepElapsedSeconds())) },
@@ -2775,6 +2803,19 @@ private fun sessionCardioLiveStats(
             "Split ${split.orderIndex + 1}" to formatCardioElapsedClock(split.segmentElapsedSeconds)
         },
     )
+}
+
+/** "9:30–10:00 /mi" from the builder's pace band, or null when it set none. */
+private fun sessionPaceBandText(cardio: WorkoutCardioPrescription, unit: CardioDistanceUnit): String? {
+    val perUnit = if (unit == CardioDistanceUnit.MILES) 1.609344 else 1.0
+    val suffix = if (unit == CardioDistanceUnit.MILES) "/mi" else "/km"
+    val fast = cardio.paceTargetFastSecondsPerKm?.takeIf { it > 0 }?.let { formatCardioElapsedClock((it * perUnit).roundToInt()) }
+    val slow = cardio.paceTargetSlowSecondsPerKm?.takeIf { it > 0 }?.let { formatCardioElapsedClock((it * perUnit).roundToInt()) }
+    val band = when {
+        fast != null && slow != null && fast != slow -> "$fast–$slow"
+        else -> fast ?: slow
+    } ?: return null
+    return "$band $suffix"
 }
 
 /** "Lap 3" and the time on the lap so far, once a lap has been tapped on this item. */

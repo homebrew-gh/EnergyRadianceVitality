@@ -67,6 +67,7 @@ import {
   type WorkoutWeightPrescription,
 } from "../../lib/workoutTraining";
 import { CardioDetails } from "./CardioDetails";
+import { cardioDistanceUnitFor } from "../../lib/cardioDistance";
 import { FieldLabel } from "../FieldLabel";
 import { PlateLoadHint } from "../PlateLoadHint";
 import { WeightPrescriptionFields } from "./WeightPrescriptionFields";
@@ -661,6 +662,7 @@ export function SegmentCard({
                           <CardioDetails
                             cardio={c}
                             cardioRoutines={cardioRoutines}
+                            distanceUnit={cardioDistanceUnitFor(weightLoadUnit)}
                             onChange={(cardio, separate) => setCardio(cardio, separate)}
                           />
                         </td>

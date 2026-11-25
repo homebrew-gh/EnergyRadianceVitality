@@ -845,6 +845,9 @@ function readCardioItem(
     }
   }
   assignOptionalInt(cardio, "targetMinutes", raw.cardio.targetMinutes, `${path}.cardio.targetMinutes`, ctx.issues, 1);
+  assignOptionalPositive(cardio, "targetDistanceMeters", raw.cardio.targetDistanceMeters, `${path}.cardio.targetDistanceMeters`, ctx.issues);
+  assignOptionalPositive(cardio, "paceTargetFastSecondsPerKm", raw.cardio.paceTargetFastSecondsPerKm, `${path}.cardio.paceTargetFastSecondsPerKm`, ctx.issues);
+  assignOptionalPositive(cardio, "paceTargetSlowSecondsPerKm", raw.cardio.paceTargetSlowSecondsPerKm, `${path}.cardio.paceTargetSlowSecondsPerKm`, ctx.issues);
   assignOptionalInt(cardio, "hrTargetBpm", raw.cardio.hrTargetBpm, `${path}.cardio.hrTargetBpm`, ctx.issues, 1);
   assignOptionalInt(cardio, "hrTargetMinBpm", raw.cardio.hrTargetMinBpm, `${path}.cardio.hrTargetMinBpm`, ctx.issues, 1);
   assignOptionalInt(cardio, "hrTargetMaxBpm", raw.cardio.hrTargetMaxBpm, `${path}.cardio.hrTargetMaxBpm`, ctx.issues, 1);
@@ -892,13 +895,17 @@ function readCardioItem(
           });
           return;
         }
-        const workSeconds = readPositiveInt(
-          entry.workSeconds,
-          `${path}.cardio.legs[${index}].workSeconds`,
-          ctx.issues,
-        );
+        // A distance leg may leave its time out (or 0); any other leg needs one.
+        const distance = entry.distanceMeters;
+        const distanceMeters =
+          typeof distance === "number" && Number.isFinite(distance) && distance > 0 ? distance : null;
+        const workSeconds =
+          distanceMeters != null && (entry.workSeconds == null || entry.workSeconds === 0)
+            ? 0
+            : readPositiveInt(entry.workSeconds, `${path}.cardio.legs[${index}].workSeconds`, ctx.issues);
         if (workSeconds == null) return;
         const leg: NonNullable<WorkoutCardioPrescription["legs"]>[number] = { workSeconds };
+        if (distanceMeters != null) leg.distanceMeters = distanceMeters;
         if (entry.restSeconds != null) {
           const restSeconds = readNonNegativeInt(
             entry.restSeconds,
@@ -1197,6 +1204,22 @@ function assignOptionalInt<T extends object>(
   if (value == null) return;
   const parsed = readBoundedInt(value, path, issues, min);
   if (parsed != null) target[key] = parsed as T[keyof T];
+}
+
+/** A positive number (meters, seconds per km); anything else is an issue and is left out. */
+function assignOptionalPositive<T extends object>(
+  target: T,
+  key: keyof T,
+  value: unknown,
+  path: string,
+  issues: WorkoutImportIssue[],
+) {
+  if (value == null) return;
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    issues.push({ severity: "error", path, message: "Use a number above 0." });
+    return;
+  }
+  target[key] = value as T[keyof T];
 }
 
 function assignOptionalNumber<T extends object>(
