@@ -205,6 +205,8 @@ import com.erv.app.workouts.attachSectionHeartRateToLiftLogs
 import com.erv.app.workouts.canAddSessionSet
 import com.erv.app.workouts.countdownSeconds
 import com.erv.app.workouts.cardioSessionFor
+import com.erv.app.cardio.CardioModality
+import com.erv.app.workouts.standaloneCardioDraftFor
 import com.erv.app.workouts.isSessionCardioActivity
 import com.erv.app.workouts.linkFor
 import com.erv.app.workouts.sessionCardioItemsToLog
@@ -879,7 +881,10 @@ fun WorkoutLiveRunScreen(
         runCatching { CardioBuiltinActivity.valueOf(item.cardio.activity) }.getOrNull()
             ?.let { cardioState.resolveSnapshot(it, null) }
     }
-    val gpsAvailable = gpsItem != null && cardioGpsPreferred && WorkoutSessionGps.supports(gpsActivity)
+    // A run started from Cardio indoors (treadmill, trainer) records no route.
+    val gpsIndoor = gpsItem != null &&
+        activeRun?.standaloneCardioDraftFor(gpsItem.id)?.let { it.modality != CardioModality.OUTDOOR } == true
+    val gpsAvailable = gpsItem != null && cardioGpsPreferred && !gpsIndoor && WorkoutSessionGps.supports(gpsActivity)
     val gpsWanted = gpsAvailable && gpsItem?.id !in gpsOffItemIds
     val gpsKey = if (gpsLeg != null && gpsItem != null && activeRun != null) {
         WorkoutSessionGps.keyFor(activeRun.sessionId, gpsLeg.segmentId, gpsItem.id)
@@ -914,6 +919,17 @@ fun WorkoutLiveRunScreen(
         }
         val atStep = session?.stepIndex
         scope.launch { repository.startSessionStep(atStepIndex = atStep) }
+    }
+
+    // Cardio's Start already said go: its run starts the cardio leg straight away, once.
+    var cardioAutoStarted by rememberSaveable(workoutId) { mutableStateOf(false) }
+    LaunchedEffect(workoutId, awaitingStart, currentStep) {
+        val step = currentStep as? WorkoutSessionStep.CardioLeg ?: return@LaunchedEffect
+        val run = activeRun ?: return@LaunchedEffect
+        if (cardioAutoStarted || !awaitingStart || run.workoutId != workoutId) return@LaunchedEffect
+        if (run.standaloneCardioDraftFor(step.itemId) == null || session?.records?.isNotEmpty() == true) return@LaunchedEffect
+        cardioAutoStarted = true
+        startStep(step)
     }
 
     weightSummary?.let { finished ->

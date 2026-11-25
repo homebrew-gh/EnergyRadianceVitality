@@ -170,23 +170,29 @@ fun WorkoutActiveRun.cardioSessionFor(
     gpsPoints: List<CardioGpsPoint> = emptyList(),
 ): CardioSession? {
     val builtin = runCatching { CardioBuiltinActivity.valueOf(item.activity) }.getOrNull() ?: return null
-    val snapshot = cardioState.resolveSnapshot(builtin, null)
     val seconds = item.elapsedSeconds.coerceAtLeast(0)
     val end = item.finishedAtEpochSeconds ?: nowWorkoutEpochSeconds()
-    val raw = CardioTimerSessionDraft.fromQuickSnapshot(
-        activity = snapshot,
-        modality = CardioModality.OUTDOOR,
-        treadmill = null,
-        title = item.title ?: snapshot.displayLabel,
-    ).toSession(
+    // Started from Cardio: its own draft, so indoor, treadmill and ruck pack carry through.
+    val standaloneDraft = standaloneCardioDraftFor(item.itemId)
+    val draft = standaloneDraft ?: run {
+        val snapshot = cardioState.resolveSnapshot(builtin, null)
+        CardioTimerSessionDraft.fromQuickSnapshot(
+            activity = snapshot,
+            modality = CardioModality.OUTDOOR,
+            treadmill = null,
+            title = item.title ?: snapshot.displayLabel,
+        )
+    }
+    val raw = draft.toSession(
         durationMinutes = ((seconds + 59) / 60).coerceAtLeast(1),
         endEpoch = end,
         elapsedSecondsForDistance = seconds,
-        gpsPoints = gpsPoints,
+        // An indoor effort has no route, whatever the phone picked up.
+        gpsPoints = if (draft.modality == CardioModality.OUTDOOR) gpsPoints else emptyList(),
     )
     return raw.copy(
         startEpochSeconds = item.startedAtEpochSeconds ?: (end - seconds),
-        routineName = item.title,
+        routineName = if (standaloneDraft != null) standaloneDraft.routineName else item.title,
         workoutLink = linkFor(item.segmentId, item.itemId),
     )
 }

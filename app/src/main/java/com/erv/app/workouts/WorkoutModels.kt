@@ -1,6 +1,7 @@
 package com.erv.app.workouts
 
 import com.erv.app.cardio.CardioHrScaffolding
+import com.erv.app.cardio.CardioTimerSessionDraft
 import com.erv.app.weighttraining.WeightSet
 import com.erv.app.weighttraining.WeightSetLoggingStyle
 import com.erv.app.weighttraining.repsShadowText
@@ -327,6 +328,14 @@ data class WorkoutStandaloneStart(
     /** The weight routine it was started from, or null for an empty workout. */
     val routineId: String? = null,
     val routineName: String? = null,
+    /**
+     * Set when Cardio's Start opened the run: the one cardio item, and the timer draft it was
+     * started from. The draft keeps what a workout's cardio item can't hold (indoor or outdoor,
+     * treadmill settings, ruck pack weight, a custom title), so the log entry matches what the
+     * cardio timer would have saved. Only on the phone; never synced.
+     */
+    val cardioItemId: String? = null,
+    val cardioDraft: CardioTimerSessionDraft? = null,
 )
 
 fun WorkoutActiveRun.isStarted(): Boolean = startedAtEpochSeconds != null
