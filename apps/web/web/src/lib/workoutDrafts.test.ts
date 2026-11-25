@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   draftDiffersFromPublished,
+  foldLegacyWorkoutDraft,
   workoutDraftFingerprint,
   workoutLibraryRows,
   workoutPublishStateLabel,
@@ -62,5 +63,27 @@ describe("workout drafts", () => {
     expect(workoutPublishStateLabel("draft")).toBe("Draft");
     expect(workoutPublishStateLabel("unpublished_changes")).toBe("Unpublished Changes");
     expect(workoutPublishStateLabel("published")).toBe("Published");
+  });
+});
+
+describe("old Workouts page draft", () => {
+  const base = workoutDraftFingerprint("Push Day", push.segments);
+  const legacy = { editingId: "push", name: "Push Day v2", segments: push.segments, baseline: base, savedAtMs: 50 };
+
+  it("adds an edited open workout to the drafts list", () => {
+    const folded = foldLegacyWorkoutDraft({}, legacy);
+    expect(folded.push?.name).toBe("Push Day v2");
+  });
+
+  it("ignores one with no edits, or older than the listed draft", () => {
+    const drafts: WorkoutDrafts = { push: { id: "push", name: "Newer", segments: [], savedAtMs: 60 } };
+    expect(foldLegacyWorkoutDraft(drafts, legacy)).toBe(drafts);
+    expect(foldLegacyWorkoutDraft({}, { ...legacy, name: "Push Day" })).toEqual({});
+    expect(foldLegacyWorkoutDraft({}, null)).toEqual({});
+  });
+
+  it("keeps a new workout under its own draft id", () => {
+    const folded = foldLegacyWorkoutDraft({}, { ...legacy, editingId: null, draftId: "new-1" });
+    expect(Object.keys(folded)).toEqual(["new-1"]);
   });
 });

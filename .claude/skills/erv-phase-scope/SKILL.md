@@ -24,7 +24,7 @@ description: Scopes ERV feature work to the current roadmap phase and silo bound
 - Workout storyboard (segments, weight/cardio/mobility/note/rest items)
 - Live run gaps: `interval`, `recovery`, `freestyle`, `emom`
 - Android composer polish (time-based mode tab, nested cardio legs)
-- Web workout builder (`apps/web/web/src/routes/WorkoutsTab.tsx`)
+- Web workout builder (`apps/web/web/src/routes/WorkoutsLibraryPage.tsx` (list), `WorkoutEditorPage.tsx` (editor))
 
 ## Phase 2 — explicitly out of scope
 
@@ -47,7 +47,7 @@ From [`CONTRIBUTING.md`](../../../CONTRIBUTING.md): health categories (Stretchin
 
 | Area | Path |
 |------|------|
-| Web workout builder | `apps/web/web/src/routes/WorkoutsTab.tsx` |
+| Web workout builder | `apps/web/web/src/routes/WorkoutsLibraryPage.tsx` (list), `WorkoutEditorPage.tsx` (editor) |
 | Web workout JSON | `apps/web/web/src/lib/workoutTraining.ts` |
 | Android workout sync | `app/.../workouts/WorkoutSync.kt` |
 | Android workout UI | `app/.../ui/workouts/` |

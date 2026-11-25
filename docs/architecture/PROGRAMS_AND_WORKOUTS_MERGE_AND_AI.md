@@ -326,7 +326,7 @@ Longer term: [USER_AGENT_NOSTR_AUTHORIZATION.md](../archive/planning/USER_AGENT_
 
 - [x] **`WorkoutLibraryScreen`**, **`WorkoutComposerScreen`**, **`WorkoutLiveRunScreen`** — Phase 2 MVP
 - [x] **`WeightExerciseSetsCard.kt`** — ghost `targetReps`, hold countdown in live run
-- [x] Web **`WorkoutsTab.tsx`**, **`WorkoutSegmentEditor.tsx`** — multi-modality builder
+- [x] Web **`WorkoutsLibraryPage.tsx`**, **`WorkoutEditorPage.tsx`** (were `WorkoutsTab.tsx` and `WorkoutSegmentEditor.tsx`) — multi-modality builder
 - [ ] New merged **`PlanBuilderScreen`** / Planner shell (Phase 3)
 - [ ] Retire or shrink `ProgramsScreens.kt`, unify with `UnifiedRoutineScreen.kt` patterns
 - [ ] `DashboardScreen.kt` — today card (Phase 4); single tile after nav merge

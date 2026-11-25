@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { Link, Navigate, useParams } from "react-router-dom";
+import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
 import clsx from "clsx";
 import {
   closestCenter,
@@ -23,24 +23,21 @@ import { SegmentCard, type RowDragData, type SegmentEndDropData } from "../compo
 import { lastLiftByExercise } from "../lib/lastLift";
 import { applyWeight } from "../lib/liftRowFields";
 import { itemLibraryKey, moveItem, moveItemBetween, segmentAcceptsItem, swapExercise } from "../lib/segmentRows";
-import { useAuth } from "../lib/auth";
+import { useWorkoutDrafts } from "../hooks/useWorkoutDrafts";
 import { useEquipment } from "../lib/equipmentData";
 import { phoneCompatibilityWarnings } from "../lib/phoneCompatibility";
 import { emptySegmentForKind, instantiateSegmentTemplate, WORKOUT_SEGMENT_TEMPLATES } from "../lib/segmentTemplates";
 import { useTraining } from "../lib/trainingData";
 import { useTrainingHistory } from "../lib/trainingHistoryData";
-import { buildTrainingSnapshot } from "../lib/trainingSnapshot";
+import { buildTrainingSnapshot, snapshotHasData } from "../lib/trainingSnapshot";
+import { useTrainingProfile } from "../lib/trainingProfileData";
+import { RowMenu } from "../components/workoutEditor/RowMenu";
 import type { WeightExercisePickerFilter } from "../lib/weightExerciseAvailability";
 import { exerciseLabel } from "../lib/weightTraining";
 import { useWeightLoadUnit } from "../lib/weightLoadUnit";
 import {
-  clearStoredWorkoutDraft,
-  readStoredWorkoutDraft,
-  readWorkoutDrafts,
   workoutDraftFingerprint,
   workoutPublishStateLabel,
-  writeWorkoutDrafts,
-  type WorkoutDrafts,
   type WorkoutPublishState,
 } from "../lib/workoutDraftStorage";
 import {
@@ -52,7 +49,13 @@ import {
   workoutEditorReducer,
   workoutToPublish,
 } from "../lib/workoutEditor";
-import { applyTargetWeightToPrescription, suggestedTargetWeightKg } from "../lib/workoutPrescriptionHints";
+import {
+  applyBaselineLoadsToWorkout,
+  applyTargetWeightToPrescription,
+  progressionIncrementKg,
+  suggestedTargetWeightKg,
+} from "../lib/workoutPrescriptionHints";
+import { formatWeightLoadNumber, weightLoadUnitSuffix } from "../lib/weightLoadUnit";
 import { buildWorkoutPreview, formatDuration } from "../lib/workoutPreview";
 import {
   defaultCardioModeForSegment,
@@ -209,26 +212,14 @@ export function WorkoutEditorPage() {
   const { equipment, enabledWeightExercisePackIds } = useEquipment();
   const { weightLogs, cardioLogs, lastLoadedAt } = useTrainingHistory();
   const [weightLoadUnit] = useWeightLoadUnit();
-  const { status: authStatus } = useAuth();
-  const accountKey = authStatus?.npub ?? "default";
+  const { drafts, updateDrafts } = useWorkoutDrafts();
+  const navigate = useNavigate();
 
   const snapshot = useMemo(
     () => buildTrainingSnapshot({ weightLogs, cardioLogs, exercises, computedAtMs: lastLoadedAt ?? Date.now() }),
     [weightLogs, cardioLogs, exercises, lastLoadedAt],
   );
 
-  // Drafts kept in this browser, shared with the Workouts list.
-  const [draftStore, setDraftStore] = useState<{ account: string; drafts: WorkoutDrafts }>(() => ({
-    account: accountKey,
-    drafts: readWorkoutDrafts(accountKey),
-  }));
-  useEffect(() => {
-    setDraftStore((prev) => (prev.account === accountKey ? prev : { account: accountKey, drafts: readWorkoutDrafts(accountKey) }));
-  }, [accountKey]);
-  useEffect(() => {
-    writeWorkoutDrafts(draftStore.account, draftStore.drafts);
-  }, [draftStore]);
-  const drafts = draftStore.account === accountKey ? draftStore.drafts : {};
 
   const published = workouts.find((w) => w.id === workoutId);
   const [editor, dispatch] = useReducer(workoutEditorReducer, undefined, () => initialWorkoutEditorState());
@@ -269,9 +260,6 @@ export function WorkoutEditorPage() {
         : EMPTY_FINGERPRINT,
     );
     setLoadedId(workoutId);
-    // The old Workouts page reopens its last open draft on its own; this page now owns this one.
-    const stored = readStoredWorkoutDraft(accountKey);
-    if (stored && (stored.editingId ?? stored.draftId) === workoutId) clearStoredWorkoutDraft(accountKey);
     setMessage(draft && published ? { tone: "ok", text: "Opened your unpublished changes from this browser." } : null);
     if (!source) {
       // Most workouts start from scratch: name first, with the library ready.
@@ -279,7 +267,7 @@ export function WorkoutEditorPage() {
       setLibraryOpen(true);
       window.setTimeout(() => nameRef.current?.focus(), 0);
     }
-  }, [workoutId, loadedId, drafts, published, loading, accountKey]);
+  }, [workoutId, loadedId, drafts, published, loading]);
 
   const loaded = loadedId === workoutId;
   const dirty = loaded && workoutDraftFingerprint(name, segments) !== baseline;
@@ -298,17 +286,16 @@ export function WorkoutEditorPage() {
   // Keep unpublished changes in this browser; drop the draft once it matches what is published.
   useEffect(() => {
     if (!loaded) return;
-    setDraftStore((prev) => {
-      const has = workoutId in prev.drafts;
+    updateDrafts((prev) => {
       if (!dirty) {
-        if (!has) return prev;
-        const next = { ...prev.drafts };
+        if (!(workoutId in prev)) return prev;
+        const next = { ...prev };
         delete next[workoutId];
-        return { ...prev, drafts: next };
+        return next;
       }
-      return { ...prev, drafts: { ...prev.drafts, [workoutId]: { id: workoutId, name, segments, savedAtMs: Date.now() } } };
+      return { ...prev, [workoutId]: { id: workoutId, name, segments, savedAtMs: Date.now() } };
     });
-  }, [loaded, dirty, workoutId, name, segments]);
+  }, [loaded, dirty, workoutId, name, segments, updateDrafts]);
 
   const publishState: WorkoutPublishState = !published ? "draft" : dirty ? "unpublished_changes" : "published";
   const preview = useMemo(
@@ -571,15 +558,43 @@ export function WorkoutEditorPage() {
     }
   };
 
+  // Fill weights from training history, as one undo step.
+  const { profile } = useTrainingProfile();
+  const hasBaseline = snapshotHasData(snapshot);
+  const progressIncrement = progressionIncrementKg(profile.progressionStyle, weightLoadUnit);
+  const progressIncrementLabel = `+${formatWeightLoadNumber(progressIncrement, weightLoadUnit)} ${weightLoadUnitSuffix(weightLoadUnit)}`;
+  const applyBaseline = (incrementKg: number) => {
+    const updated = applyBaselineLoadsToWorkout({ id: workoutId, name, segments }, snapshot, incrementKg, weightLoadUnit);
+    dispatch({ type: "replaceSegments", segments: updated.segments });
+    setMessage({
+      tone: "ok",
+      text:
+        incrementKg > 0
+          ? `Filled weights from your training history, ${progressIncrementLabel}. Ctrl+Z undoes it.`
+          : "Filled weights from your training history. Ctrl+Z undoes it.",
+    });
+  };
+
   const discard = () => {
-    const what = published ? "Go back to the published version?" : "Delete this unpublished workout?";
+    const what = published ? "Go back to the published version?" : "Delete this workout? It was never published.";
     if (!window.confirm(`${what} Your unpublished changes are thrown away.`)) return;
     dispatch({
       type: "load",
       name: published?.name ?? "",
       segments: withStableIds(structuredClone(published?.segments ?? []), workoutId),
     });
-    setMessage({ tone: "ok", text: published ? "Back to the published version." : "Cleared." });
+    if (!published) {
+      // Nothing left of a workout that was never published: drop it and go back to the list.
+      updateDrafts((prev) => {
+        if (!(workoutId in prev)) return prev;
+        const next = { ...prev };
+        delete next[workoutId];
+        return next;
+      });
+      navigate("/app/workouts");
+      return;
+    }
+    setMessage({ tone: "ok", text: "Back to the published version." });
   };
 
   const stateChip =
@@ -639,9 +654,20 @@ export function WorkoutEditorPage() {
             <button type="button" className="btn-ghost px-3 py-1 text-xs" onClick={redo} disabled={!canRedo(editor)} title="Redo (Ctrl+Shift+Z)">
               Redo
             </button>
+            {hasBaseline && segments.some((segment) => segmentItems(segment).some((item) => item.type === "weight")) ? (
+              <RowMenu
+                label="Fill in weights"
+                buttonText="Loads"
+                buttonClassName="btn-ghost px-3 py-1 text-xs"
+                actions={[
+                  { label: "Use Baseline Loads", onSelect: () => applyBaseline(0) },
+                  { label: `Baseline + Progress (${progressIncrementLabel})`, onSelect: () => applyBaseline(progressIncrement) },
+                ]}
+              />
+            ) : null}
             {dirty ? (
               <button type="button" className="btn-ghost px-3 py-1 text-xs" onClick={discard}>
-                Discard Changes
+                {published ? "Discard Changes" : "Delete Draft"}
               </button>
             ) : null}
             <button type="button" className="btn-ghost px-3 py-1 text-xs" onClick={() => setPreviewOpen(true)}>

@@ -136,7 +136,7 @@ drafts; model chosen from `/v1/models`; off by default; never auto-publish.
 
 | Area | Path |
 |------|------|
-| Web workout builder | `apps/web/web/src/routes/WorkoutsTab.tsx` |
+| Web workout builder | `apps/web/web/src/routes/WorkoutsLibraryPage.tsx` (list), `WorkoutEditorPage.tsx` (editor) |
 | Web workout JSON | `apps/web/web/src/lib/workoutTraining.ts` |
 | Android workout sync | `app/.../workouts/WorkoutSync.kt` |
 | Android workout UI | `app/.../ui/workouts/` |

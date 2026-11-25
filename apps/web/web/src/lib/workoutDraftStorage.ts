@@ -127,6 +127,32 @@ export function writeWorkoutDrafts(accountKey: string, drafts: WorkoutDrafts): v
   }
 }
 
+/**
+ * The old Workouts page kept its open workout in a single slot of its own. Folds that into the
+ * drafts list (when it holds edits and is newer than the listed draft) so nothing is lost now
+ * that the page is gone.
+ */
+export function foldLegacyWorkoutDraft(drafts: WorkoutDrafts, legacy: StoredWorkoutDraft | null): WorkoutDrafts {
+  if (!legacy) return drafts;
+  const id = legacy.draftId ?? legacy.editingId;
+  if (!id) return drafts;
+  if (workoutDraftFingerprint(legacy.name, legacy.segments) === legacy.baseline) return drafts;
+  const listed = drafts[id];
+  if (listed && listed.savedAtMs >= legacy.savedAtMs) return drafts;
+  return { ...drafts, [id]: { id, name: legacy.name, segments: legacy.segments, savedAtMs: legacy.savedAtMs } };
+}
+
+/** This account's drafts, with the old page's open workout folded in and its slot cleared. */
+export function loadWorkoutDrafts(accountKey: string): WorkoutDrafts {
+  const drafts = readWorkoutDrafts(accountKey);
+  const legacy = readStoredWorkoutDraft(accountKey);
+  if (!legacy) return drafts;
+  const folded = foldLegacyWorkoutDraft(drafts, legacy);
+  if (folded !== drafts) writeWorkoutDrafts(accountKey, folded);
+  clearStoredWorkoutDraft(accountKey);
+  return folded;
+}
+
 /** Where a workout stands between this browser and the relay. */
 export type WorkoutPublishState = "draft" | "unpublished_changes" | "published";
 

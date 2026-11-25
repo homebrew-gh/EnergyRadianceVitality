@@ -149,14 +149,14 @@ These shipped while building the composer and are documented in [WORKOUT_PLAN_ED
 | `targetReps` ghost in live weight UI | Android `WeightExerciseSetsCard.kt` |
 | Timed hold countdown from prescription | Android live run |
 | Web builder as **default landing** + first nav tab | `App.tsx`, `AppShell.tsx` |
-| Builder-only web (no session start) | `WorkoutsTab.tsx` |
-| Pulse / greyed catalog focus UX | `index.css`, `WorkoutsTab.tsx`, `LibrarySidebar.tsx` |
+| Builder-only web (no session start) | `WorkoutEditorPage.tsx` |
+| Pulse / greyed catalog focus UX | `index.css`, `WorkoutEditorPage.tsx`, `LibrarySidebar.tsx` |
 | Dedicated segment kinds `cardio` / `mobility` (not only composite) | Web + Android models |
 | Android **Training → Workouts** hub (parallel to legacy Unified Workouts) | `ErvNavHost.kt` |
 | Live run silo handoff (cardio timer, stretch player) | `WorkoutLaunchResolvers.kt`, `WorkoutLiveRunScreen.kt` |
 | Interval / HIIT prescription | Web + Android models, launch resolvers |
 | Reps vs time logging style in builder | `WeightDefaultCatalog.kt`, `exerciseLogging.ts` |
-| Segment template library (web) | `segmentTemplates.ts`, `WorkoutsTab.tsx` |
+| Segment template library (web) | `segmentTemplates.ts`, `WorkoutEditorPage.tsx` |
 | HR range + log fields + `cardioRoutineId` | Web + Android models, editors |
 | JSON workout import UI | Settings → Workouts, `commitWorkoutImport` |
 | Android multi-modality composer | `WorkoutComposerScreen.kt`, `WorkoutComposerEditors.kt` |
@@ -215,8 +215,8 @@ Android (ERV)  ←—— kind 30078 / NIP-44 ——→  Nostr relay  ←——�
 | Nostr crypto | `apps/web/server/src/nostr_support.rs` |
 | d-tag policy | `apps/web/server/src/erv_tags.rs` |
 | Silo routine UI | `apps/web/web/src/routes/RoutinesTab.tsx` |
-| **Workout builder UI** | `apps/web/web/src/routes/WorkoutsTab.tsx` |
-| **Workout segment editor** | `apps/web/web/src/components/WorkoutSegmentEditor.tsx` |
+| **Workout builder UI** | `apps/web/web/src/routes/WorkoutsLibraryPage.tsx`, `WorkoutEditorPage.tsx` |
+| **Workout segment editor** | `apps/web/web/src/components/workoutEditor/SegmentCard.tsx` |
 | **Workout JSON (web)** | `apps/web/web/src/lib/workoutTraining.ts` |
 | Weight JSON contract | `apps/web/web/src/lib/weightTraining.ts` |
 | Android silo merge | `app/.../LibraryStateMerge` |
