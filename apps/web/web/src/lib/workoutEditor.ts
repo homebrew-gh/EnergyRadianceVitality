@@ -47,6 +47,11 @@ export type WorkoutEditorAction =
   | { type: "removeSegment"; segmentId: string }
   | { type: "moveSegment"; from: number; to: number }
   | { type: "replaceSegments"; segments: WorkoutSegment[] }
+  /**
+   * Change segments from what they are when the action runs, not when it was made, so a row
+   * tool used right after typing in a cell keeps that typing. One undo step. [edit] must be pure.
+   */
+  | { type: "editSegments"; edit: (segments: WorkoutSegment[]) => WorkoutSegment[] }
   | { type: "selectSegment"; segmentId: string | null }
   | { type: "undo" }
   | { type: "redo" };
@@ -186,6 +191,12 @@ export function workoutEditorReducer(
 
     case "replaceSegments":
       return commit(state, { ...draft, segments: withStableIds(action.segments) }, null, 0);
+
+    case "editSegments": {
+      const segments = action.edit(draft.segments);
+      if (segments === draft.segments) return state;
+      return commit(state, { ...draft, segments: withStableIds(segments) }, null, 0);
+    }
 
     case "selectSegment":
       return { ...state, activeSegmentId: resolveActive(draft.segments, action.segmentId) };

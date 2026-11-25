@@ -1,10 +1,14 @@
-import { Fragment, useState } from "react";
+import { Fragment, useState, type KeyboardEvent, type ReactNode } from "react";
 import clsx from "clsx";
+import { useDroppable } from "@dnd-kit/core";
+import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { formatLastLift, lastLiftTopWeightKg, type LastLift } from "../../lib/lastLift";
+import { copyRowDown, duplicateItemAt, moveItem } from "../../lib/segmentRows";
 import type { BodyWeightUnit } from "../../lib/fitnessEquipment";
 import type { PhoneWarning } from "../../lib/phoneCompatibility";
 import type { TrainingSnapshot } from "../../lib/trainingSnapshot";
 import { exerciseLabel, type WeightExercise } from "../../lib/weightTraining";
-import { weightLoadUnitSuffix } from "../../lib/weightLoadUnit";
+import { formatWeightLoadNumber, weightLoadUnitSuffix } from "../../lib/weightLoadUnit";
 import { suggestedTargetWeightKg } from "../../lib/workoutPrescriptionHints";
 import {
   applyReps,
@@ -38,6 +42,7 @@ import { FieldLabel } from "../FieldLabel";
 import { PlateLoadHint } from "../PlateLoadHint";
 import { WeightPrescriptionFields } from "../WorkoutSegmentEditor";
 import { CellInput } from "./CellInput";
+import { RowMenu, type RowMenuAction } from "./RowMenu";
 
 type WeightItem = Extract<WorkoutItem, { type: "weight" }>;
 
@@ -114,6 +119,74 @@ function Cell({
   );
 }
 
+/** Drag data for a table row, so a drop knows where the row came from. */
+export type RowDragData = { type: "row"; segmentId: string; itemId: string };
+/** Drag data for the space under a segment's rows: a row dropped here goes to the end. */
+export type SegmentEndDropData = { type: "segment-end"; segmentId: string };
+
+/** A table row that can be dragged by its handle and shows where a dragged row would land. */
+function SortableRow({
+  id,
+  segmentId,
+  index,
+  className,
+  children,
+}: {
+  id: string;
+  segmentId: string;
+  index: number;
+  className?: string;
+  children: (handle: { attributes: object; listeners: object | undefined }) => ReactNode;
+}) {
+  const { setNodeRef, attributes, listeners, isDragging, isOver, activeIndex, active } = useSortable({
+    id,
+    data: { type: "row", segmentId, itemId: id } satisfies RowDragData,
+  });
+  const target = isOver && active?.id !== id;
+  // Moving down a segment lands after the row under the pointer; anything else lands before it.
+  const below = target && activeIndex >= 0 && activeIndex < index;
+  return (
+    <tr
+      ref={setNodeRef}
+      data-row-index={index}
+      className={clsx(
+        className,
+        isDragging ? "opacity-40" : "",
+        target && !below ? "[&>td]:border-t-2 [&>td]:border-t-[var(--erv-primary)]" : "",
+        below ? "[&>td]:border-b-2 [&>td]:border-b-[var(--erv-primary)]" : "",
+      )}
+    >
+      {children({ attributes, listeners })}
+    </tr>
+  );
+}
+
+/** The grip in the first column: drag it to move the row, or focus it and use Space and arrows. */
+function RowHandle({
+  index,
+  label,
+  handle,
+}: {
+  index: number;
+  label: string;
+  handle: { attributes: object; listeners: object | undefined };
+}) {
+  return (
+    <button
+      type="button"
+      {...handle.attributes}
+      {...(handle.listeners ?? {})}
+      tabIndex={-1}
+      className="flex cursor-grab touch-none items-center gap-1 rounded px-1 py-0.5 text-xs text-muted hover:bg-[var(--erv-surface-variant)] hover:text-heading active:cursor-grabbing"
+      aria-label={`Move ${label}`}
+      title="Drag to move. Alt+↑ or Alt+↓ in a row moves it too."
+    >
+      <span aria-hidden>⠿</span>
+      {index + 1}
+    </button>
+  );
+}
+
 export function LiftSegmentCard({
   segment,
   position,
@@ -124,10 +197,14 @@ export function LiftSegmentCard({
   warnings,
   onSelect,
   onChange,
+  onEdit,
   onRemove,
   onMoveUp,
   onMoveDown,
   onOpenLibrary,
+  onSwapItem,
+  lastLifts,
+  todayIso,
 }: {
   segment: WorkoutSegment;
   /** 1-based position in the workout, for the heading. */
@@ -140,10 +217,20 @@ export function LiftSegmentCard({
   onSelect: () => void;
   /** `separate` marks a structural change (add or remove a row) as its own undo step. */
   onChange: (segment: WorkoutSegment, separate?: boolean) => void;
+  /**
+   * A structural change (row tools, moving rows) made to the segment as it is when it runs, so
+   * text still being typed in a cell is kept. Its own undo step.
+   */
+  onEdit: (edit: (segment: WorkoutSegment) => WorkoutSegment) => void;
   onRemove: () => void;
   onMoveUp?: () => void;
   onMoveDown?: () => void;
   onOpenLibrary: () => void;
+  /** Open the library to pick a different exercise for this row. */
+  onSwapItem: (itemId: string) => void;
+  lastLifts: ReadonlyMap<string, LastLift>;
+  /** yyyy-mm-dd, for "today" in the last-time line. */
+  todayIso: string;
 }) {
   const items = segmentItems(segment);
   const [openDetails, setOpenDetails] = useState<Set<string>>(() => new Set());
@@ -163,8 +250,51 @@ export function LiftSegmentCard({
 
   const replaceItem = (index: number, item: WorkoutItem, separate = false) =>
     onChange({ ...segment, items: items.map((existing, i) => (i === index ? item : existing)) }, separate);
-  const removeItem = (index: number) =>
-    onChange({ ...segment, items: items.filter((_, i) => i !== index) }, true);
+  const segmentId = segment.id!;
+  const itemIds = items.map((item, index) => item.id ?? `${segmentId}:${index}`);
+  const { setNodeRef: setEndDropRef, isOver: overEnd } = useDroppable({
+    id: `end:${segmentId}`,
+    data: { type: "segment-end", segmentId } satisfies SegmentEndDropData,
+  });
+
+  /** Row tools find the row by id when they run, since rows may have moved since this render. */
+  const editRow = (itemId: string, edit: (s: WorkoutSegment, index: number) => WorkoutSegment) =>
+    onEdit((current) => {
+      const index = segmentItems(current).findIndex((item) => item.id === itemId);
+      return index < 0 ? current : edit(current, index);
+    });
+  const removeRow = (itemId: string) =>
+    editRow(itemId, (s, index) => ({ ...s, items: segmentItems(s).filter((_, i) => i !== index) }));
+  const moveRow = (itemId: string, by: number) =>
+    editRow(itemId, (s, index) => moveItem(s, index, index + by));
+  const duplicateRow = (itemId: string) => {
+    const newId = crypto.randomUUID();
+    editRow(itemId, (s, index) => duplicateItemAt(s, index, newId));
+  };
+  const styleOf = (exerciseId: string) => exerciseSetLoggingStyle(exerciseFor(exerciseId) ?? fallbackExercise(exerciseId));
+  const copyDown = (itemId: string) => editRow(itemId, (s, index) => copyRowDown(s, index, styleOf));
+
+  /** Alt+↑ / Alt+↓ in a row moves it; whatever was being typed is applied first. */
+  const onRowKeyDown = (event: KeyboardEvent<HTMLTableSectionElement>) => {
+    if (!event.altKey || (event.key !== "ArrowUp" && event.key !== "ArrowDown")) return;
+    const row = (event.target as HTMLElement).closest("tr[data-row-index]");
+    const index = Number(row?.getAttribute("data-row-index"));
+    const item = items[index];
+    if (!item?.id) return;
+    event.preventDefault();
+    const focused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    focused?.blur();
+    moveRow(item.id, event.key === "ArrowUp" ? -1 : 1);
+    window.setTimeout(() => focused?.focus(), 0);
+  };
+
+  const rowActions = (itemId: string, index: number, extra: RowMenuAction[] = []): RowMenuAction[] => [
+    ...extra,
+    { label: "Duplicate", onSelect: () => duplicateRow(itemId) },
+    { label: "Move Up", onSelect: () => moveRow(itemId, -1), disabled: index === 0 },
+    { label: "Move Down", onSelect: () => moveRow(itemId, 1), disabled: index === items.length - 1 },
+    { label: "Remove", onSelect: () => removeRow(itemId), danger: true },
+  ];
   const setPrescription = (index: number, item: WeightItem, prescription: WorkoutWeightPrescription) =>
     replaceItem(index, { ...item, prescription }, true);
 
@@ -274,7 +404,7 @@ export function LiftSegmentCard({
         <table className="w-full min-w-[40rem] text-sm">
           <thead>
             <tr className="text-left text-xs text-muted">
-              <th className="w-8 px-2 py-2 font-medium">#</th>
+              <th className="w-12 px-2 py-2 font-medium">#</th>
               <th className="px-2 py-2 font-medium">Exercise</th>
               <th className="w-16 px-2 py-2 font-medium">Sets</th>
               <th className="w-24 px-2 py-2 font-medium">Reps</th>
@@ -284,14 +414,17 @@ export function LiftSegmentCard({
               <th className="w-28 px-2 py-2" aria-label="Row actions" />
             </tr>
           </thead>
-          <tbody>
+          <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
+          <tbody onKeyDown={onRowKeyDown}>
             {items.map((item, index) => {
-              const rowKey = item.id ?? `${segment.id}:${index}`;
+              const rowKey = itemIds[index]!;
               const rowWarnings = itemWarnings(index);
               if (item.type === "note") {
                 return (
-                  <tr key={rowKey} className="border-t border-[var(--erv-outline-variant)]">
-                    <td className="px-2 py-1 text-xs text-muted">{index + 1}</td>
+                  <SortableRow key={rowKey} id={rowKey} segmentId={segmentId} index={index} className="border-t border-[var(--erv-outline-variant)]">
+                    {(handle) => (
+                  <>
+                    <td className="px-1 py-1"><RowHandle index={index} label="note" handle={handle} /></td>
                     <td colSpan={6} className="px-1 py-1">
                       <input
                         className="w-full rounded-lg border border-transparent bg-transparent px-2 py-1.5 text-sm italic hover:border-[var(--erv-outline-variant)] focus:border-[var(--erv-primary)] focus:outline-none"
@@ -302,17 +435,19 @@ export function LiftSegmentCard({
                       />
                     </td>
                     <td className="px-2 py-1 text-right">
-                      <button type="button" tabIndex={-1} className="text-xs text-muted hover:text-[var(--erv-error)]" onClick={() => removeItem(index)}>
-                        Remove
-                      </button>
+                      <RowMenu label="Note actions" actions={rowActions(rowKey, index)} />
                     </td>
-                  </tr>
+                  </>
+                    )}
+                  </SortableRow>
                 );
               }
               if (item.type === "rest") {
                 return (
-                  <tr key={rowKey} className="border-t border-[var(--erv-outline-variant)]">
-                    <td className="px-2 py-1 text-xs text-muted">{index + 1}</td>
+                  <SortableRow key={rowKey} id={rowKey} segmentId={segmentId} index={index} className="border-t border-[var(--erv-outline-variant)]">
+                    {(handle) => (
+                  <>
+                    <td className="px-1 py-1"><RowHandle index={index} label="rest" handle={handle} /></td>
                     <td className="px-2 py-1 text-muted">Rest</td>
                     <td colSpan={4} />
                     <td className="px-1 py-1">
@@ -326,21 +461,28 @@ export function LiftSegmentCard({
                       />
                     </td>
                     <td className="px-2 py-1 text-right">
-                      <button type="button" tabIndex={-1} className="text-xs text-muted hover:text-[var(--erv-error)]" onClick={() => removeItem(index)}>
-                        Remove
-                      </button>
+                      <RowMenu label="Rest actions" actions={rowActions(rowKey, index)} />
                     </td>
-                  </tr>
+                  </>
+                    )}
+                  </SortableRow>
                 );
               }
               if (item.type !== "weight") {
                 return (
-                  <tr key={rowKey} className="border-t border-[var(--erv-outline-variant)]">
-                    <td className="px-2 py-1 text-xs text-muted">{index + 1}</td>
-                    <td colSpan={7} className="px-2 py-1.5 text-muted">
+                  <SortableRow key={rowKey} id={rowKey} segmentId={segmentId} index={index} className="border-t border-[var(--erv-outline-variant)]">
+                    {(handle) => (
+                  <>
+                    <td className="px-1 py-1"><RowHandle index={index} label="item" handle={handle} /></td>
+                    <td colSpan={6} className="px-2 py-1.5 text-muted">
                       {item.type === "cardio" ? "Cardio" : "Mobility"} item. Edit it in the old editor for now.
                     </td>
-                  </tr>
+                    <td className="px-2 py-1 text-right">
+                      <RowMenu label="Row actions" actions={rowActions(rowKey, index)} />
+                    </td>
+                  </>
+                    )}
+                  </SortableRow>
                 );
               }
               const exercise = exerciseFor(item.exerciseId);
@@ -350,10 +492,15 @@ export function LiftSegmentCard({
               const detailsOpen = openDetails.has(rowKey);
               const weight = weightField(p, weightLoadUnit);
               const name = item.title?.trim() || exerciseLabel(item.exerciseId, exercises);
+              const last = lastLifts.get(item.exerciseId);
+              const lastTopKg = last && supportsWeight && weight.editable ? lastLiftTopWeightKg(last) : null;
+              const hasLiftBelow = items.slice(index + 1).some((other) => other.type === "weight");
               return (
                 <Fragment key={rowKey}>
-                  <tr className="border-t border-[var(--erv-outline-variant)] align-top">
-                    <td className="px-2 py-2.5 text-xs text-muted">{index + 1}</td>
+                  <SortableRow id={rowKey} segmentId={segmentId} index={index} className="border-t border-[var(--erv-outline-variant)] align-top">
+                    {(handle) => (
+                  <>
+                    <td className="px-1 py-2"><RowHandle index={index} label={name} handle={handle} /></td>
                     <td className="px-2 py-2">
                       <span className="block font-medium text-heading">{name}</span>
                       {exercise?.equipment ? <span className="block text-xs text-muted">{exercise.equipment}</span> : null}
@@ -361,6 +508,23 @@ export function LiftSegmentCard({
                         <span className="block text-xs text-muted">
                           or {(item.alternativeExerciseIds ?? []).map((id) => exerciseLabel(id, exercises)).join(", ")}
                         </span>
+                      ) : null}
+                      {last ? (
+                        lastTopKg != null ? (
+                          <button
+                            type="button"
+                            tabIndex={-1}
+                            className="block text-left text-xs text-muted hover:text-heading hover:underline"
+                            title={`Use ${formatWeightLoadNumber(lastTopKg, weightLoadUnit)} ${suffix} as the weight`}
+                            onClick={() =>
+                              setPrescription(index, item, applyWeight(p, formatWeightLoadNumber(lastTopKg, weightLoadUnit), weightLoadUnit))
+                            }
+                          >
+                            Last: {formatLastLift(last, weightLoadUnit, todayIso)}
+                          </button>
+                        ) : (
+                          <span className="block text-xs text-muted">Last: {formatLastLift(last, weightLoadUnit, todayIso)}</span>
+                        )
                       ) : null}
                     </td>
                     <td className="px-1 py-1">
@@ -420,17 +584,21 @@ export function LiftSegmentCard({
                       >
                         Details
                       </button>
-                      <button
-                        type="button"
-                        tabIndex={-1}
-                        className="text-muted hover:text-[var(--erv-error)]"
-                        onClick={() => removeItem(index)}
-                        title="Remove (Ctrl+Z brings it back)"
-                      >
-                        Remove
-                      </button>
+                      <RowMenu
+                        label={`${name} actions`}
+                        actions={rowActions(rowKey, index, [
+                          { label: "Swap Exercise…", onSelect: () => onSwapItem(rowKey) },
+                          {
+                            label: "Copy Sets, Reps, RIR and Rest Down",
+                            onSelect: () => copyDown(rowKey),
+                            disabled: !hasLiftBelow,
+                          },
+                        ])}
+                      />
                     </td>
-                  </tr>
+                  </>
+                    )}
+                  </SortableRow>
                   {supportsWeight && weight.editable && (p.targetWeightKg ?? 0) > 0 ? (
                     <tr>
                       <td />
@@ -485,6 +653,7 @@ export function LiftSegmentCard({
               );
             })}
           </tbody>
+          </SortableContext>
         </table>
       </div>
 
@@ -496,7 +665,13 @@ export function LiftSegmentCard({
         </div>
       ) : null}
 
-      <footer className="flex flex-wrap items-center gap-2 border-t border-[var(--erv-outline-variant)] px-4 py-2">
+      <footer
+        ref={setEndDropRef}
+        className={clsx(
+          "flex flex-wrap items-center gap-2 border-t border-[var(--erv-outline-variant)] px-4 py-2",
+          overEnd ? "bg-[var(--erv-primary-container)]/50" : "",
+        )}
+      >
         <button type="button" className="btn-ghost px-3 py-1 text-xs" onClick={onOpenLibrary}>
           + Add Exercise
         </button>

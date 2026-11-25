@@ -1,11 +1,34 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { Link, Navigate, useParams } from "react-router-dom";
 import clsx from "clsx";
+import {
+  closestCenter,
+  DndContext,
+  DragOverlay,
+  KeyboardSensor,
+  PointerSensor,
+  pointerWithin,
+  useSensor,
+  useSensors,
+  type CollisionDetection,
+  type DragEndEvent,
+  type DragStartEvent,
+} from "@dnd-kit/core";
+import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import type { LibraryItemKind } from "../components/LibrarySidebar";
 import { WorkoutPreviewCard } from "../components/WorkoutPreviewCard";
 import { WorkoutSegmentEditor } from "../components/WorkoutSegmentEditor";
 import { LibraryPanel } from "../components/workoutEditor/LibraryPanel";
-import { isLiftingSegment, LiftSegmentCard } from "../components/workoutEditor/LiftSegmentCard";
+import {
+  isLiftingSegment,
+  LiftSegmentCard,
+  type RowDragData,
+  type SegmentEndDropData,
+} from "../components/workoutEditor/LiftSegmentCard";
+import { lastLiftByExercise } from "../lib/lastLift";
+import { applyWeight } from "../lib/liftRowFields";
+import { moveItem, moveItemBetween, swapExercise } from "../lib/segmentRows";
 import { useAuth } from "../lib/auth";
 import { useEquipment } from "../lib/equipmentData";
 import { phoneCompatibilityWarnings } from "../lib/phoneCompatibility";
@@ -82,6 +105,91 @@ function formatPublishedAt(epochSeconds: number | undefined): string {
   });
 }
 
+/** Drag data for a segment in the outline. Rows can be dropped on it too, to move them there. */
+type OutlineDragData = { type: "segment"; segmentId: string };
+type DragData = RowDragData | SegmentEndDropData | OutlineDragData;
+
+function dragData(entry: { data: { current?: unknown } } | null | undefined): DragData | null {
+  return (entry?.data.current as DragData | undefined) ?? null;
+}
+
+/**
+ * Rows land on rows, segment ends or outline segments; segments land only on segments. The
+ * pointer decides when it is over something, the nearest target otherwise (and for the keyboard).
+ */
+const editorCollisions: CollisionDetection = (args) => {
+  const activeType = dragData(args.active)?.type;
+  const droppableContainers = args.droppableContainers.filter((container) => {
+    const type = dragData(container)?.type;
+    return activeType === "segment" ? type === "segment" : type != null;
+  });
+  const narrowed = { ...args, droppableContainers };
+  const within = pointerWithin(narrowed);
+  if (within.length > 0) return within;
+  return closestCenter({
+    ...narrowed,
+    droppableContainers: droppableContainers.filter((c) => (dragData(c)?.type === "segment") === (activeType === "segment")),
+  });
+};
+
+function localIsoDate(date = new Date()): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+/** One segment in the outline: click to go to it, drag the grip to reorder. */
+function OutlineItem({
+  segment,
+  index,
+  active,
+  onSelect,
+}: {
+  segment: WorkoutSegment;
+  index: number;
+  active: boolean;
+  onSelect: () => void;
+}) {
+  const id = `seg:${segment.id}`;
+  const { setNodeRef, attributes, listeners, transform, transition, isDragging, isOver, active: dragging } = useSortable({
+    id,
+    data: { type: "segment", segmentId: segment.id! } satisfies OutlineDragData,
+  });
+  const rowOver = isOver && dragData(dragging)?.type === "row";
+  return (
+    <li
+      ref={setNodeRef}
+      style={{ transform: CSS.Translate.toString(transform), transition }}
+      className={clsx("flex items-stretch gap-0.5 rounded-lg", isDragging ? "opacity-40" : "", rowOver ? "ring-2 ring-[var(--erv-primary)]" : "")}
+    >
+      <button
+        type="button"
+        {...attributes}
+        {...listeners}
+        className="cursor-grab touch-none rounded-lg px-1 text-xs text-muted hover:bg-[var(--erv-surface-variant)] hover:text-heading active:cursor-grabbing"
+        aria-label={`Move segment ${index + 1}`}
+        title="Drag to reorder, or focus and use Space and the arrow keys"
+      >
+        ⠿
+      </button>
+      <button
+        type="button"
+        className={clsx(
+          "min-w-0 flex-1 rounded-lg px-2 py-1.5 text-left text-sm",
+          active ? "bg-[var(--erv-primary-container)] font-semibold text-heading" : "text-muted hover:bg-[var(--erv-surface-variant)]",
+        )}
+        onClick={onSelect}
+      >
+        <span className="block truncate">
+          {index + 1}. {segment.title?.trim() || segmentKindLabel(segment.kind)}
+        </span>
+        <span className="block text-xs font-normal text-muted">
+          {segmentKindLabel(segment.kind)} · {segmentItems(segment).length}
+        </span>
+      </button>
+    </li>
+  );
+}
+
 function isTypingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   const tag = target.tagName;
@@ -138,6 +246,12 @@ export function WorkoutEditorPage() {
   useEffect(() => {
     if (!libraryOpen) setLibrarySearchFocus(true);
   }, [libraryOpen]);
+  /** The row whose exercise the library is choosing a replacement for. */
+  const [swapTarget, setSwapTarget] = useState<{ segmentId: string; itemId: string } | null>(null);
+  useEffect(() => {
+    if (!libraryOpen) setSwapTarget(null);
+  }, [libraryOpen]);
+  const [dragLabel, setDragLabel] = useState<string | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [weightFilter, setWeightFilter] = useState<WeightExercisePickerFilter>("ALL");
   const nameRef = useRef<HTMLInputElement>(null);
@@ -216,8 +330,18 @@ export function WorkoutEditorPage() {
     [segments, exercises],
   );
 
+  const lastLifts = useMemo(() => lastLiftByExercise(weightLogs), [weightLogs]);
+  const todayIso = localIsoDate();
+
   const activeSegment = segments.find((s) => s.id === editor.activeSegmentId) ?? null;
-  const libraryKinds: LibraryItemKind[] = activeSegment ? segmentLibraryKinds(activeSegment.kind) : ["weight", "stretch", "cardio"];
+  const swapSegment = swapTarget ? segments.find((s) => s.id === swapTarget.segmentId) ?? null : null;
+  const swapItem = swapSegment ? segmentItems(swapSegment).find((item) => item.id === swapTarget?.itemId) ?? null : null;
+  const swapping = swapItem?.type === "weight" ? swapItem : null;
+  const libraryKinds: LibraryItemKind[] = swapping
+    ? ["weight"]
+    : activeSegment
+      ? segmentLibraryKinds(activeSegment.kind)
+      : ["weight", "stretch", "cardio"];
   const alreadyInSegment = useMemo(() => {
     const ids = new Set<string>();
     for (const item of activeSegment ? segmentItems(activeSegment) : []) {
@@ -284,6 +408,29 @@ export function WorkoutEditorPage() {
   /** Add a library pick to the selected segment, or start a segment for it. Returns why not, if not. */
   const onPick = (kind: LibraryItemKind, id: string): string | null => {
     const exercise = exercises.find((ex) => ex.id === id) ?? null;
+    if (swapping && swapSegment?.id) {
+      if (id === swapping.exerciseId) return "That is the exercise already in this row.";
+      if (segmentItems(swapSegment).some((item) => item.type === "weight" && item.exerciseId === id)) {
+        return `${exercise?.name ?? "That exercise"} is already in this segment.`;
+      }
+      // Sets, reps and rest carry over; the weight is the new exercise's own, or blank.
+      const suggested = suggestedTargetWeightKg(id, snapshot, 0, weightLoadUnit);
+      const p = swapping.prescription ?? {};
+      const prescription =
+        suggested != null ? applyTargetWeightToPrescription(applyWeight(p, "", weightLoadUnit), suggested) : applyWeight(p, "", weightLoadUnit);
+      const replacement = { ...swapExercise(swapping, id, exercise?.name?.trim() || null), prescription };
+      const segmentId = swapSegment.id;
+      const itemId = swapping.id;
+      dispatch({
+        type: "editSegments",
+        edit: (list) =>
+          list.map((s) =>
+            s.id === segmentId ? { ...s, items: segmentItems(s).map((item) => (item.id === itemId ? replacement : item)) } : s,
+          ),
+      });
+      setLibraryOpen(false);
+      return null;
+    }
     const target = activeSegment ?? emptySegmentForKind(SEGMENT_FOR_PICK[kind]);
     const items = segmentItems(target);
     if (kind === "weight") {
@@ -311,6 +458,79 @@ export function WorkoutEditorPage() {
     if (activeSegment?.id) updateSegment(activeSegment.id, next, true);
     else addSegment(next);
     return null;
+  };
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  const rowLabel = (segmentId: string, itemId: string): string => {
+    const item = segmentItems(segments.find((s) => s.id === segmentId) ?? { kind: "straight_sets", items: [] }).find(
+      (i) => i.id === itemId,
+    );
+    if (!item) return "Row";
+    if (item.type === "weight") return item.title?.trim() || exerciseLabel(item.exerciseId, exercises);
+    return item.type === "rest" ? "Rest" : item.type === "note" ? "Note" : "Item";
+  };
+
+  const onDragStart = ({ active }: DragStartEvent) => {
+    const data = dragData(active);
+    if (data?.type === "row") setDragLabel(rowLabel(data.segmentId, data.itemId));
+    else if (data?.type === "segment") {
+      const segment = segments.find((s) => s.id === data.segmentId);
+      setDragLabel(segment ? segment.title?.trim() || segmentKindLabel(segment.kind) : "Segment");
+    }
+  };
+
+  const onDragEnd = ({ active, over }: DragEndEvent) => {
+    setDragLabel(null);
+    const from = dragData(active);
+    const to = dragData(over);
+    if (!from || !to) return;
+    if (from.type === "segment") {
+      if (to.type !== "segment") return;
+      const a = segments.findIndex((s) => s.id === from.segmentId);
+      const b = segments.findIndex((s) => s.id === to.segmentId);
+      if (a >= 0 && b >= 0 && a !== b) dispatch({ type: "moveSegment", from: a, to: b });
+      return;
+    }
+    if (from.type !== "row") return;
+    const target = segments.find((s) => s.id === to.segmentId);
+    if (!target?.id) return;
+    const sameSegment = to.segmentId === from.segmentId;
+    if (!sameSegment) {
+      if (!isLiftingSegment(target)) {
+        setMessage({ tone: "error", text: "Lifting rows can only move into Straight Sets, Superset or Circuit segments." });
+        return;
+      }
+      const moving = segmentItems(segments.find((s) => s.id === from.segmentId) ?? target).find((i) => i.id === from.itemId);
+      if (moving?.type === "weight" && segmentItems(target).some((i) => i.type === "weight" && i.exerciseId === moving.exerciseId)) {
+        setMessage({ tone: "error", text: `${rowLabel(from.segmentId, from.itemId)} is already in that segment.` });
+        return;
+      }
+    }
+    if (to.type === "row" && to.itemId === from.itemId) return;
+    dispatch({
+      type: "editSegments",
+      edit: (list) => {
+        const source = list.find((s) => s.id === from.segmentId);
+        const dest = list.find((s) => s.id === to.segmentId);
+        if (!source || !dest) return list;
+        const fromIndex = segmentItems(source).findIndex((i) => i.id === from.itemId);
+        if (fromIndex < 0) return list;
+        const destItems = segmentItems(dest);
+        const overIndex = to.type === "row" ? destItems.findIndex((i) => i.id === to.itemId) : destItems.length;
+        if (source === dest) {
+          const next = moveItem(source, fromIndex, Math.min(overIndex, destItems.length - 1));
+          return next === source ? list : list.map((s) => (s === source ? next : s));
+        }
+        const moved = moveItemBetween(source, fromIndex, dest, overIndex);
+        if (!moved) return list;
+        return list.map((s) => (s === source ? moved.source : s === dest ? moved.target : s));
+      },
+    });
+    if (!sameSegment) selectSegment(target.id);
   };
 
   const publish = async () => {
@@ -428,32 +648,29 @@ export function WorkoutEditorPage() {
       {!loaded ? (
         <p className="text-sm text-muted">Loading workout…</p>
       ) : (
+        <DndContext
+          sensors={sensors}
+          collisionDetection={editorCollisions}
+          onDragStart={onDragStart}
+          onDragEnd={onDragEnd}
+          onDragCancel={() => setDragLabel(null)}
+        >
         <div className="grid gap-5 lg:grid-cols-[12rem_minmax(0,1fr)]">
           <nav className="space-y-4 lg:sticky lg:top-32 lg:self-start" aria-label="Workout outline">
             {segments.length > 0 ? (
-              <ol className="space-y-1">
-                {segments.map((segment, index) => (
-                  <li key={segment.id}>
-                    <button
-                      type="button"
-                      className={clsx(
-                        "w-full rounded-lg px-2 py-1.5 text-left text-sm",
-                        segment.id === editor.activeSegmentId
-                          ? "bg-[var(--erv-primary-container)] font-semibold text-heading"
-                          : "text-muted hover:bg-[var(--erv-surface-variant)]",
-                      )}
-                      onClick={() => selectSegment(segment.id, true)}
-                    >
-                      <span className="block truncate">
-                        {index + 1}. {segment.title?.trim() || segmentKindLabel(segment.kind)}
-                      </span>
-                      <span className="block text-xs font-normal text-muted">
-                        {segmentKindLabel(segment.kind)} · {segmentItems(segment).length}
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ol>
+              <SortableContext items={segments.map((segment) => `seg:${segment.id}`)} strategy={verticalListSortingStrategy}>
+                <ol className="space-y-1">
+                  {segments.map((segment, index) => (
+                    <OutlineItem
+                      key={segment.id}
+                      segment={segment}
+                      index={index}
+                      active={segment.id === editor.activeSegmentId}
+                      onSelect={() => selectSegment(segment.id, true)}
+                    />
+                  ))}
+                </ol>
+              </SortableContext>
             ) : null}
             <div className="space-y-1">
               <p className="px-2 text-xs font-semibold text-muted">Add Segment</p>
@@ -523,8 +740,20 @@ export function WorkoutEditorPage() {
                     onMoveDown={moveDown}
                     onOpenLibrary={() => {
                       selectSegment(segmentId);
+                      setSwapTarget(null);
                       setLibraryOpen(true);
                     }}
+                    onEdit={(edit) =>
+                      dispatch({ type: "editSegments", edit: (list) => list.map((s) => (s.id === segmentId ? edit(s) : s)) })
+                    }
+                    onSwapItem={(itemId) => {
+                      selectSegment(segmentId);
+                      setSwapTarget({ segmentId, itemId });
+                      setLibrarySearchFocus(true);
+                      setLibraryOpen(true);
+                    }}
+                    lastLifts={lastLifts}
+                    todayIso={todayIso}
                   />
                 );
               }
@@ -553,6 +782,14 @@ export function WorkoutEditorPage() {
             })}
           </div>
         </div>
+        <DragOverlay dropAnimation={null}>
+          {dragLabel ? (
+            <div className="inline-block rounded-lg border border-[var(--erv-primary)] bg-[var(--erv-surface)] px-3 py-1.5 text-sm font-semibold text-heading shadow-xl">
+              {dragLabel}
+            </div>
+          ) : null}
+        </DragOverlay>
+        </DndContext>
       )}
 
       <LibraryPanel
@@ -560,9 +797,9 @@ export function WorkoutEditorPage() {
         focusSearchOnOpen={librarySearchFocus}
         onClose={() => setLibraryOpen(false)}
         targetLabel={
-          activeSegment
-            ? activeSegment.title?.trim() || segmentKindLabel(activeSegment.kind)
-            : "a new segment"
+          swapping
+            ? `Swapping ${swapping.title?.trim() || exerciseLabel(swapping.exerciseId, exercises)}`
+            : `Adding to ${activeSegment ? activeSegment.title?.trim() || segmentKindLabel(activeSegment.kind) : "a new segment"}`
         }
         kinds={libraryKinds}
         weightCatalog={exercises}

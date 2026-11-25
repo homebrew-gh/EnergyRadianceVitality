@@ -45,7 +45,7 @@ export function LibraryPanel({
   /** False when something else should keep focus as the panel opens (a new workout's name). */
   focusSearchOnOpen?: boolean;
   onClose: () => void;
-  /** Where picks go, e.g. "Main Lifts" or "a new segment". */
+  /** What a pick does, e.g. "Adding to Main Lifts" or "Swapping Bench Press". */
   targetLabel: string;
   kinds: LibraryItemKind[];
   weightCatalog: WeightCatalogExercise[];
@@ -139,7 +139,7 @@ export function LibraryPanel({
         <div className="min-w-0">
           <h2 className="font-semibold text-heading">Library</h2>
           <p className="truncate text-xs text-muted">
-            Adding to {targetLabel}
+            {targetLabel}
           </p>
         </div>
         <button
@@ -170,7 +170,8 @@ export function LibraryPanel({
               setHighlight((h) => Math.max(h - 1, 0));
             } else if (e.key === "Enter") {
               e.preventDefault();
-              const row = rows[highlight];
+              // The highlight can point past a list that just got shorter.
+              const row = rows[Math.min(highlight, rows.length - 1)];
               if (row) pick(row);
             } else if (e.key === "Escape") {
               e.preventDefault();
@@ -220,7 +221,10 @@ export function LibraryPanel({
                     "flex w-full items-center justify-between gap-2 px-4 py-2 text-left",
                     index === highlight ? "bg-[var(--erv-primary-container)]/60" : "hover:bg-[var(--erv-surface-variant)]",
                   )}
-                  onMouseEnter={() => setHighlight(index)}
+                  // Only a real mouse move takes the highlight, not the list redrawing under a resting pointer.
+                  onMouseMove={() => {
+                    if (highlight !== index) setHighlight(index);
+                  }}
                   onClick={() => pick(row)}
                 >
                   <span className="min-w-0">

@@ -151,6 +151,17 @@ describe("workoutEditorReducer", () => {
     expect(state.past).toHaveLength(UNDO_LIMIT);
   });
 
+  it("applies editSegments to the segments as they are when it runs", () => {
+    const typed = play(
+      initialWorkoutEditorState("W", [segment("a"), segment("b")]),
+      { type: "updateSegment", segmentId: "a", segment: segment("a", "Typed"), atMs: 1 },
+    );
+    const moved = play(typed, { type: "editSegments", edit: (list) => [...list].reverse() });
+    expect(moved.draft.segments.map((s) => s.title)).toEqual(["b", "Typed"]);
+    expect(play(moved, { type: "undo" }).draft.segments.map((s) => s.title)).toEqual(["Typed", "b"]);
+    expect(play(moved, { type: "editSegments", edit: (list) => list })).toBe(moved);
+  });
+
   it("ignores undo and redo with nothing to do", () => {
     const state = initialWorkoutEditorState("Same");
     expect(play(state, { type: "undo" })).toBe(state);
