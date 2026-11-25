@@ -137,6 +137,7 @@ class UserPreferences(private val context: Context) {
         val WEIGHT_LIVE_REST_TIMER_MODE = stringPreferencesKey("weight_live_rest_timer_mode_v1")
         val WORKOUT_SESSION_REST_TIMER_MODE = stringPreferencesKey("workout_session_rest_timer_mode_v1")
         val WORKOUT_SESSION_RPE_LOGS_SET = booleanPreferencesKey("workout_session_rpe_logs_set_v1")
+        val WORKOUT_SESSION_CARDIO_CUES = booleanPreferencesKey("workout_session_cardio_cues_v1")
         val WEIGHT_LIVE_REST_TIMER_SECONDS = intPreferencesKey("weight_live_rest_timer_seconds_v1")
         val WEIGHT_LIVE_REST_TIMER_COUNTDOWN_SOUND_ENABLED =
             booleanPreferencesKey("weight_live_rest_timer_countdown_sound_enabled_v1")
@@ -417,6 +418,17 @@ class UserPreferences(private val context: Context) {
     suspend fun setWorkoutSessionRpeLogsSet(enabled: Boolean) {
         context.dataStore.edit { prefs ->
             prefs[Keys.WORKOUT_SESSION_RPE_LOGS_SET] = enabled
+        }
+    }
+
+    /** Spoken and vibration cues on session cardio legs: splits, laps, legs, the last seconds. */
+    val workoutSessionCardioCues: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[Keys.WORKOUT_SESSION_CARDIO_CUES] ?: true
+    }
+
+    suspend fun setWorkoutSessionCardioCues(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.WORKOUT_SESSION_CARDIO_CUES] = enabled
         }
     }
 

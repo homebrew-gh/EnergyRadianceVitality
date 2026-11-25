@@ -904,6 +904,8 @@ internal fun WorkoutSessionCardioCard(
     liveStats: List<Pair<String, String>> = emptyList(),
     /** Marks a lap; no Lap button when null. */
     onLap: (() -> Unit)? = null,
+    /** The voice cues switch, before Start and while the leg runs. */
+    cueControls: @Composable () -> Unit = {},
 ) {
     val timed = (step.targetSeconds ?: 0) > 0
     Card(
@@ -977,6 +979,7 @@ internal fun WorkoutSessionCardioCard(
                     }
                 }
             }
+            cueControls()
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 if (step.legCount > 1) {
                     TextButton(onClick = onSkipLeg, modifier = Modifier.weight(1f)) {
