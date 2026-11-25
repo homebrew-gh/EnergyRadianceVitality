@@ -7,7 +7,10 @@ import android.net.Uri
 import android.media.AudioManager
 import android.media.session.MediaController
 import android.media.session.MediaSessionManager
+import android.media.session.PlaybackState
+import android.media.MediaMetadata
 import android.os.Build
+import android.os.SystemClock
 import android.provider.Settings
 import androidx.annotation.RequiresApi
 
@@ -41,6 +44,50 @@ object ErvMediaControlHelper {
     @RequiresApi(21)
     fun primaryMediaController(context: Context): MediaController? =
         activeMediaControllers(context).firstOrNull()
+
+    /** Jump size for the podcast-friendly skip buttons. */
+    const val SEEK_STEP_MS = 30_000L
+
+    /**
+     * Seeks the other app's session by [deltaMs] (negative = back). Uses seekTo from the
+     * estimated current position when the session reports a position; otherwise falls back to
+     * fastForward / rewind, which most podcast apps map to their own skip-forward / skip-back.
+     * Apps that support neither simply ignore the command.
+     */
+    @RequiresApi(21)
+    fun seekBy(controller: MediaController, deltaMs: Long) {
+        val tc = controller.transportControls
+        val state = controller.playbackState
+        val position = state?.let { estimatedPositionMs(it) }
+        val actions = state?.actions ?: 0L
+        val canSeek = (actions and PlaybackState.ACTION_SEEK_TO) != 0L
+        val fallbackAction = if (deltaMs >= 0) PlaybackState.ACTION_FAST_FORWARD else PlaybackState.ACTION_REWIND
+        val canFallback = (actions and fallbackAction) != 0L
+        if (position != null && (canSeek || !canFallback)) {
+            val duration = controller.metadata?.getLong(MediaMetadata.METADATA_KEY_DURATION) ?: 0L
+            tc.seekTo(clampSeekTarget(position + deltaMs, duration))
+        } else if (deltaMs >= 0) {
+            tc.fastForward()
+        } else {
+            tc.rewind()
+        }
+    }
+
+    /** Position now, extrapolated from the last update while playing; null if unknown. */
+    @RequiresApi(21)
+    private fun estimatedPositionMs(state: PlaybackState): Long? {
+        val pos = state.position
+        if (pos == PlaybackState.PLAYBACK_POSITION_UNKNOWN || pos < 0) return null
+        if (state.state != PlaybackState.STATE_PLAYING) return pos
+        val elapsed = SystemClock.elapsedRealtime() - state.lastPositionUpdateTime
+        return pos + (elapsed * state.playbackSpeed).toLong()
+    }
+
+    /** Keeps a seek target within [0, duration]; a duration of 0 or less means unknown. */
+    internal fun clampSeekTarget(targetMs: Long, durationMs: Long): Long {
+        val floor = targetMs.coerceAtLeast(0L)
+        return if (durationMs > 0) floor.coerceAtMost(durationMs) else floor
+    }
 
     fun musicStreamVolume(context: Context): Int {
         val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
