@@ -37,7 +37,11 @@ const CONTEXT_KEYS: &[&str] = &[
     "savedStretchRoutineNames",
     "customExerciseNames",
     "contextLevel",
+    "units",
+    "today",
     "periodWeeks",
+    "periodStart",
+    "periodEnd",
     "recentSessionSummaries",
     "recentExerciseRows",
 ];
@@ -570,5 +574,17 @@ mod tests {
         assert!(validate_context(&json!({"ervTrainingContextVersion": 1, "nsec": "no"})).is_err());
         assert!(redact_text("see https://blossom.example/blob/photo.jpg").is_err());
         assert!(validate_context(&json!({"ervTrainingContextVersion": 1})).is_ok());
+    }
+
+    #[test]
+    fn accepts_units_and_period_dates() {
+        assert!(validate_context(&json!({
+            "ervTrainingContextVersion": 1,
+            "units": {"weight": "lb", "distance": "mi"},
+            "today": "2026-11-24",
+            "periodStart": "2026-10-28",
+            "periodEnd": "2026-11-24"
+        }))
+        .is_ok());
     }
 }

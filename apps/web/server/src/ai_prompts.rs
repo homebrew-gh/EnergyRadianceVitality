@@ -1,6 +1,6 @@
 //! Server-owned coach prompts. The browser cannot replace these.
 
-pub const PROMPT_VERSION: &str = "2";
+pub const PROMPT_VERSION: &str = "2.1";
 
 pub fn system_prompt(task: &str, json_object: bool) -> String {
     let mut prompt = if task == "analysis" {
@@ -51,7 +51,10 @@ How to read the context:\n\
 - savedWorkouts and savedWeightRoutines are the plan. Each lists the exercises programmed in it.\n\
 - workingWeights are logged results: the last logged reps and load for a lift, and how many sessions included it. They are not a diary of one day.\n\
 - recentSessionSummaries are dates and counts only. They do not list the exercises or sets completed that day.\n\
-- If a fact is not in the context, say it is unknown. Do not invent sessions, sets, or loads.\n\n\
+- If a fact is not in the context, say it is unknown. Do not invent sessions, sets, or loads.\n\
+- Loads are in the unit named in units.weight (usually lb). Write every load in that unit and never convert to another.\n\
+- today is the date of the review. periodStart and periodEnd bound the logs you were given.\n\
+- profile.trainingStyles lists the athlete's chosen styles with coaching hints. Follow those hints.\n\n\
 Write the review in Markdown. Use only these H2 headings, in this order. Put a space after the hashes:\n\
 ## Summary\n\
 ## What went well\n\
