@@ -725,7 +725,14 @@ fun WorkoutLiveRunScreen(
                 )
             },
         ) { padding ->
-            Text("Workout not found.", modifier = Modifier.padding(padding).padding(24.dp))
+            Text(
+                if (isStandaloneWorkoutId(workoutId)) {
+                    "This workout is no longer in progress."
+                } else {
+                    "Workout not found."
+                },
+                modifier = Modifier.padding(padding).padding(24.dp),
+            )
         }
         return
     }

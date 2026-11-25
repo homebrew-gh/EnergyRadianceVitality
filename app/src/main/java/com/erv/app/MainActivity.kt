@@ -481,6 +481,19 @@ private fun MainAppShell(
     val activityForLifecycle = context as ComponentActivity
     val dashboardViewModel = viewModel<DashboardViewModel>(viewModelStoreOwner = activityForLifecycle)
     val workoutState by workoutRepository.state.collectAsState(initial = com.erv.app.workouts.WorkoutLibraryState())
+    // However a workout run ends (finished, discarded, removed by a sync), its ongoing notification
+    // goes with it, even when the run screen isn't open. Reads the stored state, not the empty
+    // placeholder above, so startup never drops the notification of a run that is still going.
+    LaunchedEffect(workoutRepository) {
+        workoutRepository.state
+            .map { it.activeRun == null }
+            .distinctUntilChanged()
+            .collect { noRun ->
+                if (noRun && WorkoutSessionForegroundService.isRunning) {
+                    com.erv.app.workouts.WorkoutSessionNotifier.stop(context)
+                }
+            }
+    }
 
     // Decryption (NIP-44), payload merges, and repository writes are CPU-heavy. Keep them off
     // the main dispatcher so startup / resume sync does not stutter the UI.
@@ -555,8 +568,7 @@ private fun MainAppShell(
                     )
                 }
                 if (has("erv/workouts/")) WorkoutSync.fromLatestByTag(latestByTag, sig).let { remote ->
-                    val merged = LibraryStateMerge.mergeWorkouts(workoutRepository.currentState(), remote)
-                    workoutRepository.replaceAll(merged)
+                    val merged = workoutRepository.mergeRemote(remote)
                     RelayPayloadDigestStore.reconcileIdenticalRemoteMerged(
                         appCtx,
                         WorkoutSync.fullOutboxEntries(remote),

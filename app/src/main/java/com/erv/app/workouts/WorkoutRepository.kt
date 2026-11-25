@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.erv.app.nostr.LibraryStateMerge
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -39,6 +40,16 @@ class WorkoutRepository(context: Context) {
 
     suspend fun replaceAll(newState: WorkoutLibraryState) {
         updateState { newState.sanitized() }
+    }
+
+    /**
+     * Merges [remote] (from the relays) into what is stored, in one write, so a run started or
+     * changed while the relays were being read is not overwritten. Returns the merged state.
+     */
+    suspend fun mergeRemote(remote: WorkoutLibraryState): WorkoutLibraryState {
+        var merged = WorkoutLibraryState()
+        updateState { current -> LibraryStateMerge.mergeWorkouts(current, remote).also { merged = it } }
+        return merged
     }
 
     suspend fun clearAllData() {

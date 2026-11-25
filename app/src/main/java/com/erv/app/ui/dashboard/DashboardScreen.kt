@@ -218,6 +218,7 @@ import com.erv.app.workouts.WorkoutHistoryEntry
 import com.erv.app.workouts.WorkoutHistorySection
 import com.erv.app.workouts.groupDayActivityByWorkout
 import com.erv.app.workouts.WorkoutRepository
+import com.erv.app.workouts.isStarted
 import java.time.LocalDate
 import kotlin.math.max
 import kotlin.math.roundToInt
@@ -857,6 +858,22 @@ fun DashboardScreen(
                             },
                             modifier = Modifier.padding(bottom = 8.dp),
                             text = stringResource(R.string.live_cardio_in_progress_banner)
+                        )
+                    }
+
+                    // A workout run under way (a library workout, Quick Start or Cardio's Start):
+                    // one tap back to its screen.
+                    val liveRun = workoutState.activeRun?.takeIf { it.isStarted() }
+                    if (liveRun != null) {
+                        val runName = workoutState.workoutById(liveRun.workoutId)?.name
+                            ?: liveRun.workoutSnapshot.name
+                        LiveWorkoutInProgressBanner(
+                            onClick = { onOpenWorkoutRun(liveRun.workoutId) },
+                            modifier = Modifier.padding(bottom = 8.dp),
+                            text = stringResource(
+                                R.string.live_session_in_progress_banner,
+                                runName.ifBlank { "Workout" },
+                            )
                         )
                     }
 

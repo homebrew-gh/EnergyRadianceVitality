@@ -63,6 +63,11 @@ class WorkoutSessionForegroundService : Service() {
             val action = intent.action
             scope.launch {
                 val repository = WorkoutRepository(applicationContext)
+                // A notification left over from a run that is gone just goes away.
+                if (repository.currentState().activeRun == null) {
+                    WorkoutSessionNotifier.stop(applicationContext)
+                    return@launch
+                }
                 if (action == ACTION_LAP) {
                     repository.markSessionLap()
                 } else {

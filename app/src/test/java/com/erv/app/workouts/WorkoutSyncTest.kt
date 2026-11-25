@@ -130,6 +130,35 @@ class WorkoutSyncTest {
     }
 
     @Test
+    fun mergeWorkouts_keepsStandaloneRunWithNoLibraryCopy() {
+        val snapshot = Workout(id = "${STANDALONE_WORKOUT_ID_PREFIX}ride", name = "Stationary bike")
+        val run = WorkoutActiveRun(
+            workoutId = snapshot.id,
+            workoutSnapshot = snapshot,
+            startedAtEpochSeconds = 1_000L,
+            standalone = WorkoutStandaloneStart(),
+        )
+        val local = WorkoutLibraryState(activeRun = run)
+        val remote = WorkoutLibraryState(
+            workouts = listOf(Workout(id = "w1", name = "Push", lastModifiedEpochSeconds = 100L)),
+        )
+        val merged = LibraryStateMerge.mergeWorkouts(local, remote)
+        assertEquals(run, merged.activeRun)
+        assertEquals("Push", merged.workoutById("w1")?.name)
+    }
+
+    @Test
+    fun mergeWorkouts_dropsLibraryRunWhoseWorkoutIsGone() {
+        val workout = Workout(id = "w1", name = "Push", lastModifiedEpochSeconds = 100L)
+        val local = WorkoutLibraryState(
+            workouts = listOf(workout),
+            activeRun = WorkoutActiveRun(workoutId = "w1", workoutSnapshot = workout, startedAtEpochSeconds = 1_000L),
+        )
+        val remote = WorkoutLibraryState(libraryUpdatedAtEpochSeconds = 300L, deletedWorkouts = mapOf("w1" to 300L))
+        assertNull(LibraryStateMerge.mergeWorkouts(local, remote).activeRun)
+    }
+
+    @Test
     fun decodeLibraryPayload_shardedIndex() {
         val json = """
             {
