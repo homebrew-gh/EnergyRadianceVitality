@@ -3049,6 +3049,7 @@ fun CardioElapsedTimerFullScreen(
     var showErgSensorDialog by remember(tickKey) { mutableStateOf(false) }
     var showErgScanDialog by remember(tickKey) { mutableStateOf(false) }
     var showSplitHistoryDialog by remember(tickKey) { mutableStateOf(false) }
+    var showDiscardDialog by remember(tickKey) { mutableStateOf(false) }
     var running by remember(tickKey) { mutableStateOf(!awaitingStart) }
     var finished by remember(tickKey) { mutableStateOf(false) }
     var tick by remember(tickKey) { mutableIntStateOf(0) }
@@ -3605,10 +3606,7 @@ fun CardioElapsedTimerFullScreen(
                             Text(finishLabel)
                         }
                         OutlinedButton(
-                            onClick = {
-                                running = false
-                                onCancel()
-                            },
+                            onClick = { showDiscardDialog = true },
                             enabled = running && !finished,
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
                             border = ButtonDefaults.outlinedButtonBorder.copy(brush = SolidColor(Color.White))
@@ -3628,6 +3626,17 @@ fun CardioElapsedTimerFullScreen(
                 }
             }
         }
+    }
+
+    if (showDiscardDialog) {
+        CardioDiscardRunDialog(
+            onDiscard = {
+                showDiscardDialog = false
+                running = false
+                onCancel()
+            },
+            onKeepGoing = { showDiscardDialog = false },
+        )
     }
 
     if (showSplitHistoryDialog) {
@@ -4818,6 +4827,7 @@ fun CardioMultiLegTimerFullScreen(
             cyclingSensorApplicable = anyCyclingLeg,
         )
         var showMediaSheet by remember { mutableStateOf(false) }
+        var showDiscardDialog by remember { mutableStateOf(false) }
         var running by remember(stateKey) { mutableStateOf(!awaitingStart) }
         var tick by remember(stateKey) { mutableIntStateOf(0) }
         val atWorkoutStart = state.currentLegIndex == 0 && state.completedSegments.isEmpty()
@@ -5066,7 +5076,14 @@ fun CardioMultiLegTimerFullScreen(
                         }
                     }
                     OutlinedButton(
-                        onClick = onCancel,
+                        onClick = {
+                            // Nothing is recorded before Start, so only a started workout asks first.
+                            if (awaitingStart && state.completedSegments.isEmpty()) {
+                                onCancel()
+                            } else {
+                                showDiscardDialog = true
+                            }
+                        },
                         modifier = Modifier.fillMaxWidth(),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
                         border = ButtonDefaults.outlinedButtonBorder.copy(brush = SolidColor(Color.White))
@@ -5076,7 +5093,43 @@ fun CardioMultiLegTimerFullScreen(
                 }
             }
         }
+        if (showDiscardDialog) {
+            CardioDiscardRunDialog(
+                onDiscard = {
+                    showDiscardDialog = false
+                    running = false
+                    onCancel()
+                },
+                onKeepGoing = { showDiscardDialog = false },
+            )
+        }
     }
+}
+
+/** Asks before Cancel throws away a started cardio run (time, route, heart rate, sensor data). */
+@Composable
+private fun CardioDiscardRunDialog(
+    onDiscard: () -> Unit,
+    onKeepGoing: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onKeepGoing,
+        title = { Text("Discard this workout?") },
+        text = {
+            Text(
+                "The time, route, heart rate and sensor data recorded so far will be deleted. " +
+                    "Use Finish instead to log it.",
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onDiscard) {
+                Text("Discard", color = MaterialTheme.colorScheme.error)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onKeepGoing) { Text("Keep Going") }
+        },
+    )
 }
 
 private const val CardioMetCompendiumUrl = "https://pacompendium.com/"
