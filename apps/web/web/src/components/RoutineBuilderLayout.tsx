@@ -54,7 +54,7 @@ export function RoutineBuilderLayout({
     >
       <LibrarySidebar
         key={sidebarKinds.join(",")}
-        className="lg:sticky lg:top-24"
+        className="lg:sticky lg:top-5"
         kinds={sidebarKinds}
         selectionKind={selectionKind}
         selectedIds={selectedIds}
@@ -73,7 +73,7 @@ export function RoutineBuilderLayout({
       />
       <div className="min-w-0 space-y-4">{children}</div>
       {aside ? (
-        <div className="min-w-0 lg:sticky lg:top-24 lg:self-start">{aside}</div>
+        <div className="min-w-0 lg:sticky lg:top-5 lg:self-start">{aside}</div>
       ) : null}
     </div>
   );
