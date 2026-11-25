@@ -2,9 +2,15 @@ package com.erv.app.nostr
 
 import android.content.Context
 import android.util.Base64
+import android.util.Log
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
+import java.io.File
 import java.security.SecureRandom
 import javax.crypto.Cipher
 import javax.crypto.spec.GCMParameterSpec
@@ -13,6 +19,42 @@ import javax.crypto.spec.SecretKeySpec
 const val MEDIA_LIBRARY_D_TAG = "erv/media/library"
 
 private fun nowEpochSeconds(): Long = System.currentTimeMillis() / 1000
+
+private const val MEDIA_LIBRARY_LOG_TAG = "ErvMediaBackup"
+private const val MEDIA_LIBRARY_CACHE_FILE = "media_library_manifest.json"
+
+/**
+ * Union of two manifests' items, one per (source, localId), keeping the most recently uploaded.
+ * The relay copy and this phone's last published copy can each hold items the other lacks.
+ */
+internal fun mergeMediaLibraryItems(
+    primary: List<MediaLibraryItem>,
+    secondary: List<MediaLibraryItem>,
+): List<MediaLibraryItem> {
+    val byKey = LinkedHashMap<Pair<String, String>, MediaLibraryItem>()
+    for (item in primary + secondary) {
+        val key = item.source to item.localId
+        val existing = byKey[key]
+        if (existing == null || item.uploadedAtEpochSeconds > existing.uploadedAtEpochSeconds) {
+            byKey[key] = item
+        }
+    }
+    return byKey.values.toList()
+}
+
+/**
+ * The base an update builds on, or null when it is unknown: the relay copy could not be read and
+ * this phone has no copy of its own. Publishing over an unknown base would drop every saved item.
+ */
+internal fun mediaLibraryUpdateBase(
+    remote: MediaLibraryManifest?,
+    cached: MediaLibraryManifest?,
+): MediaLibraryManifest? = when {
+    remote == null && cached == null -> null
+    remote == null -> cached
+    cached == null -> remote
+    else -> remote.copy(items = mergeMediaLibraryItems(remote.items, cached.items))
+}
 
 @Serializable
 data class MediaLibraryManifest(
@@ -57,24 +99,85 @@ object MediaLibraryBackup {
         prettyPrint = false
     }
 
-    suspend fun fetchManifest(
+    @PublishedApi
+    internal val manifestLock = Mutex()
+
+    /**
+     * Runs one read-change-publish of the manifest at a time. Several backups start together when
+     * a workout finishes; without this each reads the same old copy and the last publish drops
+     * the others' graphs.
+     */
+    suspend inline fun <T> withManifestLock(block: () -> T): T = manifestLock.withLock(action = block)
+
+    /**
+     * Current manifest to add items to, merged with this phone's last published copy.
+     * Returns null when the relay copy could not be read (timeout, decrypt or parse failure) and
+     * there is no local copy: the caller must not publish then.
+     */
+    suspend fun fetchManifestForUpdate(
+        appContext: Context,
         relayPool: RelayPool,
         signer: EventSigner,
-        timeoutMs: Long = 5000,
-    ): MediaLibraryManifest {
-        val event = fetchLatestKind30078ByDTag(
-            relayPool = relayPool,
-            pubkeyHex = signer.publicKey,
-            timeoutMs = timeoutMs,
-            signer = signer,
-        )[MEDIA_LIBRARY_D_TAG] ?: return MediaLibraryManifest()
-        val raw = event.decryptKind30078PayloadOrNull(signer) ?: return MediaLibraryManifest()
-        return try {
-            json.decodeFromString(MediaLibraryManifest.serializer(), raw)
-        } catch (_: SerializationException) {
-            MediaLibraryManifest()
-        } catch (_: IllegalArgumentException) {
-            MediaLibraryManifest()
+        timeoutMs: Long = 8000,
+    ): MediaLibraryManifest? {
+        val cached = readCachedManifest(appContext)
+        val fetch = runCatching {
+            fetchLatestKind30078ForDTags(
+                relayPool = relayPool,
+                pubkeyHex = signer.publicKey,
+                dTags = listOf(MEDIA_LIBRARY_D_TAG),
+                signer = signer,
+                timeoutMs = timeoutMs,
+            )
+        }.getOrNull()
+        val event = fetch?.latestByTag?.get(MEDIA_LIBRARY_D_TAG)
+        val remote: MediaLibraryManifest? = when {
+            event != null -> event.decryptKind30078PayloadOrNull(signer)?.let(::decodeManifestOrNull)
+            fetch?.complete == true -> MediaLibraryManifest(items = emptyList())
+            else -> null
+        }
+        if (remote == null) {
+            Log.w(
+                MEDIA_LIBRARY_LOG_TAG,
+                "manifest read failed (event=${event != null} complete=${fetch?.complete}); " +
+                    "cached=${cached?.items?.size}",
+            )
+        }
+        return mediaLibraryUpdateBase(remote, cached)
+    }
+
+    fun clearCachedManifest(appContext: Context) {
+        runCatching { cacheFile(appContext).delete() }
+    }
+
+    private fun decodeManifestOrNull(raw: String): MediaLibraryManifest? = try {
+        json.decodeFromString(MediaLibraryManifest.serializer(), raw)
+    } catch (_: SerializationException) {
+        null
+    } catch (_: IllegalArgumentException) {
+        null
+    }
+
+    private fun cacheFile(appContext: Context) = File(appContext.filesDir, MEDIA_LIBRARY_CACHE_FILE)
+
+    private suspend fun readCachedManifest(appContext: Context): MediaLibraryManifest? =
+        withContext(Dispatchers.IO) {
+            val file = cacheFile(appContext)
+            if (!file.isFile) return@withContext null
+            runCatching { file.readText() }.getOrNull()?.let(::decodeManifestOrNull)
+        }
+
+    private suspend fun writeCachedManifest(appContext: Context, manifest: MediaLibraryManifest) {
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val file = cacheFile(appContext)
+                val tmp = File(file.parentFile, "${file.name}.tmp")
+                tmp.writeText(json.encodeToString(MediaLibraryManifest.serializer(), manifest))
+                if (!tmp.renameTo(file)) {
+                    file.writeText(tmp.readText())
+                    tmp.delete()
+                }
+            }.onFailure { Log.w(MEDIA_LIBRARY_LOG_TAG, "could not save local manifest copy", it) }
         }
     }
 
@@ -85,6 +188,7 @@ object MediaLibraryBackup {
         dataRelayUrls: List<String>,
         manifest: MediaLibraryManifest,
     ): RelayPublishOutbox.KickDrainResult {
+        writeCachedManifest(appContext, manifest)
         return RelayPublishOutbox.get(appContext).enqueueReplaceByDTagAndKickDrain(
             appContext = appContext,
             relayPool = relayPool,

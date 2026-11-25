@@ -16,6 +16,7 @@ import com.erv.app.nostr.EventSigner
 import com.erv.app.nostr.FitnessEquipmentSync
 import com.erv.app.nostr.TrainingProfileSync
 import com.erv.app.nostr.KeyManager
+import com.erv.app.nostr.MediaLibraryBackup
 import com.erv.app.nostr.RelayOutboxStatusStore
 import com.erv.app.nostr.RelayPayloadDigestStore
 import com.erv.app.nostr.RelayPool
@@ -149,6 +150,7 @@ class DataDeletionManager(
         bodyTrackerRepository.clearAllData()
         reminderRepository.clearAllData()
         userPreferences.clearAllData()
+        MediaLibraryBackup.clearCachedManifest(appContext)
     }
 
     private suspend fun buildRelayClearEntriesForSection(section: UserDataSection): List<Pair<String, String>> =
