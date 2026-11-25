@@ -745,6 +745,13 @@ sealed class CardioTimerStyle {
     data class CountDownDistance(val targetMeters: Double) : CardioTimerStyle()
 }
 
+/** A distance to cover in a time, for the ahead/behind graphic on the workout screen. */
+@Serializable
+data class CardioPaceGoal(
+    val distanceMeters: Double,
+    val seconds: Int,
+)
+
 /**
  * Live session timer state; dashboard and Cardio screen share this. Saved to disk while live
  * ([CardioLiveSessionStore]) so a run survives Android killing the app.
@@ -770,6 +777,8 @@ data class CardioTimerSessionDraft(
     val pausedAtEpoch: Long? = null,
     /** Seconds spent in pauses that have ended; not counted as workout time. */
     val pausedTotalSeconds: Int = 0,
+    /** A distance to cover in a time ("10 mi in 45 min"), chosen at Start; the clock counts up. */
+    val paceGoal: CardioPaceGoal? = null,
 ) {
     fun toSession(
         durationMinutes: Int,
@@ -856,7 +865,8 @@ data class CardioTimerSessionDraft(
             timerStyle: CardioTimerStyle = CardioTimerStyle.CountUp,
             outdoorPaceSpeed: Double? = null,
             outdoorPaceSpeedUnit: CardioSpeedUnit? = null,
-            ruckLoadKg: Double? = null
+            ruckLoadKg: Double? = null,
+            paceGoal: CardioPaceGoal? = null,
         ) = CardioTimerSessionDraft(
             title = title,
             activity = activity,
@@ -868,7 +878,8 @@ data class CardioTimerSessionDraft(
             timerStyle = timerStyle,
             outdoorPaceSpeed = outdoorPaceSpeed,
             outdoorPaceSpeedUnit = outdoorPaceSpeedUnit,
-            ruckLoadKg = ruckLoadKg
+            ruckLoadKg = ruckLoadKg,
+            paceGoal = paceGoal,
         )
 
         fun fromActivitySnapshot(snapshot: CardioActivitySnapshot) = fromQuickSnapshot(

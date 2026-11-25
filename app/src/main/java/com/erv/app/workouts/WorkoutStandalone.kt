@@ -129,11 +129,18 @@ fun standaloneCardioWorkout(
     nowEpochSeconds: Long = nowWorkoutEpochSeconds(),
 ): Workout {
     val builtin = requireNotNull(draft.activity.builtin) { "Only built-in activities run on the session screen" }
-    val minutes = (draft.timerStyle as? CardioTimerStyle.CountDown)?.totalSeconds?.div(60)
+    val goal = draft.paceGoal?.takeIf { it.distanceMeters > 0 && it.seconds > 0 }
+    // A pace goal is a distance leg: it ends at the distance, and the time is the goal to beat.
+    val minutes = goal?.let { (it.seconds + 59) / 60 }
+        ?: (draft.timerStyle as? CardioTimerStyle.CountDown)?.totalSeconds?.div(60)
     val name = draft.title.trim().ifEmpty { draft.activity.displayLabel }
     val item = WorkoutItem.Cardio(
         title = name,
-        cardio = WorkoutCardioPrescription(activity = builtin.name, targetMinutes = minutes),
+        cardio = WorkoutCardioPrescription(
+            activity = builtin.name,
+            targetMinutes = minutes,
+            targetDistanceMeters = goal?.distanceMeters,
+        ),
     )
     return Workout(
         id = "$STANDALONE_WORKOUT_ID_PREFIX${UUID.randomUUID()}",

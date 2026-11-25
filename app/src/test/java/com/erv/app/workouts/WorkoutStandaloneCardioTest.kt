@@ -6,6 +6,7 @@ import com.erv.app.cardio.CardioBuiltinActivity
 import com.erv.app.cardio.CardioGpsPoint
 import com.erv.app.cardio.CardioLibraryState
 import com.erv.app.cardio.CardioModality
+import com.erv.app.cardio.CardioPaceGoal
 import com.erv.app.cardio.CardioMultiLegTimerState
 import com.erv.app.cardio.CardioSpeedUnit
 import com.erv.app.cardio.CardioTimerSessionDraft
@@ -75,6 +76,22 @@ class WorkoutStandaloneCardioTest {
         assertEquals(item.id, run.standalone?.cardioItemId)
         assertNotNull(run.standaloneCardioDraftFor(item.id))
         assertNull(run.standaloneCardioDraftFor("other"))
+    }
+
+    @Test
+    fun aPaceGoalIsADistanceLegWithItsGoal() {
+        val goal = CardioPaceGoal(distanceMeters = 16_093.44, seconds = 45 * 60)
+        val d = draft(builtin = CardioBuiltinActivity.STATIONARY_BIKE).copy(paceGoal = goal)
+        assertNotNull(CardioActiveTimerSession.Single(d).sessionScreenCardioDraft())
+        val workout = standaloneCardioWorkout(d, now)
+        val item = workout.segments.single().items.single() as WorkoutItem.Cardio
+        assertEquals(16_093.44, item.cardio.targetDistanceMeters!!, 0.001)
+        assertEquals(45, item.cardio.targetMinutes)
+        val run = standaloneCardioRun(workout, d, now)
+        val leg = run.sessionPlan().steps.filterIsInstance<WorkoutSessionStep.CardioLeg>().single()
+        assertEquals(16_093.44, leg.targetMeters!!, 0.001)
+        assertNull(leg.targetSeconds)
+        assertEquals(goal, WorkoutPaceGoals.goalFor(item.cardio, run.standaloneCardioDraftFor(item.id)?.paceGoal))
     }
 
     private fun finished(d: CardioTimerSessionDraft): Pair<WorkoutActiveRun, WorkoutSessionCardioItem> {

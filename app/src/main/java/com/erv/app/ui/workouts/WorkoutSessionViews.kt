@@ -866,8 +866,13 @@ internal fun WorkoutSessionSwapDialog(
 
 /** The big clock shared by the cardio and stretch cards: a countdown, or time so far. */
 @Composable
-private fun SessionStepClock(seconds: Int, caption: String) {
-    Text(clockText(seconds), style = MaterialTheme.typography.displayMedium, fontSize = 56.sp)
+private fun SessionStepClock(seconds: Int, caption: String, big: Boolean = false) {
+    Text(
+        clockText(seconds),
+        style = MaterialTheme.typography.displayLarge,
+        fontSize = if (big) 80.sp else 56.sp,
+        fontWeight = if (big) FontWeight.SemiBold else null,
+    )
     Text(caption, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
 
@@ -910,6 +915,8 @@ internal fun WorkoutSessionCardioCard(
     targetDistance: String? = null,
     /** "9:30–10:00 /mi" when the builder set a pace band. */
     paceTarget: String? = null,
+    /** While it runs: the pace goal track, when the leg has a goal. */
+    paceGoal: @Composable () -> Unit = {},
 ) {
     val timed = (step.targetSeconds ?: 0) > 0
     Card(
@@ -953,24 +960,9 @@ internal fun WorkoutSessionCardioCard(
                     Text("Use Cardio Screen")
                 }
             } else {
-                SessionStepClock(clockSeconds, if (paused) "paused" else if (timed) "left" else "so far")
-                if (liveStats.isNotEmpty()) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceEvenly,
-                    ) {
-                        liveStats.forEach { (label, value) ->
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text(value, style = MaterialTheme.typography.headlineSmall)
-                                Text(
-                                    label,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        }
-                    }
-                }
+                SessionStepClock(clockSeconds, if (paused) "paused" else if (timed) "left" else "so far", big = true)
+                paceGoal()
+                SessionMetricTiles(liveStats)
                 gpsStatus?.let {
                     Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -1000,6 +992,46 @@ internal fun WorkoutSessionCardioCard(
                 TextButton(onClick = onSkipCardio, modifier = Modifier.weight(1f)) {
                     Text("Skip Cardio", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
+            }
+        }
+    }
+}
+
+/** The live numbers as large tiles, three to a row: watts, rpm, speed, distance, pace, laps. */
+@Composable
+private fun SessionMetricTiles(stats: List<Pair<String, String>>) {
+    if (stats.isEmpty()) return
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        stats.chunked(3).forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                row.forEach { (label, value) ->
+                    Surface(
+                        shape = MaterialTheme.shapes.medium,
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.padding(vertical = 10.dp, horizontal = 4.dp),
+                        ) {
+                            Text(
+                                value,
+                                style = MaterialTheme.typography.headlineMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                label,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                            )
+                        }
+                    }
+                }
+                // Keep tiles the same width on a short last row.
+                repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
             }
         }
     }
