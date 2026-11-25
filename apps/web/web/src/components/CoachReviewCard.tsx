@@ -10,6 +10,12 @@ import {
   statusLabel,
   type CoachReviewJson,
 } from "../lib/coachReview";
+import {
+  buildCoachReviewSyncPayload,
+  COACH_REVIEW_D_TAG,
+  readSendToPhone,
+  writeSendToPhone,
+} from "../lib/coachReviewSync";
 import type { TrainingContextBundleInput } from "../lib/trainingContextBundle";
 import { FieldLabel, SectionHeader } from "./FieldLabel";
 import { ContextPreviewModal } from "./ContextPreviewModal";
@@ -131,6 +137,9 @@ export function CoachReviewCard({ bundleInput, periodWeeks, periodLabel }: Coach
   const [promptVersion, setPromptVersion] = useState("");
   const [generatedAt, setGeneratedAt] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [sendToPhone, setSendToPhone] = useState(() => readSendToPhone());
+  const [syncing, setSyncing] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<string | null>(null);
 
   const modelId = chosenModel || settingsModelId;
 
@@ -178,6 +187,7 @@ export function CoachReviewCard({ bundleInput, periodWeeks, periodLabel }: Coach
     setPromptVersion(cached?.promptVersion ?? "");
     setGeneratedAt(cached?.generatedAt ?? "");
     setError(null);
+    setSyncStatus(null);
   }, [analysis.hash, periodWeeks]);
 
   const review = useMemo<CoachReviewJson | null>(() => {
@@ -189,6 +199,37 @@ export function CoachReviewCard({ bundleInput, periodWeeks, periodLabel }: Coach
     () => (format === "markdown" && content ? parseCoachReview(content) : null),
     [content, format],
   );
+
+  const publishToPhone = async (
+    reviewJson: CoachReviewJson,
+    meta: { generatedAt: string; model: string; promptVersion: string },
+  ) => {
+    setSyncing(true);
+    setSyncStatus(null);
+    try {
+      const payload = buildCoachReviewSyncPayload({
+        review: reviewJson,
+        exercises: bundleInput.exercises,
+        generatedAt: new Date(meta.generatedAt || Date.now()),
+        periodLabel,
+        periodStart: (analysis.context.periodStart as string | null) ?? null,
+        periodEnd: String(analysis.context.today ?? ""),
+        unit: bundleInput.equipmentUnit ?? "LB",
+        model: meta.model,
+        promptVersion: meta.promptVersion,
+      });
+      await api.publishAppData({ d_tag: COACH_REVIEW_D_TAG, plaintext: JSON.stringify(payload) });
+      setSyncStatus("Sent to your phone.");
+    } catch (err) {
+      setSyncStatus(
+        `The review is saved here, but sending it to your phone failed: ${
+          err instanceof Error ? err.message : "relay error"
+        }`,
+      );
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   const runReview = async () => {
     setStreaming(true);
@@ -235,6 +276,13 @@ export function CoachReviewCard({ bundleInput, periodWeeks, periodLabel }: Coach
         promptVersion: reply.promptVersion,
         generatedAt: generated,
       });
+      if (sendToPhone) {
+        await publishToPhone(parsed.review, {
+          generatedAt: generated,
+          model: reply.model || modelId,
+          promptVersion: reply.promptVersion,
+        });
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not review training.");
     } finally {
@@ -361,8 +409,38 @@ export function CoachReviewCard({ bundleInput, periodWeeks, periodLabel }: Coach
           <button type="button" className="btn-ghost px-2 py-1 text-xs" onClick={() => void onCopy()}>
             Copy
           </button>
+          {review ? (
+            <button
+              type="button"
+              className="btn-ghost px-2 py-1 text-xs"
+              disabled={syncing}
+              onClick={() => void publishToPhone(review, { generatedAt, model, promptVersion })}
+            >
+              {syncing ? "Sending…" : "Send to phone"}
+            </button>
+          ) : null}
         </div>
       ) : null}
+
+      <div className="flex flex-wrap items-center gap-3 text-xs text-muted">
+        <label className="flex items-center gap-2" htmlFor="coach-review-send-to-phone">
+          <input
+            id="coach-review-send-to-phone"
+            type="checkbox"
+            checked={sendToPhone}
+            onChange={(event) => {
+              setSendToPhone(event.target.checked);
+              writeSendToPhone(event.target.checked);
+            }}
+          />
+          <FieldLabel>Send new reviews to my phone</FieldLabel>
+        </label>
+        {syncStatus ? (
+          <span className={syncStatus.startsWith("Sent") ? "text-success" : "text-error"} role="status">
+            {syncStatus}
+          </span>
+        ) : null}
+      </div>
 
       {previewOpen ? (
         <ContextPreviewModal

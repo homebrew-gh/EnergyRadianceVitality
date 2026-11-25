@@ -5,6 +5,7 @@ import { MEDIA_LIBRARY_D_TAG } from "../lib/mediaLibrary";
 import { PROGRAMS_MASTER_D_TAG } from "../lib/programTraining";
 import { STRETCHING_ROUTINES_D_TAG } from "../lib/stretchTraining";
 import { useTrainingHistory } from "../lib/trainingHistoryData";
+import { COACH_REVIEW_D_TAG } from "../lib/coachReviewSync";
 import { TRAINING_PROFILE_D_TAG } from "../lib/trainingProfile";
 import { WEIGHT_EXERCISES_D_TAG, WEIGHT_ROUTINES_D_TAG } from "../lib/weightTraining";
 import { WORKOUTS_LIBRARY_D_TAG } from "../lib/workoutTraining";
@@ -26,6 +27,7 @@ const SYNC_TAGS: { page: string; dTag: string }[] = [
   { page: "Equipment", dTag: FITNESS_EQUIPMENT_D_TAG },
   { page: "Training Profile", dTag: TRAINING_PROFILE_D_TAG },
   { page: "Media", dTag: MEDIA_LIBRARY_D_TAG },
+  { page: "Coach review (Progress)", dTag: COACH_REVIEW_D_TAG },
   { page: "Day logs (from the phone)", dTag: "erv/weight/YYYY-MM-DD, erv/cardio/YYYY-MM-DD" },
 ];
 

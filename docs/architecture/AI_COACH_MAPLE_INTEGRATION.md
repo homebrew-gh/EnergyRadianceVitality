@@ -476,9 +476,12 @@ Captured so they are not lost; none of these ship with M0–M6.
 - **Workout builder chat**: a conversation beside the composer so the athlete can ask questions
   while a workout is open. The model already receives profile, equipment, history, and the
   current workout through the same context. This stays later; the Progress review ships first.
-- **Insights synced to Android** (`erv/insights/YYYY-MM-DD`): web/server generates a daily
-  recap, publishes an encrypted kind-30078 document, Android renders it read-only. Needs a new
-  d-tag in `erv_tags.rs` and Android read support.
+- **Insights synced to Android**: the latest coach review now publishes as `erv/coach/review`
+  (kind 30078, encrypt-to-self, replaceable) when "Send new reviews to my phone" is on. Payload:
+  `ervCoachReviewVersion` 1, `generatedAtEpochSeconds`, `periodLabel`, `periodStart`, `periodEnd`,
+  `weightUnit`, `model`, `promptVersion`, `review` (the v3 JSON), and `liftTargets`
+  (`exerciseId`, `name`, `trend`, `next`, `why`) for lifts matched back to exercise ids. Android
+  read support is the next step. A daily recap history stays later.
 - **Unattended / scheduled generation**: today the nsec lives in memory only while unlocked (15 min
   idle). A nightly job needs either generate-on-open (no security change) or an opt-in operational
   key. Decision deferred.
