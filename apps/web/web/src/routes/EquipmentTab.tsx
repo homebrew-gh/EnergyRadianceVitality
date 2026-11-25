@@ -22,6 +22,7 @@ import {
   WEIGHT_EXERCISE_PACKS,
   weightExercisePackExerciseCount,
 } from "../lib/weightExercisePacks";
+import { PageHeader } from "../components/PageHeader";
 
 export function EquipmentTab() {
   const {
@@ -32,7 +33,6 @@ export function EquipmentTab() {
     publishing,
     dirty,
     error,
-    lastEventId,
     reload,
     setGymMembership,
     toggleExercisePack,
@@ -75,16 +75,11 @@ export function EquipmentTab() {
 
   return (
     <div className="space-y-6">
-      <header className="space-y-2">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="space-y-2">
-            <h2 className="text-2xl font-bold text-heading">Equipment & Gym</h2>
-            <p className="text-sm text-muted max-w-2xl">
-              Tell ERV what you have access to at home or in your gym. Edit your inventory here,
-              then push one update to your relay so your phone stays in sync.
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
+      <PageHeader
+        title="Equipment"
+        description="Tell ERV what you have at home or in your gym. Edit your inventory here, then push one update so your phone stays in sync."
+        actions={
+          <>
             <span className="text-xs text-muted">Weight display</span>
             <button
               type="button"
@@ -100,9 +95,9 @@ export function EquipmentTab() {
             >
               kg
             </button>
-          </div>
-        </div>
-      </header>
+          </>
+        }
+      />
 
       {dirty ? (
         <div
@@ -154,9 +149,6 @@ export function EquipmentTab() {
       {success ? (
         <div className="text-sm text-[var(--erv-success)] card p-3" role="status">
           {success}
-          {lastEventId ? (
-            <span className="block text-xs text-muted mt-1 font-mono">Event {lastEventId.slice(0, 16)}…</span>
-          ) : null}
         </div>
       ) : null}
 
@@ -311,8 +303,8 @@ export function EquipmentTab() {
       <section className="card p-4 space-y-3">
         <SectionHeader>Sync to relay</SectionHeader>
         <p className="text-sm text-muted">
-          Push your gym membership, exercise packs, and inventory as one encrypted update
-          (`erv/equipment`). Your Android app will merge this on the next sync.
+          Push your gym membership, exercise packs, and inventory as one encrypted update. Your
+          phone merges it on its next sync.
         </p>
         <div className="flex flex-wrap gap-2">
           <button

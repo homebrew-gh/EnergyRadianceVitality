@@ -62,12 +62,12 @@ import {
   type Workout,
   type WorkoutSegment,
   type WorkoutSegmentKind,
-  WORKOUTS_LIBRARY_D_TAG,
 } from "../lib/workoutTraining";
 import {
   instantiateSegmentTemplate,
   WORKOUT_SEGMENT_TEMPLATES,
 } from "../lib/segmentTemplates";
+import { PageHeader } from "../components/PageHeader";
 
 const WORKOUT_COMPOSER_FORM_ID = "workout-composer-form";
 
@@ -658,42 +658,12 @@ export function WorkoutsTab() {
 
   return (
     <div className="space-y-5">
-      <section className="hero-card">
-        <div className="flex flex-wrap items-start justify-between gap-5">
-          <div className="max-w-2xl space-y-3">
-            <span className="sun-chip">Phase 2 Workout Composer</span>
-            <div>
-              <h2 className="text-3xl font-bold text-heading">Build A Session That Flows</h2>
-              <p className="mt-2 text-sm text-muted">
-                Storyboard warm-up, lifting, cardio, mobility, rest, and notes in one place.
-                Publish to your relay, then run it on Android after sync.
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2 text-xs text-muted">
-              <span className="rounded-pill bg-[var(--erv-surface)]/75 px-3 py-1">
-                {WORKOUTS_LIBRARY_D_TAG}
-              </span>
-              <span className="rounded-pill bg-[var(--erv-surface)]/75 px-3 py-1">
-                {baselineLabel}
-              </span>
-            </div>
-          </div>
-          <div className="grid min-w-[16rem] flex-1 grid-cols-3 gap-2 sm:max-w-md">
-            <div className="metric-card">
-              <p className="text-xs text-muted">Saved</p>
-              <p className="mt-1 text-2xl font-bold text-heading tabular-nums">{workouts.length}</p>
-            </div>
-            <div className="metric-card">
-              <p className="text-xs text-muted">Segments</p>
-              <p className="mt-1 text-2xl font-bold text-heading tabular-nums">{segments.length}</p>
-            </div>
-            <div className="metric-card">
-              <p className="text-xs text-muted">Items</p>
-              <p className="mt-1 text-2xl font-bold text-heading tabular-nums">{draftItemCount}</p>
-            </div>
-          </div>
-        </div>
-      </section>
+      <PageHeader
+        title="Workouts"
+        description="Build a workout here and publish it. Your phone picks it up on its next sync, ready to run."
+      >
+        <p className="text-xs text-muted">{baselineLabel}</p>
+      </PageHeader>
 
       {catalogs.weight.length === 0 && catalogs.stretch.length === 0 ? (
         <p className="text-sm text-muted card p-3">

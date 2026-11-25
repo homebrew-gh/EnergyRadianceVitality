@@ -20,6 +20,7 @@ import {
   type WeightCatalogExercise,
 } from "../lib/catalog";
 import { useCatalogEditor } from "../lib/catalogEditorData";
+import { PageHeader } from "../components/PageHeader";
 
 type EditorTab = "weight" | "stretch" | "cardio";
 
@@ -99,14 +100,10 @@ export function CatalogEditorTab() {
 
   return (
     <div className="space-y-6">
-      <header className="space-y-2">
-        <h2 className="text-2xl font-bold text-heading">Catalog editor</h2>
-        <p className="text-sm text-muted">
-          Browse and edit the synced exercise compendium by category. Add or edit items and
-          changes queue to your relay automatically — watch the status bar above for relay
-          delivery.
-        </p>
-      </header>
+      <PageHeader
+        title="Exercises"
+        description="Browse and edit your exercises, stretches and cardio activities. Changes publish to your relay on their own."
+      />
 
       {editor.error ? (
         <div className="text-sm text-error card p-3 space-y-2" role="alert">

@@ -1,11 +1,10 @@
 import { useMemo, useState } from "react";
 import { SessionMediaGallery } from "../components/SessionMediaPreview";
 import { TrainingBaselinePanel } from "../components/TrainingBaselinePanel";
-import { TrainingRelayDiagnostics } from "../components/TrainingRelayDiagnostics";
+import { PageHeader } from "../components/PageHeader";
 import { CoachReviewCard } from "../components/CoachReviewCard";
 import { TrainingContextExportCard } from "../components/TrainingContextExportCard";
 import { FieldLabel, SectionHeader } from "../components/FieldLabel";
-import { useAuth } from "../lib/auth";
 import { useWeightLoadUnit } from "../lib/weightLoadUnit";
 import { useEquipment } from "../lib/equipmentData";
 import { useTrainingProfile } from "../lib/trainingProfileData";
@@ -691,7 +690,6 @@ function formatElapsedSeconds(seconds: number | null | undefined): string | null
 }
 
 export function ProgressTab() {
-  const { status } = useAuth();
   const [weightLoadUnit] = useWeightLoadUnit();
   const {
     exercises,
@@ -718,8 +716,6 @@ export function ProgressTab() {
     decryptErrors,
     emptyDayLogs,
     relayFetchTruncated,
-    relayMeta,
-    relayRecords,
     lastLoadedAt,
     reload,
   } = useTrainingHistory();
@@ -904,17 +900,29 @@ export function ProgressTab() {
 
   return (
     <div className="space-y-6">
-      <header className="hero-card space-y-5">
+      <PageHeader
+        title="Progress"
+        description="Your history, synced from your phone. Spot your rhythm, review load trends and check the baseline before planning."
+        actions={
+          <>
+            {lastLoadedAt ? (
+              <span className="text-xs text-muted">
+                Last loaded {new Date(lastLoadedAt).toLocaleString()}
+              </span>
+            ) : null}
+            <button type="button" className="btn-primary text-sm" onClick={() => {
+              void reload(true);
+              void reloadSessionMedia(true);
+            }}>
+              Reload From Relay
+            </button>
+          </>
+        }
+      />
+
+      <section className="hero-card space-y-5">
         <div className="flex flex-wrap items-start justify-between gap-5">
           <div className="max-w-2xl space-y-3">
-            <span className="sun-chip">Training Pulse</span>
-            <div>
-              <h2 className="text-3xl font-bold text-heading">Progress</h2>
-              <p className="mt-2 text-sm text-muted">
-                Read-only history synced from Android. Use this page to spot your rhythm,
-                review load trends, and sanity-check the baseline before planning.
-              </p>
-            </div>
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-sm text-muted">
                 <FieldLabel>Period</FieldLabel>
@@ -930,19 +938,6 @@ export function ProgressTab() {
                 </button>
               ))}
             </div>
-          </div>
-          <div className="flex flex-col items-start gap-2 sm:items-end">
-            <button type="button" className="btn-primary text-sm" onClick={() => {
-              void reload(true);
-              void reloadSessionMedia(true);
-            }}>
-              Reload From Relay
-            </button>
-            {lastLoadedAt ? (
-              <p className="text-xs text-muted">
-                Last loaded {new Date(lastLoadedAt).toLocaleString()}
-              </p>
-            ) : null}
           </div>
         </div>
 
@@ -969,7 +964,7 @@ export function ProgressTab() {
           />
         </div>
 
-        <div className="grid gap-3 md:grid-cols-3">
+        <div className="grid gap-3 md:grid-cols-2">
           <InsightCard
             title="Baseline"
             value={showBaseline ? "Ready" : "Waiting For Logs"}
@@ -986,21 +981,6 @@ export function ProgressTab() {
               topMuscleGroup
                 ? `${topMuscleGroup.setCount} working sets in this period.`
                 : "Strength volume by muscle group appears once logs sync."
-            }
-          />
-          <InsightCard
-            title="Relay Read"
-            value={
-              relayMeta
-                ? `${weightLogs.length + cardioLogs.length} Parsed Logs`
-                : "Not Loaded Yet"
-            }
-            detail={
-              relayMeta
-                ? `${relayMeta.relay_events_fetched} events fetched${
-                    status?.npub ? ` for ${status.npub.slice(0, 12)}...` : ""
-                  }`
-                : "Reload after Android sync to refresh history."
             }
           />
         </div>
@@ -1044,15 +1024,13 @@ export function ProgressTab() {
             </p>
           ) : null}
         </div>
-      </header>
+      </section>
 
       <CoachReviewCard
         bundleInput={reviewBundleInput}
         periodWeeks={periodWeeks}
         periodLabel={selectedPeriodLabel}
       />
-
-      <TrainingRelayDiagnostics records={relayRecords} visibleDates={visibleDates} />
 
       {showBaseline ? (
         <TrainingBaselinePanel
@@ -1075,9 +1053,8 @@ export function ProgressTab() {
         <section className="card p-6 space-y-2">
           <p className="font-medium text-heading">No sessions in this period</p>
           <p className="text-sm text-muted">
-            Log a weight or cardio session on Android, wait for relay sync, then reload this tab.
-            Day logs publish as <code className="text-xs">erv/weight/YYYY-MM-DD</code> and{" "}
-            <code className="text-xs">erv/cardio/YYYY-MM-DD</code>.
+            Log a weight or cardio session on your phone, let it sync, then reload this page.
+            Settings → Advanced shows what the relay returned for each day.
           </p>
         </section>
       ) : !emptyPeriod ? (

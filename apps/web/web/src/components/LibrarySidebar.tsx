@@ -225,7 +225,7 @@ export function LibrarySidebar({
             </div>
             {weightPickerFilter === "HOME_READY" && ownedEquipment.length === 0 && !gymMembership ? (
               <p className="text-[11px] text-muted leading-snug">
-                Home-ready uses your Equipment tab profile plus no-equipment bodyweight moves and
+                Home-ready uses your Equipment page plus no-equipment bodyweight moves and
                 exercises you add in the catalog.
               </p>
             ) : null}
