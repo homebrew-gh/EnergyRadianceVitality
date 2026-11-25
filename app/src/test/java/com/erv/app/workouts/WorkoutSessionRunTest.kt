@@ -290,6 +290,57 @@ class WorkoutSessionRunTest {
     }
 
     @Test
+    fun a_rest_keeps_its_exercise_on_screen_and_its_next_set_can_be_logged_over_it() {
+        val onRest = started("example-strength-day").play(1_060, WorkoutSessionEvent.SetLogged(set(5, 102.5)))
+        assertEquals(WorkoutSessionRestKind.BETWEEN_SETS, (onRest.step() as WorkoutSessionStep.Rest).kind)
+        val focus = onRest.sessionFocusLiftIndex()!!
+        val shown = onRest.sessionPlan().steps[focus] as WorkoutSessionStep.LiftSet
+        assertEquals("strength-squat", shown.itemId)
+        assertEquals(0, shown.setIndex)
+
+        // Checking off the next set cuts the rest short and logs it.
+        val logged = onRest.withSessionRestCutForSet(set(5, 105.0), 1_100)
+        assertEquals(
+            listOf(set(5, 102.5), set(5, 105.0)),
+            WorkoutSessionEngine.loggedSets(logged.sessionPlan(), logged.session!!, "strength-main", "strength-squat"),
+        )
+        assertEquals(WorkoutSessionRestKind.BETWEEN_SETS, (logged.step() as WorkoutSessionStep.Rest).kind)
+        // Nothing to cut short when a set is on screen.
+        val onSet = logged.play(1_200, WorkoutSessionEvent.StepDone)
+        assertEquals(onSet, onSet.withSessionRestCutForSet(set(1), 1_300))
+    }
+
+    @Test
+    fun a_set_added_in_the_rest_after_the_last_one_comes_back_on_screen() {
+        val afterSquat = started("example-strength-day").play(
+            1_060,
+            WorkoutSessionEvent.SetLogged(set(5, 102.5)), WorkoutSessionEvent.StepDone,
+            WorkoutSessionEvent.SetLogged(set(5, 102.5)), WorkoutSessionEvent.StepDone,
+            WorkoutSessionEvent.SetLogged(set(4, 102.5)),
+        )
+        assertEquals(WorkoutSessionRestKind.BETWEEN_EXERCISES, (afterSquat.step() as WorkoutSessionStep.Rest).kind)
+        val focus = afterSquat.sessionFocusLiftIndex()!!
+        assertEquals("strength-squat", (afterSquat.sessionPlan().steps[focus] as WorkoutSessionStep.LiftSet).itemId)
+        // The step on screen is a rest, so the old rule (a lift on screen) can't add to it.
+        assertFalse(afterSquat.canAddSessionSet())
+        assertTrue(afterSquat.canAddSessionSet(liftStepIndex = focus))
+
+        val more = afterSquat.withSessionSetCountChanged(1, focus)
+        val onScreen = more.step() as WorkoutSessionStep.LiftSet
+        assertEquals("strength-squat", onScreen.itemId)
+        assertEquals(3, onScreen.setIndex)
+        assertEquals(4, onScreen.setCount)
+        assertNull(more.session!!.recordFor(more.session!!.stepIndex))
+
+        val done = more.play(2_000, WorkoutSessionEvent.SetLogged(set(3, 102.5)))
+        assertEquals(
+            listOf(set(5, 102.5), set(5, 102.5), set(4, 102.5), set(3, 102.5)),
+            WorkoutSessionEngine.loggedSets(done.sessionPlan(), done.session!!, "strength-main", "strength-squat"),
+        )
+        assertEquals(WorkoutSessionRestKind.BETWEEN_EXERCISES, (done.step() as WorkoutSessionStep.Rest).kind)
+    }
+
+    @Test
     fun an_added_set_copies_the_last_planned_one() {
         val bench = (examples.getValue("example-strength-day").segments[0].items[2] as WorkoutItem.Weight).prescription
         val more = bench.withSetCountChange(1)

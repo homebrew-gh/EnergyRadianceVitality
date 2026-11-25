@@ -312,6 +312,11 @@ data class WorkoutActiveRun(
      * logged as the weight log's interval block for that exercise.
      */
     val sessionHiitBlocks: Map<String, com.erv.app.weighttraining.WeightHiitBlockLog> = emptyMap(),
+    /**
+     * True for a run opened from a training block's Run Workout. Only those offer Skip Set and
+     * Skip Exercise on the lifting card; any other run simply leaves a set or exercise undone.
+     */
+    val fromTrainingBlock: Boolean = false,
 )
 
 /** Where a standalone run came from. */

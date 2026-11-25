@@ -841,6 +841,8 @@ fun ErvNavHost(
                 signer = signer,
                 onBack = { navController.popBackStack() },
                 onStartWorkout = { workoutId ->
+                    // A training block's workout: its run offers Skip Set and Skip Exercise.
+                    workoutRepository.noteTrainingBlockLaunch(workoutId)
                     navController.navigate(Routes.workoutRun(workoutId)) { launchSingleTop = true }
                 }
             )

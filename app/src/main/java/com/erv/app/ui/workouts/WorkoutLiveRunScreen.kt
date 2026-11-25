@@ -10,6 +10,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -194,7 +195,6 @@ import com.erv.app.workouts.canRemoveSessionSet
 import com.erv.app.workouts.canRemoveSessionSetAt
 import com.erv.app.workouts.isSessionWaitingForMore
 import com.erv.app.workouts.isStandaloneWorkoutId
-import com.erv.app.workouts.sessionLastOpenSetIndex
 import com.erv.app.workouts.WorkoutSessionRestMode
 import com.erv.app.workouts.WorkoutSessionRestOptions
 import com.erv.app.workouts.sessionExerciseFor
@@ -204,6 +204,7 @@ import com.erv.app.workouts.sessionLiftSectionsToLog
 import com.erv.app.workouts.sessionPlan
 import com.erv.app.workouts.sessionProgressLabel
 import com.erv.app.workouts.sessionUpNextLabel
+import com.erv.app.workouts.sessionFocusLiftIndex
 import com.erv.app.workouts.weightSessionFor
 import com.erv.app.workouts.WorkoutSessionAddition
 import com.erv.app.workouts.adjustedWorkout
@@ -328,6 +329,8 @@ fun WorkoutLiveRunScreen(
     val plan = remember(activeRun?.sessionId, activeRun?.workoutSnapshot, activeRun?.sessionRestOptions) { activeRun?.sessionPlan() }
     val session = activeRun?.session
     val currentStep = if (plan != null && session != null) WorkoutSessionEngine.currentStep(plan, session) else null
+    // The lift set whose exercise is on screen; during a rest, the one just done.
+    val focusLiftIndex = if (plan != null) activeRun?.sessionFocusLiftIndex(plan) else null
 
     val runKeyManager = LocalKeyManager.current
     val concept2Ble = LocalConcept2Pm.current
@@ -428,12 +431,6 @@ fun WorkoutLiveRunScreen(
     /** Sets logged for [exerciseId] the last time, so a standalone workout starts with as many. */
     fun lastSetCountFor(exerciseId: String): Int? =
         weightState.historyForExercise(exerciseId).firstOrNull()?.entry?.sets?.size?.takeIf { it > 0 }
-
-    /** "Last time (…): …" from the newest log of [exerciseId] that isn't from this run. */
-    fun lastTimeFor(exerciseId: String): String? =
-        weightState.historyForExercise(exerciseId)
-            .firstOrNull { it.workout.workoutLink?.sessionId != activeRun?.sessionId }
-            ?.let { describeLastTime(it, loadUnit, LocalDate.now()) }
 
     // The run's own copy: the plan is built from it, and sets added today live in it.
     fun itemOf(step: WorkoutSessionStep): WorkoutItem? =
@@ -1353,11 +1350,31 @@ fun WorkoutLiveRunScreen(
             )
         },
     ) { padding ->
-        LazyColumn(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
-                .padding(16.dp),
+                .padding(padding),
+        ) {
+        // A rest is a bar over the workout, not a screen of its own: the exercise stays in view.
+        val restStep = currentStep as? WorkoutSessionStep.Rest
+        if (runStarted && !isComplete && restStep != null) {
+            val remaining = countdownEnd?.let { (it - nowWorkoutEpochSeconds()).toInt() } ?: restStep.seconds
+            WorkoutSessionRestBar(
+                title = if (restStep.kind == WorkoutSessionRestKind.AFTER_SECTION) "Rest Before the Next Section" else "Rest",
+                secondsRemaining = remaining,
+                totalSeconds = restStep.seconds,
+                nextLabel = plan?.let { activeRun?.sessionUpNextLabel(stepNames, loadUnit, it) },
+                onSkip = { send(WorkoutSessionEvent.StepDone) },
+                onAddTime = { scope.launch { repository.extendSessionCountdown(30) } },
+                awaitingStart = awaitingStart,
+                onStart = { startStep(restStep) },
+            )
+        }
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
+            contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
@@ -1374,110 +1391,11 @@ fun WorkoutLiveRunScreen(
                 )
             }
             val step = currentStep
-            if (runStarted && !isComplete && step != null) {
+            if (runStarted && !isComplete && step != null && step !is WorkoutSessionStep.LiftSet && step !is WorkoutSessionStep.Rest) {
                 item(key = "step-${session?.stepIndex}") {
                     when (step) {
-                        is WorkoutSessionStep.LiftSet -> {
-                            val item = itemOf(step) as? WorkoutItem.Weight
-                            val logged = if (plan != null && session != null) {
-                                plan.steps.indices
-                                    .filter {
-                                        val other = plan.steps[it]
-                                        other is WorkoutSessionStep.LiftSet &&
-                                            other.segmentId == step.segmentId && other.itemId == step.itemId
-                                    }
-                                    .mapNotNull { index ->
-                                        session.recordFor(index)
-                                            ?.takeIf { it.outcome == WorkoutStepOutcome.DONE }
-                                            ?.set
-                                            ?.let { WorkoutSessionLoggedSet(index, it) }
-                                    }
-                            } else {
-                                emptyList()
-                            }
-                            val segment = runWorkout.segments.getOrNull(step.segmentIndex)
-                            val exerciseId = activeRun?.sessionExerciseFor(step) ?: step.exerciseId
-                            val exercise = weightState.exerciseById(exerciseId)
-                            val stepIndex = session?.stepIndex
-                            val goalSeconds = step.target.targetDurationSeconds?.takeIf { it > 0 && (step.target.targetReps ?: 0) <= 0 }
-                            WorkoutSessionLiftCard(
-                                step = step,
-                                exerciseName = liftName(step),
-                                sectionTitle = segment?.takeIf { step.inRounds }?.displayTitle(),
-                                loadUnit = loadUnit,
-                                loggedSets = logged,
-                                canSwap = item != null,
-                                onLog = { set -> send(WorkoutSessionEvent.SetLogged(set)) },
-                                onSkipSet = { send(WorkoutSessionEvent.SkipStep) },
-                                onSkipExercise = { pendingSkipLabel = liftName(step) },
-                                onSwap = { swapItem = step.segmentId to step.itemId },
-                                onEditSet = { editingSet = it },
-                                lastTime = lastTimeFor(exerciseId),
-                                coachTarget = coachReview?.coachLineFor(exerciseId, System.currentTimeMillis() / 1000),
-                                onShowHistory = { historyFor = exerciseId to liftName(step) },
-                                canAddSet = plan != null && activeRun?.canAddSessionSet(plan) == true,
-                                // A plain exercise loses its last set still to come (the one on
-                                // screen, at the latest); a superset or circuit loses a round.
-                                canRemoveSet = plan != null && activeRun != null && if (step.inRounds) {
-                                    activeRun.canRemoveSessionSet(plan)
-                                } else {
-                                    activeRun.sessionLastOpenSetIndex(plan)?.let { activeRun.canRemoveSessionSetAt(it, plan) } == true
-                                },
-                                onAddSet = { changeSetCount(1) },
-                                onRemoveSet = {
-                                    val openSet = if (step.inRounds || plan == null) null else activeRun?.sessionLastOpenSetIndex(plan)
-                                    if (openSet != null) {
-                                        scope.launch { repository.removeSessionSet(openSet) }
-                                    } else {
-                                        changeSetCount(-1)
-                                    }
-                                },
-                                equipmentLabel = exercise?.equipment?.displayLabel(),
-                                plateCalculator = plateCalculatorFor(exercise),
-                                onStartTimer = if (goalSeconds != null && stepIndex != null) {
-                                    { base ->
-                                        holdTimer = SessionHoldTimer(
-                                            stepIndex = stepIndex,
-                                            exerciseName = liftName(step),
-                                            goalSeconds = goalSeconds,
-                                            // The workout's get-ready time, else the weight screen's for a hold.
-                                            prepSeconds = item?.prescription?.timedPrepSeconds
-                                                ?: if (exercise?.setLoggingStyle() == WeightSetLoggingStyle.TIME_ONLY) DEFAULT_TIMED_PREP_SECONDS else 0,
-                                            countdownBeeps = exercise?.usesTimedHoldCountdownBeeps() == true,
-                                            base = base,
-                                        )
-                                    }
-                                } else {
-                                    null
-                                },
-                                onStartIntervals = if (
-                                    exercise?.hiitCapable == true && stepIndex != null && plan != null &&
-                                    activeRun?.canLogSessionHiitBlock(plan) == true
-                                ) {
-                                    { intervals ->
-                                        intervalTimer = SessionIntervalTimer(stepIndex, liftName(step), intervals)
-                                    }
-                                } else {
-                                    null
-                                },
-                            )
-                        }
-                        is WorkoutSessionStep.Rest -> {
-                            val remaining = countdownEnd?.let { (it - nowWorkoutEpochSeconds()).toInt() } ?: step.seconds
-                            WorkoutSessionRestCard(
-                                title = if (step.kind == WorkoutSessionRestKind.AFTER_SECTION) {
-                                    "Rest before the next section"
-                                } else {
-                                    "Rest"
-                                },
-                                secondsRemaining = remaining,
-                                nextLabel = plan?.let { activeRun?.sessionUpNextLabel(stepNames, loadUnit, it) },
-                                onSkip = { send(WorkoutSessionEvent.StepDone) },
-                                onAddTime = { scope.launch { repository.extendSessionCountdown(30) } },
-                                awaitingStart = awaitingStart,
-                                onStart = { startStep(step) },
-                            )
-                        }
+                        // Lifts and the rests between them are drawn by the exercise card and the rest bar.
+                        is WorkoutSessionStep.LiftSet, is WorkoutSessionStep.Rest -> Unit
                         is WorkoutSessionStep.Note -> WorkoutSessionNoteCard(
                             text = step.text,
                             onContinue = { send(WorkoutSessionEvent.StepDone) },
@@ -1551,6 +1469,113 @@ fun WorkoutLiveRunScreen(
                             }
                         }
                     }
+                }
+            }
+            // The exercise on screen, with all its sets; it stays put through the rests after them.
+            val focusStep = focusLiftIndex?.let { plan?.steps?.getOrNull(it) } as? WorkoutSessionStep.LiftSet
+            if (runStarted && !isComplete && focusStep != null && focusLiftIndex != null && plan != null && session != null) {
+                item(key = "lift-${focusStep.segmentId}-${focusStep.itemId}") {
+                    val run = activeRun
+                    val item = itemOf(focusStep) as? WorkoutItem.Weight
+                    val onLift = step is WorkoutSessionStep.LiftSet
+                    val restIndex = session.stepIndex.takeIf { step is WorkoutSessionStep.Rest }
+                    // The set the check logs now: the one on screen, or the one right after the rest on screen.
+                    val nextIndex = when {
+                        onLift -> session.stepIndex
+                        restIndex != null -> (restIndex + 1).takeIf { index ->
+                            val after = plan.steps.getOrNull(index) as? WorkoutSessionStep.LiftSet
+                            after != null && after.segmentId == focusStep.segmentId && after.itemId == focusStep.itemId
+                        }
+                        else -> null
+                    }
+                    val rows = plan.steps.indices.mapNotNull { index ->
+                        val other = plan.steps[index] as? WorkoutSessionStep.LiftSet ?: return@mapNotNull null
+                        if (other.segmentId != focusStep.segmentId || other.itemId != focusStep.itemId) return@mapNotNull null
+                        val record = session.recordFor(index)
+                        WorkoutSessionSetRow(
+                            stepIndex = index,
+                            step = other,
+                            logged = record?.takeIf { it.outcome == WorkoutStepOutcome.DONE }?.set,
+                            skipped = record?.outcome == WorkoutStepOutcome.SKIPPED,
+                            isNext = index == nextIndex,
+                            canRemove = run?.canRemoveSessionSetAt(index, plan) == true,
+                        )
+                    }
+                    val segment = runWorkout.segments.getOrNull(focusStep.segmentIndex)
+                    val exerciseId = run?.sessionExerciseFor(focusStep) ?: focusStep.exerciseId
+                    val exercise = weightState.exerciseById(exerciseId)
+                    val lastLog = weightState.historyForExercise(exerciseId)
+                        .firstOrNull { it.workout.workoutLink?.sessionId != run?.sessionId }
+                    val liftStep = step as? WorkoutSessionStep.LiftSet
+                    val goalSeconds = liftStep?.target?.takeIf { (it.targetReps ?: 0) <= 0 }?.targetDurationSeconds?.takeIf { it > 0 }
+                    val fromBlock = run?.fromTrainingBlock == true && liftStep != null
+                    WorkoutSessionExerciseCard(
+                        exerciseName = liftName(focusStep),
+                        sectionTitle = segment?.takeIf { focusStep.inRounds }?.displayTitle(),
+                        loadUnit = loadUnit,
+                        rows = rows,
+                        onLog = { set ->
+                            if (restIndex != null) {
+                                scope.launch {
+                                    repository.logSessionSetOverRest(restIndex, set)
+                                    logFinishedSections()
+                                }
+                            } else {
+                                send(WorkoutSessionEvent.SetLogged(set))
+                            }
+                        },
+                        onEditSet = { index, set ->
+                            scope.launch { repository.applySessionEvent(WorkoutSessionEvent.EditSet(index, set)) }
+                        },
+                        onRemoveSet = { index -> scope.launch { repository.removeSessionSet(index) } },
+                        canSwap = item != null && rows.none { it.logged != null },
+                        onSwap = { swapItem = focusStep.segmentId to focusStep.itemId },
+                        lastTime = lastLog?.let { describeLastTime(it, loadUnit, LocalDate.now()) },
+                        lastTimeSets = lastLog?.entry?.sets.orEmpty(),
+                        coachTarget = coachReview?.coachLineFor(exerciseId, System.currentTimeMillis() / 1000),
+                        onShowHistory = { historyFor = exerciseId to liftName(focusStep) },
+                        canAddSet = run?.canAddSessionSet(plan, focusLiftIndex) == true,
+                        onAddSet = {
+                            val atStep = session.stepIndex
+                            scope.launch { repository.changeSessionSetCount(1, atStepIndex = atStep, liftStepIndex = focusLiftIndex) }
+                        },
+                        // In a superset or circuit a set is a round of the whole section.
+                        onRemoveRound = if (focusStep.inRounds && onLift && run?.canRemoveSessionSet(plan) == true) {
+                            { changeSetCount(-1) }
+                        } else {
+                            null
+                        },
+                        onSkipSet = if (fromBlock) ({ send(WorkoutSessionEvent.SkipStep) }) else null,
+                        onSkipExercise = if (fromBlock) ({ pendingSkipLabel = liftName(focusStep) }) else null,
+                        equipmentLabel = exercise?.equipment?.displayLabel(),
+                        plateCalculator = plateCalculatorFor(exercise),
+                        onStartTimer = if (goalSeconds != null && liftStep != null) {
+                            { base ->
+                                holdTimer = SessionHoldTimer(
+                                    stepIndex = session.stepIndex,
+                                    exerciseName = liftName(liftStep),
+                                    goalSeconds = goalSeconds,
+                                    // The workout's get-ready time, else the weight screen's for a hold.
+                                    prepSeconds = item?.prescription?.timedPrepSeconds
+                                        ?: if (exercise?.setLoggingStyle() == WeightSetLoggingStyle.TIME_ONLY) DEFAULT_TIMED_PREP_SECONDS else 0,
+                                    countdownBeeps = exercise?.usesTimedHoldCountdownBeeps() == true,
+                                    base = base,
+                                )
+                            }
+                        } else {
+                            null
+                        },
+                        onStartIntervals = if (
+                            exercise?.hiitCapable == true && liftStep != null &&
+                            run?.canLogSessionHiitBlock(plan) == true
+                        ) {
+                            { intervals ->
+                                intervalTimer = SessionIntervalTimer(session.stepIndex, liftName(liftStep), intervals)
+                            }
+                        } else {
+                            null
+                        },
+                    )
                 }
             }
             // A standalone workout that has done everything so far waits here for more, or Finish.
@@ -1712,6 +1737,7 @@ fun WorkoutLiveRunScreen(
                     }
                 }
             }
+        }
         }
     }
     }

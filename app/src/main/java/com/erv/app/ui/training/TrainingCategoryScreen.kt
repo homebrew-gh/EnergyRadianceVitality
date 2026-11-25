@@ -313,7 +313,11 @@ fun TrainingCategoryScreen(
                         plannedItemContext = plannedItemContext,
                         startedRun = startedRun,
                         dayActivity = { date -> weekActivity[date] ?: TrainingDayActivity() },
-                        onRunWorkout = onRunWorkout,
+                        // A planned training block: its run offers Skip Set and Skip Exercise.
+                        onRunWorkout = { id ->
+                            workoutRepository.noteTrainingBlockLaunch(id)
+                            onRunWorkout(id)
+                        },
                         onOpenWeeklyPlanner = onOpenWeeklyPlanner,
                     )
 

@@ -91,13 +91,27 @@ class WorkoutRepository(context: Context) {
         }
     }
 
+    /** The workout a training block's Run Workout is opening; [beginRun] takes it once. */
+    @Volatile
+    private var trainingBlockLaunchWorkoutId: String? = null
+
+    /** Called just before a training block opens [workoutId], so its run can offer the skip buttons. */
+    fun noteTrainingBlockLaunch(workoutId: String) {
+        trainingBlockLaunchWorkoutId = workoutId
+    }
+
     suspend fun beginRun(workoutId: String) {
+        val fromBlock = trainingBlockLaunchWorkoutId == workoutId
+        if (fromBlock) trainingBlockLaunchWorkoutId = null
         updateState { state ->
             val run = state.activeRun?.takeIf { it.workoutId == workoutId }
             if (run != null) {
                 return@updateState state.copy(
                     activeRun = if (run.startedAtEpochSeconds == null) {
-                        run.copy(startedAtEpochSeconds = nowWorkoutEpochSeconds())
+                        run.copy(
+                            startedAtEpochSeconds = nowWorkoutEpochSeconds(),
+                            fromTrainingBlock = run.fromTrainingBlock || fromBlock,
+                        )
                     } else {
                         run
                     },
@@ -109,6 +123,7 @@ class WorkoutRepository(context: Context) {
                     workoutId = workout.id,
                     workoutSnapshot = workout,
                     startedAtEpochSeconds = nowWorkoutEpochSeconds(),
+                    fromTrainingBlock = fromBlock,
                 ),
             )
         }
@@ -202,11 +217,23 @@ class WorkoutRepository(context: Context) {
      * Adds a set to the exercise on screen ([delta] 1) or takes one away ([delta] -1), for today
      * only (see [withSessionSetCountChanged]). Ignored once [atStepIndex] has left the screen.
      */
-    suspend fun changeSessionSetCount(delta: Int, atStepIndex: Int? = null) {
+    suspend fun changeSessionSetCount(delta: Int, atStepIndex: Int? = null, liftStepIndex: Int? = null) {
         updateState { state ->
             val run = state.activeRun ?: return@updateState state
             if (atStepIndex != null && run.session?.stepIndex != atStepIndex) return@updateState state
-            state.copy(activeRun = run.withSessionSetCountChanged(delta))
+            state.copy(activeRun = run.withSessionSetCountChanged(delta, liftStepIndex))
+        }
+    }
+
+    /**
+     * Logs the set after the rest on screen, cutting the rest short (see [withSessionRestCutForSet]);
+     * only while the rest at [restStepIndex] is still on screen.
+     */
+    suspend fun logSessionSetOverRest(restStepIndex: Int, set: com.erv.app.weighttraining.WeightSet) {
+        updateState { state ->
+            val run = state.activeRun ?: return@updateState state
+            if (run.session?.stepIndex != restStepIndex) return@updateState state
+            state.copy(activeRun = run.withSessionRestCutForSet(set, nowWorkoutEpochSeconds()))
         }
     }
 
