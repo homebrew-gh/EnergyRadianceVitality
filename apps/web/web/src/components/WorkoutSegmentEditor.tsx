@@ -77,7 +77,7 @@ type WorkoutSegmentEditorProps = {
   canMoveDown: boolean;
 };
 
-function WeightPrescriptionFields({
+export function WeightPrescriptionFields({
   prescription,
   loggingStyle,
   onChange,

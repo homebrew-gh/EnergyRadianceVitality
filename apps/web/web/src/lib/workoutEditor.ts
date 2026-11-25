@@ -1,4 +1,4 @@
-import type { Workout, WorkoutItem, WorkoutSegment } from "./workoutTraining";
+import { segmentIsEmpty, type Workout, type WorkoutItem, type WorkoutSegment } from "./workoutTraining";
 
 /**
  * The workout builder's open draft as one value, changed only through [workoutEditorReducer].
@@ -224,4 +224,48 @@ export function canUndo(state: WorkoutEditorState): boolean {
 
 export function canRedo(state: WorkoutEditorState): boolean {
   return state.future.length > 0;
+}
+
+/** Why the draft cannot be published yet, or null when it can. */
+export function draftPublishProblem(draft: EditorDraft): string | null {
+  if (!draft.name.trim()) return "Give the workout a name.";
+  if (draft.segments.length === 0) return "Add at least one segment.";
+  if (draft.segments.some((segment) => segmentIsEmpty(segment))) {
+    return "Each segment needs at least one item.";
+  }
+  return null;
+}
+
+/**
+ * The workout to publish from [draft]. Editing keeps what the editor does not show (description,
+ * tags, created date, source) from [existing], the published version.
+ */
+export function workoutToPublish(
+  draft: EditorDraft,
+  id: string,
+  existing: Workout | undefined,
+  nowEpochSeconds: number,
+): Workout {
+  const segments = draft.segments.map((segment) => ({
+    ...segment,
+    title: segment.title?.trim() || null,
+  }));
+  const name = draft.name.trim();
+  return existing
+    ? {
+        ...existing,
+        name,
+        segments,
+        sourceLabel: existing.sourceLabel ?? "Start9",
+        createdAtEpochSeconds: existing.createdAtEpochSeconds ?? nowEpochSeconds,
+        lastModifiedEpochSeconds: nowEpochSeconds,
+      }
+    : {
+        id,
+        name,
+        segments,
+        sourceLabel: "Start9",
+        lastModifiedEpochSeconds: nowEpochSeconds,
+        createdAtEpochSeconds: nowEpochSeconds,
+      };
 }

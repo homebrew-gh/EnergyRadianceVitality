@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import type { LibraryItemKind } from "../components/LibrarySidebar";
 import { RoutineBuilderLayout } from "../components/RoutineBuilderLayout";
 import { RoutineFormAlerts } from "../components/RoutineFormAlerts";
@@ -51,7 +51,6 @@ import {
   newCardioItem,
   newMobilityItem,
   newWeightItem,
-  segmentIsEmpty,
   segmentItems,
   segmentKindHint,
   segmentKindLabel,
@@ -71,9 +70,11 @@ import { PageHeader } from "../components/PageHeader";
 import {
   canRedo,
   canUndo,
+  draftPublishProblem,
   initialWorkoutEditorState,
   withStableIds,
   workoutEditorReducer,
+  workoutToPublish,
 } from "../lib/workoutEditor";
 
 const WORKOUT_COMPOSER_FORM_ID = "workout-composer-form";
@@ -251,6 +252,12 @@ export function WorkoutsTab() {
   const publishState: WorkoutPublishState =
     publishedWorkout == null ? "draft" : draftDirty ? "unpublished_changes" : "published";
   const hasDraftContent = name.trim().length > 0 || segments.length > 0;
+  const navigate = useNavigate();
+  /** Hand the open workout to the new editor. Its unpublished changes are already in the drafts list. */
+  const openInNewEditor = () => {
+    clearStoredWorkoutDraft(draftAccountKey);
+    navigate(`/app/workouts/${draftId}/edit`);
+  };
 
   const catalogExercises = exercises;
   const activeSegment =
@@ -546,44 +553,20 @@ export function WorkoutsTab() {
     e.preventDefault();
     setFormError(null);
     setSuccess(null);
-    const trimmed = name.trim();
-    if (!trimmed) {
-      setFormError("Workout name is required.");
+    const problem = draftPublishProblem(editor.draft);
+    if (problem) {
+      setFormError(problem);
       return;
     }
-    if (segments.length === 0) {
-      setFormError("Add at least one segment.");
-      return;
-    }
-    if (segments.some((segment) => segmentIsEmpty(segment))) {
-      setFormError("Each segment needs at least one item.");
-      return;
-    }
-
-    const now = Math.floor(Date.now() / 1000);
-    const normalizedSegments = segments.map((segment) => ({
-      ...segment,
-      title: segment.title?.trim() || null,
-    }));
-    // Editing keeps what the form does not show (description, tags, created date, source).
     const existing = editingId ? workouts.find((w) => w.id === editingId) : undefined;
-    const workout: Workout = existing
-      ? {
-          ...existing,
-          name: trimmed,
-          segments: normalizedSegments,
-          sourceLabel: existing.sourceLabel ?? "Start9",
-          createdAtEpochSeconds: existing.createdAtEpochSeconds ?? now,
-          lastModifiedEpochSeconds: now,
-        }
-      : {
-          id: editingId ?? newDraftId,
-          name: trimmed,
-          segments: normalizedSegments,
-          sourceLabel: "Start9",
-          lastModifiedEpochSeconds: now,
-          createdAtEpochSeconds: now,
-        };
+    const workout = workoutToPublish(
+      editor.draft,
+      editingId ?? newDraftId,
+      existing,
+      Math.floor(Date.now() / 1000),
+    );
+    const trimmed = workout.name;
+    const normalizedSegments = workout.segments;
 
     try {
       const wasPublished = publishedWorkout != null;
@@ -644,6 +627,18 @@ export function WorkoutsTab() {
       <PageHeader
         title="Workouts"
         description="Build a workout here and publish it. Your phone picks it up on its next sync, ready to run."
+        actions={
+          <div className="flex flex-wrap gap-2">
+            {hasDraftContent || editingId != null ? (
+              <button type="button" className="btn-ghost text-sm" onClick={openInNewEditor}>
+                Open This in the New Editor
+              </button>
+            ) : null}
+            <button type="button" className="btn-primary text-sm" onClick={() => navigate("/app/workouts/new")}>
+              Try the New Editor
+            </button>
+          </div>
+        }
       >
         <p className="text-xs text-muted">{baselineLabel}</p>
       </PageHeader>
