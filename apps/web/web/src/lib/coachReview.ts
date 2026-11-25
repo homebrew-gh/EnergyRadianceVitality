@@ -110,6 +110,7 @@ const MAX_ACTIONS = 3;
  * can ask the model to fix it.
  */
 export function parseCoachReviewJson(text: string): CoachReviewParse {
+  if (stripThinking(text).trim() === "") return { ok: false, errors: ["The reply was empty."] };
   const raw = extractJsonObject(text);
   if (raw == null) return { ok: false, errors: ["The reply did not contain a JSON object."] };
   let data: unknown;
@@ -250,8 +251,13 @@ export function liftTrendLabel(trend: CoachLiftTrend): string {
   }
 }
 
+/** Some models put their reasoning in the reply as <think>…</think>; an unclosed block runs to the end. */
+export function stripThinking(text: string): string {
+  return text.replace(/<think>[\s\S]*?(<\/think>|$)/gi, "");
+}
+
 function extractJsonObject(text: string): string | null {
-  const unfenced = text.replace(/```(?:json)?/gi, "").trim();
+  const unfenced = stripThinking(text).replace(/```(?:json)?/gi, "").trim();
   const start = unfenced.indexOf("{");
   const end = unfenced.lastIndexOf("}");
   if (start < 0 || end <= start) return null;

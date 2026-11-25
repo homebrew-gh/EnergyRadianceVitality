@@ -89,19 +89,28 @@ function writeCache(period: string, review: CachedReview) {
 async function streamText(
   request: Parameters<typeof streamAi>[0],
   onProgress: (characters: number) => void,
-): Promise<{ text: string; model: string; promptVersion: string }> {
+): Promise<StreamedReply> {
   let text = "";
   let model = request.model_id ?? "";
   let promptVersion = "";
+  let finishReason: string | null = null;
+  let reasoningChars = 0;
   await streamAi(request, (event) => {
     if (event.event === "delta") {
       text += event.data;
       onProgress(text.length);
     } else if (event.event === "done") {
       try {
-        const meta = JSON.parse(event.data) as { model?: string; promptVersion?: string };
+        const meta = JSON.parse(event.data) as {
+          model?: string;
+          promptVersion?: string;
+          finishReason?: string | null;
+          reasoningChars?: number;
+        };
         if (meta.model) model = meta.model;
         if (meta.promptVersion) promptVersion = meta.promptVersion;
+        finishReason = meta.finishReason ?? null;
+        reasoningChars = meta.reasoningChars ?? 0;
       } catch {
         promptVersion = "";
       }
@@ -109,7 +118,28 @@ async function streamText(
       throw new Error(event.data);
     }
   });
-  return { text, model, promptVersion };
+  return { text, model, promptVersion, finishReason, reasoningChars };
+}
+
+type StreamedReply = {
+  text: string;
+  model: string;
+  promptVersion: string;
+  finishReason: string | null;
+  reasoningChars: number;
+};
+
+/** Why a reply had no usable JSON, in words the athlete can act on. */
+function replyProblem(reply: StreamedReply, errors: string[]): string {
+  if (reply.finishReason === "length") {
+    return reply.reasoningChars > 0
+      ? `The model used its whole reply budget thinking (${reply.reasoningChars.toLocaleString()} characters) and never wrote the review.`
+      : "The model ran out of room before it finished the review.";
+  }
+  if (reply.text.trim() === "" && reply.reasoningChars > 0) {
+    return "The model only sent its thinking, with no review after it.";
+  }
+  return errors.join(" ");
 }
 
 export function CoachReviewCard({ bundleInput, periodWeeks, periodLabel }: CoachReviewCardProps) {
@@ -258,8 +288,13 @@ export function CoachReviewCard({ bundleInput, periodWeeks, periodLabel }: Coach
         parsed = parseCoachReviewJson(reply.text);
       }
       if (!parsed.ok) {
+        console.warn("Coach review reply could not be used", {
+          finishReason: reply.finishReason,
+          reasoningChars: reply.reasoningChars,
+          start: reply.text.slice(0, 500),
+        });
         throw new Error(
-          `The model did not return a usable review (${parsed.errors.join(" ")}). Try again or pick another model.`,
+          `The model did not return a usable review (${replyProblem(reply, parsed.errors)}). Try again or pick another model.`,
         );
       }
       const generated = new Date().toISOString();
