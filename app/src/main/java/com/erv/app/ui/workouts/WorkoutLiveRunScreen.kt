@@ -208,6 +208,9 @@ import com.erv.app.workouts.attachSectionHeartRateToLiftLogs
 import com.erv.app.workouts.canAddSessionSet
 import com.erv.app.workouts.countdownSeconds
 import com.erv.app.workouts.cardioSessionFor
+import androidx.compose.runtime.rememberUpdatedState
+import com.erv.app.workouts.WorkoutTargetWatcher
+import com.erv.app.workouts.WorkoutSessionTargets
 import com.erv.app.workouts.WorkoutSessionCardioCues
 import com.erv.app.workouts.sessionCardioItemElapsedSeconds
 import com.erv.app.workouts.sessionLapSplits
@@ -1001,6 +1004,36 @@ fun WorkoutLiveRunScreen(
     }
     val distanceLegTile = distanceLeg?.targetMeters?.let { target ->
         legMeters?.let { "To Go" to formatCardioDistanceFromMeters((target - it).coerceAtLeast(0.0), distanceUnit) }
+    }
+    // Off-target alerts on a work leg: pace from the last 30 s of route and heart rate from the
+    // strap, against the builder's bands. Fifteen seconds out before the first, then once a minute.
+    val alertItem = cueLeg?.takeIf { !it.isRecovery }?.let { itemOf(it) as? WorkoutItem.Cardio }
+    val paceBand = alertItem?.let { WorkoutSessionTargets.paceBand(it.cardio) }
+    val heartRateBand = alertItem?.let { WorkoutSessionTargets.heartRateBand(it.cardio, cueLeg?.hrTargetBpm) }
+    val latestRoute by rememberUpdatedState(liveRoute)
+    val latestPaused by rememberUpdatedState(sessionPaused)
+    val latestCuesOn by rememberUpdatedState(cardioCuesOn)
+    LaunchedEffect(session?.stepIndex, paceBand, heartRateBand) {
+        if (paceBand == null && heartRateBand == null) return@LaunchedEffect
+        val paceWatch = WorkoutTargetWatcher()
+        val heartWatch = WorkoutTargetWatcher()
+        while (true) {
+            delay(1_000L)
+            val now = nowWorkoutEpochSeconds()
+            if (latestPaused || !latestCuesOn) {
+                paceWatch.reset()
+                heartWatch.reset()
+                continue
+            }
+            val pace = latestRoute?.let { WorkoutSessionTargets.recentPaceSecondsPerKm(it, now) }
+            val bpm = cueBpm()
+            val paceDrift = paceWatch.update(now, pace, paceBand)
+            val heartDrift = heartWatch.update(now, bpm?.toDouble(), heartRateBand)
+            when {
+                paceDrift != null && pace != null -> cuePlayer.say(WorkoutSessionTargets.paceAlert(paceDrift, pace, distanceUnit))
+                heartDrift != null && bpm != null -> cuePlayer.say(WorkoutSessionTargets.heartRateAlert(heartDrift, bpm))
+            }
+        }
     }
     var cuedLegStep by remember { mutableStateOf<Int?>(null) }
     LaunchedEffect(session?.stepIndex, cueLeg != null) {
