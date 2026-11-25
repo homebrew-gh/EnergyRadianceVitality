@@ -8,6 +8,7 @@ import {
   type BodyWeightUnit,
   type FitnessEquipmentPayload,
 } from "./fitnessEquipment";
+import { buildLiftFacts, buildWeeklySetsByMuscle, buildWeeklyTraining } from "./coachFacts";
 import {
   buildTrainingContextJson,
   STYLE_PRESET_AI_HINTS,
@@ -37,7 +38,7 @@ import { exerciseLabel } from "./weightTraining";
 import { segmentItems, type Workout, type WorkoutItem } from "./workoutTraining";
 
 const RECENT_SESSION_LIMIT = 8;
-const RECENT_EXERCISE_LIMIT = 24;
+const LIFT_LIMITS = { STANDARD: { lifts: 8, sessions: 3 }, FULL: { lifts: 25, sessions: 5 } } as const;
 
 export type AnalysisContext = {
   context: Record<string, unknown>;
@@ -83,23 +84,38 @@ export function buildAnalysisContext(
   if (level === "MINIMAL") {
     context.snapshot = snapshotAggregates(base.snapshot);
   } else {
-    context.snapshot = snapshotForReview(base.snapshot, input.exercises, unit);
+    const weightLogs = input.weightLogs ?? [];
+    const cardioLogs = input.cardioLogs ?? [];
+    const start = context.periodStart as string | null;
+    const limits = LIFT_LIMITS[level];
+    context.snapshot = snapshotForReview(base.snapshot);
+    context.liftTrends = buildLiftFacts({
+      weightLogs,
+      exercises: input.exercises,
+      workouts: input.workouts,
+      unit,
+      today,
+      liftLimit: limits.lifts,
+      sessionsPerLift: limits.sessions,
+    });
+    context.weeklyTraining = buildWeeklyTraining({
+      weightLogs,
+      cardioLogs,
+      today,
+      periodStart: start,
+      plannedDaysPerWeek: input.profile.typicalTrainingDaysPerWeek ?? null,
+    });
+    context.weeklySetsByMuscle = buildWeeklySetsByMuscle({
+      weightLogs,
+      exercises: input.exercises,
+      today,
+      periodStart: start,
+    });
     context.equipment = equipmentForReview(input.equipment, unit);
     context.progressionGuardrails = guardrailsForReview(
       base.progressionGuardrails as ProgressionGuardrailContext | undefined,
     );
-    context.recentSessionSummaries = recentSessionSummaries(
-      input.weightLogs ?? [],
-      input.cardioLogs ?? [],
-    );
-  }
-
-  if (level === "FULL") {
-    context.recentExerciseRows = recentExerciseRows(
-      input.weightLogs ?? [],
-      input.exercises,
-      unit,
-    );
+    context.recentSessionSummaries = recentSessionSummaries(weightLogs, cardioLogs, input.workouts);
   }
 
   const json = JSON.stringify(context);
@@ -302,36 +318,15 @@ function isOpaqueId(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value.trim());
 }
 
-export function snapshotForReview(
-  snapshot: unknown,
-  exercises: TrainingContextBundleInput["exercises"],
-  unit: BodyWeightUnit,
-): unknown {
+/** Period totals only. Per-lift detail lives in liftTrends and weekly sets in weeklySetsByMuscle. */
+export function snapshotForReview(snapshot: unknown): unknown {
   if (!snapshot || typeof snapshot !== "object") return snapshot;
   const source = { ...(snapshot as Record<string, unknown>) };
   delete source.snapshotVersion;
   delete source.computedAtEpochSeconds;
-  if (!Array.isArray(source.workingWeights)) return source;
-  const suffix = unitSuffix(unit);
-  return {
-    ...source,
-    workingWeights: source.workingWeights.map((row) => {
-      if (!row || typeof row !== "object") return row;
-      const entry = row as Record<string, unknown>;
-      const exerciseId = typeof entry.exerciseId === "string" ? entry.exerciseId : "";
-      const weightKg = typeof entry.weightKg === "number" ? entry.weightKg : 0;
-      const e1rmKg =
-        typeof entry.estimatedOneRepMaxKg === "number" ? entry.estimatedOneRepMaxKg : null;
-      return {
-        name: exerciseLabel(exerciseId, exercises),
-        lastDate: entry.lastDate,
-        reps: entry.reps,
-        [`weight_${suffix}`]: loadInUnit(weightKg, unit),
-        [`estimatedOneRepMax_${suffix}`]: e1rmKg != null ? loadInUnit(e1rmKg, unit) : null,
-        sessionCount: entry.sessionCount,
-      };
-    }),
-  };
+  delete source.workingWeights;
+  delete source.muscleGroupVolume;
+  return source;
 }
 
 function snapshotAggregates(snapshot: unknown): Record<string, unknown> | null {
@@ -346,45 +341,54 @@ function snapshotAggregates(snapshot: unknown): Record<string, unknown> | null {
   };
 }
 
-function recentSessionSummaries(weightLogs: WeightDayLog[], cardioLogs: CardioDayLog[]) {
-  const rows: { date: string; kind: "strength" | "cardio"; summary: string }[] = [];
+function recentSessionSummaries(
+  weightLogs: WeightDayLog[],
+  cardioLogs: CardioDayLog[],
+  workouts: Workout[],
+) {
+  const workoutNames = new Map(workouts.map((workout) => [workout.id, workout.name]));
+  const rows: {
+    date: string;
+    kind: "strength" | "cardio";
+    summary: string;
+    savedWorkout?: string;
+    avgRpe?: number;
+    minutes?: number;
+  }[] = [];
   for (const day of weightLogs) {
     for (const session of day.workouts) {
-      rows.push({ date: day.date, kind: "strength", summary: summarizeWeightSession(session) });
+      const row: (typeof rows)[number] = {
+        date: day.date,
+        kind: "strength",
+        summary: summarizeWeightSession(session),
+      };
+      const saved = session.workoutLink ? workoutNames.get(session.workoutLink.workoutId) : undefined;
+      if (saved) row.savedWorkout = saved;
+      const rpes = session.entries
+        .flatMap((entry) => entry.sets.map((set) => set.rpe))
+        .filter((rpe): rpe is number => typeof rpe === "number" && rpe > 0);
+      if (rpes.length > 0) {
+        row.avgRpe = Math.round((rpes.reduce((sum, rpe) => sum + rpe, 0) / rpes.length) * 10) / 10;
+      }
+      if (session.durationSeconds && session.durationSeconds > 0) {
+        row.minutes = Math.round(session.durationSeconds / 60);
+      }
+      rows.push(row);
     }
   }
   for (const day of cardioLogs) {
     for (const session of day.sessions) {
       const hr = session.heartRate?.avgBpm;
       const summary = hr ? `${summarizeCardioSession(session)} · avg ${hr} bpm` : summarizeCardioSession(session);
-      rows.push({ date: day.date, kind: "cardio", summary });
+      const row: (typeof rows)[number] = { date: day.date, kind: "cardio", summary };
+      const saved = session.workoutLink ? workoutNames.get(session.workoutLink.workoutId) : undefined;
+      if (saved) row.savedWorkout = saved;
+      rows.push(row);
     }
   }
   return rows
     .sort((a, b) => b.date.localeCompare(a.date))
     .slice(0, RECENT_SESSION_LIMIT);
-}
-
-function recentExerciseRows(
-  weightLogs: WeightDayLog[],
-  exercises: TrainingContextBundleInput["exercises"],
-  unit: BodyWeightUnit,
-) {
-  const rows: { date: string; name: string; detail: string }[] = [];
-  const days = [...weightLogs].sort((a, b) => b.date.localeCompare(a.date));
-  for (const day of days) {
-    for (const session of day.workouts) {
-      for (const entry of session.entries) {
-        rows.push({
-          date: day.date,
-          name: exerciseLabel(entry.exerciseId, exercises),
-          detail: setDetail(entry.sets, unit),
-        });
-        if (rows.length >= RECENT_EXERCISE_LIMIT) return rows;
-      }
-    }
-  }
-  return rows;
 }
 
 /** Set-by-set text such as "185×8, 185×7, 185×6" in the athlete's unit. */
