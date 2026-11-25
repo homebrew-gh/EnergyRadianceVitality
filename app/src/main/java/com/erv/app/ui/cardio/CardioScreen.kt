@@ -732,6 +732,7 @@ fun CardioCategoryScreen(
                             cardioLiveWorkoutViewModel.setCardioLiveUiExpanded(false)
                         },
                         onBeginWorkout = { cardioLiveWorkoutViewModel.beginTimer() },
+                        onSplitsChanged = { cardioLiveWorkoutViewModel.updateSplits(it) },
                         onStop = { elapsedSeconds, splits ->
                             val gpsPoints = drainCardioGpsIfNeeded(recordGps, timerAppContext)
                             val durationMinutes = max(1, (elapsedSeconds + 59) / 60)
@@ -3003,6 +3004,8 @@ fun CardioElapsedTimerFullScreen(
     /** Back arrow: leave full-screen UI; timer and optional GPS keep running (like weight training). */
     onLeaveTimerUi: (() -> Unit)? = null,
     onBeginWorkout: () -> Unit = {},
+    /** Called as splits are marked, so they are saved with the live timer and outlast this screen. */
+    onSplitsChanged: (List<CardioWorkoutSplit>) -> Unit = {},
     onStop: (elapsedSeconds: Int, splits: List<CardioWorkoutSplit>) -> Unit,
     onCancel: () -> Unit
 ) {
@@ -3053,7 +3056,8 @@ fun CardioElapsedTimerFullScreen(
     var running by remember(tickKey) { mutableStateOf(!awaitingStart) }
     var finished by remember(tickKey) { mutableStateOf(false) }
     var tick by remember(tickKey) { mutableIntStateOf(0) }
-    var workoutSplits by remember(tickKey) { mutableStateOf(emptyList<CardioWorkoutSplit>()) }
+    var workoutSplits by remember(tickKey) { mutableStateOf(draft.splits) }
+    LaunchedEffect(workoutSplits) { onSplitsChanged(workoutSplits) }
     var pendingCyclingConnectDevice by remember { mutableStateOf<SavedBluetoothDevice?>(null) }
     var pendingCyclingScan by remember { mutableStateOf(false) }
     var pendingErgConnectDevice by remember { mutableStateOf<SavedBluetoothDevice?>(null) }

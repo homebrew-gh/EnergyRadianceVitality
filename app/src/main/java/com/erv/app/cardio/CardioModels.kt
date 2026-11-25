@@ -4,6 +4,7 @@ import com.erv.app.SectionLogDateFilter
 import com.erv.app.hr.HeartRateZoneInputs
 import com.erv.app.hr.toRelaySafeHeartRate
 import com.erv.app.unifiedroutines.UnifiedSessionLink
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import java.time.LocalDate
 import java.util.UUID
@@ -728,14 +729,27 @@ fun defaultSprintIndoorTreadmillParams(): CardioTreadmillParams = CardioTreadmil
     loadKg = null
 )
 
+@Serializable
 sealed class CardioTimerStyle {
+    @Serializable
+    @SerialName("count_up")
     data object CountUp : CardioTimerStyle()
+
+    @Serializable
+    @SerialName("count_down")
     data class CountDown(val totalSeconds: Int) : CardioTimerStyle()
+
     /** Outdoor sprint-style: stop when estimated distance covered reaches [targetMeters]. Requires pace on draft. */
+    @Serializable
+    @SerialName("count_down_distance")
     data class CountDownDistance(val targetMeters: Double) : CardioTimerStyle()
 }
 
-/** Live session timer state; dashboard and Cardio screen share this. */
+/**
+ * Live session timer state; dashboard and Cardio screen share this. Saved to disk while live
+ * ([CardioLiveSessionStore]) so a run survives Android killing the app.
+ */
+@Serializable
 data class CardioTimerSessionDraft(
     val title: String,
     val activity: CardioActivitySnapshot,
@@ -749,7 +763,9 @@ data class CardioTimerSessionDraft(
     val outdoorPaceSpeed: Double? = null,
     val outdoorPaceSpeedUnit: CardioSpeedUnit? = null,
     /** Outdoor ruck pack (kg); indoor ruck uses [treadmill].loadKg. */
-    val ruckLoadKg: Double? = null
+    val ruckLoadKg: Double? = null,
+    /** Splits marked so far; kept here (not in the screen) so leaving the screen or a restart keeps them. */
+    val splits: List<CardioWorkoutSplit> = emptyList(),
 ) {
     fun toSession(
         durationMinutes: Int,
@@ -873,6 +889,7 @@ data class CardioTimerSessionDraft(
 }
 
 /** Sequential timer for multi-leg routines (brick, tri prep, etc.). */
+@Serializable
 data class CardioMultiLegTimerState(
     val routineId: String?,
     val routineName: String?,
@@ -961,8 +978,14 @@ data class CardioMultiLegTimerState(
 }
 
 /** Single- or multi-leg timer shown full-screen from Cardio or the dashboard. */
+@Serializable
 sealed class CardioActiveTimerSession {
+    @Serializable
+    @SerialName("single")
     data class Single(val draft: CardioTimerSessionDraft) : CardioActiveTimerSession()
+
+    @Serializable
+    @SerialName("multi")
     data class Multi(val state: CardioMultiLegTimerState) : CardioActiveTimerSession()
 }
 

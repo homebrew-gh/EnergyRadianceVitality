@@ -4,6 +4,11 @@ import android.app.Application
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import com.erv.app.cardio.CardioActiveTimerSession
+import com.erv.app.cardio.CardioGpsForegroundService
+import com.erv.app.cardio.CardioGpsRecordingHub
+import com.erv.app.cardio.CardioLiveSessionStore
+import com.erv.app.cardio.CardioSavedLiveSession
+import com.erv.app.cardio.CardioWorkoutSplit
 import com.erv.app.cardio.CardioLiveWorkoutForegroundService
 import com.erv.app.cardio.isTimerRunning
 import com.erv.app.cardio.timerStartEpochSeconds
@@ -31,6 +36,47 @@ class CardioLiveWorkoutViewModel(application: Application) : AndroidViewModel(ap
 
     val isTimerRunning: Boolean get() = _activeTimer.value?.isTimerRunning() == true
 
+    init {
+        restoreSavedSession()
+    }
+
+    /** Every change to the live timer goes through here, so the saved copy never lags. */
+    private fun setActive(session: CardioActiveTimerSession?) {
+        _activeTimer.value = session
+        CardioLiveSessionStore.write(
+            getApplication(),
+            session?.let { CardioSavedLiveSession(it, suppressNotificationForActiveSession) },
+        )
+    }
+
+    /**
+     * Picks a live run back up after Android killed the app: the clock runs from the saved start
+     * time, and the notification and GPS (if it was recording) restart. Heart rate samples from
+     * before the kill are not kept; the strap records again once it reconnects.
+     */
+    private fun restoreSavedSession() {
+        val app = getApplication<Application>()
+        val saved = CardioLiveSessionStore.read(app) ?: return
+        val session = saved.session
+        suppressNotificationForActiveSession = saved.suppressNotification
+        _activeTimer.value = session
+        // Show the run straight away so it is obvious it came back.
+        _cardioLiveUiExpanded.value = true
+        if (!session.isTimerRunning()) return
+        val startEpoch = session.timerStartEpochSeconds()
+        try {
+            if (!suppressNotificationForActiveSession) {
+                CardioLiveWorkoutForegroundService.start(app, startEpoch)
+            }
+            val single = session as? CardioActiveTimerSession.Single
+            if (single != null && CardioGpsRecordingHub.hasSavedSession(app, startEpoch)) {
+                CardioGpsForegroundService.start(app, single.draft.title, startEpoch)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to restart services for a restored cardio session", e)
+        }
+    }
+
     fun setCardioLiveUiExpanded(expanded: Boolean) {
         _cardioLiveUiExpanded.value = expanded
     }
@@ -49,7 +95,7 @@ class CardioLiveWorkoutViewModel(application: Application) : AndroidViewModel(ap
             if (!suppressNotification && session.isTimerRunning()) {
                 CardioLiveWorkoutForegroundService.start(getApplication(), session.timerStartEpochSeconds())
             }
-            _activeTimer.value = session
+            setActive(session)
             _cardioLiveUiExpanded.value = true
             true
         } catch (e: Exception) {
@@ -67,7 +113,7 @@ class CardioLiveWorkoutViewModel(application: Application) : AndroidViewModel(ap
             if (!suppressNotificationForActiveSession) {
                 CardioLiveWorkoutForegroundService.start(getApplication(), started.timerStartEpochSeconds())
             }
-            _activeTimer.value = started
+            setActive(started)
             true
         } catch (e: Exception) {
             Log.e(TAG, "Failed to begin cardio live timer", e)
@@ -77,15 +123,22 @@ class CardioLiveWorkoutViewModel(application: Application) : AndroidViewModel(ap
 
     fun replaceSession(session: CardioActiveTimerSession) {
         if (_activeTimer.value == null) return
-        _activeTimer.value = session
+        setActive(session)
+    }
+
+    /** Saves the splits marked on a single-activity timer, so they outlast the screen. */
+    fun updateSplits(splits: List<CardioWorkoutSplit>) {
+        val current = _activeTimer.value as? CardioActiveTimerSession.Single ?: return
+        if (current.draft.splits == splits) return
+        setActive(current.copy(draft = current.draft.copy(splits = splits)))
     }
 
     fun clearSession() {
         if (_activeTimer.value != null) {
             CardioLiveWorkoutForegroundService.stop(getApplication())
         }
-        _activeTimer.value = null
-        _cardioLiveUiExpanded.value = true
         suppressNotificationForActiveSession = false
+        setActive(null)
+        _cardioLiveUiExpanded.value = true
     }
 }
