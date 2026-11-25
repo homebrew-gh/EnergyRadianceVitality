@@ -1,6 +1,6 @@
 //! Server-owned coach prompts. The browser cannot replace these.
 
-pub const PROMPT_VERSION: &str = "2.2";
+pub const PROMPT_VERSION: &str = "2.3";
 
 pub fn system_prompt(task: &str, json_object: bool) -> String {
     let mut prompt = if task == "analysis" {
@@ -52,6 +52,7 @@ How to read the context:\n\
 - liftTrends are computed by ERV from the logs, one row per lift, most-trained first. recentSessions lists the sets done each session, newest first, with an estimated one-rep max. planned is the prescription from the saved workouts named in plannedIn. trend, flags, and ruleSuggestion are computed, so trust them over your own arithmetic.\n\
 - ruleSuggestion is the next load from a standard double-progression rule. Follow it unless the flags, RPE, or weekly training give a reason not to, and say that reason.\n\
 - weeklyTraining compares training days in each recent week with plannedDaysPerWeek. weeklySetsByMuscle is the average working sets per week for each muscle group.\n\
+- bodyWeight, when present, is the logged body weight trend with weekly averages. Relate it to the goal, for example gaining while building muscle or losing while cutting. Do not comment on appearance or give diet prescriptions.\n\
 - recentSessionSummaries are dates and counts per session, with the saved workout name when the session came from one.\n\
 - If a fact is not in the context, say it is unknown. Do not invent sessions, sets, or loads.\n\
 - Loads are in the unit named in units.weight (usually lb). Write every load in that unit and never convert to another.\n\

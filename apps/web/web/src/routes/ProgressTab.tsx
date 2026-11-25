@@ -6,6 +6,7 @@ import { CoachReviewCard } from "../components/CoachReviewCard";
 import { TrainingContextExportCard } from "../components/TrainingContextExportCard";
 import { FieldLabel, SectionHeader } from "../components/FieldLabel";
 import { useWeightLoadUnit } from "../lib/weightLoadUnit";
+import { parseBodyWeightLogs } from "../lib/bodyWeight";
 import { useEquipment } from "../lib/equipmentData";
 import { useTrainingProfile } from "../lib/trainingProfileData";
 import { useTraining } from "../lib/trainingData";
@@ -717,8 +718,10 @@ export function ProgressTab() {
     emptyDayLogs,
     relayFetchTruncated,
     lastLoadedAt,
+    relayRecords,
     reload,
   } = useTrainingHistory();
+  const bodyWeights = useMemo(() => parseBodyWeightLogs(relayRecords), [relayRecords]);
   const { index: sessionMediaIndex, reload: reloadSessionMedia } = useSessionMediaLibrary();
 
   const snapshot = useMemo(
@@ -781,8 +784,10 @@ export function ProgressTab() {
       weightLogs: filteredWeightLogs,
       cardioLogs: filteredCardioLogs,
       equipmentUnit: weightLoadUnit,
+      bodyWeights,
     }),
     [
+      bodyWeights,
       contextBundleInput,
       filteredWeightLogs,
       filteredCardioLogs,
