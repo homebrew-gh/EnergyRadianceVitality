@@ -298,6 +298,8 @@ data class WorkoutActiveRun(
      * clock begins when the athlete taps it.
      */
     val sessionStepAwaitingStart: Boolean = false,
+    /** Set while the step on screen is paused (a cardio leg at a light, say); see [activeSessionPause]. */
+    val sessionPause: WorkoutSessionPause? = null,
     /** The rest timer setting the plan is built with (see [WorkoutSessionPlan.from]); null runs rests as planned. */
     val sessionRestOptions: WorkoutSessionRestOptions? = null,
     /**

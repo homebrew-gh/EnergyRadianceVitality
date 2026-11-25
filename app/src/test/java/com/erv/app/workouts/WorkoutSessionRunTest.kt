@@ -448,6 +448,33 @@ class WorkoutSessionRunTest {
     }
 
     @Test
+    fun a_paused_cardio_leg_stops_its_clock_and_countdown_and_resumes_where_it_stopped() {
+        // The bike warm-up leg waiting on screen, started at 1_000.
+        val running = started("example-cardio-and-mobility").copy(sessionStepAwaitingStart = false)
+        assertEquals(60, running.sessionStepElapsedSeconds(1_060))
+        val end = running.sessionCountdownEndsAtEpochSeconds()!!
+
+        val paused = running.withSessionStepPaused(1_060)
+        assertEquals(60, paused.sessionStepElapsedSeconds(1_500))
+        assertNull(paused.sessionCountdownEndsAtEpochSeconds())
+        assertEquals(paused, paused.withSessionStepPaused(1_100))
+
+        val resumed = paused.withSessionStepResumed(1_160)
+        assertNull(resumed.activeSessionPause())
+        assertEquals(70, resumed.sessionStepElapsedSeconds(1_170))
+        assertEquals(end + 100, resumed.sessionCountdownEndsAtEpochSeconds())
+    }
+
+    @Test
+    fun a_pause_left_on_an_earlier_step_does_not_count() {
+        val paused = started("example-cardio-and-mobility")
+            .copy(sessionStepAwaitingStart = false)
+            .withSessionStepPaused(1_060)
+        val moved = paused.applyingSessionEvent(WorkoutSessionEvent.TimedStepDone(60), 1_070)
+        assertNull(moved.activeSessionPause())
+    }
+
+    @Test
     fun session_gps_keys_are_stable_and_never_negative() {
         val key = WorkoutSessionGps.keyFor("run-1", "seg-a", "item-b")
         assertEquals(key, WorkoutSessionGps.keyFor("run-1", "seg-a", "item-b"))

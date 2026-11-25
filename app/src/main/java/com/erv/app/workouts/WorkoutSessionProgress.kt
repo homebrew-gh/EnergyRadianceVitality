@@ -1,6 +1,7 @@
 package com.erv.app.workouts
 
 import com.erv.app.data.BodyWeightUnit
+import kotlinx.serialization.Serializable
 import com.erv.app.weighttraining.formatWeightLoadNumber
 import com.erv.app.weighttraining.weightLoadUnitSuffix
 
@@ -61,12 +62,49 @@ fun WorkoutSessionStep.countdownSeconds(): Int? = when (this) {
     is WorkoutSessionStep.LiftSet, is WorkoutSessionStep.Note -> null
 }
 
-/** When the current step's countdown ends, or null when the step waits for the athlete. */
+/** A pause of the step at [stepIndex]; it only counts while that step is on screen. */
+@Serializable
+data class WorkoutSessionPause(val stepIndex: Int, val atEpochSeconds: Long)
+
+/** The pause of the step on screen, or null when it is running (a stale one is ignored). */
+fun WorkoutActiveRun.activeSessionPause(): WorkoutSessionPause? {
+    val pause = sessionPause ?: return null
+    if (sessionStepAwaitingStart || session?.stepIndex != pause.stepIndex) return null
+    return pause
+}
+
+/** Pauses the step on screen once its clock is running; its clock and countdown stop. */
+fun WorkoutActiveRun.withSessionStepPaused(nowEpochSeconds: Long): WorkoutActiveRun {
+    val state = session ?: return this
+    if (sessionStepAwaitingStart || sessionStepStartedAtEpochSeconds == null || activeSessionPause() != null) return this
+    return copy(sessionPause = WorkoutSessionPause(state.stepIndex, nowEpochSeconds))
+}
+
+/** Resumes a paused step: its clock picks up where it stopped, as if the pause never happened. */
+fun WorkoutActiveRun.withSessionStepResumed(nowEpochSeconds: Long): WorkoutActiveRun {
+    val pause = activeSessionPause() ?: return if (sessionPause != null) copy(sessionPause = null) else this
+    val started = sessionStepStartedAtEpochSeconds ?: return copy(sessionPause = null)
+    val pausedFor = (nowEpochSeconds - pause.atEpochSeconds).coerceAtLeast(0L)
+    return copy(sessionPause = null, sessionStepStartedAtEpochSeconds = started + pausedFor)
+}
+
+/** Seconds the step on screen has run, not counting pauses; frozen while paused. */
+fun WorkoutActiveRun.sessionStepElapsedSeconds(nowEpochSeconds: Long): Int {
+    val started = sessionStepStartedAtEpochSeconds ?: return 0
+    if (sessionStepAwaitingStart) return 0
+    val now = activeSessionPause()?.atEpochSeconds ?: nowEpochSeconds
+    return (now - started).toInt().coerceAtLeast(0)
+}
+
+/**
+ * When the current step's countdown ends, or null when the step waits for the athlete or is
+ * paused (so nothing moves on, alerts or rings while paused).
+ */
 fun WorkoutActiveRun.sessionCountdownEndsAtEpochSeconds(plan: WorkoutSessionPlan = sessionPlan()): Long? {
     val state = session ?: return null
     val step = WorkoutSessionEngine.currentStep(plan, state) ?: return null
     val seconds = step.countdownSeconds() ?: return null
-    if (sessionStepAwaitingStart) return null
+    if (sessionStepAwaitingStart || activeSessionPause() != null) return null
     val started = sessionStepStartedAtEpochSeconds ?: return null
     return started + seconds
 }

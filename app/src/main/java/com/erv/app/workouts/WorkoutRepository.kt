@@ -294,6 +294,15 @@ class WorkoutRepository(context: Context) {
         }
     }
 
+    /** Pauses or resumes the step on screen (a cardio leg). */
+    suspend fun setSessionStepPaused(paused: Boolean) {
+        updateState { state ->
+            val run = state.activeRun ?: return@updateState state
+            val now = nowWorkoutEpochSeconds()
+            state.copy(activeRun = if (paused) run.withSessionStepPaused(now) else run.withSessionStepResumed(now))
+        }
+    }
+
     /** Links a cardio item the session finished to the cardio log entry saved for it. */
     suspend fun recordSessionCardioLog(item: WorkoutSessionCardioItem, logDate: String, entryId: String) {
         updateState { state ->
