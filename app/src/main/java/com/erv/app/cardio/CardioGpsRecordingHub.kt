@@ -102,6 +102,23 @@ object CardioGpsRecordingHub {
         }
     }
 
+    /** The timer key these points belong to, or [Long.MIN_VALUE] when none. */
+    fun sessionKey(): Long = synchronized(lock) { sessionEpoch }
+
+    /**
+     * Takes and clears the points recorded for [startEpoch], from memory or, after the app was
+     * killed, from the file. Empty when nothing was recorded for it; other timers' points stay.
+     */
+    fun takeSession(context: Context, startEpoch: Long): List<CardioGpsPoint> {
+        synchronized(lock) {
+            if (startEpoch == sessionEpoch) return snapshotAndClear()
+        }
+        val f = fileFor(context)
+        val saved = runCatching { readSavedPoints(f, startEpoch) }.getOrNull() ?: return emptyList()
+        io.execute { if (runCatching { readHeaderEpoch(f) }.getOrNull() == startEpoch) f.delete() }
+        return saved
+    }
+
     fun snapshotAndClear(): List<CardioGpsPoint> {
         synchronized(lock) {
             val copy = points.toList()

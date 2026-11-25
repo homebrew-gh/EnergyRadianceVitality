@@ -2,6 +2,18 @@ package com.erv.app.ui.workouts
 
 import com.erv.app.data.coachLineFor
 import androidx.activity.compose.BackHandler
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
+import androidx.compose.material3.Switch
+import com.erv.app.cardio.CardioGpsMath
+import com.erv.app.cardio.CardioGpsPoint
+import com.erv.app.cardio.CardioGpsRecordingHub
+import com.erv.app.cardio.formatCardioAveragePace
+import com.erv.app.workouts.WorkoutSessionGps
+import com.erv.app.ui.components.FieldLabel
 import com.erv.app.ui.theme.ervTopAppBarColors
 import com.erv.app.ui.theme.ervSessionTopAppBarColors
 import com.erv.app.hr.HeartRatePill
@@ -362,7 +374,12 @@ fun WorkoutLiveRunScreen(
         for (item in run.sessionCardioItemsToLog(runPlan)) {
             val today = LocalDate.now()
             val cardioLibrary = cardioRepository.currentState()
-            val base = run.cardioSessionFor(item, cardioLibrary) ?: continue
+            // The route recorded on this screen for the item, if any (also after a restart).
+            val gpsPoints = WorkoutSessionGps.take(
+                appContext,
+                WorkoutSessionGps.keyFor(run.sessionId, item.segmentId, item.itemId),
+            )
+            val base = run.cardioSessionFor(item, cardioLibrary, gpsPoints) ?: continue
             // The per-item heart rate and sensor totals began when the item's first leg started.
             // Take both erg and cycling summaries to clear their buffers; prefer the erg's, as the
             // cardio screen does.
@@ -822,6 +839,51 @@ fun WorkoutLiveRunScreen(
         activeRun?.sessionStepStartedAtEpochSeconds
             ?.let { (nowWorkoutEpochSeconds() - it).toInt().coerceAtLeast(0) } ?: 0
 
+    // GPS for outdoor cardio legs run here: on while a leg of the item runs (recovery legs too),
+    // off between items. The route is taken when the item is logged.
+    val cardioGpsPreferred by userPreferences.cardioGpsRecordingPreferred.collectAsState(initial = true)
+    var locationGranted by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(appContext, Manifest.permission.ACCESS_FINE_LOCATION) ==
+                PackageManager.PERMISSION_GRANTED,
+        )
+    }
+    val requestLocation = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+        locationGranted = it
+    }
+    // Items the athlete turned GPS off for (a treadmill ruck in a workout, say).
+    var gpsOffItemIds by remember { mutableStateOf(setOf<String>()) }
+    val gpsLeg = (currentStep as? WorkoutSessionStep.CardioLeg)?.takeIf { it.cardioRoutineId == null }
+    val gpsItem = gpsLeg?.let { itemOf(it) as? WorkoutItem.Cardio }
+        ?.takeIf { isSessionCardioActivity(it.cardio.activity) }
+    val gpsActivity = gpsItem?.let { item ->
+        runCatching { CardioBuiltinActivity.valueOf(item.cardio.activity) }.getOrNull()
+            ?.let { cardioState.resolveSnapshot(it, null) }
+    }
+    val gpsAvailable = gpsItem != null && cardioGpsPreferred && WorkoutSessionGps.supports(gpsActivity)
+    val gpsWanted = gpsAvailable && gpsItem?.id !in gpsOffItemIds
+    val gpsKey = if (gpsLeg != null && gpsItem != null && activeRun != null) {
+        WorkoutSessionGps.keyFor(activeRun.sessionId, gpsLeg.segmentId, gpsItem.id)
+    } else {
+        null
+    }
+    val recordingGpsKey = gpsKey?.takeIf { gpsWanted && locationGranted && !awaitingStart && !isComplete }
+    LaunchedEffect(recordingGpsKey) {
+        val key = recordingGpsKey
+        if (key != null) {
+            WorkoutSessionGps.start(appContext, gpsItem?.title?.takeIf { it.isNotBlank() } ?: "Cardio", key)
+        } else if (!cardioLiveWorkoutViewModel.hasActiveTimer) {
+            // Between items: stop, keeping the points for when the item is logged.
+            WorkoutSessionGps.stopIfRecording(appContext)
+        }
+    }
+    val hubPoints by CardioGpsRecordingHub.pointsFlow.collectAsState()
+    val liveGpsLine = if (recordingGpsKey != null && CardioGpsRecordingHub.sessionKey() == recordingGpsKey) {
+        sessionGpsLiveLine(hubPoints, distanceUnit)
+    } else {
+        null
+    }
+
     /** Start on a cardio or stretch step; a new cardio item starts its own heart rate summary. */
     fun startStep(step: WorkoutSessionStep) {
         if (step is WorkoutSessionStep.CardioLeg) {
@@ -945,6 +1007,7 @@ fun WorkoutLiveRunScreen(
 
     fun discardRunAndLeave() {
         finishingRun = true
+        if (!cardioLiveWorkoutViewModel.hasActiveTimer) WorkoutSessionGps.stopIfRecording(appContext)
         scope.launch {
             heartRateBle.discardComposedWorkoutRunRecording()
             repository.clearActiveRun()
@@ -1443,6 +1506,25 @@ fun WorkoutLiveRunScreen(
                                         onSkipLeg = { send(WorkoutSessionEvent.SkipStep) },
                                         onSkipCardio = { pendingSkipLabel = item.title?.takeIf { it.isNotBlank() } ?: "this cardio" },
                                         onOpenCardioScreen = { launchCardioItem(item, step.segmentId) },
+                                        gpsStatus = when {
+                                            !gpsWanted || awaitingStart -> null
+                                            !locationGranted -> "GPS off: location not allowed"
+                                            else -> liveGpsLine ?: "GPS: waiting for a fix"
+                                        },
+                                        gpsControls = {
+                                            if (gpsAvailable) {
+                                                SessionGpsControls(
+                                                    on = gpsWanted,
+                                                    locationGranted = locationGranted,
+                                                    onToggle = { on ->
+                                                        gpsOffItemIds = if (on) gpsOffItemIds - item.id else gpsOffItemIds + item.id
+                                                    },
+                                                    onAllowLocation = {
+                                                        requestLocation.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+                                                    },
+                                                )
+                                            }
+                                        },
                                         sensors = {
                                             if (activitySnapshot?.supportsBikeErgSensorConnect() == true) {
                                                 CardioBikeErgConnectInlineSection(
@@ -2470,3 +2552,37 @@ private data class StandaloneWeightSummary(
     val session: com.erv.app.weighttraining.WeightWorkoutSession,
     val logDate: LocalDate,
 )
+
+/** "1.24 mi · 9:48 /mi" from the route so far, or null before there is any distance. */
+private fun sessionGpsLiveLine(points: List<CardioGpsPoint>, unit: CardioDistanceUnit): String? {
+    if (points.size < 2) return null
+    val meters = CardioGpsMath.pathLengthMeters(points)
+    if (meters <= 1.0) return null
+    val seconds = (points.last().epochSeconds - points.first().epochSeconds).toInt()
+    val pace = formatCardioAveragePace(seconds, meters, unit)
+    return listOfNotNull(formatCardioDistanceFromMeters(meters, unit), pace).joinToString(" · ")
+}
+
+/** Before Start on an outdoor cardio leg: record the route or not, and the location prompt. */
+@Composable
+private fun SessionGpsControls(
+    on: Boolean,
+    locationGranted: Boolean,
+    onToggle: (Boolean) -> Unit,
+    onAllowLocation: () -> Unit,
+) {
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            FieldLabel("Record GPS route", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+            Switch(checked = on, onCheckedChange = onToggle)
+        }
+        if (on && !locationGranted) {
+            TextButton(onClick = onAllowLocation, modifier = Modifier.fillMaxWidth()) {
+                Text("Allow Location for GPS")
+            }
+        }
+    }
+}

@@ -1,6 +1,7 @@
 package com.erv.app.workouts
 
 import com.erv.app.cardio.CardioBuiltinActivity
+import com.erv.app.cardio.CardioGpsPoint
 import com.erv.app.cardio.CardioLibraryState
 import com.erv.app.cardio.CardioModality
 import com.erv.app.cardio.CardioSession
@@ -162,7 +163,12 @@ fun isSessionCardioActivity(activity: String): Boolean =
  * to this run. Null for an activity the cardio silo doesn't know. Heart rate and calories are
  * added by the screen, which holds the monitor and the body weight.
  */
-fun WorkoutActiveRun.cardioSessionFor(item: WorkoutSessionCardioItem, cardioState: CardioLibraryState): CardioSession? {
+fun WorkoutActiveRun.cardioSessionFor(
+    item: WorkoutSessionCardioItem,
+    cardioState: CardioLibraryState,
+    /** The route recorded on the session screen for this item; gives distance and elevation. */
+    gpsPoints: List<CardioGpsPoint> = emptyList(),
+): CardioSession? {
     val builtin = runCatching { CardioBuiltinActivity.valueOf(item.activity) }.getOrNull() ?: return null
     val snapshot = cardioState.resolveSnapshot(builtin, null)
     val seconds = item.elapsedSeconds.coerceAtLeast(0)
@@ -176,6 +182,7 @@ fun WorkoutActiveRun.cardioSessionFor(item: WorkoutSessionCardioItem, cardioStat
         durationMinutes = ((seconds + 59) / 60).coerceAtLeast(1),
         endEpoch = end,
         elapsedSecondsForDistance = seconds,
+        gpsPoints = gpsPoints,
     )
     return raw.copy(
         startEpochSeconds = item.startedAtEpochSeconds ?: (end - seconds),
