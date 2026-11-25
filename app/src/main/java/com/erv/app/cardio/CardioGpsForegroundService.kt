@@ -36,8 +36,6 @@ private const val EXTRA_SESSION_START_EPOCH = "sessionStartEpoch"
  */
 class CardioGpsForegroundService : Service() {
 
-    private var lastSessionStartEpoch: Long = Long.MIN_VALUE
-
     private var locationManager: LocationManager? = null
     private val listener = object : LocationListener {
         override fun onLocationChanged(location: Location) {
@@ -66,11 +64,8 @@ class CardioGpsForegroundService : Service() {
         }
         val title = intent.getStringExtra(EXTRA_TITLE).orEmpty().ifBlank { getString(R.string.cardio_gps_notification_title) }
         val sessionEpoch = intent.getLongExtra(EXTRA_SESSION_START_EPOCH, -1L)
-        val sameSession = sessionEpoch >= 0L && sessionEpoch == lastSessionStartEpoch
-        if (!sameSession) {
-            CardioGpsRecordingHub.clear()
-            lastSessionStartEpoch = sessionEpoch
-        }
+        // Same timer keeps its points (also after the app was killed: they come back from disk).
+        CardioGpsRecordingHub.beginSession(applicationContext, sessionEpoch)
         try {
             locationManager?.removeUpdates(listener)
         } catch (_: Exception) {
@@ -87,7 +82,6 @@ class CardioGpsForegroundService : Service() {
         } catch (_: Exception) {
         }
         locationManager = null
-        lastSessionStartEpoch = Long.MIN_VALUE
         stopForeground(STOP_FOREGROUND_REMOVE)
         super.onDestroy()
     }
