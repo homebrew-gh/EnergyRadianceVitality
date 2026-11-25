@@ -50,6 +50,7 @@
     <string name="cardio_live_notification_title">Cardio workout</string>
     <string name="cardio_live_notification_chronometer_line">Session timer · tap to return</string>
     <string name="cardio_live_notification_action_open">Open cardio timer</string>
+    <string name="cardio_live_notification_paused_line">Paused · tap to return</string>
     <string name="cardio_live_bubble_shortcut_short">Cardio</string>
     <string name="cardio_live_bubble_shortcut_long">Live cardio workout</string>
     <string name="cardio_live_bubble_title">Live cardio</string>

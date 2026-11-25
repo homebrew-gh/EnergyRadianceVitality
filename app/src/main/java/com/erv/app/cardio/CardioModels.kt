@@ -766,6 +766,10 @@ data class CardioTimerSessionDraft(
     val ruckLoadKg: Double? = null,
     /** Splits marked so far; kept here (not in the screen) so leaving the screen or a restart keeps them. */
     val splits: List<CardioWorkoutSplit> = emptyList(),
+    /** Set while paused: when the pause began. */
+    val pausedAtEpoch: Long? = null,
+    /** Seconds spent in pauses that have ended; not counted as workout time. */
+    val pausedTotalSeconds: Int = 0,
 ) {
     fun toSession(
         durationMinutes: Int,
@@ -1003,6 +1007,36 @@ fun CardioTimerSessionDraft.isPendingStart(): Boolean =
 
 fun CardioTimerSessionDraft.withStartedNow(): CardioTimerSessionDraft =
     if (isPendingStart()) copy(startEpoch = nowEpochSeconds()) else this
+
+fun CardioTimerSessionDraft.isPaused(): Boolean = pausedAtEpoch != null
+
+/** Workout (moving) time: wall time since Start minus pauses. Frozen while paused. */
+fun CardioTimerSessionDraft.activeElapsedSeconds(nowEpoch: Long = nowEpochSeconds()): Int {
+    if (isPendingStart()) return 0
+    val end = pausedAtEpoch ?: nowEpoch
+    return (end - startEpoch - pausedTotalSeconds).coerceAtLeast(0L).toInt()
+}
+
+fun CardioTimerSessionDraft.withPaused(nowEpoch: Long = nowEpochSeconds()): CardioTimerSessionDraft =
+    if (isPendingStart() || isPaused()) this else copy(pausedAtEpoch = nowEpoch)
+
+fun CardioTimerSessionDraft.withResumed(nowEpoch: Long = nowEpochSeconds()): CardioTimerSessionDraft {
+    val pausedAt = pausedAtEpoch ?: return this
+    val pausedFor = (nowEpoch - pausedAt).coerceAtLeast(0L).toInt()
+    return copy(pausedAtEpoch = null, pausedTotalSeconds = pausedTotalSeconds + pausedFor)
+}
+
+/**
+ * Base time for a counting-up notification clock, shifted by the pauses so far so that it shows
+ * workout time rather than wall time since Start.
+ */
+fun CardioActiveTimerSession.notificationClockBaseEpochSeconds(): Long = when (this) {
+    is CardioActiveTimerSession.Single -> draft.startEpoch + draft.pausedTotalSeconds
+    is CardioActiveTimerSession.Multi -> state.workoutStartEpoch
+}
+
+fun CardioActiveTimerSession.isPaused(): Boolean =
+    (this as? CardioActiveTimerSession.Single)?.draft?.isPaused() == true
 
 fun CardioMultiLegTimerState.isPendingStart(): Boolean =
     workoutStartEpoch == CARDIO_TIMER_PENDING_START_EPOCH

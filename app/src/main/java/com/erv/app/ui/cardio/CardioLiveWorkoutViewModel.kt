@@ -9,6 +9,10 @@ import com.erv.app.cardio.CardioGpsRecordingHub
 import com.erv.app.cardio.CardioLiveSessionStore
 import com.erv.app.cardio.CardioSavedLiveSession
 import com.erv.app.cardio.CardioWorkoutSplit
+import com.erv.app.cardio.isPaused
+import com.erv.app.cardio.notificationClockBaseEpochSeconds
+import com.erv.app.cardio.withPaused
+import com.erv.app.cardio.withResumed
 import com.erv.app.cardio.CardioLiveWorkoutForegroundService
 import com.erv.app.cardio.isTimerRunning
 import com.erv.app.cardio.timerStartEpochSeconds
@@ -62,11 +66,16 @@ class CardioLiveWorkoutViewModel(application: Application) : AndroidViewModel(ap
         _activeTimer.value = session
         // Show the run straight away so it is obvious it came back.
         _cardioLiveUiExpanded.value = true
+        CardioGpsRecordingHub.paused = session.isPaused()
         if (!session.isTimerRunning()) return
         val startEpoch = session.timerStartEpochSeconds()
         try {
             if (!suppressNotificationForActiveSession) {
-                CardioLiveWorkoutForegroundService.start(app, startEpoch)
+                CardioLiveWorkoutForegroundService.start(
+                    app,
+                    session.notificationClockBaseEpochSeconds(),
+                    paused = session.isPaused(),
+                )
             }
             val single = session as? CardioActiveTimerSession.Single
             if (single != null && CardioGpsRecordingHub.hasSavedSession(app, startEpoch)) {
@@ -92,6 +101,7 @@ class CardioLiveWorkoutViewModel(application: Application) : AndroidViewModel(ap
         if (_activeTimer.value != null) return false
         return try {
             suppressNotificationForActiveSession = suppressNotification
+            CardioGpsRecordingHub.paused = false
             if (!suppressNotification && session.isTimerRunning()) {
                 CardioLiveWorkoutForegroundService.start(getApplication(), session.timerStartEpochSeconds())
             }
@@ -126,6 +136,38 @@ class CardioLiveWorkoutViewModel(application: Application) : AndroidViewModel(ap
         setActive(session)
     }
 
+    /** Pauses a running single-activity timer: the clock stops and GPS fixes are dropped. */
+    fun pause() {
+        val current = _activeTimer.value as? CardioActiveTimerSession.Single ?: return
+        if (!current.isTimerRunning() || current.draft.isPaused()) return
+        val paused = current.copy(draft = current.draft.withPaused())
+        CardioGpsRecordingHub.paused = true
+        setActive(paused)
+        refreshNotification(paused)
+    }
+
+    fun resume() {
+        val current = _activeTimer.value as? CardioActiveTimerSession.Single ?: return
+        if (!current.draft.isPaused()) return
+        val resumed = current.copy(draft = current.draft.withResumed())
+        CardioGpsRecordingHub.paused = false
+        setActive(resumed)
+        refreshNotification(resumed)
+    }
+
+    private fun refreshNotification(session: CardioActiveTimerSession) {
+        if (suppressNotificationForActiveSession) return
+        try {
+            CardioLiveWorkoutForegroundService.start(
+                getApplication(),
+                session.notificationClockBaseEpochSeconds(),
+                paused = session.isPaused(),
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to update cardio notification", e)
+        }
+    }
+
     /** Saves the splits marked on a single-activity timer, so they outlast the screen. */
     fun updateSplits(splits: List<CardioWorkoutSplit>) {
         val current = _activeTimer.value as? CardioActiveTimerSession.Single ?: return
@@ -138,6 +180,7 @@ class CardioLiveWorkoutViewModel(application: Application) : AndroidViewModel(ap
             CardioLiveWorkoutForegroundService.stop(getApplication())
         }
         suppressNotificationForActiveSession = false
+        CardioGpsRecordingHub.paused = false
         setActive(null)
         _cardioLiveUiExpanded.value = true
     }
