@@ -56,62 +56,174 @@ object SessionMediaBackup {
         routeColorMid: Int,
         routeColorBottom: Int,
     ): SessionMediaBackupResult {
-        val origin = BlossomEndpoints.resolvePrivateBackupOrigin(
-            explicitPrivateOrigin = explicitPrivateBlossomOrigin,
-            dataRelayUrls = dataRelayUrls,
-        ) ?: return SessionMediaBackupResult(
-            origin = null,
-            uploaded = 0,
-            reused = 0,
-            failed = 0,
-            manifestQueued = false,
-        )
+        return MediaLibraryBackup.withManifestLock {
+            val origin = BlossomEndpoints.resolvePrivateBackupOrigin(
+                explicitPrivateOrigin = explicitPrivateBlossomOrigin,
+                dataRelayUrls = dataRelayUrls,
+            ) ?: return SessionMediaBackupResult(
+                origin = null,
+                uploaded = 0,
+                reused = 0,
+                failed = 0,
+                manifestQueued = false,
+            )
 
-        val existingManifest = MediaLibraryBackup.fetchManifest(relayPool, signer)
-        val nextItems = existingManifest.items.toMutableList()
-        var uploaded = 0
-        var reused = 0
-        var failed = 0
+            val existingManifest = MediaLibraryBackup.fetchManifestForUpdate(appContext, relayPool, signer)
+                ?: return manifestUnreadable(origin)
+            val nextItems = existingManifest.items.toMutableList()
+            var uploaded = 0
+            var reused = 0
+            var failed = 0
 
-        val routePoints = session.gpsTrack?.points?.takeIf { it.isNotEmpty() }
-        if (routePoints != null) {
-            when (
-                val outcome = upsertEncryptedPng(
-                    origin = origin,
-                    trustSelfSignedLanTls = trustSelfSignedLanTls,
-                    signer = signer,
-                    existingItems = nextItems,
-                    source = MEDIA_SOURCE_CARDIO_ROUTE,
-                    localId = session.id,
-                    dateIso = dateIso,
-                    idPrefix = "cardio_route",
-                    contentType = "image/png",
-                    renderBytes = {
-                        CardioTrackShareImage.renderRoutePngBytes(
-                            appContext,
-                            routePoints,
-                            routeColorTop,
-                            routeColorMid,
-                            routeColorBottom,
-                        )
-                    },
-                )
-            ) {
-                is ItemOutcome.Uploaded -> {
-                    nextItems += outcome.item
-                    uploaded += 1
+            val routePoints = session.gpsTrack?.points?.takeIf { it.isNotEmpty() }
+            if (routePoints != null) {
+                when (
+                    val outcome = upsertEncryptedPng(
+                        origin = origin,
+                        trustSelfSignedLanTls = trustSelfSignedLanTls,
+                        signer = signer,
+                        existingItems = nextItems,
+                        source = MEDIA_SOURCE_CARDIO_ROUTE,
+                        localId = session.id,
+                        dateIso = dateIso,
+                        idPrefix = "cardio_route",
+                        contentType = "image/png",
+                        renderBytes = {
+                            CardioTrackShareImage.renderRoutePngBytes(
+                                appContext,
+                                routePoints,
+                                routeColorTop,
+                                routeColorMid,
+                                routeColorBottom,
+                            )
+                        },
+                    )
+                ) {
+                    is ItemOutcome.Uploaded -> {
+                        nextItems += outcome.item
+                        uploaded += 1
+                    }
+                    is ItemOutcome.Reused -> {
+                        nextItems += outcome.item
+                        reused += 1
+                    }
+                    ItemOutcome.Failed -> failed += 1
+                    ItemOutcome.Skipped -> Unit
                 }
-                is ItemOutcome.Reused -> {
-                    nextItems += outcome.item
-                    reused += 1
-                }
-                ItemOutcome.Failed -> failed += 1
-                ItemOutcome.Skipped -> Unit
             }
-        }
 
-        val heartRate = heartRateForMediaBackup(session.heartRate, session.workoutLink?.sessionHeartRate)
-        if (heartRate != null) {
+            val heartRate = heartRateForMediaBackup(session.heartRate, session.workoutLink?.sessionHeartRate)
+            if (heartRate != null) {
+                when (
+                    val outcome = upsertEncryptedPng(
+                        origin = origin,
+                        trustSelfSignedLanTls = trustSelfSignedLanTls,
+                        signer = signer,
+                        existingItems = nextItems,
+                        source = MEDIA_SOURCE_HEART_RATE_GRAPH,
+                        localId = session.id,
+                        dateIso = dateIso,
+                        idPrefix = "heart_rate_graph",
+                        contentType = "image/png",
+                        renderBytes = {
+                            HeartRateShareImage.renderPngBytes(
+                                samples = heartRate.samples,
+                                zoneInputs = zoneInputs,
+                                title = "Heart rate",
+                                avgBpm = heartRate.avgBpm,
+                                maxBpm = heartRate.maxBpm,
+                                minBpm = heartRate.minBpm,
+                            )
+                        },
+                    )
+                ) {
+                    is ItemOutcome.Uploaded -> {
+                        nextItems += outcome.item
+                        uploaded += 1
+                    }
+                    is ItemOutcome.Reused -> {
+                        nextItems += outcome.item
+                        reused += 1
+                    }
+                    ItemOutcome.Failed -> failed += 1
+                    ItemOutcome.Skipped -> Unit
+                }
+            }
+
+            if (uploaded == 0 && reused == 0 && failed == 0) {
+                return SessionMediaBackupResult(
+                    origin = origin,
+                    uploaded = 0,
+                    reused = 0,
+                    failed = 0,
+                    manifestQueued = false,
+                )
+            }
+
+            val manifest = MediaLibraryManifest(
+                updatedAtEpochSeconds = nowEpochSeconds(),
+                items = nextItems.sortedWith(
+                    compareBy<MediaLibraryItem> { it.source }.thenBy { it.date }.thenBy { it.localId },
+                ),
+            )
+            val publishResult = MediaLibraryBackup.publishManifest(
+                appContext,
+                relayPool,
+                signer,
+                dataRelayUrls,
+                manifest,
+            )
+            return SessionMediaBackupResult(
+                origin = origin,
+                uploaded = uploaded,
+                reused = reused,
+                failed = failed,
+                manifestQueued = publishResult.publishedFail == 0,
+            )
+        }
+    }
+
+    suspend fun backupWeightSession(
+        appContext: Context,
+        session: WeightWorkoutSession,
+        dateIso: String,
+        relayPool: RelayPool,
+        signer: EventSigner,
+        dataRelayUrls: List<String>,
+        explicitPrivateBlossomOrigin: String,
+        trustSelfSignedLanTls: Boolean,
+        zoneInputs: HeartRateZoneInputs,
+    ): SessionMediaBackupResult {
+        return MediaLibraryBackup.withManifestLock {
+            val origin = BlossomEndpoints.resolvePrivateBackupOrigin(
+                explicitPrivateOrigin = explicitPrivateBlossomOrigin,
+                dataRelayUrls = dataRelayUrls,
+            ) ?: return SessionMediaBackupResult(
+                origin = null,
+                uploaded = 0,
+                reused = 0,
+                failed = 0,
+                manifestQueued = false,
+            )
+
+            val heartRate = heartRateForMediaBackup(session.heartRate, session.workoutLink?.sessionHeartRate)
+            if (heartRate == null) {
+                return SessionMediaBackupResult(
+                    origin = origin,
+                    uploaded = 0,
+                    reused = 0,
+                    failed = 0,
+                    manifestQueued = false,
+                )
+            }
+
+            val existingManifest = MediaLibraryBackup.fetchManifestForUpdate(appContext, relayPool, signer)
+                ?: return manifestUnreadable(origin)
+            val nextItems = existingManifest.items.toMutableList()
+            var uploaded = 0
+            var reused = 0
+            var failed = 0
+
             when (
                 val outcome = upsertEncryptedPng(
                     origin = origin,
@@ -146,144 +258,38 @@ object SessionMediaBackup {
                 ItemOutcome.Failed -> failed += 1
                 ItemOutcome.Skipped -> Unit
             }
-        }
 
-        if (uploaded == 0 && reused == 0 && failed == 0) {
-            return SessionMediaBackupResult(
-                origin = origin,
-                uploaded = 0,
-                reused = 0,
-                failed = 0,
-                manifestQueued = false,
-            )
-        }
-
-        val manifest = MediaLibraryManifest(
-            updatedAtEpochSeconds = nowEpochSeconds(),
-            items = nextItems.sortedWith(
-                compareBy<MediaLibraryItem> { it.source }.thenBy { it.date }.thenBy { it.localId },
-            ),
-        )
-        val publishResult = MediaLibraryBackup.publishManifest(
-            appContext,
-            relayPool,
-            signer,
-            dataRelayUrls,
-            manifest,
-        )
-        return SessionMediaBackupResult(
-            origin = origin,
-            uploaded = uploaded,
-            reused = reused,
-            failed = failed,
-            manifestQueued = publishResult.publishedFail == 0,
-        )
-    }
-
-    suspend fun backupWeightSession(
-        appContext: Context,
-        session: WeightWorkoutSession,
-        dateIso: String,
-        relayPool: RelayPool,
-        signer: EventSigner,
-        dataRelayUrls: List<String>,
-        explicitPrivateBlossomOrigin: String,
-        trustSelfSignedLanTls: Boolean,
-        zoneInputs: HeartRateZoneInputs,
-    ): SessionMediaBackupResult {
-        val origin = BlossomEndpoints.resolvePrivateBackupOrigin(
-            explicitPrivateOrigin = explicitPrivateBlossomOrigin,
-            dataRelayUrls = dataRelayUrls,
-        ) ?: return SessionMediaBackupResult(
-            origin = null,
-            uploaded = 0,
-            reused = 0,
-            failed = 0,
-            manifestQueued = false,
-        )
-
-        val heartRate = heartRateForMediaBackup(session.heartRate, session.workoutLink?.sessionHeartRate)
-        if (heartRate == null) {
-            return SessionMediaBackupResult(
-                origin = origin,
-                uploaded = 0,
-                reused = 0,
-                failed = 0,
-                manifestQueued = false,
-            )
-        }
-
-        val existingManifest = MediaLibraryBackup.fetchManifest(relayPool, signer)
-        val nextItems = existingManifest.items.toMutableList()
-        var uploaded = 0
-        var reused = 0
-        var failed = 0
-
-        when (
-            val outcome = upsertEncryptedPng(
-                origin = origin,
-                trustSelfSignedLanTls = trustSelfSignedLanTls,
-                signer = signer,
-                existingItems = nextItems,
-                source = MEDIA_SOURCE_HEART_RATE_GRAPH,
-                localId = session.id,
-                dateIso = dateIso,
-                idPrefix = "heart_rate_graph",
-                contentType = "image/png",
-                renderBytes = {
-                    HeartRateShareImage.renderPngBytes(
-                        samples = heartRate.samples,
-                        zoneInputs = zoneInputs,
-                        title = "Heart rate",
-                        avgBpm = heartRate.avgBpm,
-                        maxBpm = heartRate.maxBpm,
-                        minBpm = heartRate.minBpm,
-                    )
-                },
-            )
-        ) {
-            is ItemOutcome.Uploaded -> {
-                nextItems += outcome.item
-                uploaded += 1
+            if (uploaded == 0 && reused == 0) {
+                return SessionMediaBackupResult(
+                    origin = origin,
+                    uploaded = uploaded,
+                    reused = reused,
+                    failed = failed,
+                    manifestQueued = false,
+                )
             }
-            is ItemOutcome.Reused -> {
-                nextItems += outcome.item
-                reused += 1
-            }
-            ItemOutcome.Failed -> failed += 1
-            ItemOutcome.Skipped -> Unit
-        }
 
-        if (uploaded == 0 && reused == 0) {
+            val manifest = MediaLibraryManifest(
+                updatedAtEpochSeconds = nowEpochSeconds(),
+                items = nextItems.sortedWith(
+                    compareBy<MediaLibraryItem> { it.source }.thenBy { it.date }.thenBy { it.localId },
+                ),
+            )
+            val publishResult = MediaLibraryBackup.publishManifest(
+                appContext,
+                relayPool,
+                signer,
+                dataRelayUrls,
+                manifest,
+            )
             return SessionMediaBackupResult(
                 origin = origin,
                 uploaded = uploaded,
                 reused = reused,
                 failed = failed,
-                manifestQueued = false,
+                manifestQueued = publishResult.publishedFail == 0,
             )
         }
-
-        val manifest = MediaLibraryManifest(
-            updatedAtEpochSeconds = nowEpochSeconds(),
-            items = nextItems.sortedWith(
-                compareBy<MediaLibraryItem> { it.source }.thenBy { it.date }.thenBy { it.localId },
-            ),
-        )
-        val publishResult = MediaLibraryBackup.publishManifest(
-            appContext,
-            relayPool,
-            signer,
-            dataRelayUrls,
-            manifest,
-        )
-        return SessionMediaBackupResult(
-            origin = origin,
-            uploaded = uploaded,
-            reused = reused,
-            failed = failed,
-            manifestQueued = publishResult.publishedFail == 0,
-        )
     }
 
     suspend fun backupHeartRateGraph(
@@ -298,92 +304,107 @@ object SessionMediaBackup {
         trustSelfSignedLanTls: Boolean,
         zoneInputs: HeartRateZoneInputs,
     ): SessionMediaBackupResult {
-        val graph = heartRateForMediaBackup(section = null, linkedWholeRun = heartRate)
-            ?: return SessionMediaBackupResult(
+        return MediaLibraryBackup.withManifestLock {
+            val graph = heartRateForMediaBackup(section = null, linkedWholeRun = heartRate)
+                ?: return SessionMediaBackupResult(
+                    origin = null,
+                    uploaded = 0,
+                    reused = 0,
+                    failed = 0,
+                    manifestQueued = false,
+                )
+            val origin = BlossomEndpoints.resolvePrivateBackupOrigin(
+                explicitPrivateOrigin = explicitPrivateBlossomOrigin,
+                dataRelayUrls = dataRelayUrls,
+            ) ?: return SessionMediaBackupResult(
                 origin = null,
                 uploaded = 0,
                 reused = 0,
                 failed = 0,
                 manifestQueued = false,
             )
-        val origin = BlossomEndpoints.resolvePrivateBackupOrigin(
-            explicitPrivateOrigin = explicitPrivateBlossomOrigin,
-            dataRelayUrls = dataRelayUrls,
-        ) ?: return SessionMediaBackupResult(
-            origin = null,
-            uploaded = 0,
-            reused = 0,
-            failed = 0,
-            manifestQueued = false,
-        )
 
-        val existingManifest = MediaLibraryBackup.fetchManifest(relayPool, signer)
-        val nextItems = existingManifest.items.toMutableList()
-        var uploaded = 0
-        var reused = 0
-        var failed = 0
-        when (
-            val outcome = upsertEncryptedPng(
-                origin = origin,
-                trustSelfSignedLanTls = trustSelfSignedLanTls,
-                signer = signer,
-                existingItems = nextItems,
-                source = MEDIA_SOURCE_HEART_RATE_GRAPH,
-                localId = localId,
-                dateIso = dateIso,
-                idPrefix = "heart_rate_graph",
-                contentType = "image/png",
-                renderBytes = {
-                    HeartRateShareImage.renderPngBytes(
-                        samples = graph.samples,
-                        zoneInputs = zoneInputs,
-                        title = "Heart rate",
-                        avgBpm = graph.avgBpm,
-                        maxBpm = graph.maxBpm,
-                        minBpm = graph.minBpm,
-                    )
-                },
+            val existingManifest = MediaLibraryBackup.fetchManifestForUpdate(appContext, relayPool, signer)
+                ?: return manifestUnreadable(origin)
+            val nextItems = existingManifest.items.toMutableList()
+            var uploaded = 0
+            var reused = 0
+            var failed = 0
+            when (
+                val outcome = upsertEncryptedPng(
+                    origin = origin,
+                    trustSelfSignedLanTls = trustSelfSignedLanTls,
+                    signer = signer,
+                    existingItems = nextItems,
+                    source = MEDIA_SOURCE_HEART_RATE_GRAPH,
+                    localId = localId,
+                    dateIso = dateIso,
+                    idPrefix = "heart_rate_graph",
+                    contentType = "image/png",
+                    renderBytes = {
+                        HeartRateShareImage.renderPngBytes(
+                            samples = graph.samples,
+                            zoneInputs = zoneInputs,
+                            title = "Heart rate",
+                            avgBpm = graph.avgBpm,
+                            maxBpm = graph.maxBpm,
+                            minBpm = graph.minBpm,
+                        )
+                    },
+                )
+            ) {
+                is ItemOutcome.Uploaded -> {
+                    nextItems += outcome.item
+                    uploaded += 1
+                }
+                is ItemOutcome.Reused -> {
+                    nextItems += outcome.item
+                    reused += 1
+                }
+                ItemOutcome.Failed -> failed += 1
+                ItemOutcome.Skipped -> Unit
+            }
+            if (uploaded == 0 && reused == 0) {
+                return SessionMediaBackupResult(
+                    origin = origin,
+                    uploaded = uploaded,
+                    reused = reused,
+                    failed = failed,
+                    manifestQueued = false,
+                )
+            }
+            val manifest = MediaLibraryManifest(
+                updatedAtEpochSeconds = nowEpochSeconds(),
+                items = nextItems.sortedWith(
+                    compareBy<MediaLibraryItem> { it.source }.thenBy { it.date }.thenBy { it.localId },
+                ),
             )
-        ) {
-            is ItemOutcome.Uploaded -> {
-                nextItems += outcome.item
-                uploaded += 1
-            }
-            is ItemOutcome.Reused -> {
-                nextItems += outcome.item
-                reused += 1
-            }
-            ItemOutcome.Failed -> failed += 1
-            ItemOutcome.Skipped -> Unit
-        }
-        if (uploaded == 0 && reused == 0) {
+            val publishResult = MediaLibraryBackup.publishManifest(
+                appContext,
+                relayPool,
+                signer,
+                dataRelayUrls,
+                manifest,
+            )
             return SessionMediaBackupResult(
                 origin = origin,
                 uploaded = uploaded,
                 reused = reused,
                 failed = failed,
-                manifestQueued = false,
+                manifestQueued = publishResult.publishedFail == 0,
             )
         }
-        val manifest = MediaLibraryManifest(
-            updatedAtEpochSeconds = nowEpochSeconds(),
-            items = nextItems.sortedWith(
-                compareBy<MediaLibraryItem> { it.source }.thenBy { it.date }.thenBy { it.localId },
-            ),
-        )
-        val publishResult = MediaLibraryBackup.publishManifest(
-            appContext,
-            relayPool,
-            signer,
-            dataRelayUrls,
-            manifest,
-        )
+    }
+
+    /** Nothing uploaded or published: the saved manifest could not be read, so publishing could wipe it. */
+    private fun manifestUnreadable(origin: String): SessionMediaBackupResult {
+        Log.w(MEDIA_BACKUP_LOG_TAG, "skipping backup: media manifest could not be read from relays")
         return SessionMediaBackupResult(
             origin = origin,
-            uploaded = uploaded,
-            reused = reused,
-            failed = failed,
-            manifestQueued = publishResult.publishedFail == 0,
+            uploaded = 0,
+            reused = 0,
+            failed = 1,
+            manifestQueued = false,
         )
     }
 
