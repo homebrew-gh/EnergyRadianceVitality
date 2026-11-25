@@ -145,15 +145,21 @@ import com.erv.app.cardio.CardioLibraryState
 import com.erv.app.cardio.CardioRepository
 import com.erv.app.cardio.formatCardioAveragePaceForSession
 import com.erv.app.cardio.formatCardioDistanceFromMeters
+import com.erv.app.cardio.CardioActivitySnapshot
 import com.erv.app.cardio.isCyclingActivity
+import com.erv.app.cardio.isStationaryBikeActivity
 import com.erv.app.cardio.isErgMonitorActivity
 import com.erv.app.cardio.CardioErgMetrics
 import com.erv.app.cycling.Concept2BleConnectionState
 import com.erv.app.cycling.Concept2Pm5BleViewModel
 import com.erv.app.cycling.CyclingCscBleConnectionState
 import com.erv.app.cycling.CyclingCscBleViewModel
+import com.erv.app.cycling.FtmsBleConnectionState
+import com.erv.app.cycling.FtmsBleViewModel
+import com.erv.app.cycling.FtmsMachineType
 import com.erv.app.cycling.LocalConcept2Pm
 import com.erv.app.cycling.LocalCyclingCsc
+import com.erv.app.cycling.LocalFtms
 import com.erv.app.cardio.resolveSnapshot
 import com.erv.app.data.BodyWeightUnit
 import com.erv.app.data.UserPreferences
@@ -163,6 +169,7 @@ import com.erv.app.hr.HeartRateSessionAnalyticsSection
 import com.erv.app.hr.HeartRateZoneInputs
 import com.erv.app.stretching.StretchingRepository
 import com.erv.app.ui.cardio.CardioBikeErgConnectInlineSection
+import com.erv.app.ui.cardio.SessionFtmsConnectPanel
 import com.erv.app.ui.cardio.CardioLiveWorkoutViewModel
 import com.erv.app.ui.cardio.CardioWorkoutSummaryFullScreen
 import com.erv.app.ui.cardio.supportsBikeErgSensorConnect
@@ -382,6 +389,8 @@ fun WorkoutLiveRunScreen(
     val runKeyManager = LocalKeyManager.current
     val concept2Ble = LocalConcept2Pm.current
     val cyclingCscBle = LocalCyclingCsc.current
+    val ftmsBle = LocalFtms.current
+    val ftmsConnection by ftmsBle.connectionState.collectAsState()
 
     val splitMode by userPreferences.cardioLiveSplitMode.collectAsState(initial = CardioLiveSplitMode.OFF)
     val autoSplitQuarterMiles by userPreferences.cardioLiveAutoSplitQuarterMiles.collectAsState(initial = 4)
@@ -427,10 +436,24 @@ fun WorkoutLiveRunScreen(
             } else {
                 null
             }
+            // A smart trainer or treadmill (FTMS) comes next: its distance beats a wheel sensor's,
+            // and indoors it is the only distance there is.
+            val ftmsSummary = ftmsBle.takeWorkoutSummary()
             val withSensors = base.copy(
-                distanceMeters = ergSummary?.distanceMeters ?: cscDistance ?: base.distanceMeters,
+                distanceMeters = ergSummary?.distanceMeters
+                    ?: ftmsSummary?.distanceMeters?.takeIf { gpsPoints.size < 2 }
+                    ?: cscDistance
+                    ?: base.distanceMeters,
                 erg = ergSummary?.let { summary ->
                     CardioErgMetrics(
+                        avgPowerWatts = summary.avgPowerWatts,
+                        maxPowerWatts = summary.maxPowerWatts,
+                        avgCadenceRpm = summary.avgCadenceRpm,
+                        maxCadenceRpm = summary.maxCadenceRpm,
+                    )
+                } ?: ftmsSummary?.takeIf { it.avgPowerWatts != null || it.avgCadenceRpm != null }?.let { summary ->
+                    CardioErgMetrics(
+                        source = "ftms",
                         avgPowerWatts = summary.avgPowerWatts,
                         maxPowerWatts = summary.maxPowerWatts,
                         avgCadenceRpm = summary.avgCadenceRpm,
@@ -948,6 +971,8 @@ fun WorkoutLiveRunScreen(
     LaunchedEffect(sessionPaused, recordingGpsKey) {
         if (recordingGpsKey != null) CardioGpsRecordingHub.paused = sessionPaused
     }
+    // A paused leg on a trainer or treadmill adds no distance or power either.
+    LaunchedEffect(sessionPaused) { ftmsBle.setRecordingPaused(sessionPaused) }
     val hubPoints by CardioGpsRecordingHub.pointsFlow.collectAsState()
     val liveRoute = if (recordingGpsKey != null && CardioGpsRecordingHub.sessionKey() == recordingGpsKey) hubPoints else null
     val liveGpsLine = liveRoute?.let { sessionGpsLiveLine(it, distanceUnit) }
@@ -981,16 +1006,24 @@ fun WorkoutLiveRunScreen(
             cuePlayer.say(WorkoutSessionCardioCues.lapCue(cueLaps.size, last.elapsedSeconds - before, cueBpm()))
         }
     }
-    // A distance leg (a mile, 8 x 400 m) ends when the route covers it. Where the leg began on the
-    // route is fixed once, from the route at the leg's start.
+    // A distance leg (a mile, 8 x 400 m) ends when the route (or the machine) covers it. Where the
+    // leg began on the route is fixed once, from the route at the leg's start.
     val distanceLeg = cueLeg?.takeIf { (it.targetMeters ?: 0.0) > 0.0 }
     var legStartMeters by remember(session?.stepIndex, recordingGpsKey) { mutableStateOf<Double?>(null) }
     val legStartedAt = activeRun?.sessionStepStartedAtEpochSeconds
     if (distanceLeg != null && liveRoute != null && legStartMeters == null && legStartedAt != null) {
         legStartMeters = CardioGpsSplits.distanceAtEpoch(liveRoute, legStartedAt)
     }
+    // Indoors the trainer or treadmill gives the distance instead: counted from where it stood
+    // when the leg was first seen running.
+    val ftmsMeters by ftmsBle.workoutDistanceMeters.collectAsState()
+    var legStartFtmsMeters by remember(session?.stepIndex) { mutableStateOf<Double?>(null) }
+    val ftmsLegMeters = ftmsMeters?.takeIf { distanceLeg != null && liveRoute == null }
+    if (ftmsLegMeters != null && legStartFtmsMeters == null) legStartFtmsMeters = ftmsLegMeters
     val legMeters = if (distanceLeg != null && liveRoute != null) {
         legStartMeters?.let { start -> (CardioGpsMath.pathLengthMeters(liveRoute) - start).coerceAtLeast(0.0) }
+    } else if (ftmsLegMeters != null) {
+        legStartFtmsMeters?.let { start -> (ftmsLegMeters - start).coerceAtLeast(0.0) }
     } else {
         null
     }
@@ -1052,6 +1085,7 @@ fun WorkoutLiveRunScreen(
             heartRateBle.resetWorkoutRecordingOnLiveStart()
             concept2Ble.resetWorkoutRecordingOnLiveStart()
             cyclingCscBle.resetWorkoutRecordingOnLiveStart()
+            ftmsBle.resetWorkoutRecordingOnLiveStart()
         }
         val atStep = session?.stepIndex
         scope.launch { repository.startSessionStep(atStepIndex = atStep) }
@@ -1741,16 +1775,28 @@ fun WorkoutLiveRunScreen(
                                             }
                                         },
                                         sensors = {
-                                            if (activitySnapshot?.supportsBikeErgSensorConnect() == true) {
+                                            val ergSensors = activitySnapshot?.supportsBikeErgSensorConnect() == true
+                                            val ftmsFit = sessionFtmsFit(
+                                                activitySnapshot,
+                                                indoor = gpsIndoor || !gpsWanted,
+                                                connected = ftmsConnection == FtmsBleConnectionState.Connected,
+                                            )
+                                            if (ergSensors) {
                                                 CardioBikeErgConnectInlineSection(
                                                     activitySupportsErg = true,
                                                     sessionKey = item.id,
                                                     compact = true,
-                                                    cyclingSensorApplicable = activitySnapshot.isCyclingActivity(),
+                                                    cyclingSensorApplicable = activitySnapshot?.isCyclingActivity() == true,
                                                 )
-                                                if (!awaitingStart) {
-                                                    SessionSensorReadout(concept2Ble, cyclingCscBle, distanceUnit)
-                                                }
+                                            }
+                                            if (ftmsFit != null) {
+                                                SessionFtmsConnectPanel(
+                                                    treadmill = ftmsFit == FtmsMachineType.TREADMILL,
+                                                    sessionKey = item.id,
+                                                )
+                                            }
+                                            if ((ergSensors || ftmsFit != null) && !awaitingStart) {
+                                                SessionSensorReadout(concept2Ble, ftmsBle, cyclingCscBle, distanceUnit)
                                             }
                                         },
                                     )
@@ -2089,14 +2135,22 @@ fun WorkoutLiveRunScreen(
 
 /**
  * Live sensor numbers under the cardio clock: the Concept2 monitor's power, cadence, speed and
- * distance when it is connected, otherwise a cycling speed and cadence sensor's.
+ * distance when it is connected, then a smart trainer's or treadmill's, then a cycling speed and
+ * cadence sensor's.
  */
 @Composable
 private fun SessionSensorReadout(
     concept2Ble: Concept2Pm5BleViewModel,
+    ftmsBle: FtmsBleViewModel,
     cyclingCscBle: CyclingCscBleViewModel,
     distanceUnit: CardioDistanceUnit,
 ) {
+    val ftmsConnection by ftmsBle.connectionState.collectAsState()
+    val ftmsPower by ftmsBle.currentPowerWatts.collectAsState()
+    val ftmsCadence by ftmsBle.currentCadenceRpm.collectAsState()
+    val ftmsSpeed by ftmsBle.currentSpeedKmh.collectAsState()
+    val ftmsIncline by ftmsBle.currentInclinePercent.collectAsState()
+    val ftmsDistance by ftmsBle.workoutDistanceMeters.collectAsState()
     val ergConnection by concept2Ble.connectionState.collectAsState()
     val ergPower by concept2Ble.currentPowerWatts.collectAsState()
     val ergCadence by concept2Ble.currentCadenceRpm.collectAsState()
@@ -2121,6 +2175,13 @@ private fun SessionSensorReadout(
             speed(ergSpeed),
             distance(ergDistance),
         )
+        ftmsConnection == FtmsBleConnectionState.Connected -> listOfNotNull(
+            ftmsPower?.takeIf { it > 0 }?.let { "$it W" },
+            ftmsCadence?.takeIf { it > 0 }?.let { "$it rpm" },
+            speed(ftmsSpeed),
+            ftmsIncline?.takeIf { it != 0.0 }?.let { "%.1f%% incline".format(it) },
+            distance(ftmsDistance),
+        )
         cscConnection == CyclingCscBleConnectionState.Connected -> listOfNotNull(
             speed(cscSpeed),
             cscCadence?.takeIf { it > 0 }?.let { "$it rpm" },
@@ -2135,6 +2196,32 @@ private fun SessionSensorReadout(
         color = MaterialTheme.colorScheme.primary,
     )
 }
+
+/**
+ * Which kind of FTMS machine fits a cardio leg: a smart trainer for a bike, a treadmill for walking,
+ * running, rucking or hiking. Outdoor legs (GPS on) don't offer one unless a machine is already
+ * connected. Null when none fits.
+ */
+private fun sessionFtmsFit(
+    activity: CardioActivitySnapshot?,
+    indoor: Boolean,
+    connected: Boolean,
+): FtmsMachineType? {
+    val type = when {
+        activity == null -> return null
+        activity.isCyclingActivity() -> FtmsMachineType.INDOOR_BIKE
+        activity.builtin in SESSION_TREADMILL_ACTIVITIES -> FtmsMachineType.TREADMILL
+        else -> return null
+    }
+    return type.takeIf { indoor || connected || activity.isStationaryBikeActivity() }
+}
+
+private val SESSION_TREADMILL_ACTIVITIES = setOf(
+    CardioBuiltinActivity.WALK,
+    CardioBuiltinActivity.RUN,
+    CardioBuiltinActivity.RUCK,
+    CardioBuiltinActivity.HIKE,
+)
 
 /** "Zone 2 · 130–145 bpm" or "170 bpm" for a cardio leg, when the builder set a target. */
 private fun cardioHeartRateTarget(item: WorkoutItem.Cardio, step: WorkoutSessionStep.CardioLeg): String? {

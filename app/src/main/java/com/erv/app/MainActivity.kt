@@ -71,9 +71,11 @@ import com.erv.app.ui.weighttraining.WeightLiveWorkoutViewModel
 import com.erv.app.ui.cardio.CardioLiveWorkoutViewModel
 import com.erv.app.cycling.Concept2Pm5BleViewModel
 import com.erv.app.cycling.CyclingCscBleViewModel
+import com.erv.app.cycling.FtmsBleViewModel
 import com.erv.app.hr.HeartRateBleViewModel
 import com.erv.app.cycling.LocalConcept2Pm
 import com.erv.app.cycling.LocalCyclingCsc
+import com.erv.app.cycling.LocalFtms
 import com.erv.app.hr.LocalHeartRateBle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.erv.app.ui.onboarding.FirstRunSetupScreen
@@ -885,6 +887,8 @@ private fun MainAppShell(
             viewModel<CyclingCscBleViewModel>(viewModelStoreOwner = activityForLifecycle)
         val concept2BleViewModel =
             viewModel<Concept2Pm5BleViewModel>(viewModelStoreOwner = activityForLifecycle)
+        val ftmsBleViewModel =
+            viewModel<FtmsBleViewModel>(viewModelStoreOwner = activityForLifecycle)
         val activeWeightWorkout by weightLiveWorkoutViewModel.activeDraft.collectAsState()
         val activeCardioTimer by cardioLiveWorkoutViewModel.activeTimer.collectAsState()
         val cardioTimerRunning = activeCardioTimer?.isTimerRunning() == true
@@ -896,6 +900,7 @@ private fun MainAppShell(
                 heartRateBleViewModel.resetWorkoutRecordingOnLiveStart()
                 cyclingCscBleViewModel.resetWorkoutRecordingOnLiveStart()
                 concept2BleViewModel.resetWorkoutRecordingOnLiveStart()
+                ftmsBleViewModel.resetWorkoutRecordingOnLiveStart()
             }
         }
         val keepScreenAwakeForLiveWorkout = liveWorkoutActive
@@ -913,6 +918,7 @@ private fun MainAppShell(
             LocalHeartRateBle provides heartRateBleViewModel,
             LocalCyclingCsc provides cyclingCscBleViewModel,
             LocalConcept2Pm provides concept2BleViewModel,
+            LocalFtms provides ftmsBleViewModel,
             LocalKeyManager provides keyManager,
         ) {
             Column(Modifier.fillMaxSize()) {

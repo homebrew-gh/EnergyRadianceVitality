@@ -89,6 +89,9 @@ import com.erv.app.cycling.Concept2BleConnectionState
 import com.erv.app.cycling.CyclingCscBleConnectionState
 import com.erv.app.cycling.LocalConcept2Pm
 import com.erv.app.cycling.LocalCyclingCsc
+import com.erv.app.cycling.FtmsBleConnectionState
+import com.erv.app.cycling.LocalFtms
+import com.erv.app.ui.cardio.FtmsScanDialog
 import com.erv.app.hr.HeartRateBleConnectionState
 import com.erv.app.hr.LocalHeartRateBle
 import com.erv.app.hr.requiredBlePermissionsForHeartRate
@@ -1907,6 +1910,9 @@ private fun SavedBluetoothDevicesSection(
         }
     }
 
+    Spacer(Modifier.height(12.dp))
+    FtmsMachinesSettingsSection()
+
     if (ergScanDialogOpen) {
         AlertDialog(
             onDismissRequest = {
@@ -2055,6 +2061,114 @@ private fun SavedBluetoothDevicesSection(
                     }
                 ) { Text("Stop scanning") }
             }
+        )
+    }
+}
+
+/** Smart trainers and treadmills on Bluetooth FTMS: scan, connect, forget. */
+@Composable
+private fun FtmsMachinesSettingsSection() {
+    val ftms = LocalFtms.current
+    val saved by ftms.savedDevices.collectAsState()
+    val preferred by ftms.preferredDeviceAddress.collectAsState()
+    val active by ftms.activeDeviceAddress.collectAsState()
+    val connection by ftms.connectionState.collectAsState()
+    val status by ftms.statusMessage.collectAsState()
+    val scanRows by ftms.scanRows.collectAsState()
+    var scanOpen by remember { mutableStateOf(false) }
+    var pendingConnect by remember { mutableStateOf<SavedBluetoothDevice?>(null) }
+    var pendingScan by remember { mutableStateOf(false) }
+    val requestPermissions = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) {
+        val device = pendingConnect
+        val scan = pendingScan
+        pendingConnect = null
+        pendingScan = false
+        when {
+            device != null && ftms.hasConnectPermission() -> ftms.connectToSavedDevice(device)
+            scan && ftms.hasScanPermission() && ftms.hasConnectPermission() -> {
+                scanOpen = true
+                ftms.startScanForMachines()
+            }
+        }
+    }
+
+    SectionHeader(
+        "Smart trainers and treadmills",
+        modifier = Modifier.padding(bottom = 8.dp)
+    )
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (saved.isEmpty()) {
+            ElevatedCard(
+                modifier = Modifier.fillMaxWidth(),
+                elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
+            ) {
+                Text(
+                    "No saved machines yet. Trainers and treadmills on the Bluetooth FTMS standard (Wahoo, Tacx, Zwift Hub, Elite, most newer treadmills) stream speed, power, cadence, incline and distance into indoor cardio on the workout screen.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(12.dp)
+                )
+            }
+        } else {
+            saved.forEach { device ->
+                SavedBluetoothDeviceCard(
+                    device = device,
+                    isPreferred = preferred == device.address,
+                    isConnected = active == device.address && connection == FtmsBleConnectionState.Connected,
+                    isConnecting = active == device.address && connection == FtmsBleConnectionState.Connecting,
+                    statusMessage = status,
+                    onConnect = {
+                        if (!ftms.hasConnectPermission()) {
+                            pendingConnect = device
+                            pendingScan = false
+                            requestPermissions.launch(requiredBlePermissionsForHeartRate())
+                        } else {
+                            ftms.connectToSavedDevice(device)
+                        }
+                    },
+                    onDisconnect = { ftms.disconnectUser() },
+                    onForget = { ftms.forgetSavedDevice(device.address) }
+                )
+            }
+        }
+        Button(
+            onClick = {
+                if (!ftms.hasScanPermission() || !ftms.hasConnectPermission()) {
+                    pendingConnect = null
+                    pendingScan = true
+                    requestPermissions.launch(requiredBlePermissionsForHeartRate())
+                } else {
+                    scanOpen = true
+                    ftms.startScanForMachines()
+                }
+            },
+            modifier = Modifier.fillMaxWidth(),
+            enabled = ftms.bleHardwareAvailable
+        ) {
+            Text("Scan trainer or treadmill")
+        }
+        if (status != null && saved.isEmpty()) {
+            Text(
+                status!!,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+    if (scanOpen) {
+        FtmsScanDialog(
+            scanRows = scanRows,
+            scanning = connection == FtmsBleConnectionState.Scanning,
+            onDismiss = {
+                scanOpen = false
+                ftms.stopScanInternal()
+            },
+            onSelect = { row ->
+                scanOpen = false
+                ftms.connectToScannedRow(row)
+            },
         )
     }
 }

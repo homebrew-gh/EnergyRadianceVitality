@@ -9,6 +9,8 @@ enum class SavedBluetoothDeviceKind {
     HEART_RATE_MONITOR,
     CYCLING_SPEED_CADENCE_SENSOR,
     CONCEPT2_PM,
+    /** Smart trainer or treadmill on the Fitness Machine Service (FTMS). */
+    FTMS_MACHINE,
 }
 
 fun SavedBluetoothDeviceKind.displayLabel(): String =
@@ -16,6 +18,7 @@ fun SavedBluetoothDeviceKind.displayLabel(): String =
         SavedBluetoothDeviceKind.HEART_RATE_MONITOR -> "Heart rate monitor"
         SavedBluetoothDeviceKind.CYCLING_SPEED_CADENCE_SENSOR -> "Cycling speed/cadence sensor"
         SavedBluetoothDeviceKind.CONCEPT2_PM -> "Concept2 PM (erg)"
+        SavedBluetoothDeviceKind.FTMS_MACHINE -> "Smart trainer or treadmill"
     }
 
 @Serializable
