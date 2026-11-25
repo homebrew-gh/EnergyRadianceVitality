@@ -430,6 +430,32 @@ class WorkoutSessionRunTest {
     }
 
     @Test
+    fun a_route_recorded_on_the_session_screen_gives_the_cardio_entry_its_distance() {
+        val run = started("example-cardio-and-mobility")
+            .copy(sessionStepAwaitingStart = false)
+            .applyingSessionEvent(WorkoutSessionEvent.TimedStepDone(300), 1_300)
+        val item = run.sessionCardioItemsToLog().single()
+        // About 0.0045 degrees of latitude apart: roughly 500 m.
+        val route = (0..10).map { i ->
+            com.erv.app.cardio.CardioGpsPoint(lat = 40.0 + i * 0.00045, lon = -74.0, epochSeconds = 1_000L + i * 30)
+        }
+
+        val session = run.cardioSessionFor(item, com.erv.app.cardio.CardioLibraryState(), route)!!
+
+        assertEquals(500.0, session.distanceMeters!!, 5.0)
+        assertEquals(route, session.gpsTrack?.points)
+        assertEquals(null, run.cardioSessionFor(item, com.erv.app.cardio.CardioLibraryState())!!.gpsTrack)
+    }
+
+    @Test
+    fun session_gps_keys_are_stable_and_never_negative() {
+        val key = WorkoutSessionGps.keyFor("run-1", "seg-a", "item-b")
+        assertEquals(key, WorkoutSessionGps.keyFor("run-1", "seg-a", "item-b"))
+        assertTrue(key >= 0L)
+        assertTrue(key != WorkoutSessionGps.keyFor("run-2", "seg-a", "item-b"))
+    }
+
+    @Test
     fun interval_cardio_counts_its_work_legs_and_all_its_time() {
         val plan = started("example-cardio-and-mobility").sessionPlan()
         val firstSprint = plan.steps.indexOfFirst { it.itemId == "cardio-sprints" }

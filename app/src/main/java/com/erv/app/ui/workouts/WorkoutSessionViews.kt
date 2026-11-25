@@ -892,6 +892,10 @@ internal fun WorkoutSessionCardioCard(
     modifier: Modifier = Modifier,
     /** The Concept2 or cycling sensor: connect before Start, live numbers while it runs. */
     sensors: @Composable () -> Unit = {},
+    /** While it runs: live GPS distance and pace, or why GPS isn't recording. */
+    gpsStatus: String? = null,
+    /** Before Start: the Record GPS Route switch for outdoor activities. */
+    gpsControls: @Composable () -> Unit = {},
 ) {
     val timed = (step.targetSeconds ?: 0) > 0
     Card(
@@ -922,12 +926,16 @@ internal fun WorkoutSessionCardioCard(
             }
             sensors()
             if (awaitingStart) {
+                gpsControls()
                 Button(onClick = onStart, modifier = Modifier.fillMaxWidth()) { Text("Start") }
                 TextButton(onClick = onOpenCardioScreen, modifier = Modifier.fillMaxWidth()) {
-                    Text("Use Cardio Screen (GPS, Sensors)")
+                    Text("Use Cardio Screen")
                 }
             } else {
                 SessionStepClock(clockSeconds, if (timed) "left" else "so far")
+                gpsStatus?.let {
+                    Text(it, style = MaterialTheme.typography.titleMedium)
+                }
                 Button(onClick = onFinish, modifier = Modifier.fillMaxWidth()) {
                     Text(if (timed) "Finish Leg Now" else "Finish")
                 }
