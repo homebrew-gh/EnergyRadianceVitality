@@ -158,6 +158,26 @@ fun formatZoneBpmRange(
     }
 }
 
+/**
+ * Where [bpm] sits inside [zone], 0 at its bottom and 1 at its top, for a marker on a zone bar.
+ * The open-ended bottom and top zones are taken as 20 bpm wide.
+ */
+fun heartRateWithinZoneFraction(
+    bpm: Int,
+    zone: Int,
+    maxHr: Int,
+    restingBpm: Int? = null,
+    method: HeartRateZoneMethod = HeartRateZoneMethod.PERCENT_MAX_HR,
+): Float {
+    val (low, high) = zoneBpmBounds(zone, maxHr, restingBpm, method)
+    val bottom = low ?: (high ?: return 0.5f) - OPEN_ZONE_SPAN_BPM
+    val top = high ?: (bottom + OPEN_ZONE_SPAN_BPM)
+    if (top <= bottom) return 0.5f
+    return ((bpm - bottom).toFloat() / (top - bottom)).coerceIn(0f, 1f)
+}
+
+private const val OPEN_ZONE_SPAN_BPM = 20
+
 private fun zoneBpmBounds(
     zone: Int,
     maxHr: Int,

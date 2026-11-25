@@ -50,4 +50,14 @@ class HeartRateAnalyticsTest {
         )
         assertEquals(2, zone)
     }
+
+    @Test
+    fun heartRateWithinZoneFraction_placesTheReadingInsideItsZone() {
+        // Max 200: zone 2 is 120-139 bpm.
+        assertEquals(0f, heartRateWithinZoneFraction(120, 2, 200), 0.001f)
+        assertEquals(10f / 19, heartRateWithinZoneFraction(130, 2, 200), 0.001f)
+        assertEquals(1f, heartRateWithinZoneFraction(139, 2, 200), 0.001f)
+        // The open top zone (180 and up) counts as 20 bpm wide.
+        assertEquals(0.5f, heartRateWithinZoneFraction(190, 5, 200), 0.001f)
+    }
 }

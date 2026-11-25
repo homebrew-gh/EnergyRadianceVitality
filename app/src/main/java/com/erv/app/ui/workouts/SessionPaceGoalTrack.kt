@@ -52,19 +52,30 @@ internal fun SessionPaceGoalTrack(
     distanceUnit: CardioDistanceUnit,
     cycling: Boolean,
     modifier: Modifier = Modifier,
+    /** "last ride" to race a previous session instead of a goal; the words follow it. */
+    versus: String? = null,
 ) {
     val color = when (status.state) {
         PaceGoalState.AHEAD -> AheadGreen
         PaceGoalState.ON_PACE -> MaterialTheme.colorScheme.primary
         PaceGoalState.BEHIND -> BehindAmber
     }
-    val headline = when (status.state) {
-        PaceGoalState.AHEAD -> "Ahead ${formatCardioElapsedClock(status.aheadSeconds)}"
-        PaceGoalState.ON_PACE -> "On Pace"
-        PaceGoalState.BEHIND -> "Behind ${formatCardioElapsedClock(-status.aheadSeconds)}"
-    }
     val gap = abs(status.aheadMeters).takeIf { status.state != PaceGoalState.ON_PACE && it >= 1.0 }
         ?.let { formatCardioDistanceFromMeters(it, distanceUnit) }
+    val headline = if (versus != null) {
+        // "0.4 mi ahead of last ride", by distance, which reads best against a past session.
+        when {
+            status.state == PaceGoalState.ON_PACE || gap == null -> "Even with $versus"
+            status.state == PaceGoalState.AHEAD -> "$gap ahead of $versus"
+            else -> "$gap behind $versus"
+        }
+    } else {
+        when (status.state) {
+            PaceGoalState.AHEAD -> "Ahead ${formatCardioElapsedClock(status.aheadSeconds)}"
+            PaceGoalState.ON_PACE -> "On Pace"
+            PaceGoalState.BEHIND -> "Behind ${formatCardioElapsedClock(-status.aheadSeconds)}"
+        }
+    }
     val you by animateFloatAsState(status.youFraction, label = "pace_goal_you")
     val ghost by animateFloatAsState(status.goalFraction, label = "pace_goal_ghost")
 
@@ -75,7 +86,7 @@ internal fun SessionPaceGoalTrack(
     ) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
-                listOfNotNull(headline, gap).joinToString(" · "),
+                if (versus != null) headline else listOfNotNull(headline, gap).joinToString(" · "),
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.SemiBold,
                 color = color,
@@ -137,7 +148,8 @@ internal fun SessionPaceGoalTrack(
             }
             Text(
                 buildString {
-                    append("Goal ${formatCardioDistanceFromMeters(goal.distanceMeters, distanceUnit)} in ")
+                    append(if (versus != null) "${versus.replaceFirstChar { it.uppercase() }} " else "Goal ")
+                    append("${formatCardioDistanceFromMeters(goal.distanceMeters, distanceUnit)} in ")
                     append(formatCardioElapsedClock(goal.seconds))
                     status.projectedFinishSeconds?.let { append(" · On track for ${formatCardioElapsedClock(it)}") }
                 },
