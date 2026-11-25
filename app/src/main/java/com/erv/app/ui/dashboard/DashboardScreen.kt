@@ -275,6 +275,9 @@ fun DashboardScreen(
     val ergCadenceRpm by concept2Ble.currentCadenceRpm.collectAsState()
     val ergPowerWatts by concept2Ble.currentPowerWatts.collectAsState()
     val selectedDate by viewModel.selectedDate.collectAsState()
+    val coachReview by userPreferences.coachReview.collectAsState(initial = null)
+    var showCoachReview by remember { mutableStateOf(false) }
+    val nowEpochSeconds = remember(selectedDate) { System.currentTimeMillis() / 1000 }
     val supplementState by supplementRepository.state.collectAsState(initial = SupplementLibraryState())
     val lightState by lightTherapyRepository.state.collectAsState(initial = LightLibraryState())
     val cardioState by cardioRepository.state.collectAsState(initial = CardioLibraryState())
@@ -885,6 +888,21 @@ fun DashboardScreen(
                                     .padding(bottom = if (launchPadEditMode) 112.dp else 16.dp)
                             ) {
                                 Spacer(Modifier.height(14.dp))
+                                coachReview?.let { review ->
+                                    CoachReviewDashboardCard(
+                                        payload = review,
+                                        nowEpochSeconds = nowEpochSeconds,
+                                        onOpen = { showCoachReview = true },
+                                        modifier = Modifier.padding(bottom = 14.dp),
+                                    )
+                                    if (showCoachReview) {
+                                        CoachReviewSheet(
+                                            payload = review,
+                                            nowEpochSeconds = nowEpochSeconds,
+                                            onDismiss = { showCoachReview = false },
+                                        )
+                                    }
+                                }
                                 RoutinesSection(
                                     showSectionHeading = false,
                                     launchPadLibrariesReady = launchPadLibrariesReady,

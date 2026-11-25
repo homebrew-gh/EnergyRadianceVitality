@@ -594,6 +594,9 @@ private fun MainAppShell(
                     )
                     RelayPayloadDigestStore.reconcileIdenticalRemoteMerged(appCtx, listOf(remotePair), listOf(mergedPair))
                 }
+                latestByTag[CoachReviewSync.D_TAG]?.let { event ->
+                    CoachReviewSync.fromLatestEvent(event, sig)
+                }?.let { remote -> userPreferences.setCoachReviewIfNewer(remote) }
                 latestByTag[TrainingProfileSync.D_TAG]?.let { event ->
                     TrainingProfileSync.fromLatestEvent(event, sig)
                 }?.let { remote ->

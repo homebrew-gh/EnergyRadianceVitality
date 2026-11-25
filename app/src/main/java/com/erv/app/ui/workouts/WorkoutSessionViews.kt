@@ -203,6 +203,8 @@ internal fun WorkoutSessionLiftCard(
     modifier: Modifier = Modifier,
     /** The sets from the last time this exercise was logged, from [describeLastTime]. */
     lastTime: String? = null,
+    /** Read-only next-session target from the latest web coach review, e.g. "Coach: 185 × 8, 8, 8 lb". */
+    coachTarget: String? = null,
     onShowHistory: (() -> Unit)? = null,
     canAddSet: Boolean = false,
     canRemoveSet: Boolean = false,
@@ -270,6 +272,9 @@ internal fun WorkoutSessionLiftCard(
             }
             lastTime?.let {
                 Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            coachTarget?.let {
+                Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
             }
             SetInputsRow(inputs, timed, loadUnit)
             if (plateCalculator != null) {

@@ -1,5 +1,6 @@
 package com.erv.app.ui.workouts
 
+import com.erv.app.data.coachLineFor
 import androidx.activity.compose.BackHandler
 import com.erv.app.ui.theme.ervTopAppBarColors
 import com.erv.app.ui.theme.ervSessionTopAppBarColors
@@ -421,6 +422,8 @@ fun WorkoutLiveRunScreen(
         val atStep = session?.stepIndex
         scope.launch { repository.changeSessionSetCount(delta, atStepIndex = atStep) }
     }
+
+    val coachReview by userPreferences.coachReview.collectAsState(initial = null)
 
     /** Sets logged for [exerciseId] the last time, so a standalone workout starts with as many. */
     fun lastSetCountFor(exerciseId: String): Int? =
@@ -1410,6 +1413,7 @@ fun WorkoutLiveRunScreen(
                                 onSwap = { swapItem = step.segmentId to step.itemId },
                                 onEditSet = { editingSet = it },
                                 lastTime = lastTimeFor(exerciseId),
+                                coachTarget = coachReview?.coachLineFor(exerciseId, System.currentTimeMillis() / 1000),
                                 onShowHistory = { historyFor = exerciseId to liftName(step) },
                                 canAddSet = plan != null && activeRun?.canAddSessionSet(plan) == true,
                                 // A plain exercise loses its last set still to come (the one on
