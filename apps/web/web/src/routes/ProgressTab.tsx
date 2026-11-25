@@ -780,8 +780,16 @@ export function ProgressTab() {
       }),
       weightLogs: filteredWeightLogs,
       cardioLogs: filteredCardioLogs,
+      equipmentUnit: weightLoadUnit,
     }),
-    [contextBundleInput, filteredWeightLogs, filteredCardioLogs, exercises, lastLoadedAt],
+    [
+      contextBundleInput,
+      filteredWeightLogs,
+      filteredCardioLogs,
+      exercises,
+      lastLoadedAt,
+      weightLoadUnit,
+    ],
   );
 
   const [selectedExerciseId, setSelectedExerciseId] = useState<string>("");

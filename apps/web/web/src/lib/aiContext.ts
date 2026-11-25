@@ -1,15 +1,38 @@
+import type { ProgressionGuardrailContext } from "./aiProgressionGuardrails";
 import type { AiContextLevel } from "./api";
 import { cardioActivityLabel, stretchLabel } from "./catalog";
 import {
+  displayEquipmentTitle,
+  equipmentSummaryLine,
+  kgToLb,
+  type BodyWeightUnit,
+  type FitnessEquipmentPayload,
+} from "./fitnessEquipment";
+import {
   buildTrainingContextJson,
+  STYLE_PRESET_AI_HINTS,
   type TrainingContextBundleInput,
 } from "./trainingContextBundle";
 import {
+  addDays,
+  formatIsoDate,
   summarizeCardioSession,
   summarizeWeightSession,
   type CardioDayLog,
   type WeightDayLog,
 } from "./trainingHistory";
+import {
+  avoidPatternLabel,
+  CARDIO_BIAS_OPTIONS,
+  EXPERIENCE_LEVEL_OPTIONS,
+  HEART_RATE_ZONE_METHOD_OPTIONS,
+  isTrainingProfileBlank,
+  PRIMARY_GOAL_OPTIONS,
+  PROGRESSION_STYLE_OPTIONS,
+  stylePresetLabel,
+  TRAINING_STYLE_PRESETS,
+  type TrainingProfilePayload,
+} from "./trainingProfile";
 import { exerciseLabel } from "./weightTraining";
 import { segmentItems, type Workout, type WorkoutItem } from "./workoutTraining";
 
@@ -23,18 +46,28 @@ export type AnalysisContext = {
   byteLength: number;
 };
 
-/** Review context uses names only. Ids stay in the library for later workout edits. */
+/**
+ * Review context uses names only. Ids stay in the library for later workout edits.
+ * Loads are converted to the athlete's unit (pounds by default) and rounded, so the model
+ * never sees stored kilograms.
+ */
 export function buildAnalysisContext(
   input: TrainingContextBundleInput,
-  options: { contextLevel: AiContextLevel; periodWeeks: number | null },
+  options: { contextLevel: AiContextLevel; periodWeeks: number | null; todayIso?: string },
 ): AnalysisContext {
   const base = JSON.parse(buildTrainingContextJson(input)) as Record<string, unknown>;
   const level = options.contextLevel;
+  const unit: BodyWeightUnit = input.equipmentUnit ?? "LB";
+  const today = options.todayIso ?? todayFromSnapshot(input);
   const context: Record<string, unknown> = {
     ervTrainingContextVersion: base.ervTrainingContextVersion,
     contextLevel: level,
+    units: { weight: unitSuffix(unit), distance: unit === "KG" ? "km" : "mi" },
+    today,
     periodWeeks: options.periodWeeks,
-    profile: base.profile ?? null,
+    periodStart: periodStart(today, options.periodWeeks, input),
+    periodEnd: today,
+    profile: profileForReview(input.profile),
     savedWorkouts: input.workouts.map((workout) => ({
       name: workout.name,
       exercises: workoutExerciseNames(workout, input),
@@ -45,17 +78,16 @@ export function buildAnalysisContext(
         .map((id) => namedExercise(id, null, input.exercises))
         .filter((name) => name.length > 0),
     })),
-    savedCardioRoutineNames: namesOnly(base.savedCardioRoutineIds),
-    savedStretchRoutineNames: namesOnly(base.savedStretchRoutineIds),
-    customExerciseNames: namesOnly(base.customExerciseIds),
   };
 
   if (level === "MINIMAL") {
     context.snapshot = snapshotAggregates(base.snapshot);
   } else {
-    context.snapshot = snapshotForReview(base.snapshot, input.exercises);
-    context.equipment = base.equipment;
-    context.progressionGuardrails = base.progressionGuardrails;
+    context.snapshot = snapshotForReview(base.snapshot, input.exercises, unit);
+    context.equipment = equipmentForReview(input.equipment, unit);
+    context.progressionGuardrails = guardrailsForReview(
+      base.progressionGuardrails as ProgressionGuardrailContext | undefined,
+    );
     context.recentSessionSummaries = recentSessionSummaries(
       input.weightLogs ?? [],
       input.cardioLogs ?? [],
@@ -63,7 +95,11 @@ export function buildAnalysisContext(
   }
 
   if (level === "FULL") {
-    context.recentExerciseRows = recentExerciseRows(input.weightLogs ?? [], input.exercises);
+    context.recentExerciseRows = recentExerciseRows(
+      input.weightLogs ?? [],
+      input.exercises,
+      unit,
+    );
   }
 
   const json = JSON.stringify(context);
@@ -72,6 +108,134 @@ export function buildAnalysisContext(
     json,
     hash: hashTrainingContext(context),
     byteLength: new TextEncoder().encode(json).length,
+  };
+}
+
+/** Weight in the athlete's unit, rounded to the nearest 0.5. */
+export function loadInUnit(kg: number, unit: BodyWeightUnit): number {
+  const value = unit === "KG" ? kg : kgToLb(kg);
+  const rounded = Math.round(value * 2) / 2;
+  return Object.is(rounded, -0) ? 0 : rounded;
+}
+
+function unitSuffix(unit: BodyWeightUnit): "lb" | "kg" {
+  return unit === "KG" ? "kg" : "lb";
+}
+
+function todayFromSnapshot(input: TrainingContextBundleInput): string {
+  const seconds = input.snapshot.computedAtEpochSeconds;
+  return formatIsoDate(new Date(seconds > 0 ? seconds * 1000 : Date.now()));
+}
+
+function periodStart(
+  today: string,
+  periodWeeks: number | null,
+  input: TrainingContextBundleInput,
+): string | null {
+  if (periodWeeks != null && periodWeeks > 0) return addDays(today, -(periodWeeks * 7) + 1);
+  const dates = [
+    ...(input.weightLogs ?? []).map((log) => log.date),
+    ...(input.cardioLogs ?? []).map((log) => log.date),
+  ].sort();
+  return dates[0] ?? null;
+}
+
+function optionLabel<T extends string>(
+  value: T | null | undefined,
+  options: { value: T; label: string }[],
+): string | null {
+  if (!value) return null;
+  return options.find((option) => option.value === value)?.label ?? value;
+}
+
+/** Readable profile: labels instead of enum codes, plus the coaching hints for each style preset. */
+export function profileForReview(
+  profile: TrainingProfilePayload,
+): Record<string, unknown> | null {
+  if (isTrainingProfileBlank(profile)) return null;
+  const out: Record<string, unknown> = {};
+  const put = (key: string, value: unknown) => {
+    if (value == null) return;
+    if (typeof value === "string" && value.trim() === "") return;
+    if (Array.isArray(value) && value.length === 0) return;
+    out[key] = value;
+  };
+  put("primaryGoal", optionLabel(profile.primaryGoal, PRIMARY_GOAL_OPTIONS));
+  put("experience", optionLabel(profile.experienceLevel, EXPERIENCE_LEVEL_OPTIONS));
+  put("typicalSessionMinutes", profile.typicalSessionMinutes || null);
+  put("trainingDaysPerWeek", profile.typicalTrainingDaysPerWeek || null);
+  put("progressionStyle", optionLabel(profile.progressionStyle, PROGRESSION_STYLE_OPTIONS));
+  put("cardioBias", optionLabel(profile.cardioBias, CARDIO_BIAS_OPTIONS));
+  put("ageYears", profile.ageYears || null);
+  put(
+    "trainingStyles",
+    profile.stylePresetIds.map((id) => ({
+      name: stylePresetLabel(id),
+      coachingHints:
+        STYLE_PRESET_AI_HINTS[id] ??
+        [TRAINING_STYLE_PRESETS.find((preset) => preset.id === id)?.description].filter(
+          (hint): hint is string => Boolean(hint),
+        ),
+    })),
+  );
+  put("styleNotes", profile.styleNotes?.trim());
+  put("movementsToAvoid", profile.avoidMovementPatterns.map((id) => avoidPatternLabel(id)));
+  put("limitationNotes", profile.customAvoidNotes?.trim());
+  put("maxHeartRateBpm", profile.heartRateMaxBpm || null);
+  put("restingHeartRateBpm", profile.heartRateRestingBpm || null);
+  put(
+    "heartRateZoneMethod",
+    optionLabel(profile.heartRateZoneMethod, HEART_RATE_ZONE_METHOD_OPTIONS),
+  );
+  return Object.keys(out).length > 0 ? out : null;
+}
+
+/** Equipment as readable lines in the athlete's unit, the same text the Equipment page shows. */
+export function equipmentForReview(
+  equipment: FitnessEquipmentPayload,
+  unit: BodyWeightUnit,
+): Record<string, unknown> {
+  const items = equipment.equipment
+    .slice()
+    .sort((a, b) => displayEquipmentTitle(a, unit).localeCompare(displayEquipmentTitle(b, unit)))
+    .map((item) => {
+      const title = displayEquipmentTitle(item, unit);
+      const detail = equipmentSummaryLine(item, unit);
+      return detail ? `${title}: ${detail}` : title;
+    });
+  const out: Record<string, unknown> = { gymMembership: equipment.gymMembership, items };
+  if (equipment.enabledWeightExercisePackIds.length > 0) {
+    out.specialtyPacks = [...equipment.enabledWeightExercisePackIds].sort();
+  }
+  return out;
+}
+
+/** Heart-rate rules only matter when there is heart-rate data. */
+function guardrailsForReview(
+  guardrails: ProgressionGuardrailContext | undefined,
+): Record<string, unknown> | null {
+  if (!guardrails) return null;
+  if (guardrails.heartRate.status === "missing") {
+    return {
+      progressionPolicy: guardrails.policyLabel,
+      heartRate: "No heart-rate data in this period.",
+    };
+  }
+  const hr = guardrails.heartRate;
+  return {
+    progressionPolicy: guardrails.policyLabel,
+    heartRate: {
+      status: hr.status,
+      confidence: hr.confidence,
+      sessionsWithHr: hr.sessionsWithHr,
+      sessionsWithZoneLoad: hr.sessionsWithZoneLoad,
+      currentWeekZ4Z5Minutes: Math.round(hr.currentWeekHighIntensitySeconds / 60),
+      baselineWeeklyZ4Z5Minutes: Math.round(hr.baselineWeeklyHighIntensitySeconds / 60),
+      highIntensityRatioVsBaseline:
+        hr.highIntensityDeltaRatio != null ? Math.round(hr.highIntensityDeltaRatio * 10) / 10 : null,
+      notes: hr.notes,
+    },
+    rules: guardrails.rules,
   };
 }
 
@@ -138,36 +302,34 @@ function isOpaqueId(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value.trim());
 }
 
-function namesOnly(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return value
-    .map((item) => {
-      if (typeof item === "string") return item;
-      if (item && typeof item === "object" && "name" in item) {
-        const name = (item as { name?: unknown }).name;
-        return typeof name === "string" ? name : "";
-      }
-      return "";
-    })
-    .filter((name) => name.length > 0);
-}
-
-function snapshotForReview(
+export function snapshotForReview(
   snapshot: unknown,
   exercises: TrainingContextBundleInput["exercises"],
+  unit: BodyWeightUnit,
 ): unknown {
   if (!snapshot || typeof snapshot !== "object") return snapshot;
-  const source = snapshot as Record<string, unknown>;
-  if (!Array.isArray(source.workingWeights)) return snapshot;
+  const source = { ...(snapshot as Record<string, unknown>) };
+  delete source.snapshotVersion;
+  delete source.computedAtEpochSeconds;
+  if (!Array.isArray(source.workingWeights)) return source;
+  const suffix = unitSuffix(unit);
   return {
     ...source,
     workingWeights: source.workingWeights.map((row) => {
       if (!row || typeof row !== "object") return row;
       const entry = row as Record<string, unknown>;
       const exerciseId = typeof entry.exerciseId === "string" ? entry.exerciseId : "";
-      const rest = { ...entry };
-      delete rest.exerciseId;
-      return { name: exerciseLabel(exerciseId, exercises), ...rest };
+      const weightKg = typeof entry.weightKg === "number" ? entry.weightKg : 0;
+      const e1rmKg =
+        typeof entry.estimatedOneRepMaxKg === "number" ? entry.estimatedOneRepMaxKg : null;
+      return {
+        name: exerciseLabel(exerciseId, exercises),
+        lastDate: entry.lastDate,
+        reps: entry.reps,
+        [`weight_${suffix}`]: loadInUnit(weightKg, unit),
+        [`estimatedOneRepMax_${suffix}`]: e1rmKg != null ? loadInUnit(e1rmKg, unit) : null,
+        sessionCount: entry.sessionCount,
+      };
     }),
   };
 }
@@ -206,6 +368,7 @@ function recentSessionSummaries(weightLogs: WeightDayLog[], cardioLogs: CardioDa
 function recentExerciseRows(
   weightLogs: WeightDayLog[],
   exercises: TrainingContextBundleInput["exercises"],
+  unit: BodyWeightUnit,
 ) {
   const rows: { date: string; name: string; detail: string }[] = [];
   const days = [...weightLogs].sort((a, b) => b.date.localeCompare(a.date));
@@ -215,7 +378,7 @@ function recentExerciseRows(
         rows.push({
           date: day.date,
           name: exerciseLabel(entry.exerciseId, exercises),
-          detail: setDetail(entry.sets),
+          detail: setDetail(entry.sets, unit),
         });
         if (rows.length >= RECENT_EXERCISE_LIMIT) return rows;
       }
@@ -224,13 +387,20 @@ function recentExerciseRows(
   return rows;
 }
 
-function setDetail(sets: { reps: number; weightKg?: number | null }[]): string {
+/** Set-by-set text such as "185×8, 185×7, 185×6" in the athlete's unit. */
+export function setDetail(
+  sets: { reps: number; weightKg?: number | null; durationSeconds?: number | null }[],
+  unit: BodyWeightUnit,
+): string {
   if (sets.length === 0) return "no sets";
-  const reps = sets.map((set) => set.reps).filter((reps) => reps > 0);
-  const loads = sets.map((set) => set.weightKg ?? 0).filter((kg) => kg > 0);
-  const best = loads.length > 0 ? Math.max(...loads) : 0;
-  const repText = reps.length > 0 ? reps.join(",") : `${sets.length} sets`;
-  return best > 0 ? `${sets.length} sets · ${repText} · best ${best} kg` : `${sets.length} sets · ${repText}`;
+  const parts = sets.map((set) => {
+    if (set.reps <= 0 && (set.durationSeconds ?? 0) > 0) return `${set.durationSeconds}s hold`;
+    const kg = set.weightKg ?? 0;
+    if (kg > 0) return `${loadInUnit(kg, unit)}×${set.reps}`;
+    return `${set.reps} reps`;
+  });
+  const loaded = sets.some((set) => (set.weightKg ?? 0) > 0);
+  return loaded ? `${parts.join(", ")} ${unitSuffix(unit)}` : parts.join(", ");
 }
 
 function stableStringify(value: unknown): string {
