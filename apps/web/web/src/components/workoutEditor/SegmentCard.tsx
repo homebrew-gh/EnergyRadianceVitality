@@ -3,6 +3,31 @@ import clsx from "clsx";
 import { useDroppable } from "@dnd-kit/core";
 import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { formatLastLift, lastLiftTopWeightKg, type LastLift } from "../../lib/lastLift";
+import {
+  applyCardioAmount,
+  applyCardioHeartRate,
+  applyCardioRest,
+  applyCardioWork,
+  applyMobilityHold,
+  applyMobilityPerSide,
+  CARDIO_MODE_LABELS,
+  cardioAmountField,
+  cardioHeartRateField,
+  cardioMode,
+  cardioRestField,
+  cardioWorkField,
+  mobilityHoldField,
+  mobilityPerSideField,
+  setCardioMode,
+  type CardioMode,
+} from "../../lib/cardioRowFields";
+import {
+  cardioActivityLabel,
+  stretchLabel,
+  type CardioCatalogActivity,
+  type StretchCatalogEntry,
+} from "../../lib/catalog";
+import type { CardioRoutine } from "../../lib/cardioTraining";
 import { copyRowDown, duplicateItemAt, moveItem } from "../../lib/segmentRows";
 import type { BodyWeightUnit } from "../../lib/fitnessEquipment";
 import type { PhoneWarning } from "../../lib/phoneCompatibility";
@@ -34,19 +59,41 @@ import {
   segmentAllowsInlineNotes,
   segmentItems,
   segmentKindLabel,
+  type WorkoutCardioPrescription,
   type WorkoutItem,
+  type WorkoutMobilityPrescription,
   type WorkoutSegment,
+  type WorkoutSegmentKind,
   type WorkoutWeightPrescription,
 } from "../../lib/workoutTraining";
+import { CardioDetails } from "./CardioDetails";
 import { FieldLabel } from "../FieldLabel";
 import { PlateLoadHint } from "../PlateLoadHint";
 import { WeightPrescriptionFields } from "../WorkoutSegmentEditor";
-import { CellInput } from "./CellInput";
+import { CellInput, ClockInput } from "./CellInput";
 import { RowMenu, type RowMenuAction } from "./RowMenu";
 
 type WeightItem = Extract<WorkoutItem, { type: "weight" }>;
 
-/** Lifting segments get the table; the rest still use the older editor until step 4. */
+/** Column headings for a segment's table, and what its add button says. */
+function segmentColumns(
+  kind: WorkoutSegmentKind,
+  weightSuffix: string,
+): { item: string; values: string[]; addLabel: string } {
+  switch (kind) {
+    case "cardio":
+    case "interval":
+      return { item: "Activity", values: ["Mode", "Minutes / Rounds", "Work", "Rest", "Heart Rate"], addLabel: "+ Add Activity" };
+    case "mobility":
+      return { item: "Stretch", values: ["Hold", "Per side", "", "", ""], addLabel: "+ Add Stretch" };
+    case "composite":
+      return { item: "Item", values: ["", "", "", "", ""], addLabel: "+ Add From Library" };
+    default:
+      return { item: "Exercise", values: ["Sets", "Reps", `Weight (${weightSuffix})`, "RIR", "Rest"], addLabel: "+ Add Exercise" };
+  }
+}
+
+/** Straight sets, supersets and circuits: segments made of lifts. */
 export function isLiftingSegment(segment: WorkoutSegment): boolean {
   return segment.kind === "straight_sets" || segment.kind === "superset" || segment.kind === "circuit";
 }
@@ -55,46 +102,56 @@ function fallbackExercise(id: string): WeightExercise {
   return { id, name: id, muscleGroup: "", pushOrPull: "push", equipment: "" };
 }
 
-function ClockInput({
-  label,
-  seconds,
-  onSeconds,
-}: {
+function Cell(props: {
+  field: RowField;
   label: string;
-  seconds: number | null | undefined;
-  onSeconds: (next: number | null) => void;
+  onCommit: (text: string) => void;
+  onOpenDetails: () => void;
+  inputMode?: "numeric" | "decimal" | "text";
+  placeholder?: string;
+  /** Small label above the cell, for mixed segments where one header can't name every column. */
+  caption?: string;
 }) {
+  if (!props.caption) return <CellBody {...props} />;
   return (
-    <label className="block space-y-1 text-xs">
-      <FieldLabel>{label}</FieldLabel>
-      <div className="rounded-lg border border-[var(--erv-outline-variant)] bg-[var(--erv-input-bg)]">
-        <CellInput
-          value={formatClock(seconds)}
-          placeholder="0:00"
-          ariaLabel={label}
-          onCommit={(text) => {
-            const next = parseClock(text);
-            if (next !== undefined) onSeconds(next);
-          }}
-        />
-      </div>
-    </label>
+    <div>
+      <span className="block px-2 text-[11px] leading-tight text-muted">
+        <ColumnLabel text={props.caption} />
+      </span>
+      <CellBody {...props} />
+    </div>
   );
 }
 
-function Cell({
+/** Title case for column labels, except a unit in brackets ("Weight (lb)") stays as written. */
+function ColumnLabel({ text }: { text: string }) {
+  if (!text) return null;
+  const unit = text.match(/^(.*?)(\s*\(.*\))$/);
+  if (!unit) return <FieldLabel>{text}</FieldLabel>;
+  return (
+    <>
+      <FieldLabel>{unit[1]!}</FieldLabel>
+      {unit[2]}
+    </>
+  );
+}
+
+function CellBody({
   field,
   label,
   onCommit,
   onOpenDetails,
   inputMode = "numeric",
+  placeholder,
 }: {
   field: RowField;
   label: string;
   onCommit: (text: string) => void;
   onOpenDetails: () => void;
   inputMode?: "numeric" | "decimal" | "text";
+  placeholder?: string;
 }) {
+  if (!field.editable && !field.text) return <span className="block px-2 py-1.5 text-muted">–</span>;
   if (!field.editable) {
     return (
       <button
@@ -112,7 +169,7 @@ function Cell({
       value={field.text}
       ariaLabel={label}
       title={field.hint}
-      placeholder={field.hint ? "0:00" : "–"}
+      placeholder={placeholder ?? (field.hint ? "0:00" : "–")}
       inputMode={inputMode}
       onCommit={onCommit}
     />
@@ -187,7 +244,7 @@ function RowHandle({
   );
 }
 
-export function LiftSegmentCard({
+export function SegmentCard({
   segment,
   position,
   active,
@@ -205,6 +262,9 @@ export function LiftSegmentCard({
   onSwapItem,
   lastLifts,
   todayIso,
+  stretchCatalog,
+  cardioCatalog,
+  cardioRoutines,
 }: {
   segment: WorkoutSegment;
   /** 1-based position in the workout, for the heading. */
@@ -226,8 +286,11 @@ export function LiftSegmentCard({
   onMoveUp?: () => void;
   onMoveDown?: () => void;
   onOpenLibrary: () => void;
-  /** Open the library to pick a different exercise for this row. */
+  /** Open the library to pick a different exercise, activity or stretch for this row. */
   onSwapItem: (itemId: string) => void;
+  stretchCatalog: StretchCatalogEntry[];
+  cardioCatalog: CardioCatalogActivity[];
+  cardioRoutines: CardioRoutine[];
   lastLifts: ReadonlyMap<string, LastLift>;
   /** yyyy-mm-dd, for "today" in the last-time line. */
   todayIso: string;
@@ -238,6 +301,12 @@ export function LiftSegmentCard({
   const roundBased = segment.kind === "circuit" || segment.kind === "superset";
   const restPolicy = { ...defaultRestPolicy(), ...segment.restPolicy };
   const suffix = weightLoadUnitSuffix(weightLoadUnit);
+  const lifting = isLiftingSegment(segment);
+  /** A flow block mixes kinds, so its cells carry their own small labels instead of a header. */
+  const captions = segment.kind === "composite";
+  const columns = segmentColumns(segment.kind, suffix);
+  const cardioName = (id: string) => cardioActivityLabel(id, cardioCatalog);
+  const stretchName = (id: string) => stretchLabel(id, stretchCatalog);
   const exerciseFor = (id: string) => exercises.find((ex) => ex.id === id) ?? null;
 
   const toggleDetails = (itemId: string) =>
@@ -405,12 +474,12 @@ export function LiftSegmentCard({
           <thead>
             <tr className="text-left text-xs text-muted">
               <th className="w-12 px-2 py-2 font-medium">#</th>
-              <th className="px-2 py-2 font-medium">Exercise</th>
-              <th className="w-16 px-2 py-2 font-medium">Sets</th>
-              <th className="w-24 px-2 py-2 font-medium">Reps</th>
-              <th className="w-24 px-2 py-2 font-medium">Weight ({suffix})</th>
-              <th className="w-16 px-2 py-2 font-medium">RIR</th>
-              <th className="w-20 px-2 py-2 font-medium">Rest</th>
+              <th className="px-2 py-2 font-medium">{columns.item}</th>
+              {columns.values.map((label, i) => (
+                <th key={i} className={clsx("px-2 py-2 font-medium", i === 0 && !lifting ? "w-32" : "w-24")}>
+                  <ColumnLabel text={label} />
+                </th>
+              ))}
               <th className="w-28 px-2 py-2" aria-label="Row actions" />
             </tr>
           </thead>
@@ -449,7 +518,7 @@ export function LiftSegmentCard({
                   <>
                     <td className="px-1 py-1"><RowHandle index={index} label="rest" handle={handle} /></td>
                     <td className="px-2 py-1 text-muted">Rest</td>
-                    <td colSpan={4} />
+                    {lifting ? <td colSpan={4} /> : null}
                     <td className="px-1 py-1">
                       <CellInput
                         value={formatClock(item.durationSeconds)}
@@ -460,6 +529,7 @@ export function LiftSegmentCard({
                         }}
                       />
                     </td>
+                    {lifting ? null : <td colSpan={4} />}
                     <td className="px-2 py-1 text-right">
                       <RowMenu label="Rest actions" actions={rowActions(rowKey, index)} />
                     </td>
@@ -468,21 +538,195 @@ export function LiftSegmentCard({
                   </SortableRow>
                 );
               }
-              if (item.type !== "weight") {
+              if (item.type === "cardio") {
+                const c = item.cardio;
+                const name = item.title?.trim() || cardioName(c.activity);
+                const detailsOpen = openDetails.has(rowKey);
+                const setCardio = (cardio: WorkoutCardioPrescription, separate = true) =>
+                  replaceItem(index, { ...item, cardio }, separate);
+                const routine = c.cardioRoutineId ? cardioRoutines.find((r) => r.id === c.cardioRoutineId) : null;
                 return (
-                  <SortableRow key={rowKey} id={rowKey} segmentId={segmentId} index={index} className="border-t border-[var(--erv-outline-variant)]">
-                    {(handle) => (
-                  <>
-                    <td className="px-1 py-1"><RowHandle index={index} label="item" handle={handle} /></td>
-                    <td colSpan={6} className="px-2 py-1.5 text-muted">
-                      {item.type === "cardio" ? "Cardio" : "Mobility"} item. Edit it in the old editor for now.
-                    </td>
-                    <td className="px-2 py-1 text-right">
-                      <RowMenu label="Row actions" actions={rowActions(rowKey, index)} />
-                    </td>
-                  </>
-                    )}
-                  </SortableRow>
+                  <Fragment key={rowKey}>
+                    <SortableRow id={rowKey} segmentId={segmentId} index={index} className="border-t border-[var(--erv-outline-variant)] align-top">
+                      {(handle) => (
+                    <>
+                      <td className="px-1 py-2"><RowHandle index={index} label={name} handle={handle} /></td>
+                      <td className="px-2 py-2">
+                        <span className="block font-medium text-heading">{name}</span>
+                        <span className="block text-xs text-muted">Cardio</span>
+                      </td>
+                      {c.cardioRoutineId ? (
+                        <td colSpan={5} className="px-2 py-2 text-sm text-muted">
+                          Runs your saved routine “{routine?.name ?? "missing routine"}”.{" "}
+                          <button type="button" tabIndex={-1} className="underline hover:text-heading" onClick={() => toggleDetails(rowKey)}>
+                            Change in details
+                          </button>
+                        </td>
+                      ) : (
+                        <>
+                          <td className="px-1 py-1">
+                            {captions ? (
+                              <span className="block px-2 text-[11px] leading-tight text-muted">Mode</span>
+                            ) : null}
+                            <select
+                              className="w-full rounded-lg border border-transparent bg-transparent px-1 py-1.5 text-sm hover:border-[var(--erv-outline-variant)] focus:border-[var(--erv-primary)] focus:outline-none"
+                              value={cardioMode(c)}
+                              aria-label={`${name} mode`}
+                              onChange={(e) => setCardio(setCardioMode(c, e.target.value as CardioMode))}
+                            >
+                              {(Object.keys(CARDIO_MODE_LABELS) as CardioMode[]).map((mode) => (
+                                <option key={mode} value={mode}>
+                                  {CARDIO_MODE_LABELS[mode]}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+                          <td className="px-1 py-1">
+                            <Cell
+                              field={cardioAmountField(c)}
+                              label={`${name} ${cardioMode(c) === "steady" ? "minutes" : "rounds"}`}
+                              caption={captions ? cardioAmountField(c).hint : undefined}
+                              placeholder="–"
+                              onCommit={(text) => setCardio(applyCardioAmount(c, text))}
+                              onOpenDetails={() => toggleDetails(rowKey)}
+                            />
+                          </td>
+                          <td className="px-1 py-1">
+                            <Cell
+                              field={cardioWorkField(c)}
+                              label={`${name} work`}
+                              caption={captions && cardioMode(c) !== "steady" ? "Work" : undefined}
+                              inputMode="text"
+                              placeholder="0:00"
+                              onCommit={(text) => setCardio(applyCardioWork(c, text))}
+                              onOpenDetails={() => toggleDetails(rowKey)}
+                            />
+                          </td>
+                          <td className="px-1 py-1">
+                            <Cell
+                              field={cardioRestField(c)}
+                              label={`${name} rest`}
+                              caption={captions && cardioMode(c) === "sprint_intervals" ? "Rest" : undefined}
+                              inputMode="text"
+                              placeholder="0:00"
+                              onCommit={(text) => setCardio(applyCardioRest(c, text))}
+                              onOpenDetails={() => toggleDetails(rowKey)}
+                            />
+                          </td>
+                          <td className="px-1 py-1">
+                            <Cell
+                              field={cardioHeartRateField(c)}
+                              label={`${name} heart rate`}
+                              caption={captions ? "Heart Rate" : undefined}
+                              inputMode="text"
+                              placeholder="–"
+                              onCommit={(text) => setCardio(applyCardioHeartRate(c, text))}
+                              onOpenDetails={() => toggleDetails(rowKey)}
+                            />
+                          </td>
+                        </>
+                      )}
+                      <td className="whitespace-nowrap px-2 py-2 text-right text-xs">
+                        <button
+                          type="button"
+                          tabIndex={-1}
+                          className={clsx("mr-2 hover:text-heading", detailsOpen ? "font-semibold text-heading" : "text-muted")}
+                          onClick={() => toggleDetails(rowKey)}
+                          aria-expanded={detailsOpen}
+                        >
+                          Details
+                        </button>
+                        <RowMenu
+                          label={`${name} actions`}
+                          actions={rowActions(rowKey, index, [{ label: "Change Activity…", onSelect: () => onSwapItem(rowKey) }])}
+                        />
+                      </td>
+                    </>
+                      )}
+                    </SortableRow>
+                    {itemWarnings(index).length > 0 ? (
+                      <tr>
+                        <td />
+                        <td colSpan={7} className="px-2 pb-2 text-xs text-[var(--erv-error)]">
+                          {itemWarnings(index).map((w) => (
+                            <p key={w.key}>Phone: {w.message}</p>
+                          ))}
+                        </td>
+                      </tr>
+                    ) : null}
+                    {detailsOpen ? (
+                      <tr>
+                        <td />
+                        <td colSpan={7} className="px-2 pb-3">
+                          <CardioDetails
+                            cardio={c}
+                            cardioRoutines={cardioRoutines}
+                            onChange={(cardio, separate) => setCardio(cardio, separate)}
+                          />
+                        </td>
+                      </tr>
+                    ) : null}
+                  </Fragment>
+                );
+              }
+              if (item.type === "mobility") {
+                const m = item.mobility;
+                const name = item.title?.trim() || stretchName(m.catalogId);
+                const setMobility = (mobility: WorkoutMobilityPrescription) =>
+                  replaceItem(index, { ...item, mobility }, true);
+                return (
+                  <Fragment key={rowKey}>
+                    <SortableRow id={rowKey} segmentId={segmentId} index={index} className="border-t border-[var(--erv-outline-variant)] align-top">
+                      {(handle) => (
+                    <>
+                      <td className="px-1 py-2"><RowHandle index={index} label={name} handle={handle} /></td>
+                      <td className="px-2 py-2">
+                        <span className="block font-medium text-heading">{name}</span>
+                        <span className="block text-xs text-muted">Stretch</span>
+                      </td>
+                      <td className="px-1 py-1">
+                        <Cell
+                          field={mobilityHoldField(m)}
+                          label={`${name} hold`}
+                          caption={captions ? "Hold" : undefined}
+                          inputMode="text"
+                          placeholder="0:00"
+                          onCommit={(text) => setMobility(applyMobilityHold(m, text))}
+                          onOpenDetails={() => undefined}
+                        />
+                      </td>
+                      <td className="px-1 py-1">
+                        <Cell
+                          field={mobilityPerSideField(m)}
+                          label={`${name} hold per side`}
+                          caption={captions ? "Per side" : undefined}
+                          inputMode="text"
+                          placeholder="–"
+                          onCommit={(text) => setMobility(applyMobilityPerSide(m, text))}
+                          onOpenDetails={() => undefined}
+                        />
+                      </td>
+                      <td colSpan={3} />
+                      <td className="whitespace-nowrap px-2 py-2 text-right text-xs">
+                        <RowMenu
+                          label={`${name} actions`}
+                          actions={rowActions(rowKey, index, [{ label: "Change Stretch…", onSelect: () => onSwapItem(rowKey) }])}
+                        />
+                      </td>
+                    </>
+                      )}
+                    </SortableRow>
+                    {itemWarnings(index).length > 0 ? (
+                      <tr>
+                        <td />
+                        <td colSpan={7} className="px-2 pb-2 text-xs text-[var(--erv-error)]">
+                          {itemWarnings(index).map((w) => (
+                            <p key={w.key}>Phone: {w.message}</p>
+                          ))}
+                        </td>
+                      </tr>
+                    ) : null}
+                  </Fragment>
                 );
               }
               const exercise = exerciseFor(item.exerciseId);
@@ -531,6 +775,7 @@ export function LiftSegmentCard({
                       <Cell
                         field={setsField(p)}
                         label={`${name} sets`}
+                        caption={captions ? "Sets" : undefined}
                         onCommit={(text) => setPrescription(index, item, applySets(p, text))}
                         onOpenDetails={() => toggleDetails(rowKey)}
                       />
@@ -539,6 +784,7 @@ export function LiftSegmentCard({
                       <Cell
                         field={repsField(p, style)}
                         label={`${name} reps`}
+                        caption={captions ? "Reps" : undefined}
                         inputMode="text"
                         onCommit={(text) => setPrescription(index, item, applyReps(p, text, style))}
                         onOpenDetails={() => toggleDetails(rowKey)}
@@ -549,6 +795,7 @@ export function LiftSegmentCard({
                         <Cell
                           field={weight}
                           label={`${name} weight`}
+                          caption={captions ? `Weight (${suffix})` : undefined}
                           inputMode="decimal"
                           onCommit={(text) => setPrescription(index, item, applyWeight(p, text, weightLoadUnit))}
                           onOpenDetails={() => toggleDetails(rowKey)}
@@ -561,6 +808,7 @@ export function LiftSegmentCard({
                       <Cell
                         field={rirField(p)}
                         label={`${name} RIR`}
+                        caption={captions ? "RIR" : undefined}
                         onCommit={(text) => setPrescription(index, item, applyRir(p, text))}
                         onOpenDetails={() => toggleDetails(rowKey)}
                       />
@@ -569,6 +817,7 @@ export function LiftSegmentCard({
                       <Cell
                         field={restField(p)}
                         label={`${name} rest between sets`}
+                        caption={captions ? "Rest" : undefined}
                         inputMode="text"
                         onCommit={(text) => setPrescription(index, item, applyRest(p, text))}
                         onOpenDetails={() => toggleDetails(rowKey)}
@@ -673,7 +922,7 @@ export function LiftSegmentCard({
         )}
       >
         <button type="button" className="btn-ghost px-3 py-1 text-xs" onClick={onOpenLibrary}>
-          + Add Exercise
+          {columns.addLabel}
         </button>
         {segmentAllowsInlineNotes(segment.kind) ? (
           <>
@@ -694,7 +943,7 @@ export function LiftSegmentCard({
           </>
         ) : null}
         {items.length === 0 ? (
-          <span className="text-xs text-muted">Empty. Press / or + Add Exercise to pick from your library.</span>
+          <span className="text-xs text-muted">Empty. Press / or {columns.addLabel} to pick from your library.</span>
         ) : null}
       </footer>
     </section>

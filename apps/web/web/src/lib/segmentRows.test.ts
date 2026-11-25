@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { copyRowDown, duplicateItemAt, moveItem, moveItemBetween, swapExercise } from "./segmentRows";
+import { copyRowDown, duplicateItemAt, moveItem, moveItemBetween, segmentAcceptsItem, swapExercise } from "./segmentRows";
 import type { WorkoutItem, WorkoutSegment } from "./workoutTraining";
 
 type WeightItem = Extract<WorkoutItem, { type: "weight" }>;
@@ -31,6 +31,20 @@ describe("segment rows", () => {
     expect(moved.source.items!.map((i) => i.id)).toEqual(["a", "c"]);
     expect(moved.target.items!.map((i) => i.id)).toEqual(["b", "x"]);
     expect(moveItemBetween(segment, 0, { ...other, items: [lift("y", "bench")] }, 0)).toBeNull();
+  });
+
+  it("only moves rows into segments that can hold them", () => {
+    const stretch: WorkoutItem = { type: "mobility", id: "m", mobility: { catalogId: "hip" } };
+    const note: WorkoutItem = { type: "note", id: "n", text: "Breathe" };
+    const mobility: WorkoutSegment = { id: "s3", kind: "mobility", items: [stretch] };
+    const flow: WorkoutSegment = { id: "s4", kind: "composite", items: [] };
+    const superset: WorkoutSegment = { id: "s5", kind: "superset", items: [] };
+    expect(segmentAcceptsItem(mobility, segment.items![0]!)).toBe(false);
+    expect(segmentAcceptsItem(flow, segment.items![0]!)).toBe(true);
+    expect(segmentAcceptsItem(superset, note)).toBe(false);
+    expect(moveItemBetween(segment, 0, mobility, 0)).toBeNull();
+    expect(moveItemBetween(mobility, 0, flow, 0)!.target.items).toHaveLength(1);
+    expect(moveItemBetween(mobility, 0, { ...flow, items: [{ ...stretch, id: "m2" }] }, 0)).toBeNull();
   });
 
   it("swaps the exercise and keeps the numbers", () => {

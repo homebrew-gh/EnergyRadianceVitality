@@ -13,9 +13,47 @@ import {
   rirField,
   setsField,
 } from "./liftRowFields";
-import { segmentItems, type WorkoutItem, type WorkoutSegment } from "./workoutTraining";
+import {
+  segmentAllowsInlineNotes,
+  segmentItems,
+  segmentLibraryKinds,
+  type WorkoutItem,
+  type WorkoutSegment,
+} from "./workoutTraining";
 
 type WeightItem = Extract<WorkoutItem, { type: "weight" }>;
+
+/**
+ * What makes two rows the same library pick: the exercise, activity or stretch. A segment holds
+ * each at most once, as when picking from the library. Notes and rests have none.
+ */
+export function itemLibraryKey(item: WorkoutItem): string | null {
+  switch (item.type) {
+    case "weight":
+      return `weight:${item.exerciseId}`;
+    case "cardio":
+      return `cardio:${item.cardio.activity}`;
+    case "mobility":
+      return `stretch:${item.mobility.catalogId}`;
+    default:
+      return null;
+  }
+}
+
+/** Whether [segment] can hold [item]: the library kinds it takes, or notes and rests where allowed. */
+export function segmentAcceptsItem(segment: WorkoutSegment, item: WorkoutItem): boolean {
+  const kinds = segmentLibraryKinds(segment.kind);
+  switch (item.type) {
+    case "weight":
+      return kinds.includes("weight");
+    case "cardio":
+      return kinds.includes("cardio");
+    case "mobility":
+      return kinds.includes("stretch");
+    default:
+      return segmentAllowsInlineNotes(segment.kind);
+  }
+}
 
 /** A copy of the row at [index], placed right after it, with its own id. */
 export function duplicateItemAt(segment: WorkoutSegment, index: number, newId: string): WorkoutSegment {
@@ -37,7 +75,8 @@ export function moveItem(segment: WorkoutSegment, from: number, to: number): Wor
 
 /**
  * Takes the row at [from] in [source] and puts it in [target] at [to] (the end when [to] is
- * past it). Returns null when the target already has that exercise.
+ * past it). Returns null when the target can't hold the row or already has that exercise,
+ * activity or stretch.
  */
 export function moveItemBetween(
   source: WorkoutSegment,
@@ -49,10 +88,8 @@ export function moveItemBetween(
   const [moved] = sourceItems.splice(from, 1);
   if (!moved) return null;
   const targetItems = [...segmentItems(target)];
-  if (
-    moved.type === "weight" &&
-    targetItems.some((item) => item.type === "weight" && item.exerciseId === moved.exerciseId)
-  ) {
+  const key = itemLibraryKey(moved);
+  if (!segmentAcceptsItem(target, moved) || (key && targetItems.some((item) => itemLibraryKey(item) === key))) {
     return null;
   }
   targetItems.splice(Math.min(Math.max(to, 0), targetItems.length), 0, moved);
