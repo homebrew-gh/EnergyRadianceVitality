@@ -3,20 +3,35 @@ package com.erv.app.ui.workouts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedIconButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -25,14 +40,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.erv.app.data.BodyWeightUnit
 import com.erv.app.ui.components.FieldLabel
 import com.erv.app.ui.weighttraining.PlateCalculatorUiState
 import com.erv.app.ui.weighttraining.PlateLoadLine
-import com.erv.app.weighttraining.WeightHiitIntervalPlan
 import com.erv.app.weighttraining.WeightExerciseHistoryRow
+import com.erv.app.weighttraining.WeightHiitIntervalPlan
 import com.erv.app.weighttraining.WeightSet
 import com.erv.app.weighttraining.formatRpeFieldForSets
 import com.erv.app.weighttraining.formatWeightLoadNumber
@@ -44,6 +61,7 @@ import com.erv.app.workouts.formatStepSeconds
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import kotlinx.coroutines.delay
 
 /** A lift set already logged for the item on screen, with the session step it belongs to. */
 internal data class WorkoutSessionLoggedSet(val stepIndex: Int, val set: WeightSet)
@@ -95,24 +113,6 @@ internal fun describeLastTime(row: WeightExerciseHistoryRow, loadUnit: BodyWeigh
     return "Last time ($day): " + sets.joinToString(", ") { describeSessionSetShort(it, loadUnit) }
 }
 
-/** The target for a lift step, for the line under the exercise name. */
-private fun describeSessionTarget(target: WeightSet, loadUnit: BodyWeightUnit): String? {
-    val amount = when {
-        (target.targetReps ?: 0) > 0 -> "${target.targetReps} reps"
-        !target.targetRepsRangeLabel.isNullOrBlank() -> "${target.targetRepsRangeLabel} reps"
-        (target.targetDurationSeconds ?: 0) > 0 -> formatStepSeconds(target.targetDurationSeconds ?: 0)
-        else -> null
-    }
-    val load = target.targetWeightKg?.takeIf { it > 0 }
-        ?.let { "${formatWeightLoadNumber(it, loadUnit)} ${weightLoadUnitSuffix(loadUnit)}" }
-    return when {
-        amount != null && load != null -> "Target $amount at $load"
-        amount != null -> "Target $amount"
-        load != null -> "Target $load"
-        else -> null
-    }
-}
-
 /** Reps (or seconds for a timed hold), load and RPE fields, as text so the athlete can clear them. */
 private class SetInputState(initial: WeightSet, timed: Boolean, loadUnit: BodyWeightUnit) {
     var amount by mutableStateOf(
@@ -153,23 +153,24 @@ private class SetInputState(initial: WeightSet, timed: Boolean, loadUnit: BodyWe
 
 @Composable
 private fun SetInputsRow(state: SetInputState, timed: Boolean, loadUnit: BodyWeightUnit) {
-    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
         OutlinedTextField(
             value = state.amount,
             onValueChange = { text -> state.amount = text.filter { it.isDigit() }.take(4) },
             label = { FieldLabel(if (timed) "Seconds" else "Reps") },
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            modifier = Modifier.weight(1f),
+            modifier = Modifier.weight(0.8f),
         )
         OutlinedTextField(
             value = state.load,
             onValueChange = { text -> state.load = text.filter { it.isDigit() || it == '.' || it == ',' }.take(7) },
             label = { FieldLabel("Weight") },
-            trailingIcon = { Text(weightLoadUnitSuffix(loadUnit), style = MaterialTheme.typography.bodyMedium) },
+            // A suffix, not a trailing icon: the icon's slot squeezed the label onto two lines.
+            suffix = { Text(weightLoadUnitSuffix(loadUnit)) },
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-            modifier = Modifier.weight(1f),
+            modifier = Modifier.weight(1.3f),
         )
         OutlinedTextField(
             value = state.rpe,
@@ -184,62 +185,103 @@ private fun SetInputsRow(state: SetInputState, timed: Boolean, loadUnit: BodyWei
 }
 
 /**
- * One set of one exercise: what to do, fields for what was done, and the sets already logged for
- * this exercise (tap one to fix it). The fields start from the last set logged, else the target.
+ * One set row of the exercise on screen. [logged] is set once it is done; [isNext] marks the set
+ * the check logs now (the one on screen, or the one after the rest on screen).
+ */
+internal data class WorkoutSessionSetRow(
+    val stepIndex: Int,
+    val step: WorkoutSessionStep.LiftSet,
+    val logged: WeightSet?,
+    val skipped: Boolean,
+    val isNext: Boolean,
+    val canRemove: Boolean,
+)
+
+/** What a set row shows greyed out until something is typed, and logs if the check is tapped as is. */
+private data class SetSuggestion(val amount: Int?, val weightKg: Double?)
+
+private fun WeightSet.loggedAmount(timed: Boolean): Int? =
+    (if (timed) durationSeconds else reps)?.takeIf { it > 0 }
+
+private fun WeightSet.targetAmount(timed: Boolean): Int? =
+    (if (timed) targetDurationSeconds else targetReps)?.takeIf { it > 0 }
+
+/**
+ * Suggestions per row: the builder's target, else the set before it today, else the same set
+ * last time.
+ */
+private fun setSuggestions(rows: List<WorkoutSessionSetRow>, timed: Boolean, lastTimeSets: List<WeightSet>): List<SetSuggestion> {
+    var previous: WeightSet? = null
+    return rows.mapIndexed { index, row ->
+        val lastTime = lastTimeSets.getOrNull(index) ?: lastTimeSets.lastOrNull()
+        val suggestion = SetSuggestion(
+            amount = row.step.target.targetAmount(timed) ?: previous?.loggedAmount(timed) ?: lastTime?.loggedAmount(timed),
+            weightKg = row.step.target.targetWeightKg?.takeIf { it > 0 }
+                ?: previous?.weightKg?.takeIf { it > 0 }
+                ?: lastTime?.weightKg?.takeIf { it > 0 },
+        )
+        row.logged?.let { previous = it }
+        suggestion
+    }
+}
+
+private val SetNumberWidth = 24.dp
+private val SetButtonSize = 40.dp
+private const val RepsColumnWeight = 1f
+private const val WeightColumnWeight = 1.3f
+private const val RpeColumnWeight = 0.85f
+
+/**
+ * The exercise on screen with all its sets stacked as rows, as the old weight screen had them:
+ * type reps, weight and RPE on any row, check the next one off to log it (blank fields take the
+ * greyed suggestion), fix a logged one by typing over it, add or take away sets freely.
  */
 @Composable
-internal fun WorkoutSessionLiftCard(
-    step: WorkoutSessionStep.LiftSet,
+internal fun WorkoutSessionExerciseCard(
     exerciseName: String,
     sectionTitle: String?,
     loadUnit: BodyWeightUnit,
-    loggedSets: List<WorkoutSessionLoggedSet>,
-    canSwap: Boolean,
+    rows: List<WorkoutSessionSetRow>,
     onLog: (WeightSet) -> Unit,
-    onSkipSet: () -> Unit,
-    onSkipExercise: () -> Unit,
+    onEditSet: (stepIndex: Int, set: WeightSet) -> Unit,
+    onRemoveSet: (stepIndex: Int) -> Unit,
+    canSwap: Boolean,
     onSwap: () -> Unit,
-    onEditSet: (WorkoutSessionLoggedSet) -> Unit,
     modifier: Modifier = Modifier,
     /** The sets from the last time this exercise was logged, from [describeLastTime]. */
     lastTime: String? = null,
+    /** The same sets, for the greyed suggestions. */
+    lastTimeSets: List<WeightSet> = emptyList(),
     /** Read-only next-session target from the latest web coach review, e.g. "Coach: 185 × 8, 8, 8 lb". */
     coachTarget: String? = null,
     onShowHistory: (() -> Unit)? = null,
     canAddSet: Boolean = false,
-    canRemoveSet: Boolean = false,
     onAddSet: () -> Unit = {},
-    onRemoveSet: () -> Unit = {},
+    /** A superset or circuit takes away a whole round; null hides the button. */
+    onRemoveRound: (() -> Unit)? = null,
+    /** Skip Set and Skip Exercise: only for a workout run from a training block. */
+    onSkipSet: (() -> Unit)? = null,
+    onSkipExercise: (() -> Unit)? = null,
     /** "Barbell", "Dumbbell" and so on, under the name. */
     equipmentLabel: String? = null,
-    /** Plates per side under the weight typed, for a plate-loaded lift. */
+    /** Plates per side under the weight of the next set, for a plate-loaded lift. */
     plateCalculator: PlateCalculatorUiState? = null,
     /**
-     * Opens the full-screen hold timer for a timed set, with the weight and RPE typed so far;
-     * null when the set has no target time.
+     * Opens the full-screen hold timer for the next set when it is timed, with the weight and RPE
+     * typed so far; null when it can't.
      */
     onStartTimer: ((WeightSet) -> Unit)? = null,
     /** Runs the exercise on the interval timer instead of as sets; null when it can't. */
     onStartIntervals: ((WeightHiitIntervalPlan) -> Unit)? = null,
 ) {
-    val timed = step.target.isTimedTarget()
-    var intervalsMode by remember(step.segmentId, step.itemId) { mutableStateOf(false) }
-    val last = loggedSets.lastOrNull()?.set
-    // New fields for every step, so the next set never inherits a half-typed value.
-    val inputs = remember(step.segmentId, step.itemId, step.setIndex, step.round) {
-        SetInputState(
-            initial = if (last != null) {
-                step.target.copy(reps = last.reps, weightKg = last.weightKg, durationSeconds = last.durationSeconds, rpe = null)
-            } else {
-                step.target
-            },
-            timed = timed,
-            loadUnit = loadUnit,
-        )
-    }
+    val first = rows.firstOrNull()?.step
+    val timed = first?.target?.isTimedTarget() == true
+    val inRounds = first?.inRounds == true
+    var intervalsMode by remember(first?.segmentId, first?.itemId) { mutableStateOf(false) }
+    val suggestions = setSuggestions(rows, timed, lastTimeSets)
     Card(modifier = modifier.fillMaxWidth()) {
         Column(
-            modifier = Modifier.padding(16.dp),
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 14.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             sectionTitle?.let {
@@ -248,6 +290,12 @@ internal fun WorkoutSessionLiftCard(
             Text(exerciseName, style = MaterialTheme.typography.titleLarge)
             equipmentLabel?.let {
                 Text(it, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            lastTime?.let {
+                Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            coachTarget?.let {
+                Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
             }
             if (onStartIntervals != null) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -259,89 +307,43 @@ internal fun WorkoutSessionLiftCard(
                 IntervalTimerSetup(loadUnit = loadUnit, onStart = onStartIntervals)
                 return@Column
             }
-            Text(
-                text = when {
-                    step.inRounds -> "Round ${step.round} of ${step.setCount}"
-                    step.setCount > 1 -> "Set ${step.setIndex + 1} of ${step.setCount}"
-                    else -> "One set"
-                },
-                style = MaterialTheme.typography.titleMedium,
-            )
-            describeSessionTarget(step.target, loadUnit)?.let {
-                Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            lastTime?.let {
-                Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            coachTarget?.let {
-                Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
-            }
-            SetInputsRow(inputs, timed, loadUnit)
-            if (plateCalculator != null) {
-                PlateLoadLine(
-                    weightKg = inputs.loadKg(loadUnit),
+            SetColumnHeaders(timed = timed, inRounds = inRounds, loadUnit = loadUnit)
+            rows.forEachIndexed { index, row ->
+                SessionSetRow(
+                    number = index + 1,
+                    row = row,
+                    timed = timed,
+                    suggestion = suggestions[index],
                     loadUnit = loadUnit,
-                    calc = plateCalculator,
-                    onUseWeightKg = { kg -> inputs.load = formatWeightLoadNumber(kg, loadUnit) },
+                    plateCalculator = plateCalculator?.takeIf { row.isNext },
+                    onLog = onLog,
+                    onEdit = { set -> onEditSet(row.stepIndex, set) },
+                    onRemove = if (row.canRemove) ({ onRemoveSet(row.stepIndex) }) else null,
+                    onStartTimer = onStartTimer?.takeIf { row.isNext && timed },
                 )
             }
-            val set = inputs.toSet(step.target, timed, loadUnit)
-            if (timed && onStartTimer != null) {
-                // The hold timer counts the time; typing the seconds stays for a hold done without it.
-                Button(
-                    onClick = {
-                        onStartTimer(
-                            step.target.copy(weightKg = inputs.loadKg(loadUnit), rpe = parseSessionRpe(inputs.rpe), done = null),
-                        )
-                    },
-                    enabled = inputs.rpeValid,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text("Start Timer")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                TextButton(onClick = onAddSet, enabled = canAddSet) {
+                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(if (inRounds) "Add Round" else "Add Set")
                 }
-                OutlinedButton(
-                    onClick = { set?.let(onLog) },
-                    enabled = set != null,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text("Log Set")
-                }
-            } else {
-                Button(
-                    onClick = { set?.let(onLog) },
-                    enabled = set != null,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text("Log Set")
+                if (onRemoveRound != null) {
+                    TextButton(onClick = onRemoveRound) { Text("Remove Round") }
                 }
             }
-            if (loggedSets.isNotEmpty()) {
-                loggedSets.forEachIndexed { index, logged ->
-                    TextButton(onClick = { onEditSet(logged) }, modifier = Modifier.fillMaxWidth()) {
-                        Text(
-                            "Set ${index + 1}: ${describeSessionSet(logged.set, loadUnit)}",
-                            modifier = Modifier.fillMaxWidth(),
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
+            if (onSkipSet != null || onSkipExercise != null) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    onSkipSet?.let {
+                        TextButton(onClick = it, modifier = Modifier.weight(1f)) {
+                            Text("Skip Set", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
-                }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                TextButton(onClick = onSkipSet, modifier = Modifier.weight(1f)) {
-                    Text("Skip Set", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                TextButton(onClick = onSkipExercise, modifier = Modifier.weight(1f)) {
-                    Text("Skip Exercise", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-            // In a superset or circuit a set is a round of the whole section.
-            val unit = if (step.inRounds) "Round" else "Set"
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                OutlinedButton(onClick = onAddSet, enabled = canAddSet, modifier = Modifier.weight(1f)) {
-                    Text("Add $unit")
-                }
-                OutlinedButton(onClick = onRemoveSet, enabled = canRemoveSet, modifier = Modifier.weight(1f)) {
-                    Text("Remove $unit")
+                    onSkipExercise?.let {
+                        TextButton(onClick = it, modifier = Modifier.weight(1f)) {
+                            Text("Skip Exercise", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
                 }
             }
             if (canSwap || onShowHistory != null) {
@@ -360,6 +362,193 @@ internal fun WorkoutSessionLiftCard(
             }
         }
     }
+}
+
+/** Captions over the set rows, once, so the fields themselves stay wide enough for a number. */
+@Composable
+private fun SetColumnHeaders(timed: Boolean, inRounds: Boolean, loadUnit: BodyWeightUnit) {
+    val style = MaterialTheme.typography.labelMedium
+    val color = MaterialTheme.colorScheme.onSurfaceVariant
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.Bottom,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Text(if (inRounds) "Rd" else "Set", style = style, color = color, modifier = Modifier.width(SetNumberWidth))
+        Text(if (timed) "Seconds" else "Reps", style = style, color = color, modifier = Modifier.weight(RepsColumnWeight))
+        Text(
+            "Weight (${weightLoadUnitSuffix(loadUnit)})",
+            style = style,
+            color = color,
+            maxLines = 1,
+            modifier = Modifier.weight(WeightColumnWeight),
+        )
+        Text("RPE", style = style, color = color, modifier = Modifier.weight(RpeColumnWeight))
+        Spacer(Modifier.width(SetButtonSize * 2 + 6.dp))
+    }
+}
+
+@Composable
+private fun SessionSetRow(
+    number: Int,
+    row: WorkoutSessionSetRow,
+    timed: Boolean,
+    suggestion: SetSuggestion,
+    loadUnit: BodyWeightUnit,
+    plateCalculator: PlateCalculatorUiState?,
+    onLog: (WeightSet) -> Unit,
+    onEdit: (WeightSet) -> Unit,
+    onRemove: (() -> Unit)?,
+    onStartTimer: ((WeightSet) -> Unit)?,
+) {
+    val logged = row.logged
+    // Fields for a set still to come start blank, with the suggestion greyed in; a logged set's
+    // fields hold what was logged.
+    val inputs = remember(row.stepIndex, logged != null) {
+        SetInputState(logged ?: WeightSet(), timed, loadUnit)
+    }
+    var touched by remember(row.stepIndex, logged != null) { mutableStateOf(false) }
+    val amount = inputs.amount.trim().toIntOrNull()?.takeIf { it > 0 } ?: suggestion.amount
+    val weightKg = if (inputs.load.isBlank()) suggestion.weightKg else inputs.loadKg(loadUnit)
+    val toLog = amount?.takeIf { inputs.rpeValid }?.let {
+        val effort = parseSessionRpe(inputs.rpe)
+        if (timed) {
+            row.step.target.copy(reps = 0, durationSeconds = it, weightKg = weightKg, rpe = effort, done = null)
+        } else {
+            row.step.target.copy(reps = it, weightKg = weightKg, rpe = effort, done = null)
+        }
+    }
+    // A logged set fixed by typing over it saves itself once the typing stops.
+    if (logged != null) {
+        val edited = inputs.toSet(logged, timed, loadUnit)
+        LaunchedEffect(edited, touched) {
+            if (touched && edited != null && edited != logged) {
+                delay(700)
+                onEdit(edited)
+            }
+        }
+    }
+    val numberColor = if (row.isNext) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Text(
+            "$number",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = if (row.isNext) FontWeight.Bold else FontWeight.Normal,
+            color = numberColor,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.width(SetNumberWidth),
+        )
+        if (row.skipped) {
+            Text(
+                "Skipped",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(RepsColumnWeight + WeightColumnWeight + RpeColumnWeight),
+            )
+        } else {
+            SetNumberField(
+                value = inputs.amount,
+                onValueChange = { text ->
+                    touched = true
+                    inputs.amount = text.filter { it.isDigit() }.take(4)
+                },
+                placeholder = suggestion.amount?.toString(),
+                keyboardType = KeyboardType.Number,
+                modifier = Modifier.weight(RepsColumnWeight),
+            )
+            SetNumberField(
+                value = inputs.load,
+                onValueChange = { text ->
+                    touched = true
+                    inputs.load = text.filter { it.isDigit() || it == '.' || it == ',' }.take(7)
+                },
+                placeholder = suggestion.weightKg?.let { formatWeightLoadNumber(it, loadUnit) },
+                keyboardType = KeyboardType.Decimal,
+                modifier = Modifier.weight(WeightColumnWeight),
+            )
+            SetNumberField(
+                value = inputs.rpe,
+                onValueChange = { text ->
+                    touched = true
+                    inputs.rpe = text.filter { it.isDigit() || it == '.' || it == ',' }.take(4)
+                },
+                placeholder = null,
+                keyboardType = KeyboardType.Decimal,
+                isError = !inputs.rpeValid,
+                modifier = Modifier.weight(RpeColumnWeight),
+            )
+        }
+        when {
+            logged != null -> FilledIconButton(onClick = {}, modifier = Modifier.size(SetButtonSize)) {
+                Icon(Icons.Default.Check, contentDescription = "Set $number logged")
+            }
+            row.isNext && onStartTimer != null -> FilledIconButton(
+                onClick = { onStartTimer(row.step.target.copy(weightKg = weightKg, rpe = parseSessionRpe(inputs.rpe), done = null)) },
+                enabled = inputs.rpeValid,
+                modifier = Modifier.size(SetButtonSize),
+            ) {
+                Icon(Icons.Default.Timer, contentDescription = "Start timer for set $number")
+            }
+            else -> OutlinedIconButton(
+                onClick = { toLog?.let(onLog) },
+                enabled = row.isNext && toLog != null,
+                modifier = Modifier.size(SetButtonSize),
+            ) {
+                Icon(Icons.Default.Check, contentDescription = "Log set $number")
+            }
+        }
+        IconButton(onClick = { onRemove?.invoke() }, enabled = onRemove != null, modifier = Modifier.size(SetButtonSize)) {
+            Icon(Icons.Default.Close, contentDescription = "Remove set $number")
+        }
+    }
+    if (row.isNext && timed && onStartTimer != null && toLog != null) {
+        // The hold timer counts the time; this logs a hold done without it.
+        TextButton(onClick = { onLog(toLog) }, modifier = Modifier.padding(start = SetNumberWidth)) {
+            Text("Log Without Timer")
+        }
+    }
+    if (plateCalculator != null) {
+        PlateLoadLine(
+            weightKg = weightKg,
+            loadUnit = loadUnit,
+            calc = plateCalculator,
+            onUseWeightKg = { kg ->
+                touched = true
+                inputs.load = formatWeightLoadNumber(kg, loadUnit)
+            },
+            modifier = Modifier.padding(start = SetNumberWidth + 6.dp),
+        )
+    }
+}
+
+/** A compact number field for a set row; the column caption sits above the rows instead of a label. */
+@Composable
+private fun SetNumberField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String?,
+    keyboardType: KeyboardType,
+    modifier: Modifier = Modifier,
+    isError: Boolean = false,
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        placeholder = if (placeholder != null) {
+            { Text(placeholder, maxLines = 1) }
+        } else {
+            null
+        },
+        isError = isError,
+        singleLine = true,
+        textStyle = MaterialTheme.typography.bodyLarge,
+        keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
+        modifier = modifier,
+    )
 }
 
 /** How many work and rest intervals to run, and at what weight, before the interval timer starts. */
@@ -465,13 +654,14 @@ private fun clockText(seconds: Int): String {
 }
 
 /**
- * A rest counting down, with what comes after it. With the rest timer on Manual it waits at
- * full length until [onStart].
+ * The rest, as a bar over the workout instead of a screen of its own: the clock, what is next,
+ * and +30 s or Skip. With the rest timer on Manual it waits at full length until [onStart].
  */
 @Composable
-internal fun WorkoutSessionRestCard(
+internal fun WorkoutSessionRestBar(
     title: String,
     secondsRemaining: Int,
+    totalSeconds: Int,
     nextLabel: String?,
     onSkip: () -> Unit,
     onAddTime: () -> Unit,
@@ -479,34 +669,45 @@ internal fun WorkoutSessionRestCard(
     awaitingStart: Boolean = false,
     onStart: () -> Unit = {},
 ) {
-    Card(
+    Surface(
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        shadowElevation = 2.dp,
         modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(20.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            Text(clockText(secondsRemaining), style = MaterialTheme.typography.displayMedium, fontSize = 56.sp)
-            nextLabel?.let {
-                Text(
-                    "Next: $it",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                if (awaitingStart) {
-                    OutlinedButton(onClick = onSkip) { Text("Skip Rest") }
-                    Button(onClick = onStart) { Text("Start Rest") }
-                } else {
-                    OutlinedButton(onClick = onAddTime) { Text("+30 s") }
-                    Button(onClick = onSkip) { Text("Skip Rest") }
+        Column(modifier = Modifier.padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    nextLabel?.let {
+                        Text(
+                            "Next: $it",
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
+                Text(
+                    clockText(secondsRemaining),
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(horizontal = 8.dp),
+                )
+                if (awaitingStart) {
+                    TextButton(onClick = onStart) { Text("Start") }
+                } else {
+                    TextButton(onClick = onAddTime) { Text("+30 s") }
+                }
+                TextButton(onClick = onSkip) { Text("Skip") }
+            }
+            if (!awaitingStart && totalSeconds > 0) {
+                LinearProgressIndicator(
+                    progress = { (secondsRemaining.toFloat() / totalSeconds).coerceIn(0f, 1f) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(end = 8.dp, top = 4.dp),
+                )
             }
         }
     }

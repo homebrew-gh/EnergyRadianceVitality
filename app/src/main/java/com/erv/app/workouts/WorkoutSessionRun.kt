@@ -419,10 +419,39 @@ fun WorkoutActiveRun.canRemoveSessionSet(plan: WorkoutSessionPlan = sessionPlan(
     }
 }
 
-/** True when the item on screen can take another set (or its circuit another round). */
-fun WorkoutActiveRun.canAddSessionSet(plan: WorkoutSessionPlan = sessionPlan()): Boolean {
-    val state = session ?: return false
-    val step = WorkoutSessionEngine.currentStep(plan, state) as? WorkoutSessionStep.LiftSet ?: return false
+/**
+ * The lift set whose exercise the screen shows: the set on screen, or during a rest (and while a
+ * standalone workout waits for more) the set just before it, so a rest never changes the screen.
+ * Null when the step on screen is cardio, a stretch or a note.
+ */
+fun WorkoutActiveRun.sessionFocusLiftIndex(plan: WorkoutSessionPlan = sessionPlan()): Int? {
+    val state = session ?: return null
+    val current = WorkoutSessionEngine.currentStep(plan, state)
+    if (current is WorkoutSessionStep.LiftSet) return state.stepIndex
+    if (current != null && current !is WorkoutSessionStep.Rest) return null
+    for (index in (state.stepIndex - 1).coerceAtMost(plan.size - 1) downTo 0) {
+        when (plan.steps[index]) {
+            is WorkoutSessionStep.LiftSet -> return index
+            is WorkoutSessionStep.Rest -> continue
+            else -> return null
+        }
+    }
+    return null
+}
+
+/**
+ * True when the item of the lift set at [liftStepIndex] (the one on screen by default) can take
+ * another set (or its circuit another round): it has room, and it isn't in the weight log yet.
+ */
+fun WorkoutActiveRun.canAddSessionSet(
+    plan: WorkoutSessionPlan = sessionPlan(),
+    liftStepIndex: Int? = session?.stepIndex,
+): Boolean {
+    if (session == null) return false
+    val step = liftStepIndex?.let { plan.steps.getOrNull(it) } as? WorkoutSessionStep.LiftSet ?: return false
+    if (itemRecaps.any { it.segmentId == step.segmentId && it.itemId == step.itemId && it.linkedEntryId != null }) {
+        return false
+    }
     return step.setCount < SESSION_MAX_SET_COUNT
 }
 
@@ -431,12 +460,14 @@ fun WorkoutActiveRun.canAddSessionSet(plan: WorkoutSessionPlan = sessionPlan()):
  * today only. In a superset or circuit a set is a round, so the whole section gains or loses one.
  * The change goes into the run's own copy of the workout; sets already logged keep their records.
  */
-fun WorkoutActiveRun.withSessionSetCountChanged(delta: Int): WorkoutActiveRun {
+fun WorkoutActiveRun.withSessionSetCountChanged(delta: Int, liftStepIndex: Int? = null): WorkoutActiveRun {
     if (delta == 0) return this
     val plan = sessionPlan()
     val state = session ?: return this
-    val step = WorkoutSessionEngine.currentStep(plan, state) as? WorkoutSessionStep.LiftSet ?: return this
-    if (delta > 0 && !canAddSessionSet(plan)) return this
+    // A set can be added to the exercise shown during a rest too; taking one away stays with the step on screen.
+    val focusIndex = if (delta > 0) liftStepIndex ?: state.stepIndex else state.stepIndex
+    val step = plan.steps.getOrNull(focusIndex) as? WorkoutSessionStep.LiftSet ?: return this
+    if (delta > 0 && !canAddSessionSet(plan, focusIndex)) return this
     if (delta < 0 && !canRemoveSessionSet(plan)) return this
     val change = delta.coerceIn(-1, 1)
     val segments = workoutSnapshot.segments.map { segment ->
@@ -454,7 +485,48 @@ fun WorkoutActiveRun.withSessionSetCountChanged(delta: Int): WorkoutActiveRun {
             )
         }
     }
-    return withSessionWorkout(workoutSnapshot.copy(segments = segments))
+    val changed = withSessionWorkout(workoutSnapshot.copy(segments = segments))
+    return if (change > 0) changed.withSessionBackOnNewSet(this) else changed
+}
+
+/**
+ * After a set (or round) was added to an exercise already behind the step on screen (added in
+ * the rest after its last set, or while a standalone workout waits for more), the run goes back
+ * to the new set instead of counting it as skipped. Steps passed over to get there are skipped.
+ */
+private fun WorkoutActiveRun.withSessionBackOnNewSet(before: WorkoutActiveRun): WorkoutActiveRun {
+    val state = session ?: return this
+    val oldKeys = before.sessionPlan().stepKeys().toSet()
+    val plan = sessionPlan()
+    val keys = plan.stepKeys()
+    val isNew = { index: Int -> keys.getOrNull(index)?.let { it !in oldKeys } == true }
+    val added = plan.steps.indices.firstOrNull { isNew(it) && plan.steps[it] is WorkoutSessionStep.LiftSet } ?: return this
+    // A new rest that landed on screen (a standalone workout waiting for more) gives way to the set too.
+    val newRestOnScreen = isNew(state.stepIndex) && plan.steps.getOrNull(state.stepIndex) is WorkoutSessionStep.Rest
+    if (added == state.stepIndex || (added > state.stepIndex && !newRestOnScreen)) return this
+    val kept = state.records.filterNot { it.stepIndex >= added && isNew(it.stepIndex) }
+    val recorded = kept.map { it.stepIndex }.toSet()
+    val passed = (0 until added).filter { it !in recorded }.map { WorkoutStepRecord(it, WorkoutStepOutcome.SKIPPED) }
+    return copy(
+        session = state.copy(stepIndex = added, records = (kept + passed).sortedBy { it.stepIndex }),
+        sessionStepStartedAtEpochSeconds = nowWorkoutEpochSeconds(),
+        sessionStepAwaitingStart = false,
+    )
+}
+
+/**
+ * Logs [set] for the lift set right after the rest on screen: the rest is cut short and the set
+ * recorded, as Skip Rest then Log Set would. Does nothing unless a rest is on screen with a lift
+ * set after it.
+ */
+fun WorkoutActiveRun.withSessionRestCutForSet(set: WeightSet, nowEpochSeconds: Long): WorkoutActiveRun {
+    val plan = sessionPlan()
+    val state = session ?: return this
+    if (WorkoutSessionEngine.currentStep(plan, state) !is WorkoutSessionStep.Rest) return this
+    if (plan.steps.getOrNull(state.stepIndex + 1) !is WorkoutSessionStep.LiftSet) return this
+    val rested = applyingSessionEvent(WorkoutSessionEvent.StepDone, nowEpochSeconds)
+    if (rested.session?.stepIndex != state.stepIndex + 1) return this
+    return rested.applyingSessionEvent(WorkoutSessionEvent.SetLogged(set), nowEpochSeconds)
 }
 
 /** One more set copied from the last, or the last one taken away; never fewer than one. */
@@ -533,8 +605,11 @@ fun WorkoutActiveRun.canRemoveSessionSetAt(stepIndex: Int, plan: WorkoutSessionP
     val state = session ?: return false
     val step = plan.steps.getOrNull(stepIndex) as? WorkoutSessionStep.LiftSet ?: return false
     if (step.inRounds || step.setCount <= 1) return false
-    val current = WorkoutSessionEngine.currentStep(plan, state) ?: return false
-    if (current.segmentId != step.segmentId) return false
+    val current = WorkoutSessionEngine.currentStep(plan, state)
+    // A standalone workout waiting for more can still lose a set of its last exercise; it is
+    // only logged at Finish.
+    if (current == null && standalone == null) return false
+    if (current != null && current.segmentId != step.segmentId) return false
     if (state.recordFor(stepIndex)?.outcome == WorkoutStepOutcome.SKIPPED) return false
     return itemRecaps.none { it.segmentId == step.segmentId && it.itemId == step.itemId && it.linkedEntryId != null }
 }
