@@ -1518,6 +1518,8 @@ fun DashboardScreen(
                         onLeaveTimerUi = { cardioLiveWorkoutViewModel.setCardioLiveUiExpanded(false) },
                         onBeginWorkout = { cardioLiveWorkoutViewModel.beginTimer() },
                         onSplitsChanged = { cardioLiveWorkoutViewModel.updateSplits(it) },
+                        onPause = { cardioLiveWorkoutViewModel.pause() },
+                        onResume = { cardioLiveWorkoutViewModel.resume() },
                         onStop = { elapsedSeconds, splits ->
                             val gpsPoints = drainCardioGpsIfNeeded(recordGps, context.applicationContext)
                             scope.launch {

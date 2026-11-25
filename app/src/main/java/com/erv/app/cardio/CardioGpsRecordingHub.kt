@@ -26,6 +26,10 @@ object CardioGpsRecordingHub {
     private val _pointsFlow = MutableStateFlow<List<CardioGpsPoint>>(emptyList())
     private val io = Executors.newSingleThreadExecutor()
 
+    /** While the timer is paused, fixes are dropped so a pause adds no route or distance. */
+    @Volatile
+    var paused: Boolean = false
+
     /** Start epoch of the timer these points belong to; [Long.MIN_VALUE] when none. */
     private var sessionEpoch: Long = Long.MIN_VALUE
     private var file: File? = null
@@ -82,6 +86,7 @@ object CardioGpsRecordingHub {
     fun lastOrNull(): CardioGpsPoint? = synchronized(lock) { points.lastOrNull() }
 
     fun append(point: CardioGpsPoint) {
+        if (paused) return
         synchronized(lock) {
             points.add(point)
             _pointsFlow.value = points.toList()

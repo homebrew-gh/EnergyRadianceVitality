@@ -59,6 +59,7 @@ import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Stop
@@ -99,6 +100,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -139,6 +141,8 @@ import com.erv.app.cardio.CardioMetEstimator
 import com.erv.app.cardio.CardioModality
 import com.erv.app.cardio.CardioActiveTimerSession
 import com.erv.app.cardio.CardioRouteMediaBackup
+import com.erv.app.cardio.activeElapsedSeconds
+import com.erv.app.cardio.isPaused
 import com.erv.app.cardio.isPendingStart
 import com.erv.app.cardio.CardioMultiLegTimerState
 import com.erv.app.cardio.CardioTrackShareImage
@@ -733,6 +737,8 @@ fun CardioCategoryScreen(
                         },
                         onBeginWorkout = { cardioLiveWorkoutViewModel.beginTimer() },
                         onSplitsChanged = { cardioLiveWorkoutViewModel.updateSplits(it) },
+                        onPause = { cardioLiveWorkoutViewModel.pause() },
+                        onResume = { cardioLiveWorkoutViewModel.resume() },
                         onStop = { elapsedSeconds, splits ->
                             val gpsPoints = drainCardioGpsIfNeeded(recordGps, timerAppContext)
                             val durationMinutes = max(1, (elapsedSeconds + 59) / 60)
@@ -3006,6 +3012,9 @@ fun CardioElapsedTimerFullScreen(
     onBeginWorkout: () -> Unit = {},
     /** Called as splits are marked, so they are saved with the live timer and outlast this screen. */
     onSplitsChanged: (List<CardioWorkoutSplit>) -> Unit = {},
+    /** Pause / Resume; the button shows only when both are given. */
+    onPause: (() -> Unit)? = null,
+    onResume: (() -> Unit)? = null,
     onStop: (elapsedSeconds: Int, splits: List<CardioWorkoutSplit>) -> Unit,
     onCancel: () -> Unit
 ) {
@@ -3146,8 +3155,11 @@ fun CardioElapsedTimerFullScreen(
         }
     }
 
-    val workoutElapsedSeconds = remember(tick, draft.startEpoch, awaitingStart) {
-        if (awaitingStart) 0 else (nowEpochSeconds() - draft.startEpoch).coerceAtLeast(0).toInt()
+    val pausedNow = draft.isPaused()
+    // The tick loop below outlives draft changes (pause, resume), so it reads the latest draft.
+    val latestDraft by rememberUpdatedState(draft)
+    val workoutElapsedSeconds = remember(tick, draft.startEpoch, awaitingStart, draft.pausedAtEpoch, draft.pausedTotalSeconds) {
+        draft.activeElapsedSeconds()
     }
 
     fun complete(elapsed: Int) {
@@ -3177,7 +3189,9 @@ fun CardioElapsedTimerFullScreen(
             if (!running || finished) break
             delay(1000)
             tick++
-            val elapsed = (nowEpochSeconds() - draft.startEpoch).coerceAtLeast(0).toInt()
+            val current = latestDraft
+            if (current.isPaused()) continue
+            val elapsed = current.activeElapsedSeconds()
             val tCap = timeCountdownCap
             if (tCap != null && elapsed >= tCap) {
                 complete(tCap)
@@ -3294,7 +3308,11 @@ fun CardioElapsedTimerFullScreen(
                             )
                         }
                         Text(
-                            if (awaitingStart) "Ready to start" else "Session in progress",
+                            when {
+                                awaitingStart -> "Ready to start"
+                                pausedNow -> "Paused"
+                                else -> "Session in progress"
+                            },
                             style = MaterialTheme.typography.titleLarge,
                             color = Color.White.copy(alpha = 0.9f),
                             modifier = Modifier.weight(1f)
@@ -3333,7 +3351,11 @@ fun CardioElapsedTimerFullScreen(
                 } else {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            if (awaitingStart) "Ready to start" else "Session in progress",
+                            when {
+                                awaitingStart -> "Ready to start"
+                                pausedNow -> "Paused"
+                                else -> "Session in progress"
+                            },
                             style = MaterialTheme.typography.titleLarge,
                             color = Color.White.copy(alpha = 0.9f)
                         )
@@ -3608,6 +3630,21 @@ fun CardioElapsedTimerFullScreen(
                             Icon(Icons.Default.Stop, contentDescription = null)
                             Spacer(Modifier.width(8.dp))
                             Text(finishLabel)
+                        }
+                        if (onPause != null && onResume != null) {
+                            OutlinedButton(
+                                onClick = { if (pausedNow) onResume() else onPause() },
+                                enabled = running && !finished,
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                                border = ButtonDefaults.outlinedButtonBorder.copy(brush = SolidColor(Color.White))
+                            ) {
+                                Icon(
+                                    if (pausedNow) Icons.Default.PlayArrow else Icons.Default.Pause,
+                                    contentDescription = null,
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(if (pausedNow) "Resume" else "Pause")
+                            }
                         }
                         OutlinedButton(
                             onClick = { showDiscardDialog = true },

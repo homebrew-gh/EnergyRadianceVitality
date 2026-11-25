@@ -52,6 +52,9 @@ class CardioLiveWorkoutForegroundService : Service() {
     @Volatile
     private var bubbleEnabled: Boolean = false
 
+    @Volatile
+    private var paused: Boolean = false
+
     override fun onCreate() {
         super.onCreate()
         userPreferences = UserPreferences(applicationContext)
@@ -66,6 +69,7 @@ class CardioLiveWorkoutForegroundService : Service() {
             return START_NOT_STICKY
         }
         startedAtEpochSeconds = intent.getLongExtra(EXTRA_STARTED_AT_EPOCH_SEC, nowEpochSeconds())
+        paused = intent.getBooleanExtra(EXTRA_PAUSED, false)
         postForeground()
         serviceScope.launch {
             val enabled = withContext(Dispatchers.IO) {
@@ -125,10 +129,15 @@ class CardioLiveWorkoutForegroundService : Service() {
         val builder = NotificationCompat.Builder(this, CardioLiveWorkoutConstants.NOTIFICATION_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_erv)
             .setContentTitle(getString(R.string.cardio_live_notification_title))
-            .setContentText(getString(R.string.cardio_live_notification_chronometer_line))
+            .setContentText(
+                getString(
+                    if (paused) R.string.cardio_live_notification_paused_line
+                    else R.string.cardio_live_notification_chronometer_line
+                )
+            )
             .setWhen(startedAtMs)
-            .setShowWhen(true)
-            .setUsesChronometer(true)
+            .setShowWhen(!paused)
+            .setUsesChronometer(!paused)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
@@ -186,14 +195,20 @@ class CardioLiveWorkoutForegroundService : Service() {
         private const val BUBBLE_PENDING_INTENT_REQUEST = 3
         private const val ACTION_START = "com.erv.app.cardio.LIVE_TIMER_START"
         private const val EXTRA_STARTED_AT_EPOCH_SEC = "startedAtEpochSec"
+        private const val EXTRA_PAUSED = "paused"
 
-        fun start(context: Context, startedAtEpochSeconds: Long) {
+        /**
+         * [startedAtEpochSeconds] is the clock's base (already shifted by past pauses); a [paused]
+         * timer shows "Paused" with no running clock.
+         */
+        fun start(context: Context, startedAtEpochSeconds: Long, paused: Boolean = false) {
             val app = context.applicationContext
             ContextCompat.startForegroundService(
                 app,
                 Intent(app, CardioLiveWorkoutForegroundService::class.java).apply {
                     action = ACTION_START
                     putExtra(EXTRA_STARTED_AT_EPOCH_SEC, startedAtEpochSeconds)
+                    putExtra(EXTRA_PAUSED, paused)
                 }
             )
         }
