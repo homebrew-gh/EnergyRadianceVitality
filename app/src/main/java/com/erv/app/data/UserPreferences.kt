@@ -136,6 +136,7 @@ class UserPreferences(private val context: Context) {
             stringPreferencesKey("program_dashboard_unified_routine_launch_json_v1")
         val WEIGHT_LIVE_REST_TIMER_MODE = stringPreferencesKey("weight_live_rest_timer_mode_v1")
         val WORKOUT_SESSION_REST_TIMER_MODE = stringPreferencesKey("workout_session_rest_timer_mode_v1")
+        val WORKOUT_SESSION_RPE_LOGS_SET = booleanPreferencesKey("workout_session_rpe_logs_set_v1")
         val WEIGHT_LIVE_REST_TIMER_SECONDS = intPreferencesKey("weight_live_rest_timer_seconds_v1")
         val WEIGHT_LIVE_REST_TIMER_COUNTDOWN_SOUND_ENABLED =
             booleanPreferencesKey("weight_live_rest_timer_countdown_sound_enabled_v1")
@@ -402,6 +403,20 @@ class UserPreferences(private val context: Context) {
             "OFF" -> WeightLiveRestTimerMode.OFF
             "MANUAL" -> WeightLiveRestTimerMode.MANUAL
             else -> WeightLiveRestTimerMode.AUTO
+        }
+    }
+
+    /**
+     * Session screen: picking an RPE chip logs the set and starts its rest. Off brings back the
+     * check button, for logging (and starting the rest) by hand. On until changed.
+     */
+    val workoutSessionRpeLogsSet: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[Keys.WORKOUT_SESSION_RPE_LOGS_SET] ?: true
+    }
+
+    suspend fun setWorkoutSessionRpeLogsSet(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.WORKOUT_SESSION_RPE_LOGS_SET] = enabled
         }
     }
 

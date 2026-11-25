@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -275,6 +276,8 @@ fun WorkoutLiveRunScreen(
     val restTimerSeconds by userPreferences.weightLiveRestTimerSeconds.collectAsState(initial = null)
     val restCountdownSound by userPreferences.weightLiveRestTimerCountdownSoundEnabled.collectAsState(initial = true)
     val restEndSound by userPreferences.weightLiveRestTimerEndSoundEnabled.collectAsState(initial = true)
+    // Picking an RPE logs the set and starts the rest; off, each set has a check button instead.
+    val rpeLogsSet by userPreferences.workoutSessionRpeLogsSet.collectAsState(initial = true)
     var showRestSettings by remember { mutableStateOf(false) }
     var confirmFinish by remember { mutableStateOf(false) }
     var composedSummary by remember { mutableStateOf<ComposedWorkoutHrSummary?>(null) }
@@ -331,6 +334,19 @@ fun WorkoutLiveRunScreen(
     val currentStep = if (plan != null && session != null) WorkoutSessionEngine.currentStep(plan, session) else null
     // The lift set whose exercise is on screen; during a rest, the one just done.
     val focusLiftIndex = if (plan != null) activeRun?.sessionFocusLiftIndex(plan) else null
+    // Every exercise of today's run in order, so the lifting card can page back to a finished
+    // one (or ahead) to look at or fix its sets.
+    val liftItemKeys = plan?.steps.orEmpty()
+        .filterIsInstance<WorkoutSessionStep.LiftSet>()
+        .map { it.segmentId to it.itemId }
+        .distinct()
+    val focusLiftKey = (focusLiftIndex?.let { plan?.steps?.getOrNull(it) } as? WorkoutSessionStep.LiftSet)
+        ?.let { it.segmentId to it.itemId }
+    var viewedLiftKey by remember { mutableStateOf<Pair<String, String>?>(null) }
+    // Moving on to another exercise brings the card back to it.
+    LaunchedEffect(focusLiftKey) { viewedLiftKey = null }
+    val shownLiftKey = viewedLiftKey?.takeIf { it in liftItemKeys } ?: focusLiftKey
+    val runListState = rememberLazyListState()
 
     val runKeyManager = LocalKeyManager.current
     val concept2Ble = LocalConcept2Pm.current
@@ -1088,8 +1104,9 @@ fun WorkoutLiveRunScreen(
             initialSeconds = restTimerSeconds ?: 90,
             initialCountdownSound = restCountdownSound,
             initialEndSound = restEndSound,
+            initialRpeLogsSet = rpeLogsSet,
             onDismiss = { showRestSettings = false },
-            onSave = { mode, seconds, countdown, end ->
+            onSave = { mode, seconds, countdown, end, rpeLogs ->
                 showRestSettings = false
                 // Saving the setting is enough: the run follows it (see the effect above).
                 scope.launch {
@@ -1097,6 +1114,7 @@ fun WorkoutLiveRunScreen(
                     userPreferences.setWeightLiveRestTimerSeconds(seconds)
                     userPreferences.setWeightLiveRestTimerCountdownSoundEnabled(countdown)
                     userPreferences.setWeightLiveRestTimerEndSoundEnabled(end)
+                    userPreferences.setWorkoutSessionRpeLogsSet(rpeLogs)
                 }
             },
         )
@@ -1371,6 +1389,7 @@ fun WorkoutLiveRunScreen(
             )
         }
         LazyColumn(
+            state = runListState,
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f),
@@ -1472,15 +1491,25 @@ fun WorkoutLiveRunScreen(
                 }
             }
             // The exercise on screen, with all its sets; it stays put through the rests after them.
-            val focusStep = focusLiftIndex?.let { plan?.steps?.getOrNull(it) } as? WorkoutSessionStep.LiftSet
-            if (runStarted && !isComplete && focusStep != null && focusLiftIndex != null && plan != null && session != null) {
-                item(key = "lift-${focusStep.segmentId}-${focusStep.itemId}") {
+            // Swiping (or the arrows, or a storyboard tap) shows another exercise instead.
+            val viewingOther = shownLiftKey != focusLiftKey
+            val shownIndex = when {
+                shownLiftKey == null -> null
+                !viewingOther -> focusLiftIndex
+                else -> plan?.steps?.indexOfFirst {
+                    it is WorkoutSessionStep.LiftSet && it.segmentId == shownLiftKey.first && it.itemId == shownLiftKey.second
+                }?.takeIf { it >= 0 }
+            }
+            val focusStep = shownIndex?.let { plan?.steps?.getOrNull(it) } as? WorkoutSessionStep.LiftSet
+            if (runStarted && !isComplete && focusStep != null && shownIndex != null && plan != null && session != null) {
+                item(key = "lift-card") {
                     val run = activeRun
                     val item = itemOf(focusStep) as? WorkoutItem.Weight
-                    val onLift = step is WorkoutSessionStep.LiftSet
+                    val onLift = step is WorkoutSessionStep.LiftSet && !viewingOther
                     val restIndex = session.stepIndex.takeIf { step is WorkoutSessionStep.Rest }
-                    // The set the check logs now: the one on screen, or the one right after the rest on screen.
+                    // The set logged now: the one on screen, or the one right after the rest on screen.
                     val nextIndex = when {
+                        viewingOther -> null
                         onLift -> session.stepIndex
                         restIndex != null -> (restIndex + 1).takeIf { index ->
                             val after = plan.steps.getOrNull(index) as? WorkoutSessionStep.LiftSet
@@ -1488,6 +1517,7 @@ fun WorkoutLiveRunScreen(
                         }
                         else -> null
                     }
+                    val position = liftItemKeys.indexOf(focusStep.segmentId to focusStep.itemId)
                     val rows = plan.steps.indices.mapNotNull { index ->
                         val other = plan.steps[index] as? WorkoutSessionStep.LiftSet ?: return@mapNotNull null
                         if (other.segmentId != focusStep.segmentId || other.itemId != focusStep.itemId) return@mapNotNull null
@@ -1506,7 +1536,7 @@ fun WorkoutLiveRunScreen(
                     val exercise = weightState.exerciseById(exerciseId)
                     val lastLog = weightState.historyForExercise(exerciseId)
                         .firstOrNull { it.workout.workoutLink?.sessionId != run?.sessionId }
-                    val liftStep = step as? WorkoutSessionStep.LiftSet
+                    val liftStep = (step as? WorkoutSessionStep.LiftSet)?.takeIf { !viewingOther }
                     val goalSeconds = liftStep?.target?.takeIf { (it.targetReps ?: 0) <= 0 }?.targetDurationSeconds?.takeIf { it > 0 }
                     val fromBlock = run?.fromTrainingBlock == true && liftStep != null
                     WorkoutSessionExerciseCard(
@@ -1534,10 +1564,10 @@ fun WorkoutLiveRunScreen(
                         lastTimeSets = lastLog?.entry?.sets.orEmpty(),
                         coachTarget = coachReview?.coachLineFor(exerciseId, System.currentTimeMillis() / 1000),
                         onShowHistory = { historyFor = exerciseId to liftName(focusStep) },
-                        canAddSet = run?.canAddSessionSet(plan, focusLiftIndex) == true,
+                        canAddSet = run?.canAddSessionSet(plan, shownIndex) == true,
                         onAddSet = {
                             val atStep = session.stepIndex
-                            scope.launch { repository.changeSessionSetCount(1, atStepIndex = atStep, liftStepIndex = focusLiftIndex) }
+                            scope.launch { repository.changeSessionSetCount(1, atStepIndex = atStep, liftStepIndex = shownIndex) }
                         },
                         // In a superset or circuit a set is a round of the whole section.
                         onRemoveRound = if (focusStep.inRounds && onLift && run?.canRemoveSessionSet(plan) == true) {
@@ -1575,6 +1605,11 @@ fun WorkoutLiveRunScreen(
                         } else {
                             null
                         },
+                        rpeLogsSet = rpeLogsSet,
+                        onPrevious = liftItemKeys.getOrNull(position - 1)?.let { key -> { viewedLiftKey = key } },
+                        onNext = liftItemKeys.getOrNull(position + 1)?.takeIf { position >= 0 }?.let { key -> { viewedLiftKey = key } },
+                        positionLabel = if (liftItemKeys.size > 1 && position >= 0) "Exercise ${position + 1} of ${liftItemKeys.size}" else null,
+                        onBackToCurrent = if (viewingOther) ({ viewedLiftKey = null }) else null,
                     )
                 }
             }
@@ -1677,7 +1712,19 @@ fun WorkoutLiveRunScreen(
                                             MaterialTheme.colorScheme.onSurfaceVariant
                                         else -> MaterialTheme.colorScheme.onSurface
                                     },
-                                    modifier = Modifier.weight(1f),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .then(
+                                            // A lift opens on the card above, finished or still to come.
+                                            if ((segment.id to item.id) in liftItemKeys) {
+                                                Modifier.clickable {
+                                                    viewedLiftKey = segment.id to item.id
+                                                    scope.launch { runListState.animateScrollToItem(0) }
+                                                }
+                                            } else {
+                                                Modifier
+                                            },
+                                        ),
                                 )
                                 if (editRun != null && editPlan != null) {
                                     val name = (item as? WorkoutItem.Weight)
