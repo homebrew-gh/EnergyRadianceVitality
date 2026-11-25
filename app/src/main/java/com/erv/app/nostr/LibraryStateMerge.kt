@@ -387,8 +387,10 @@ object LibraryStateMerge {
             .withoutDeletedWorkouts(deletedWorkouts)
         return WorkoutLibraryState(
             workouts = mergedWorkouts,
+            // The run on this phone stays: a standalone run (Quick Start, Cardio's Start) has no
+            // library copy to match, and any other run stays while its workout does.
             activeRun = localState.activeRun?.takeIf { run ->
-                mergedWorkouts.any { it.id == run.workoutId }
+                run.standalone != null || mergedWorkouts.any { it.id == run.workoutId }
             },
             libraryUpdatedAtEpochSeconds = max(
                 localState.libraryUpdatedAtEpochSeconds,
