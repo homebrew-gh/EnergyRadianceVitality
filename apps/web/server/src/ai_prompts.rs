@@ -1,9 +1,11 @@
 //! Server-owned coach prompts. The browser cannot replace these.
 
-pub const PROMPT_VERSION: &str = "2.3";
+pub const PROMPT_VERSION: &str = "3";
 
 pub fn system_prompt(task: &str, json_object: bool) -> String {
-    let mut prompt = if task == "analysis" {
+    let mut prompt = if task == "analysis" && json_object {
+        analysis_json_prompt()
+    } else if task == "analysis" {
         analysis_prompt()
     } else {
         format!(
@@ -43,10 +45,8 @@ You are a coach assistant for one athlete using ERV. \
 Respect the athlete's equipment and any movements they want to avoid. \
 Do not make medical claims. Advice is training guidance, not a diagnosis.";
 
-fn analysis_prompt() -> String {
-    format!(
-        "{SHARED_PREAMBLE}\n\n\
-Refer to workouts and exercises by name only. Do not print ids.\n\n\
+/// How the review context is laid out. Shared by the JSON (v3) and Markdown (v2) reviews.
+const CONTEXT_GUIDE: &str = "\
 How to read the context:\n\
 - savedWorkouts and savedWeightRoutines are the plan. Each lists the exercises programmed in it.\n\
 - liftTrends are computed by ERV from the logs, one row per lift, most-trained first. recentSessions lists the sets done each session, newest first, with an estimated one-rep max. planned is the prescription from the saved workouts named in plannedIn. trend, flags, and ruleSuggestion are computed, so trust them over your own arithmetic.\n\
@@ -58,6 +58,13 @@ How to read the context:\n\
 - Loads are in the unit named in units.weight (usually lb). Write every load in that unit and never convert to another.\n\
 - today is the date of the review. periodStart and periodEnd bound the logs you were given.\n\
 - profile.trainingStyles lists the athlete's chosen styles with coaching hints. Follow those hints.\n\n\
+";
+
+fn analysis_prompt() -> String {
+    format!(
+        "{SHARED_PREAMBLE}\n\n\
+Refer to workouts and exercises by name only. Do not print ids.\n\n\
+{CONTEXT_GUIDE}\
 Write the review in Markdown. Use only these H2 headings, in this order. Put a space after the hashes:\n\
 ## Summary\n\
 ## What went well\n\
@@ -84,6 +91,40 @@ Most lifts have two or three logged sessions, so longer trends are not yet visib
     )
 }
 
+/// Review v3: one JSON object the web app validates and renders as a card.
+fn analysis_json_prompt() -> String {
+    format!(
+        "You are an experienced strength and conditioning coach reviewing one athlete's training in ERV. \
+Be specific and practical. Every claim cites a number from the context: a load, reps, sets per week, days per week, or a date. \
+Respect the athlete's equipment and any movements they want to avoid. \
+Do not make medical claims. Advice is training guidance, not a diagnosis.\n\n\
+Refer to workouts and exercises by name only. Do not print ids.\n\n\
+{CONTEXT_GUIDE}\
+Coaching rules:\n\
+- Prioritise by impact on profile.primaryGoal. Put the most important lift and action first.\n\
+- For each lift, start from ruleSuggestion. Change it only when flags, RPE, weekly training, or body weight give a reason, and give that reason in why.\n\
+- Never raise the load on a lift that missed its rep target last session.\n\
+- Prefer one change per lift. Do not rewrite the program.\n\
+- Only name lifts that appear in liftTrends, and use their names exactly.\n\
+- consistency: on_track when averageTrainingDaysPerWeek is within 0.5 of plannedDaysPerWeek, behind when lower, ahead when more than 1 higher, unknown when there is no plan.\n\
+- progress: improving when most lifts trend up, slipping when most trend down, flat otherwise, unknown when most lifts are new.\n\
+- recovery: watch when there are RPE 9.5+ flags on two or more lifts, high-intensity heart rate well above baseline, or several lifts trending down; ok when RPE or heart rate is logged and none of that applies; unknown otherwise.\n\
+- confidence: low when there are fewer than three strength sessions in the period or most lifts are new, high when most lifts have three or more sessions, medium otherwise.\n\n\
+Reply with one JSON object with exactly these keys:\n\
+headline: one sentence of at most 25 words with the verdict and the single most important change.\n\
+status: an object with consistency (on_track, behind, ahead, or unknown), progress (improving, flat, slipping, or unknown), and recovery (ok, watch, or unknown).\n\
+lifts: up to 6 objects, most important first, each with name, trend (up, flat, down, or new), next (the next session's load and reps, for example \"185 × 8, 8, 8\"), and why (one sentence with numbers).\n\
+nextWeek: two or three objects, highest impact first, each with action (one sentence the athlete can do) and why (one sentence with numbers).\n\
+wins: zero to three short strings, each backed by a number.\n\
+watchOuts: zero to three objects, each with text and evidence.\n\
+bodyWeight: one sentence relating the body weight trend to the goal, or null when bodyWeight is missing.\n\
+confidence: high, medium, or low.\n\
+missingData: one sentence on missing data that would change the advice, or null.\n\n\
+Shape example with placeholder values, not advice:\n\
+{{\"headline\":\"...\",\"status\":{{\"consistency\":\"on_track\",\"progress\":\"flat\",\"recovery\":\"unknown\"}},\"lifts\":[{{\"name\":\"...\",\"trend\":\"flat\",\"next\":\"...\",\"why\":\"...\"}}],\"nextWeek\":[{{\"action\":\"...\",\"why\":\"...\"}}],\"wins\":[\"...\"],\"watchOuts\":[{{\"text\":\"...\",\"evidence\":\"...\"}}],\"bodyWeight\":null,\"confidence\":\"medium\",\"missingData\":null}}"
+    )
+}
+
 pub fn user_message(
     context: &serde_json::Value,
     subject: Option<&serde_json::Value>,
@@ -102,4 +143,37 @@ pub fn user_message(
         message.push_str(user_prompt);
     }
     message
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn json_review_prompt_names_every_key_and_units() {
+        let prompt = system_prompt("analysis", true);
+        for key in [
+            "headline",
+            "status",
+            "lifts",
+            "nextWeek",
+            "wins",
+            "watchOuts",
+            "bodyWeight",
+            "confidence",
+            "missingData",
+        ] {
+            assert!(prompt.contains(key), "missing {key}");
+        }
+        assert!(prompt.contains("units.weight"));
+        assert!(prompt.contains("\"headline\":\"...\""));
+        assert!(prompt.ends_with("Do not wrap it in Markdown fences."));
+    }
+
+    #[test]
+    fn markdown_review_prompt_still_lists_the_five_headings() {
+        let prompt = system_prompt("analysis", false);
+        assert!(prompt.contains("## Suggested focus next week"));
+        assert!(prompt.contains("liftTrends"));
+    }
 }

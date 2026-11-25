@@ -194,7 +194,7 @@ binary and cannot be edited from the browser.
 
 | Task | Format | Validation on web |
 |------|--------|-------------------|
-| `analysis` | Markdown with fixed H2 sections: Summary · What went well · Watch-outs · Suggested focus next week · Data gaps | Section presence; strip anything after an unknown H2; render as text (no HTML) |
+| `analysis` | Prompt v3: one JSON object (`headline`, `status`, `lifts[]` with next-session load, `nextWeek[]`, `wins`, `watchOuts`, `bodyWeight`, `confidence`, `missingData`). Prompt v2 Markdown (five H2 sections) still renders for cached reviews | `parseCoachReviewJson` in `coachReview.ts`: strip fences, normalise enums, require `headline` and one `nextWeek` action; one automatic retry with the errors; render as a card (no HTML from the model) |
 | `workout_suggest_changes` | `{ "ervWorkoutImportVersion": 1, "workouts": [<full replacement>], "rationale": ["..."], "changes": ["..."] }` | Parse with the workout import envelope; **id must equal the source workout id**; every `exerciseId`/`catalogId`/`activity` must exist; guardrails on load/volume deltas vs source |
 | `workout_generate` | Same envelope, new id, `sourceLabel: "AI · Maple"` | Same, plus equipment check |
 | `plan_suggest` | `ProgramImportEnvelope` subset: 7 days × `workoutId[]` + notes | All `workoutId`s exist in library; no more than N sessions/week vs profile |

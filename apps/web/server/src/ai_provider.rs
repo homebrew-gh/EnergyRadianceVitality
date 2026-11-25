@@ -13,7 +13,27 @@ pub struct ChatCall {
     pub system: String,
     pub user: String,
     pub json_object: bool,
+    /// Sampling temperature. `None` leaves the model default.
+    pub temperature: Option<f32>,
+    /// Cap on generated tokens. `None` leaves the model default.
+    pub max_tokens: Option<u32>,
     pub timeout: Duration,
+}
+
+impl ChatCall {
+    /// Whether the request carries options an OpenAI-compatible server may reject with 400.
+    fn has_optional_params(&self) -> bool {
+        self.json_object || self.temperature.is_some() || self.max_tokens.is_some()
+    }
+
+    /// The same call without `response_format`, `temperature`, or `max_tokens`.
+    fn without_optional_params(&self) -> ChatCall {
+        let mut plain = self.clone();
+        plain.json_object = false;
+        plain.temperature = None;
+        plain.max_tokens = None;
+        plain
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -78,10 +98,8 @@ pub async fn chat_complete(
 ) -> Result<ChatCompletion, UpstreamFailure> {
     match post_chat(client, &call, false).await {
         Ok(completion) => Ok(completion),
-        Err(UpstreamFailure::Status(400)) if call.json_object => {
-            let mut retry = call;
-            retry.json_object = false;
-            post_chat(client, &retry, false).await
+        Err(UpstreamFailure::Status(400)) if call.has_optional_params() => {
+            post_chat(client, &call.without_optional_params(), false).await
         }
         Err(other) => Err(other),
     }
@@ -91,14 +109,19 @@ pub async fn open_chat_stream(
     client: &reqwest::Client,
     call: ChatCall,
 ) -> Result<reqwest::Response, UpstreamFailure> {
-    send_chat(client, &call, true).await
+    match send_chat(client, &call, true).await {
+        Err(UpstreamFailure::Status(400)) if call.has_optional_params() => {
+            send_chat(client, &call.without_optional_params(), true).await
+        }
+        other => other,
+    }
 }
 
 pub async fn chat_stream_text(
     client: &reqwest::Client,
     call: ChatCall,
 ) -> Result<String, UpstreamFailure> {
-    let response = send_chat(client, &call, true).await?;
+    let response = open_chat_stream(client, call).await?;
     let body = response
         .text()
         .await
@@ -165,6 +188,12 @@ async fn send_chat(
     });
     if call.json_object {
         body["response_format"] = json!({"type": "json_object"});
+    }
+    if let Some(temperature) = call.temperature {
+        body["temperature"] = json!(temperature);
+    }
+    if let Some(max_tokens) = call.max_tokens {
+        body["max_tokens"] = json!(max_tokens);
     }
     let mut request = client.post(url).timeout(call.timeout).json(&body);
     if let Some(key) = call.api_key.as_deref().filter(|key| !key.is_empty()) {
@@ -263,6 +292,8 @@ mod tests {
             system: "system".into(),
             user: "user".into(),
             json_object: false,
+            temperature: None,
+            max_tokens: None,
             timeout: Duration::from_secs(2),
         };
         let completion = chat_complete(&client, call.clone()).await.unwrap();
@@ -274,4 +305,53 @@ mod tests {
     }
 
     use axum::response::IntoResponse;
+
+    #[tokio::test]
+    async fn retries_without_optional_params_on_400() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let app = Router::new().route(
+            "/v1/chat/completions",
+            post(|Json(body): Json<Value>| async move {
+                if body.get("temperature").is_some()
+                    || body.get("max_tokens").is_some()
+                    || body.get("response_format").is_some()
+                {
+                    return axum::http::StatusCode::BAD_REQUEST.into_response();
+                }
+                if body.get("stream").and_then(Value::as_bool) == Some(true) {
+                    return (
+                        [(axum::http::header::CONTENT_TYPE, "text/event-stream")],
+                        "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\ndata: [DONE]\n\n"
+                            .to_string(),
+                    )
+                        .into_response();
+                }
+                Json(json!({
+                    "model": "test-model",
+                    "choices": [{"message": {"role": "assistant", "content": "{}"}}]
+                }))
+                .into_response()
+            }),
+        );
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, app).await;
+        });
+        let client = reqwest::Client::new();
+        let call = ChatCall {
+            base_url: format!("http://{addr}"),
+            api_key: None,
+            model: "test-model".into(),
+            system: "system".into(),
+            user: "user".into(),
+            json_object: true,
+            temperature: Some(0.3),
+            max_tokens: Some(3_000),
+            timeout: Duration::from_secs(2),
+        };
+        let completion = chat_complete(&client, call.clone()).await.unwrap();
+        assert_eq!(completion.content, "{}");
+        let streamed = chat_stream_text(&client, call).await.unwrap();
+        assert_eq!(streamed, "ok");
+    }
 }
