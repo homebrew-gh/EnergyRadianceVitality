@@ -1,6 +1,6 @@
 //! Server-owned coach prompts. The browser cannot replace these.
 
-pub const PROMPT_VERSION: &str = "2.1";
+pub const PROMPT_VERSION: &str = "2.2";
 
 pub fn system_prompt(task: &str, json_object: bool) -> String {
     let mut prompt = if task == "analysis" {
@@ -49,8 +49,10 @@ fn analysis_prompt() -> String {
 Refer to workouts and exercises by name only. Do not print ids.\n\n\
 How to read the context:\n\
 - savedWorkouts and savedWeightRoutines are the plan. Each lists the exercises programmed in it.\n\
-- workingWeights are logged results: the last logged reps and load for a lift, and how many sessions included it. They are not a diary of one day.\n\
-- recentSessionSummaries are dates and counts only. They do not list the exercises or sets completed that day.\n\
+- liftTrends are computed by ERV from the logs, one row per lift, most-trained first. recentSessions lists the sets done each session, newest first, with an estimated one-rep max. planned is the prescription from the saved workouts named in plannedIn. trend, flags, and ruleSuggestion are computed, so trust them over your own arithmetic.\n\
+- ruleSuggestion is the next load from a standard double-progression rule. Follow it unless the flags, RPE, or weekly training give a reason not to, and say that reason.\n\
+- weeklyTraining compares training days in each recent week with plannedDaysPerWeek. weeklySetsByMuscle is the average working sets per week for each muscle group.\n\
+- recentSessionSummaries are dates and counts per session, with the saved workout name when the session came from one.\n\
 - If a fact is not in the context, say it is unknown. Do not invent sessions, sets, or loads.\n\
 - Loads are in the unit named in units.weight (usually lb). Write every load in that unit and never convert to another.\n\
 - today is the date of the review. periodStart and periodEnd bound the logs you were given.\n\
@@ -64,8 +66,8 @@ Write the review in Markdown. Use only these H2 headings, in this order. Put a s
 Summary: one short paragraph on how the programmed work compares with the goal and the log.\n\
 What went well: which programmed workouts or lifts to keep, and why the log supports that.\n\
 Watch-outs: what is over-represented, missing, or in conflict with the goal, the equipment, or movements to avoid.\n\
-Suggested focus next week: two or three concrete actions that use workout and exercise names from the context.\n\
-Data gaps: what cannot be judged because the context does not include every set from each day.\n\
+Suggested focus next week: two or three concrete actions that use workout and exercise names from the context. Give the next load and reps for any lift you name.\n\
+Data gaps: one or two sentences on what cannot be judged from the context, such as lifts with only one session.\n\
 Stop after Data gaps. Do not add headings. Do not replace the headings with bold labels such as Keep, Change, or Missing.\n\n\
 Example:\n\
 ## Summary\n\
@@ -77,7 +79,7 @@ Chest and arm exercises appear in several saved workouts, while squat and hinge 
 ## Suggested focus next week\n\
 Use one saved lower-body workout if the context includes one. Add an easy cardio session inside the stated session length. Leave the overhead-press limit in place.\n\n\
 ## Data gaps\n\
-Session lines are counts only. The sets completed on each date are not in the context."
+Most lifts have two or three logged sessions, so longer trends are not yet visible."
     )
 }
 

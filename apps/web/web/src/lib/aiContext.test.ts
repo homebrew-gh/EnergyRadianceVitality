@@ -115,10 +115,10 @@ describe("buildAnalysisContext", () => {
     expect(context.units).toEqual({ weight: "lb", distance: "mi" });
     expect(context.today).toBe("2026-11-24");
     expect(context.periodStart).toBe("2026-10-28");
-    const snapshot = context.snapshot as { workingWeights: Record<string, unknown>[] };
-    expect(snapshot.workingWeights[0]).toMatchObject({ name: "Bench Press", weight_lb: 185, reps: 8 });
-    const rows = context.recentExerciseRows as { detail: string }[];
-    expect(rows[0].detail).toBe("185×8, 185×7 lb");
+    expect(context.snapshot).not.toHaveProperty("workingWeights");
+    const lifts = context.liftTrends as { name: string; recentSessions: { sets: string }[] }[];
+    expect(lifts[0].name).toBe("Bench Press");
+    expect(lifts[0].recentSessions[0].sets).toBe("185×8, 185×7 lb");
   });
 
   it("sends a short heart-rate note when there is no heart-rate data", () => {

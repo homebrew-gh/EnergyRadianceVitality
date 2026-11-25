@@ -124,7 +124,7 @@ export function CoachReviewCard({ bundleInput, periodWeeks, periodLabel }: Coach
           task: "analysis",
           model_id: modelId || undefined,
           context: analysis.context,
-          user_prompt: `Review this athlete for ${periodLabel}. Compare the exercises programmed in saved workouts and weight routines with the logged working weights and session counts. Answer only under the five required headings.`,
+          user_prompt: `Review this athlete for ${periodLabel}. Compare what is planned in saved workouts with liftTrends and weeklyTraining, and say what to do next session for the lifts that matter most. Answer only under the five required headings.`,
           response_format: "markdown",
         },
         (event) => {
