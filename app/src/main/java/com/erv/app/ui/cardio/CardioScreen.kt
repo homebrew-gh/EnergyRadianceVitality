@@ -3,6 +3,9 @@
 
 package com.erv.app.ui.cardio
 
+import androidx.compose.material3.SnackbarResult
+import com.erv.app.workouts.startCardioQuickStart
+import com.erv.app.workouts.sessionScreenCardioDraft
 import com.erv.app.ui.theme.ervTopAppBarColors
 import android.Manifest
 import com.erv.app.ui.components.FormSectionLabel
@@ -465,6 +468,25 @@ fun CardioCategoryScreen(
         if (weightLiveWorkoutViewModel.hasLiveSession) {
             scope.launch {
                 snackbarHostState.showSnackbar("Finish or cancel your live weight workout first.")
+            }
+            return
+        }
+        // Runs, rides and rucks now run on the workout session screen; intervals, multi-leg
+        // routines and distance countdowns still use the cardio timer screen.
+        val sessionDraft = session.sessionScreenCardioDraft()
+        if (sessionDraft != null && !cardioLiveWorkoutViewModel.hasActiveTimer) {
+            scope.launch {
+                val id = workoutRepository.startCardioQuickStart(sessionDraft)
+                if (id != null) {
+                    onReturnToWorkoutRun(id)
+                    return@launch
+                }
+                val running = workoutRepository.currentState().activeRun
+                val result = snackbarHostState.showSnackbar(
+                    message = "“${running?.workoutSnapshot?.name?.ifBlank { null } ?: "A workout"}” is still running.",
+                    actionLabel = if (running != null) "Resume" else null,
+                )
+                if (result == SnackbarResult.ActionPerformed && running != null) onReturnToWorkoutRun(running.workoutId)
             }
             return
         }

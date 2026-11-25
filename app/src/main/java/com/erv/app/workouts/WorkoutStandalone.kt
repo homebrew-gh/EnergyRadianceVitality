@@ -1,5 +1,8 @@
 package com.erv.app.workouts
 
+import com.erv.app.cardio.CardioActiveTimerSession
+import com.erv.app.cardio.CardioTimerSessionDraft
+import com.erv.app.cardio.CardioTimerStyle
 import com.erv.app.weighttraining.WeightExercise
 import com.erv.app.weighttraining.WeightRoutine
 import com.erv.app.weighttraining.WeightSetLoggingStyle
@@ -98,4 +101,77 @@ suspend fun WorkoutRepository.startQuickStart(
         lastSetCount = { id -> weightState.historyForExercise(id).firstOrNull()?.entry?.sets?.size },
     )
     return if (startStandaloneRun(standaloneRun(workout, routine, restOptions = null))) workout.id else null
+}
+
+/**
+ * The draft for Cardio's Start to run on the session screen, or null when the old cardio screen
+ * still has to run it: interval and multi-leg routines, distance countdowns, custom activities and
+ * countdowns that aren't whole minutes. Those stay on the cardio screen until the session screen
+ * can do them.
+ */
+fun CardioActiveTimerSession.sessionScreenCardioDraft(): CardioTimerSessionDraft? {
+    val draft = (this as? CardioActiveTimerSession.Single)?.draft ?: return null
+    if (draft.activity.builtin == null || draft.activity.customTypeId != null) return null
+    return when (val style = draft.timerStyle) {
+        CardioTimerStyle.CountUp -> draft
+        is CardioTimerStyle.CountDown ->
+            draft.takeIf { style.totalSeconds > 0 && style.totalSeconds % 60 == 0 }
+        is CardioTimerStyle.CountDownDistance -> null
+    }
+}
+
+/**
+ * A standalone workout of one cardio item for [draft] (see [sessionScreenCardioDraft]): a steady
+ * effort, open-ended or for the countdown's minutes.
+ */
+fun standaloneCardioWorkout(
+    draft: CardioTimerSessionDraft,
+    nowEpochSeconds: Long = nowWorkoutEpochSeconds(),
+): Workout {
+    val builtin = requireNotNull(draft.activity.builtin) { "Only built-in activities run on the session screen" }
+    val minutes = (draft.timerStyle as? CardioTimerStyle.CountDown)?.totalSeconds?.div(60)
+    val name = draft.title.trim().ifEmpty { draft.activity.displayLabel }
+    val item = WorkoutItem.Cardio(
+        title = name,
+        cardio = WorkoutCardioPrescription(activity = builtin.name, targetMinutes = minutes),
+    )
+    return Workout(
+        id = "$STANDALONE_WORKOUT_ID_PREFIX${UUID.randomUUID()}",
+        name = name,
+        segments = listOf(WorkoutSegment(kind = WorkoutSegmentKind.CARDIO, items = listOf(item))),
+        createdAtEpochSeconds = nowEpochSeconds,
+        lastModifiedEpochSeconds = nowEpochSeconds,
+    )
+}
+
+/** A started run of [workout] (from [standaloneCardioWorkout]) that keeps [draft] for its log entry. */
+fun standaloneCardioRun(
+    workout: Workout,
+    draft: CardioTimerSessionDraft,
+    nowEpochSeconds: Long = nowWorkoutEpochSeconds(),
+): WorkoutActiveRun =
+    WorkoutActiveRun(
+        workoutId = workout.id,
+        workoutSnapshot = workout,
+        createdAtEpochSeconds = nowEpochSeconds,
+        startedAtEpochSeconds = nowEpochSeconds,
+        standalone = WorkoutStandaloneStart(
+            routineId = draft.routineId,
+            routineName = draft.routineName,
+            cardioItemId = workout.segments.firstOrNull()?.items?.firstOrNull()?.id,
+            cardioDraft = draft,
+        ),
+    ).withSessionStartedAtPosition(nowEpochSeconds)
+
+/** The cardio draft this run was started from, when [itemId] is its cardio item. */
+fun WorkoutActiveRun.standaloneCardioDraftFor(itemId: String): CardioTimerSessionDraft? =
+    standalone?.takeIf { it.cardioItemId == itemId }?.cardioDraft
+
+/**
+ * Starts Cardio's [draft] as a standalone workout on the session screen. Returns its workout id
+ * for the run screen, or null when another workout is already under way.
+ */
+suspend fun WorkoutRepository.startCardioQuickStart(draft: CardioTimerSessionDraft): String? {
+    val workout = standaloneCardioWorkout(draft)
+    return if (startStandaloneRun(standaloneCardioRun(workout, draft))) workout.id else null
 }
