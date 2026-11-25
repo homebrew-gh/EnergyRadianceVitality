@@ -303,6 +303,27 @@ class WorkoutRepository(context: Context) {
         }
     }
 
+    /** Pauses the running step, or resumes it when paused. Returns true when it is now paused. */
+    suspend fun toggleSessionStepPaused(): Boolean {
+        var pausedNow = false
+        updateState { state ->
+            val run = state.activeRun ?: return@updateState state
+            val now = nowWorkoutEpochSeconds()
+            val next = if (run.activeSessionPause() != null) run.withSessionStepResumed(now) else run.withSessionStepPaused(now)
+            pausedNow = next.activeSessionPause() != null
+            state.copy(activeRun = next)
+        }
+        return pausedNow
+    }
+
+    /** Marks a lap on the running cardio leg (see [withSessionLap]). */
+    suspend fun markSessionLap() {
+        updateState { state ->
+            val run = state.activeRun ?: return@updateState state
+            state.copy(activeRun = run.withSessionLap(nowWorkoutEpochSeconds()))
+        }
+    }
+
     /** Links a cardio item the session finished to the cardio log entry saved for it. */
     suspend fun recordSessionCardioLog(item: WorkoutSessionCardioItem, logDate: String, entryId: String) {
         updateState { state ->

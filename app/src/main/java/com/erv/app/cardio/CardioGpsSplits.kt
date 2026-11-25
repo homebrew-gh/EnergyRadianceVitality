@@ -45,6 +45,25 @@ object CardioGpsSplits {
         return splits
     }
 
+    /** Meters along the route up to [epochSeconds], between two fixes by straight line. */
+    fun distanceAtEpoch(points: List<CardioGpsPoint>, epochSeconds: Long): Double {
+        var total = 0.0
+        for (i in 1 until points.size) {
+            val a = points[i - 1]
+            val b = points[i]
+            if (a.epochSeconds >= epochSeconds) break
+            val d = CardioGpsMath.haversineMeters(a.lat, a.lon, b.lat, b.lon)
+            if (b.epochSeconds <= epochSeconds) {
+                total += d
+            } else {
+                val span = (b.epochSeconds - a.epochSeconds).toDouble()
+                total += if (span > 0) d * (epochSeconds - a.epochSeconds) / span else 0.0
+                break
+            }
+        }
+        return total
+    }
+
     /** The split length the athlete picked for auto splits, in meters (quarter miles, or km). */
     fun splitMeters(quarterMiles: Int, unit: CardioDistanceUnit): Double = when (unit) {
         CardioDistanceUnit.MILES -> quarterMiles.coerceAtLeast(1) * 1609.344 / 4.0

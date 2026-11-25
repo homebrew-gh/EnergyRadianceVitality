@@ -902,6 +902,8 @@ internal fun WorkoutSessionCardioCard(
     onPauseChange: ((Boolean) -> Unit)? = null,
     /** Live tiles under the clock, label to value: distance, pace, last split. */
     liveStats: List<Pair<String, String>> = emptyList(),
+    /** Marks a lap; no Lap button when null. */
+    onLap: (() -> Unit)? = null,
 ) {
     val timed = (step.targetSeconds ?: 0) > 0
     Card(
@@ -963,6 +965,11 @@ internal fun WorkoutSessionCardioCard(
                     if (onPauseChange != null) {
                         OutlinedButton(onClick = { onPauseChange(!paused) }, modifier = Modifier.weight(1f)) {
                             Text(if (paused) "Resume" else "Pause")
+                        }
+                    }
+                    if (onLap != null) {
+                        OutlinedButton(onClick = onLap, enabled = !paused, modifier = Modifier.weight(1f)) {
+                            Text("Lap")
                         }
                     }
                     Button(onClick = onFinish, modifier = Modifier.weight(1f)) {
