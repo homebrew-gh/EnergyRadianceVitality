@@ -244,9 +244,11 @@ internal fun WorkoutSessionRestSettingsDialog(
     initialSeconds: Int,
     initialCountdownSound: Boolean,
     initialEndSound: Boolean,
+    initialRpeLogsSet: Boolean,
     onDismiss: () -> Unit,
-    onSave: (mode: WorkoutSessionRestMode, seconds: Int, countdownSound: Boolean, endSound: Boolean) -> Unit,
+    onSave: (mode: WorkoutSessionRestMode, seconds: Int, countdownSound: Boolean, endSound: Boolean, rpeLogsSet: Boolean) -> Unit,
 ) {
+    var rpeLogsSet by remember { mutableStateOf(initialRpeLogsSet) }
     var mode by remember { mutableStateOf(initialMode) }
     var seconds by remember {
         mutableIntStateOf(SESSION_REST_SECONDS_OPTIONS.minByOrNull { abs(it - initialSeconds) } ?: 90)
@@ -302,10 +304,20 @@ internal fun WorkoutSessionRestSettingsDialog(
                     SoundSwitchRow("Final 5 second countdown", countdownSound) { countdownSound = it }
                     SoundSwitchRow("Rest over sound", endSound) { endSound = it }
                 }
+                SoundSwitchRow("Log set when RPE is picked", rpeLogsSet) { rpeLogsSet = it }
+                Text(
+                    if (rpeLogsSet) {
+                        "Tapping an RPE under the set logs it and starts the rest."
+                    } else {
+                        "Each set has a check button: tap it to log the set and start the rest."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         },
         confirmButton = {
-            TextButton(onClick = { onSave(mode, seconds, countdownSound, endSound) }) { Text("Save") }
+            TextButton(onClick = { onSave(mode, seconds, countdownSound, endSound, rpeLogsSet) }) { Text("Save") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )

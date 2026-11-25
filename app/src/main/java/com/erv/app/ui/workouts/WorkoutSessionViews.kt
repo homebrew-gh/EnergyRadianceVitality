@@ -1,5 +1,7 @@
 package com.erv.app.ui.workouts
 
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -8,8 +10,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
@@ -19,6 +24,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -35,9 +41,12 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -273,23 +282,71 @@ internal fun WorkoutSessionExerciseCard(
     onStartTimer: ((WeightSet) -> Unit)? = null,
     /** Runs the exercise on the interval timer instead of as sets; null when it can't. */
     onStartIntervals: ((WeightHiitIntervalPlan) -> Unit)? = null,
+    /** True: an RPE chip under the next set logs it (and starts the rest). False: a check button does. */
+    rpeLogsSet: Boolean = true,
+    /** The exercise before or after this one in the workout; a swipe or the arrows go there. */
+    onPrevious: (() -> Unit)? = null,
+    onNext: (() -> Unit)? = null,
+    /** "Exercise 2 of 5", under the name. */
+    positionLabel: String? = null,
+    /** Set while looking at an exercise other than the one being done: goes back to it. */
+    onBackToCurrent: (() -> Unit)? = null,
 ) {
     val first = rows.firstOrNull()?.step
     val timed = first?.target?.isTimedTarget() == true
     val inRounds = first?.inRounds == true
     var intervalsMode by remember(first?.segmentId, first?.itemId) { mutableStateOf(false) }
     val suggestions = setSuggestions(rows, timed, lastTimeSets)
-    Card(modifier = modifier.fillMaxWidth()) {
+    val swipePrevious by rememberUpdatedState(onPrevious)
+    val swipeNext by rememberUpdatedState(onNext)
+    val swipeThresholdPx = with(LocalDensity.current) { 64.dp.toPx() }
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            // Swipe left for the next exercise, right for the one before.
+            .pointerInput(Unit) {
+                var dragged = 0f
+                detectHorizontalDragGestures(
+                    onDragStart = { dragged = 0f },
+                    onDragEnd = {
+                        when {
+                            dragged <= -swipeThresholdPx -> swipeNext?.invoke()
+                            dragged >= swipeThresholdPx -> swipePrevious?.invoke()
+                        }
+                    },
+                ) { _, amount -> dragged += amount }
+            },
+    ) {
         Column(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 14.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            if (onBackToCurrent != null) {
+                FilledTonalButton(onClick = onBackToCurrent, modifier = Modifier.fillMaxWidth()) {
+                    Text("Back to Current Exercise")
+                }
+            }
             sectionTitle?.let {
                 Text(it, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Text(exerciseName, style = MaterialTheme.typography.titleLarge)
-            equipmentLabel?.let {
-                Text(it, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                if (onPrevious != null || onNext != null) {
+                    IconButton(onClick = { onPrevious?.invoke() }, enabled = onPrevious != null) {
+                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "Previous exercise")
+                    }
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(exerciseName, style = MaterialTheme.typography.titleLarge)
+                    val subtitle = listOfNotNull(equipmentLabel, positionLabel).joinToString(" · ")
+                    if (subtitle.isNotEmpty()) {
+                        Text(subtitle, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                if (onPrevious != null || onNext != null) {
+                    IconButton(onClick = { onNext?.invoke() }, enabled = onNext != null) {
+                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "Next exercise")
+                    }
+                }
             }
             lastTime?.let {
                 Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -320,6 +377,7 @@ internal fun WorkoutSessionExerciseCard(
                     onEdit = { set -> onEditSet(row.stepIndex, set) },
                     onRemove = if (row.canRemove) ({ onRemoveSet(row.stepIndex) }) else null,
                     onStartTimer = onStartTimer?.takeIf { row.isNext && timed },
+                    rpeLogsSet = rpeLogsSet,
                 )
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
@@ -400,6 +458,7 @@ private fun SessionSetRow(
     onEdit: (WeightSet) -> Unit,
     onRemove: (() -> Unit)?,
     onStartTimer: ((WeightSet) -> Unit)?,
+    rpeLogsSet: Boolean,
 ) {
     val logged = row.logged
     // Fields for a set still to come start blank, with the suggestion greyed in; a logged set's
@@ -410,14 +469,17 @@ private fun SessionSetRow(
     var touched by remember(row.stepIndex, logged != null) { mutableStateOf(false) }
     val amount = inputs.amount.trim().toIntOrNull()?.takeIf { it > 0 } ?: suggestion.amount
     val weightKg = if (inputs.load.isBlank()) suggestion.weightKg else inputs.loadKg(loadUnit)
-    val toLog = amount?.takeIf { inputs.rpeValid }?.let {
-        val effort = parseSessionRpe(inputs.rpe)
+    /** The set as it would be logged with [effort], or null while there is no amount to log. */
+    fun setWith(effort: Double?): WeightSet? = amount?.let {
         if (timed) {
             row.step.target.copy(reps = 0, durationSeconds = it, weightKg = weightKg, rpe = effort, done = null)
         } else {
             row.step.target.copy(reps = it, weightKg = weightKg, rpe = effort, done = null)
         }
     }
+    val toLog = if (inputs.rpeValid) setWith(parseSessionRpe(inputs.rpe)) else null
+    // With RPE chips on, the chips log the next set; the timer still does for a timed hold.
+    val chipsLog = rpeLogsSet && row.isNext && logged == null && !(timed && onStartTimer != null)
     // A logged set fixed by typing over it saves itself once the typing stops.
     if (logged != null) {
         val edited = inputs.toSet(logged, timed, loadUnit)
@@ -493,6 +555,7 @@ private fun SessionSetRow(
             ) {
                 Icon(Icons.Default.Timer, contentDescription = "Start timer for set $number")
             }
+            chipsLog -> Spacer(Modifier.width(SetButtonSize))
             else -> OutlinedIconButton(
                 onClick = { toLog?.let(onLog) },
                 enabled = row.isNext && toLog != null,
@@ -504,6 +567,13 @@ private fun SessionSetRow(
         IconButton(onClick = { onRemove?.invoke() }, enabled = onRemove != null, modifier = Modifier.size(SetButtonSize)) {
             Icon(Icons.Default.Close, contentDescription = "Remove set $number")
         }
+    }
+    if (chipsLog) {
+        RpeChipStrip(
+            enabled = amount != null,
+            onPick = { effort -> setWith(effort)?.let(onLog) },
+            modifier = Modifier.padding(start = SetNumberWidth + 6.dp),
+        )
     }
     if (row.isNext && timed && onStartTimer != null && toLog != null) {
         // The hold timer counts the time; this logs a hold done without it.
@@ -522,6 +592,39 @@ private fun SessionSetRow(
             },
             modifier = Modifier.padding(start = SetNumberWidth + 6.dp),
         )
+    }
+}
+
+private val RPE_CHOICES = listOf(6.0, 7.0, 7.5, 8.0, 8.5, 9.0, 9.5, 10.0)
+
+/** RPE choices under the next set: tapping one logs the set with it, and the rest starts. */
+@Composable
+private fun RpeChipStrip(enabled: Boolean, onPick: (Double?) -> Unit, modifier: Modifier = Modifier) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(
+            if (enabled) "Pick RPE to log the set" else "Enter reps to log the set",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
+        ) {
+            RPE_CHOICES.forEach { effort ->
+                FilterChip(
+                    selected = false,
+                    enabled = enabled,
+                    onClick = { onPick(effort) },
+                    label = { Text(formatRpeFieldForSets(effort)) },
+                )
+            }
+            FilterChip(
+                selected = false,
+                enabled = enabled,
+                onClick = { onPick(null) },
+                label = { Text("No RPE") },
+            )
+        }
     }
 }
 

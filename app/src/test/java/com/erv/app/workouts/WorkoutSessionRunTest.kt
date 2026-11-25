@@ -341,6 +341,26 @@ class WorkoutSessionRunTest {
     }
 
     @Test
+    fun a_standalone_workout_can_lose_a_set_of_an_earlier_section() {
+        val library = started("example-strength-day").finishMainSection()
+        val plan = library.sessionPlan()
+        val firstSquat = plan.steps.indexOfFirst { it is WorkoutSessionStep.LiftSet && it.itemId == "strength-squat" }
+        assertTrue(library.step()!!.segmentId != "strength-main")
+        // A library workout logged that section when it finished.
+        assertFalse(library.canRemoveSessionSetAt(firstSquat, plan))
+
+        val standalone = started("example-strength-day").copy(standalone = WorkoutStandaloneStart())
+            .finishMainSection()
+        assertTrue(standalone.canRemoveSessionSetAt(firstSquat, standalone.sessionPlan()))
+        val fewer = standalone.withSessionSetRemoved(firstSquat)
+        assertEquals(
+            listOf(set(5, 102.5), set(4, 102.5)),
+            WorkoutSessionEngine.loggedSets(fewer.sessionPlan(), fewer.session!!, "strength-main", "strength-squat"),
+        )
+        assertEquals(standalone.step(), fewer.step())
+    }
+
+    @Test
     fun an_added_set_copies_the_last_planned_one() {
         val bench = (examples.getValue("example-strength-day").segments[0].items[2] as WorkoutItem.Weight).prescription
         val more = bench.withSetCountChange(1)

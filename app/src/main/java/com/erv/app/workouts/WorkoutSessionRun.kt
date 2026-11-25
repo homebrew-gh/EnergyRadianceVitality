@@ -606,10 +606,9 @@ fun WorkoutActiveRun.canRemoveSessionSetAt(stepIndex: Int, plan: WorkoutSessionP
     val step = plan.steps.getOrNull(stepIndex) as? WorkoutSessionStep.LiftSet ?: return false
     if (step.inRounds || step.setCount <= 1) return false
     val current = WorkoutSessionEngine.currentStep(plan, state)
-    // A standalone workout waiting for more can still lose a set of its last exercise; it is
-    // only logged at Finish.
-    if (current == null && standalone == null) return false
-    if (current != null && current.segmentId != step.segmentId) return false
+    // A standalone workout is only logged at Finish, so any of its exercises can lose a set,
+    // also while it waits for more. A library workout's sections are logged as they finish.
+    if (standalone == null && (current == null || current.segmentId != step.segmentId)) return false
     if (state.recordFor(stepIndex)?.outcome == WorkoutStepOutcome.SKIPPED) return false
     return itemRecaps.none { it.segmentId == step.segmentId && it.itemId == step.itemId && it.linkedEntryId != null }
 }
