@@ -167,6 +167,7 @@ import com.erv.app.cardio.CardioWeekday
 import com.erv.app.cardio.CardioTimerCompletionResult
 import com.erv.app.cardio.CardioTimerSessionDraft
 import com.erv.app.cardio.CardioTimerStyle
+import com.erv.app.cardio.CardioPaceGoal
 import com.erv.app.cardio.eligibleForPhoneGps
 import com.erv.app.cardio.supportsPhoneGpsTracking
 import com.erv.app.cardio.liveDistanceMeters
@@ -1858,7 +1859,8 @@ private fun CardioTimerStartOptionsDialog(
         style: CardioTimerStyle,
         outdoorPace: Double?,
         outdoorPaceUnit: CardioSpeedUnit?,
-        ruckLoadKg: Double?
+        ruckLoadKg: Double?,
+        paceGoal: CardioPaceGoal?,
     ) -> Unit
 ) {
     val isSprint = activity.builtin == CardioBuiltinActivity.SPRINT
@@ -1867,6 +1869,12 @@ private fun CardioTimerStartOptionsDialog(
 
     val dialogKey = "${activity.displayLabel}_${modality}_${distanceUnit}"
     var countDown by remember(dialogKey) { mutableStateOf(false) }
+    var paceGoalOn by remember(dialogKey) { mutableStateOf(false) }
+    var goalDistanceStr by remember(dialogKey) { mutableStateOf("") }
+    var goalMinutesStr by remember(dialogKey) { mutableStateOf("") }
+    val goalDistance = goalDistanceStr.toDoubleOrNull()?.takeIf { it > 0 }
+    val goalMinutes = goalMinutesStr.toDoubleOrNull()?.takeIf { it > 0 }
+    val paceGoalValid = !paceGoalOn || (goalDistance != null && goalMinutes != null)
     var sprintOutdoorByTime by remember(dialogKey) { mutableStateOf(true) }
     var countDownMinutesStr by remember(dialogKey) {
         mutableStateOf(
@@ -1906,7 +1914,7 @@ private fun CardioTimerStartOptionsDialog(
         sprintIndoor -> sprintIndoorValid
         sprintOutdoor && sprintOutdoorByTime -> sprintOutdoorTimeValid
         sprintOutdoor && !sprintOutdoorByTime -> sprintOutdoorDistValid
-        else -> paceOptionalValid && countDownValid
+        else -> paceOptionalValid && countDownValid && paceGoalValid
     }
 
     val showTimeCountdownField =
@@ -1939,15 +1947,59 @@ private fun CardioTimerStartOptionsDialog(
                     FormSectionLabel("Main clock")
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         FilterChip(
-                            selected = !countDown,
-                            onClick = { countDown = false },
+                            selected = !countDown && !paceGoalOn,
+                            onClick = {
+                                countDown = false
+                                paceGoalOn = false
+                            },
                             label = { FieldLabel("Count up") }
                         )
                         FilterChip(
                             selected = countDown,
-                            onClick = { countDown = true },
+                            onClick = {
+                                countDown = true
+                                paceGoalOn = false
+                            },
                             label = { FieldLabel("Count down") }
                         )
+                        FilterChip(
+                            selected = paceGoalOn,
+                            onClick = {
+                                paceGoalOn = true
+                                countDown = false
+                            },
+                            label = { FieldLabel("Pace goal") }
+                        )
+                    }
+                    if (paceGoalOn) {
+                        Text(
+                            "Cover a distance in a time, like 10 miles in 45 minutes. The workout screen shows whether you're ahead or behind, and ends at the distance.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(
+                                value = goalDistanceStr,
+                                onValueChange = { goalDistanceStr = it },
+                                label = {
+                                    FieldLabel(
+                                        when (distanceUnit) {
+                                            CardioDistanceUnit.MILES -> "Distance (mi)"
+                                            CardioDistanceUnit.KILOMETERS -> "Distance (km)"
+                                        }
+                                    )
+                                },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                modifier = Modifier.weight(1f)
+                            )
+                            OutlinedTextField(
+                                value = goalMinutesStr,
+                                onValueChange = { goalMinutesStr = it },
+                                label = { FieldLabel("Time (min)") },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
                     }
                 }
                 if (sprintOutdoor) {
@@ -2100,7 +2152,15 @@ private fun CardioTimerStartOptionsDialog(
                     val ruckKg = if (isRuckOutdoor) {
                         ruckLoadStr.toDoubleOrNull()?.takeIf { it > 0 }?.times(0.453592)
                     } else null
-                    onConfirm(style, pace, pUnit, ruckKg)
+                    val goal = if (paceGoalOn && !isSprint && goalDistance != null && goalMinutes != null) {
+                        CardioPaceGoal(
+                            distanceMeters = parseCardioDistanceInputToMeters(goalDistance, distanceUnit),
+                            seconds = (goalMinutes * 60).roundToInt(),
+                        )
+                    } else {
+                        null
+                    }
+                    onConfirm(style, pace, pUnit, ruckKg, goal)
                     onDismiss()
                 },
                 enabled = confirmEnabled
@@ -2336,7 +2396,7 @@ private fun ActivitiesTab(
             modality = p.modality,
             distanceUnit = distanceUnit,
             onDismiss = { pendingTimerOpts = null },
-            onConfirm = { style, pace, paceUnit, ruckLoadKg ->
+            onConfirm = { style, pace, paceUnit, ruckLoadKg, paceGoal ->
                 onStartWorkout(
                     CardioTimerSessionDraft.fromQuickSnapshot(
                         activity = p.snap,
@@ -2346,7 +2406,8 @@ private fun ActivitiesTab(
                         timerStyle = style,
                         outdoorPaceSpeed = pace,
                         outdoorPaceSpeedUnit = paceUnit,
-                        ruckLoadKg = ruckLoadKg
+                        ruckLoadKg = ruckLoadKg,
+                        paceGoal = paceGoal,
                     )
                 )
             }
