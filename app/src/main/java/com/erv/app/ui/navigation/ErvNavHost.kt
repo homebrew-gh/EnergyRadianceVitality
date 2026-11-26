@@ -680,6 +680,10 @@ fun ErvNavHost(
                 onOpenStretchCategory = {
                     navController.navigate(Routes.category("stretching")) { launchSingleTop = true }
                 },
+                onStretchForToday = {
+                    com.erv.app.ui.stretching.StretchBuildForTodayRequests.request()
+                    navController.navigate(Routes.stretchingCategoryTab("Routines")) { launchSingleTop = true }
+                },
                 onOpenExerciseDetail = { exerciseId ->
                     navController.navigate(Routes.weightExerciseDetail(exerciseId))
                 },
@@ -750,6 +754,9 @@ fun ErvNavHost(
             StretchingCategoryScreen(
                 repository = stretchingRepository,
                 workoutRepository = workoutRepository,
+                weightRepository = weightRepository,
+                cardioRepository = cardioRepository,
+                programRepository = programRepository,
                 userPreferences = userPreferences,
                 relayPool = relayPool,
                 signer = signer,

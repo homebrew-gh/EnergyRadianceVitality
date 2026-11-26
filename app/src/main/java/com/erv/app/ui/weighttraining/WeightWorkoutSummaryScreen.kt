@@ -224,6 +224,8 @@ fun WeightWorkoutSummaryFullScreen(
     /** Remove this session from [logDate] and close (e.g. user regrets saving). */
     onRemoveFromLog: (() -> Unit)? = null,
     onOpenLog: (() -> Unit)? = null,
+    /** Opens Stretching's Build For Today for what this session worked; null hides the button. */
+    onStretchForToday: (() -> Unit)? = null,
     onDone: () -> Unit
 ) {
     val heartRateZoneInputs by userPreferences.heartRateZoneInputs.collectAsState(
@@ -500,6 +502,16 @@ fun WeightWorkoutSummaryFullScreen(
                     border = ButtonDefaults.outlinedButtonBorder.copy(brush = SolidColor(Color.White))
                 ) {
                     Text("Open log")
+                }
+            }
+            onStretchForToday?.let { stretch ->
+                OutlinedButton(
+                    onClick = stretch,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                    border = ButtonDefaults.outlinedButtonBorder.copy(brush = SolidColor(Color.White))
+                ) {
+                    Text("Stretch for today")
                 }
             }
             Button(

@@ -251,6 +251,9 @@ fun StretchingCategoryScreen(
     onReturnToWorkoutRun: (String) -> Unit,
     onOpenLog: () -> Unit,
     initialTab: String = StretchTab.Stretches.name,
+    weightRepository: com.erv.app.weighttraining.WeightRepository? = null,
+    cardioRepository: com.erv.app.cardio.CardioRepository? = null,
+    programRepository: com.erv.app.programs.ProgramRepository? = null,
 ) {
     val state by repository.state.collectAsState(initial = StretchLibraryState())
     val scope = rememberCoroutineScope()
@@ -260,6 +263,20 @@ fun StretchingCategoryScreen(
         ?.ordinal
         ?: StretchTab.Stretches.ordinal
     var activeTab by rememberSaveable { mutableIntStateOf(resolvedInitialTab) }
+    // Build For Today: today's training once gathered, which opens the dialog.
+    var buildForToday by remember { mutableStateOf<com.erv.app.stretching.TodayTraining?>(null) }
+    fun openBuildForToday() {
+        scope.launch {
+            buildForToday = gatherTodayTraining(weightRepository, cardioRepository, workoutRepository, programRepository)
+        }
+    }
+    val buildForTodayRequested by StretchBuildForTodayRequests.pending.collectAsState()
+    LaunchedEffect(buildForTodayRequested) {
+        if (!buildForTodayRequested) return@LaunchedEffect
+        StretchBuildForTodayRequests.pending.value = false
+        activeTab = StretchTab.Routines.ordinal
+        openBuildForToday()
+    }
     LaunchedEffect(resolvedInitialTab) {
         activeTab = resolvedInitialTab
     }
@@ -439,10 +456,31 @@ fun StretchingCategoryScreen(
                             snackbarHostState.showSnackbar("Routine deleted")
                         }
                     },
-                    onPlayRoutine = { guidedRoutine = it }
+                    onPlayRoutine = { guidedRoutine = it },
+                    onBuildForToday = { openBuildForToday() },
                 )
             }
         }
+    }
+
+    buildForToday?.let { today ->
+        BuildForTodayDialog(
+            today = today,
+            catalog = repository.catalog,
+            onDismiss = { buildForToday = null },
+            onPlay = { built ->
+                buildForToday = null
+                guidedRoutine = built.toRoutine(id = "build-for-today-${LocalDate.now()}")
+            },
+            onSave = { built ->
+                buildForToday = null
+                scope.launch {
+                    repository.addRoutine(built.toRoutine())
+                    snackbarHostState.showSnackbar("Saved \"${built.name}\" to Routines")
+                    syncRoutines()
+                }
+            },
+        )
     }
 
     if (creatingRoutine || routineEditor != null) {
@@ -636,13 +674,35 @@ private fun StretchesCatalogTab(repository: StretchingRepository) {
 }
 
 @Composable
+private fun BuildForTodayCard(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    androidx.compose.material3.OutlinedCard(onClick = onClick, modifier = modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Build for today", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    "Stretches for what you worked today, in 5 to 20 minutes. Rest days get restorative poses.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Icon(Icons.Default.PlayArrow, contentDescription = null)
+        }
+    }
+}
+
+@Composable
 private fun StretchRoutinesTab(
     state: StretchLibraryState,
     repository: StretchingRepository,
     onAddRoutine: () -> Unit,
     onEditRoutine: (StretchRoutine) -> Unit,
     onDeleteRoutine: (String) -> Unit,
-    onPlayRoutine: (StretchRoutine) -> Unit
+    onPlayRoutine: (StretchRoutine) -> Unit,
+    onBuildForToday: () -> Unit,
 ) {
     Box(modifier = Modifier.fillMaxSize()) {
         if (state.routines.isEmpty()) {
@@ -659,6 +719,8 @@ private fun StretchRoutinesTab(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 24.dp)
                     )
+                    Spacer(Modifier.height(16.dp))
+                    BuildForTodayCard(onClick = onBuildForToday, modifier = Modifier.padding(horizontal = 24.dp))
                 }
             }
         } else {
@@ -667,6 +729,9 @@ private fun StretchRoutinesTab(
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                item(key = "build-for-today") {
+                    BuildForTodayCard(onClick = onBuildForToday)
+                }
                 items(state.routines, key = { it.id }) { routine ->
                     ElevatedCard(modifier = Modifier.fillMaxWidth()) {
                         Column(modifier = Modifier.padding(16.dp)) {

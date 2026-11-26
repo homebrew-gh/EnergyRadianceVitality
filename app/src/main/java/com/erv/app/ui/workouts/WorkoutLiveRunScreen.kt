@@ -312,6 +312,8 @@ fun WorkoutLiveRunScreen(
     onOpenWeightLog: () -> Unit = onOpenWeightCategory,
     onOpenCardioCategory: () -> Unit,
     onOpenStretchCategory: () -> Unit,
+    /** Opens Stretching with Build For Today, from the finish summary. */
+    onStretchForToday: () -> Unit = onOpenStretchCategory,
     /** Opens an exercise's full stats page; the run keeps going underneath. */
     onOpenExerciseDetail: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier,
@@ -1284,6 +1286,7 @@ fun WorkoutLiveRunScreen(
                 leave(first = { weightRepository.deleteWorkout(finished.logDate, finished.session.id) }) { onBack() }
             },
             onOpenLog = { leave { onOpenWeightLog() } },
+            onStretchForToday = { leave { onStretchForToday() } },
             onDone = { leave { onBack() } },
         )
         return
@@ -1339,6 +1342,14 @@ fun WorkoutLiveRunScreen(
                     }
                 }
                 save
+            },
+            onStretchForToday = {
+                finishingRun = true
+                scope.launch {
+                    heartRateBle.discardComposedWorkoutRunRecording()
+                    repository.clearActiveRun()
+                    onStretchForToday()
+                }
             },
             onDone = {
                 finishingRun = true
@@ -2673,6 +2684,8 @@ private fun ComposedWorkoutSummaryScreen(
      * card. Its argument is true when today's weights were already saved as targets.
      */
     onSaveWorkoutChanges: (suspend (Boolean) -> Boolean)? = null,
+    /** Build a stretch for what this workout worked; null hides the button. */
+    onStretchForToday: (() -> Unit)? = null,
     onDone: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
@@ -2964,6 +2977,13 @@ private fun ComposedWorkoutSummaryScreen(
                                 else -> "Share workout"
                             },
                         )
+                    }
+                }
+            }
+            onStretchForToday?.let { stretch ->
+                item {
+                    OutlinedButton(onClick = stretch, modifier = Modifier.fillMaxWidth()) {
+                        Text("Stretch for today")
                     }
                 }
             }
