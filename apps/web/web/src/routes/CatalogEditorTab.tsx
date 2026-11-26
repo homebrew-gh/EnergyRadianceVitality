@@ -1,6 +1,12 @@
 import { CatalogGroupSelect } from "../components/CatalogGroupSelect";
 import { FieldLabel } from "../components/FieldLabel";
 import { useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { Link } from "react-router-dom";
+import { compactSetsLine, daysBetween, liftDateLabel, liftListStats, type LiftListStat } from "../lib/liftStats";
+import { formatIsoDate } from "../lib/trainingHistory";
+import { useTrainingHistory } from "../lib/trainingHistoryData";
+import { useWeightLoadUnit, weightLoadUnitSuffix } from "../lib/weightLoadUnit";
+import { kgToLb, type BodyWeightUnit } from "../lib/fitnessEquipment";
 import {
   collectMuscleGroupOptions,
   collectStretchCategoryOptions,
@@ -25,6 +31,10 @@ import { PageHeader } from "../components/PageHeader";
 type EditorTab = "weight" | "stretch" | "cardio";
 
 type WeightDraft = WeightCatalogExercise;
+type WeightSort = "muscle" | "recent";
+
+/** A record set within this many days gets the PR tag on the list. */
+const RECENT_RECORD_DAYS = 14;
 type StretchDraft = StretchCatalogEntry;
 
 export function CatalogEditorTab() {
@@ -32,12 +42,28 @@ export function CatalogEditorTab() {
   const [tab, setTab] = useState<EditorTab>("weight");
   const [query, setQuery] = useState("");
 
+  const { weightLogs } = useTrainingHistory();
+  const [weightUnit] = useWeightLoadUnit();
+  const [weightSort, setWeightSort] = useState<WeightSort>("muscle");
+  const liftStats = useMemo(() => liftListStats(weightLogs), [weightLogs]);
+  const todayIso = formatIsoDate(new Date());
+
   const weightGroups = useMemo(() => {
     const filtered = editor.weightExercises.filter((exercise) =>
       matchesQuery(query, exercise.name, exercise.muscleGroup, exercise.equipment),
     );
-    return groupWeightExercises(filtered);
-  }, [editor.weightExercises, query]);
+    if (weightSort === "muscle") return groupWeightExercises(filtered);
+    const done = filtered
+      .filter((e) => liftStats.has(e.id))
+      .sort((a, b) => liftStats.get(b.id)!.lastDate.localeCompare(liftStats.get(a.id)!.lastDate));
+    const notDone = filtered
+      .filter((e) => !liftStats.has(e.id))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    return [
+      { key: "recent", label: "Recently Done", items: done },
+      { key: "not-done", label: "Not Logged Yet", items: notDone },
+    ].filter((g) => g.items.length > 0);
+  }, [editor.weightExercises, query, weightSort, liftStats]);
 
   const stretchGroups = useMemo(() => {
     const filtered = editor.stretchEntries.filter((entry) =>
@@ -184,6 +210,26 @@ export function CatalogEditorTab() {
               Add exercise
             </button>
           ) : null}
+          {tab === "weight" ? (
+            <div className="ml-auto flex gap-1" role="group" aria-label="Sort exercises">
+              <button
+                type="button"
+                className={weightSort === "muscle" ? "btn-primary text-xs py-1 px-3" : "btn-ghost text-xs py-1 px-3"}
+                aria-pressed={weightSort === "muscle"}
+                onClick={() => setWeightSort("muscle")}
+              >
+                By Muscle
+              </button>
+              <button
+                type="button"
+                className={weightSort === "recent" ? "btn-primary text-xs py-1 px-3" : "btn-ghost text-xs py-1 px-3"}
+                aria-pressed={weightSort === "recent"}
+                onClick={() => setWeightSort("recent")}
+              >
+                Recently Done
+              </button>
+            </div>
+          ) : null}
           {tab === "stretch" ? (
             <button
               type="button"
@@ -216,7 +262,7 @@ export function CatalogEditorTab() {
               key={group.key}
               title={group.label}
               count={group.items.length}
-              onAdd={() =>
+              onAdd={weightSort !== "muscle" ? undefined : () =>
                 setWeightModal({
                   id: newCustomWeightExerciseId(),
                   name: "",
@@ -230,7 +276,10 @@ export function CatalogEditorTab() {
                 <CatalogRow
                   key={exercise.id}
                   title={exercise.name}
+                  titleTo={`/app/exercises/weight/${encodeURIComponent(exercise.id)}`}
                   subtitle={`${formatCategoryLabel(exercise.equipment)} · ${exercise.pushOrPull}`}
+                  stats={liftStatsLine(liftStats.get(exercise.id), weightUnit, todayIso)}
+                  badge={liftRecordBadge(liftStats.get(exercise.id), todayIso)}
                   meta={isBuiltInWeightCatalogId(exercise.id) ? "built-in" : "custom"}
                   onEdit={() => setWeightModal({ ...exercise })}
                   onDelete={() => {
@@ -438,15 +487,42 @@ function CategorySection({
   );
 }
 
+/** "Last Nov 24 · 230 lb × 5 · 215 lb × 5, 5 · 1RM 268 lb" under a logged exercise. */
+function liftStatsLine(stat: LiftListStat | undefined, unit: BodyWeightUnit, todayIso: string): string | undefined {
+  if (!stat) return undefined;
+  const parts = [`Last ${liftDateLabel(stat.lastDate, todayIso)}`];
+  const sets = compactSetsLine(stat.lastEntry, unit, false);
+  if (sets) parts.push(sets);
+  if (stat.bestEstOneRmKg != null) {
+    const v = unit === "KG" ? stat.bestEstOneRmKg : kgToLb(stat.bestEstOneRmKg);
+    parts.push(`1RM ${Math.round(v)} ${weightLoadUnitSuffix(unit)}`);
+  }
+  return parts.join(" · ");
+}
+
+function liftRecordBadge(stat: LiftListStat | undefined, todayIso: string): string | undefined {
+  if (!stat?.lastRecordDate) return undefined;
+  return daysBetween(stat.lastRecordDate, todayIso) <= RECENT_RECORD_DAYS ? "PR" : undefined;
+}
+
 function CatalogRow({
   title,
+  titleTo,
   subtitle,
+  stats,
+  badge,
   meta,
   onEdit,
   onDelete,
 }: {
   title: string;
+  /** Where the title links to, for an exercise with its own stats page. */
+  titleTo?: string;
   subtitle?: string;
+  /** A line on what was done last time, under the subtitle. */
+  stats?: string;
+  /** A short tag after the title, like "PR" for a recent record. */
+  badge?: string;
   meta?: string;
   onEdit: () => void;
   onDelete?: () => void;
@@ -454,8 +530,22 @@ function CatalogRow({
   return (
     <div className="px-4 py-3 flex items-start gap-3">
       <div className="flex-1 min-w-0">
-        <p className="font-medium text-heading truncate">{title}</p>
+        <p className="font-medium text-heading truncate">
+          {titleTo ? (
+            <Link to={titleTo} className="hover:underline">
+              {title}
+            </Link>
+          ) : (
+            title
+          )}
+          {badge ? (
+            <span className="ml-2 rounded-pill border border-[var(--erv-primary)]/50 px-2 text-xs font-semibold text-[var(--erv-primary)]">
+              {badge}
+            </span>
+          ) : null}
+        </p>
         {subtitle ? <p className="text-sm text-muted truncate">{subtitle}</p> : null}
+        {stats ? <p className="text-xs text-muted truncate">{stats}</p> : null}
       </div>
       {meta ? (
         <span className="text-[10px] uppercase tracking-wide text-muted border border-outline/40 rounded-pill px-2 py-0.5">
@@ -463,6 +553,11 @@ function CatalogRow({
         </span>
       ) : null}
       <div className="flex gap-1 shrink-0">
+        {titleTo ? (
+          <Link to={titleTo} className="btn-ghost text-xs py-1 px-2">
+            Stats
+          </Link>
+        ) : null}
         <button type="button" className="btn-ghost text-xs py-1 px-2" onClick={onEdit}>
           Edit
         </button>
