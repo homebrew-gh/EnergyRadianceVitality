@@ -288,10 +288,15 @@ object LibraryStateMerge {
             val r = remote.logs.firstOrNull { it.date == d }
             mergeBodyTrackerDay(l, r)
         }
+        val localWinsTracked =
+            local.trackedMeasurementsUpdatedAtEpochSeconds >= remote.trackedMeasurementsUpdatedAtEpochSeconds
+        val trackedSource = if (localWinsTracked) local else remote
         return BodyTrackerLibraryState(
             lengthUnit = lengthUnit,
             lengthUnitUpdatedAtEpochSeconds = lengthUnitUpdatedAt,
-            logs = logs.sortedBy { it.date }
+            logs = logs.sortedBy { it.date },
+            trackedMeasurements = trackedSource.trackedMeasurements,
+            trackedMeasurementsUpdatedAtEpochSeconds = trackedSource.trackedMeasurementsUpdatedAtEpochSeconds
         )
     }
 

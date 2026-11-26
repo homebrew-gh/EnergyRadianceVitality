@@ -55,6 +55,15 @@ class BodyTrackerRepository(context: Context) {
         }
     }
 
+    suspend fun setTrackedMeasurements(keys: Collection<BodyMeasurementKey>) {
+        updateState {
+            it.copy(
+                trackedMeasurements = BodyMeasurementKey.entries.filter { k -> k in keys }.map { k -> k.name },
+                trackedMeasurementsUpdatedAtEpochSeconds = nowEpochSeconds()
+            )
+        }
+    }
+
     /**
      * @param fromMeasurementFormSave When true (Body tracker "Save this day"), clearing all relay-visible
      * fields while keeping photos bumps [BodyTrackerDayLog.updatedAtEpochSeconds] so an empty payload can

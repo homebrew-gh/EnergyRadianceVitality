@@ -126,6 +126,8 @@ object Routes {
     const val bodyTrackerLog = "category/body_tracker/log"
     const val bodyTrackerLogOpenCalendarRoute = "category/body_tracker/log/open/{logDate}"
     fun bodyTrackerLogOpenCalendar(logDateIso: String) = "category/body_tracker/log/open/$logDateIso"
+    const val bodyTrackerDayRoute = "category/body_tracker/day/{date}"
+    fun bodyTrackerDay(dateIso: String) = "category/body_tracker/day/$dateIso"
 
     /** Cardio flows show live HR in-session; the global HR strip above the nav host is redundant there. */
     fun isCardioDestination(route: String?): Boolean =
@@ -839,7 +841,25 @@ fun ErvNavHost(
                 userPreferences = userPreferences,
                 relayPool = relayPool,
                 signer = signer,
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackStack() },
+                onEditDay = { day -> navController.navigate(Routes.bodyTrackerDay(day.toString())) }
+            )
+        }
+
+        composable(
+            route = Routes.bodyTrackerDayRoute,
+            arguments = listOf(navArgument("date") { type = NavType.StringType })
+        ) { backStackEntry ->
+            val dateStr = backStackEntry.arguments?.getString("date").orEmpty()
+            val day = runCatching { LocalDate.parse(dateStr) }.getOrElse { LocalDate.now() }
+            BodyTrackerCategoryScreen(
+                repository = bodyTrackerRepository,
+                userPreferences = userPreferences,
+                relayPool = relayPool,
+                signer = signer,
+                onBack = { navController.popBackStack() },
+                onOpenLog = null,
+                initialDate = day
             )
         }
 
@@ -855,6 +875,7 @@ fun ErvNavHost(
                 relayPool = relayPool,
                 signer = signer,
                 onBack = { navController.popBackStack() },
+                onEditDay = { day -> navController.navigate(Routes.bodyTrackerDay(day.toString())) },
                 initialDate = initialDate,
                 openCalendarInitially = true
             )
