@@ -1,9 +1,12 @@
 package com.erv.app.ui.fasting
 
 import com.erv.app.ui.theme.ervTopAppBarColors
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -13,12 +16,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.AlertDialog
@@ -27,20 +31,20 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -49,49 +53,69 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import com.erv.app.ui.components.FieldLabel
-import com.erv.app.ui.components.FormSectionLabel
 import com.erv.app.SectionLogDateFilter
+import com.erv.app.bodytracker.BodyTrackerDayLog
+import com.erv.app.bodytracker.BodyTrackerRepository
+import com.erv.app.bodytracker.BodyTrackerSync
+import com.erv.app.data.BodyWeightUnit
+import com.erv.app.data.UserPreferences
+import com.erv.app.data.lbToKg
 import com.erv.app.fasting.FastingCompletionScheduler
 import com.erv.app.fasting.FastingForegroundService
 import com.erv.app.fasting.FastingLibraryState
-import com.erv.app.fasting.FastingMood
 import com.erv.app.fasting.FastingRepository
 import com.erv.app.fasting.FastingSession
 import com.erv.app.fasting.FastingSessionKind
 import com.erv.app.fasting.FastingStatus
+import com.erv.app.fasting.INTERMITTENT_PRESETS
 import com.erv.app.fasting.IntermittentFastingPhase
 import com.erv.app.fasting.IntermittentFastingPlan
 import com.erv.app.fasting.IntermittentFastingStatus
+import com.erv.app.fasting.currentStatus
 import com.erv.app.fasting.datedFastingSessionsForSectionLog
 import com.erv.app.fasting.datesWithFastingActivity
 import com.erv.app.fasting.displayName
+import com.erv.app.fasting.eatingLengthMinutes
 import com.erv.app.fasting.elapsedSeconds
+import com.erv.app.fasting.fastEndMinutes
+import com.erv.app.fasting.fastStartMinutes
+import com.erv.app.fasting.fastingLengthMinutes
 import com.erv.app.fasting.fastingNowEpochSeconds
 import com.erv.app.fasting.formatFastingDateTime
 import com.erv.app.fasting.formatFastingDuration
+import com.erv.app.fasting.formatMinutesLength
+import com.erv.app.fasting.formatTargetHours
 import com.erv.app.fasting.logDate
-import com.erv.app.fasting.currentStatus
-import com.erv.app.fasting.eatingEndMinutes
 import com.erv.app.fasting.normalized
 import com.erv.app.fasting.progress
+import com.erv.app.fasting.publishFastingChange
 import com.erv.app.fasting.remainingSeconds
+import com.erv.app.fasting.targetDaysForHours
+import com.erv.app.fasting.targetHoursTotal
+import com.erv.app.fasting.withFastWindow
+import com.erv.app.fasting.withPreset
+import com.erv.app.nostr.EventSigner
+import com.erv.app.nostr.LocalKeyManager
+import com.erv.app.nostr.RelayPool
+import com.erv.app.ui.components.ClockTimePickerDialog
+import com.erv.app.ui.components.FormSectionLabel
+import com.erv.app.ui.components.FormSectionLabelSmall
 import com.erv.app.ui.dashboard.SectionLogCalendarSheet
 import com.erv.app.ui.dashboard.SectionLogFilterBar
 import java.time.LocalDate
-import java.time.Instant
-import java.time.ZoneId
+import java.time.LocalTime
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.roundToLong
 
 private enum class FastingMode {
     INTERMITTENT,
@@ -102,23 +126,52 @@ private enum class FastingMode {
 @Composable
 fun FastingScreen(
     repository: FastingRepository,
+    bodyTrackerRepository: BodyTrackerRepository,
+    userPreferences: UserPreferences,
+    relayPool: RelayPool?,
+    signer: EventSigner?,
     onBack: () -> Unit,
     onOpenLog: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
+    val appContext = context.applicationContext
+    val keyManager = LocalKeyManager.current
     val state by repository.state.collectAsState(initial = FastingLibraryState())
+    val weightUnit by userPreferences.bodyWeightUnit.collectAsState(initial = BodyWeightUnit.LB)
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     var nowEpochSeconds by remember { mutableLongStateOf(fastingNowEpochSeconds()) }
     var completionSession by remember { mutableStateOf<FastingSession?>(null) }
     var cancelSession by remember { mutableStateOf<FastingSession?>(null) }
-    var selectedMode by remember { mutableStateOf(FastingMode.INTERMITTENT) }
+    var editActiveSession by remember { mutableStateOf<FastingSession?>(null) }
+    var selectedMode by rememberSaveable { mutableStateOf<FastingMode?>(null) }
+    val mode = selectedMode ?: if (state.activeSession != null) FastingMode.EXTENDED else FastingMode.INTERMITTENT
+
+    suspend fun publish(dates: Collection<LocalDate>) {
+        publishFastingChange(appContext, relayPool, signer, repository, dates, keyManager.relayUrlsForKind30078Publish())
+    }
 
     LaunchedEffect(Unit) {
         while (true) {
             nowEpochSeconds = fastingNowEpochSeconds()
             delay(1_000L)
+        }
+    }
+
+    // Log finished windows of the daily schedule while the screen is open (also done at app start).
+    LaunchedEffect(state.intermittentPlan.autoLog) {
+        if (!state.intermittentPlan.autoLog) return@LaunchedEffect
+        while (true) {
+            val added = repository.autoLogIntermittentWindows()
+            if (added.isNotEmpty()) {
+                publish(added.map { it.logDate() })
+                snackbarHostState.showSnackbar(
+                    if (added.size == 1) "Logged your ${formatFastingDuration(added[0].elapsedSeconds())} fast"
+                    else "Logged ${added.size} fasts"
+                )
+            }
+            delay(60_000L)
         }
     }
 
@@ -151,13 +204,13 @@ fun FastingScreen(
             item {
                 Spacer(Modifier.height(2.dp))
                 FastingModeSelector(
-                    selectedMode = selectedMode,
+                    selectedMode = mode,
                     onSelected = { selectedMode = it },
                 )
             }
             item {
                 val active = state.activeSession
-                when (selectedMode) {
+                when (mode) {
                     FastingMode.INTERMITTENT -> {
                         IntermittentFastingCard(
                             plan = state.intermittentPlan,
@@ -165,12 +218,13 @@ fun FastingScreen(
                             onPlanChanged = { plan ->
                                 scope.launch {
                                     repository.setIntermittentPlan(plan)
-                                    snackbarHostState.showSnackbar("${plan.protocolLabel} plan saved")
+                                    publish(emptyList())
                                 }
                             },
                             onLogCompletedWindow = { plan, status ->
                                 scope.launch {
                                     val logged = repository.logCompletedIntermittentWindow(plan, status, nowEpochSeconds)
+                                    if (logged != null) publish(listOf(logged.logDate()))
                                     snackbarHostState.showSnackbar(
                                         if (logged == null) "This fasting window is already logged" else "Intermittent fast logged"
                                     )
@@ -181,14 +235,15 @@ fun FastingScreen(
                     FastingMode.EXTENDED -> {
                         if (active == null) {
                             FastingStartCard(
-                                onStart = { days ->
+                                onStart = { hours, startedAt ->
                                     scope.launch {
-                                        val session = repository.startFast(days)
+                                        val session = repository.startFast(hours, startedAt)
                                         FastingForegroundService.start(context, session)
                                         val scheduled = FastingCompletionScheduler.schedule(context, session)
+                                        publish(emptyList())
                                         snackbarHostState.showSnackbar(
                                             if (scheduled) {
-                                                "${days}-day fast started"
+                                                "${formatTargetHours(hours)} fast started"
                                             } else {
                                                 "Fast started. Enable exact alarms for end-time reminders."
                                             }
@@ -202,12 +257,13 @@ fun FastingScreen(
                                 nowEpochSeconds = nowEpochSeconds,
                                 onComplete = { completionSession = active },
                                 onCancel = { cancelSession = active },
+                                onEdit = { editActiveSession = active },
                             )
                         }
                     }
                 }
             }
-            if (selectedMode == FastingMode.EXTENDED) {
+            if (mode == FastingMode.EXTENDED) {
                 item {
                     FastingSafetyCard()
                 }
@@ -222,17 +278,54 @@ fun FastingScreen(
         }
     }
 
+    editActiveSession?.let { session ->
+        ActiveFastEditDialog(
+            session = session,
+            onDismiss = { editActiveSession = null },
+            onSave = { start, hours ->
+                editActiveSession = null
+                scope.launch {
+                    val updated = repository.editActive(start, hours) ?: return@launch
+                    FastingCompletionScheduler.cancel(context, session.id)
+                    FastingCompletionScheduler.schedule(context, updated)
+                    FastingForegroundService.start(context, updated)
+                    publish(emptyList())
+                    snackbarHostState.showSnackbar("Fast updated")
+                }
+            }
+        )
+    }
+
     completionSession?.let { session ->
         FastingCompletionDialog(
             session = session,
+            weightUnit = weightUnit,
             onDismiss = { completionSession = null },
-            onSave = { mood, weight, notes ->
+            onSave = { input ->
+                completionSession = null
                 scope.launch {
-                    repository.completeActive(mood, weight, notes)
+                    val unitLabel = if (weightUnit == BodyWeightUnit.KG) "kg" else "lb"
+                    val weightText = input.weight?.let { "${formatWeight(it)} $unitLabel" }.orEmpty()
+                    val saved = repository.completeActive(input.mood, weightText, input.notes)
                     FastingCompletionScheduler.cancel(context, session.id)
                     FastingForegroundService.stop(context)
-                    completionSession = null
-                    snackbarHostState.showSnackbar("Fast saved")
+                    if (saved != null) publish(listOf(saved.logDate()))
+                    val weight = input.weight
+                    if (input.saveWeightToBodyTracker && weight != null) {
+                        val kg = if (weightUnit == BodyWeightUnit.KG) weight else lbToKg(weight)
+                        val day = saved?.logDate() ?: LocalDate.now()
+                        val existing = bodyTrackerRepository.currentState().logFor(day) ?: BodyTrackerDayLog(date = day.toString())
+                        bodyTrackerRepository.saveDayLog(existing.copy(weightKg = kg), fromMeasurementFormSave = true)
+                        if (relayPool != null && signer != null) {
+                            BodyTrackerSync.publishDayAfterLocalChange(
+                                appContext, relayPool, signer, bodyTrackerRepository, day,
+                                keyManager.relayUrlsForKind30078Publish(),
+                            )
+                        }
+                        snackbarHostState.showSnackbar("Fast saved. Weight added to Body Tracker.")
+                    } else {
+                        snackbarHostState.showSnackbar("Fast saved")
+                    }
                 }
             },
         )
@@ -247,10 +340,11 @@ fun FastingScreen(
                 TextButton(
                     onClick = {
                         scope.launch {
-                            repository.cancelActive()
+                            val saved = repository.cancelActive()
                             FastingCompletionScheduler.cancel(context, session.id)
                             FastingForegroundService.stop(context)
                             cancelSession = null
+                            if (saved != null) publish(listOf(saved.logDate()))
                             snackbarHostState.showSnackbar("Fast cancelled")
                         }
                     },
@@ -267,6 +361,11 @@ fun FastingScreen(
     }
 }
 
+private fun formatWeight(value: Double): String {
+    val tenths = (value * 10).roundToLong()
+    return if (tenths % 10 == 0L) (tenths / 10).toString() else "%.1f".format(Locale.US, tenths / 10.0)
+}
+
 @Composable
 private fun FastingModeSelector(
     selectedMode: FastingMode,
@@ -279,18 +378,19 @@ private fun FastingModeSelector(
         FilterChip(
             selected = selectedMode == FastingMode.INTERMITTENT,
             onClick = { onSelected(FastingMode.INTERMITTENT) },
-            label = { Text("Intermittent") },
+            label = { Text("Daily Schedule") },
             modifier = Modifier.weight(1f),
         )
         FilterChip(
             selected = selectedMode == FastingMode.EXTENDED,
             onClick = { onSelected(FastingMode.EXTENDED) },
-            label = { Text("1-3 Day Fast") },
+            label = { Text("Longer Fast") },
             modifier = Modifier.weight(1f),
         )
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun IntermittentFastingCard(
     plan: IntermittentFastingPlan,
@@ -303,14 +403,8 @@ private fun IntermittentFastingCard(
     val phaseLabel = if (status.phase == IntermittentFastingPhase.FASTING) "Fasting" else "Eating window"
     val nextLabel = if (status.phase == IntermittentFastingPhase.FASTING) "Eating starts" else "Fast starts"
     val timeRemaining = formatFastingDuration(status.currentEndEpochSeconds - nowEpochSeconds)
-    val protocols = listOf(
-        IntermittentFastingPlan("14:10", fastingHours = 14, eatingHours = 10, eatingStartMinutes = normalized.eatingStartMinutes),
-        IntermittentFastingPlan("16:8", fastingHours = 16, eatingHours = 8, eatingStartMinutes = normalized.eatingStartMinutes),
-        IntermittentFastingPlan("18:6", fastingHours = 18, eatingHours = 6, eatingStartMinutes = normalized.eatingStartMinutes),
-        IntermittentFastingPlan("20:4", fastingHours = 20, eatingHours = 4, eatingStartMinutes = normalized.eatingStartMinutes),
-        IntermittentFastingPlan("OMAD", fastingHours = 23, eatingHours = 1, eatingStartMinutes = normalized.eatingStartMinutes),
-    )
-    val startOptions = listOf(8 * 60, 10 * 60, 12 * 60, 14 * 60, 16 * 60, 18 * 60)
+    var pickFastStart by remember { mutableStateOf(false) }
+    var pickFastEnd by remember { mutableStateOf(false) }
 
     ElevatedCard(modifier = Modifier.fillMaxWidth()) {
         Column(
@@ -321,54 +415,56 @@ private fun IntermittentFastingCard(
                 Icon(Icons.Default.Timer, contentDescription = null)
                 Spacer(Modifier.padding(horizontal = 4.dp))
                 Text(
-                    text = "Intermittent fasting",
+                    text = "Daily fasting schedule",
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.SemiBold,
                 )
             }
             Text(
-                text = "Pick a daily fasting/eating rhythm. ERV derives the current phase from your schedule.",
+                text = "Set when your fast starts and ends each day. Times move in 15-minute steps.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            FormSectionLabel("Protocol")
+            FormSectionLabel("Fasting window")
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                protocols.take(3).forEach { option ->
-                    FilterChip(
-                        selected = normalized.protocolLabel == option.protocolLabel,
-                        onClick = { onPlanChanged(option) },
-                        label = { Text(option.protocolLabel) },
-                    )
+                Column(modifier = Modifier.weight(1f)) {
+                    FormSectionLabelSmall("Fast starts")
+                    OutlinedButton(onClick = { pickFastStart = true }, modifier = Modifier.fillMaxWidth()) {
+                        Text(formatMinuteOfDay(normalized.fastStartMinutes()))
+                    }
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    FormSectionLabelSmall("Fast ends")
+                    OutlinedButton(onClick = { pickFastEnd = true }, modifier = Modifier.fillMaxWidth()) {
+                        Text(formatMinuteOfDay(normalized.fastEndMinutes()))
+                    }
                 }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                protocols.drop(3).forEach { option ->
+            Text(
+                text = "Fasting ${formatMinutesLength(normalized.fastingLengthMinutes())}, eating ${formatMinutesLength(normalized.eatingLengthMinutes())}.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            FormSectionLabel("Quick lengths")
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                INTERMITTENT_PRESETS.forEach { (label, hours) ->
                     FilterChip(
-                        selected = normalized.protocolLabel == option.protocolLabel,
-                        onClick = { onPlanChanged(option) },
-                        label = { Text(option.protocolLabel) },
+                        selected = normalized.protocolLabel == label,
+                        onClick = { onPlanChanged(normalized.withPreset(label, hours)) },
+                        label = { Text(label) },
                     )
                 }
+                FilterChip(
+                    selected = normalized.protocolLabel == "Custom",
+                    onClick = { pickFastStart = true },
+                    label = { Text("Custom") },
+                )
             }
-            FormSectionLabel("Eating window starts")
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                startOptions.take(3).forEach { minute ->
-                    FilterChip(
-                        selected = normalized.eatingStartMinutes == minute,
-                        onClick = { onPlanChanged(normalized.copy(eatingStartMinutes = minute)) },
-                        label = { Text(formatMinuteOfDay(minute)) },
-                    )
-                }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                startOptions.drop(3).forEach { minute ->
-                    FilterChip(
-                        selected = normalized.eatingStartMinutes == minute,
-                        onClick = { onPlanChanged(normalized.copy(eatingStartMinutes = minute)) },
-                        label = { Text(formatMinuteOfDay(minute)) },
-                    )
-                }
-            }
+            Text(
+                text = "A quick length keeps your end time and moves the start.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             ElevatedCard(
                 colors = CardDefaults.elevatedCardColors(
                     containerColor = MaterialTheme.colorScheme.surfaceVariant,
@@ -394,146 +490,72 @@ private fun IntermittentFastingCard(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                    Text("Log each fast automatically", style = MaterialTheme.typography.bodyLarge)
                     Text(
-                        text = "Eating window: ${formatMinuteOfDay(normalized.eatingStartMinutes)} - ${formatMinuteOfDay(normalized.eatingEndMinutes())}",
+                        "Each fast is saved to your log when it ends. Skipped a day? Delete it in the log.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+                Switch(
+                    checked = normalized.autoLog,
+                    onCheckedChange = { onPlanChanged(normalized.copy(autoLog = it)) },
+                )
             }
-            if (status.phase == IntermittentFastingPhase.EATING && status.completedFastStartEpochSeconds != null) {
-                Button(
-                    onClick = { onLogCompletedWindow(normalized, status) },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text("Log completed ${normalized.protocolLabel} fast")
-                }
-            } else {
-                OutlinedButton(
-                    onClick = {},
-                    enabled = false,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text("Completed windows can be logged during eating time")
-                }
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun FastingLogScreen(
-    repository: FastingRepository,
-    onBack: () -> Unit,
-    initialDate: LocalDate? = null,
-    openCalendarInitially: Boolean = false,
-) {
-    var dateFilter by remember(initialDate) {
-        mutableStateOf(
-            if (initialDate != null) SectionLogDateFilter.SingleDay(initialDate)
-            else SectionLogDateFilter.AllHistory
-        )
-    }
-    var showCalendar by remember(openCalendarInitially) { mutableStateOf(openCalendarInitially) }
-    val state by repository.state.collectAsState(initial = FastingLibraryState())
-    val datedEntries = remember(state, dateFilter) {
-        state.datedFastingSessionsForSectionLog(dateFilter)
-    }
-    val showLogDateOnCards = dateFilter !is SectionLogDateFilter.SingleDay
-    val datesWithActivity = remember(state) { datesWithFastingActivity(state) }
-    val snackbarHostState = remember { SnackbarHostState() }
-
-    Scaffold(
-        modifier = Modifier.fillMaxSize(),
-        snackbarHost = { SnackbarHost(snackbarHostState) },
-        topBar = {
-            TopAppBar(
-                title = { Text("Fasting Log") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+            if (!normalized.autoLog) {
+                if (status.phase == IntermittentFastingPhase.EATING && status.completedFastStartEpochSeconds != null) {
+                    Button(
+                        onClick = { onLogCompletedWindow(normalized, status) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Log today's fast")
                     }
-                },
-                colors = ervTopAppBarColors(),
-            )
-        },
-    ) { padding ->
-        Column(
-            modifier = Modifier
-                .padding(padding)
-                .fillMaxSize(),
-        ) {
-            SectionLogFilterBar(
-                filter = dateFilter,
-                onOpenCalendar = { showCalendar = true },
-                onClearFilter = { dateFilter = SectionLogDateFilter.AllHistory },
-            )
-            if (datedEntries.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(24.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            text = when (dateFilter) {
-                                SectionLogDateFilter.AllHistory -> "No fasting logged yet."
-                                is SectionLogDateFilter.SingleDay -> "No fasts logged for this date."
-                                is SectionLogDateFilter.DateRange -> "No fasts logged in this date range."
-                            },
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            text = "Complete or cancel a fast to create a log entry.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-            } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    item {
-                        Text(
-                            text = "Newest first. Entries are dated by completion or cancellation time.",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    items(datedEntries, key = { it.session.id }) { entry ->
-                        FastingHistoryRow(
-                            session = entry.session,
-                            showDateHeader = showLogDateOnCards,
-                            date = entry.date,
-                        )
+                } else {
+                    OutlinedButton(
+                        onClick = {},
+                        enabled = false,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("You can log the fast once it ends")
                     }
                 }
             }
         }
     }
 
-    if (showCalendar) {
-        SectionLogCalendarSheet(
-            filter = dateFilter,
-            onDismiss = { showCalendar = false },
-            datesWithActivity = datesWithActivity,
-            onApplyFilter = {
-                dateFilter = it
-                showCalendar = false
-            },
+    if (pickFastStart) {
+        ClockTimePickerDialog(
+            initial = minuteOfDayToTime(normalized.fastStartMinutes()),
+            title = "Fast starts",
+            onDismiss = { pickFastStart = false },
+            onPicked = { t ->
+                pickFastStart = false
+                onPlanChanged(normalized.withFastWindow(t.hour * 60 + t.minute, normalized.fastEndMinutes()))
+            }
+        )
+    }
+    if (pickFastEnd) {
+        ClockTimePickerDialog(
+            initial = minuteOfDayToTime(normalized.fastEndMinutes()),
+            title = "Fast ends",
+            onDismiss = { pickFastEnd = false },
+            onPicked = { t ->
+                pickFastEnd = false
+                onPlanChanged(normalized.withFastWindow(normalized.fastStartMinutes(), t.hour * 60 + t.minute))
+            }
         )
     }
 }
 
 @Composable
-private fun FastingStartCard(onStart: (Int) -> Unit) {
+private fun FastingStartCard(onStart: (hours: Int, startedAtEpochSeconds: Long) -> Unit) {
+    var hours by rememberSaveable { mutableStateOf(24) }
+    var startedEarlier by rememberSaveable { mutableStateOf(false) }
+    var startedAt by rememberSaveable { mutableStateOf(fastingNowEpochSeconds() - 3600L) }
     ElevatedCard(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.elevatedCardColors(
@@ -542,7 +564,7 @@ private fun FastingStartCard(onStart: (Int) -> Unit) {
     ) {
         Column(
             modifier = Modifier.padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.Restaurant, contentDescription = null)
@@ -554,22 +576,23 @@ private fun FastingStartCard(onStart: (Int) -> Unit) {
                 )
             }
             Text(
-                text = "Choose a simple target. ERV keeps the timer running in the background and reminds you when the fast ends.",
+                text = "Pick a target. ERV keeps the timer running in the background and reminds you when the fast ends.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            FastingTargetPicker(hours = hours, onHoursChange = { hours = it })
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(selected = !startedEarlier, onClick = { startedEarlier = false }, label = { Text("Starting Now") })
+                FilterChip(selected = startedEarlier, onClick = { startedEarlier = true }, label = { Text("Started Earlier") })
+            }
+            if (startedEarlier) {
+                PastMomentButtons(label = "Started", epochSeconds = startedAt, onChange = { startedAt = it })
+            }
+            Button(
+                onClick = { onStart(hours, if (startedEarlier) startedAt else fastingNowEpochSeconds()) },
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                listOf(1, 2, 3).forEach { days ->
-                    Button(
-                        onClick = { onStart(days) },
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Text("${days}d")
-                    }
-                }
+                Text("Start ${formatTargetHours(hours)} fast")
             }
         }
     }
@@ -581,6 +604,7 @@ private fun ActiveFastingCard(
     nowEpochSeconds: Long,
     onComplete: () -> Unit,
     onCancel: () -> Unit,
+    onEdit: () -> Unit,
 ) {
     val targetReached = nowEpochSeconds >= session.targetEndEpochSeconds
     ElevatedCard(modifier = Modifier.fillMaxWidth()) {
@@ -595,7 +619,11 @@ private fun ActiveFastingCard(
                     text = if (targetReached) "Target reached" else "Fast in progress",
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f),
                 )
+                IconButton(onClick = onEdit) {
+                    Icon(Icons.Default.Edit, contentDescription = "Edit fast")
+                }
             }
             Text(
                 text = formatFastingDuration(session.elapsedSeconds(nowEpochSeconds)),
@@ -607,7 +635,7 @@ private fun ActiveFastingCard(
                 modifier = Modifier.fillMaxWidth(),
             )
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                FastingStatChip("Target", "${session.targetDays} days")
+                FastingStatChip("Target", formatTargetHours(session.targetHoursTotal()))
                 FastingStatChip("Remaining", formatFastingDuration(session.remainingSeconds(nowEpochSeconds)))
             }
             Text(
@@ -705,63 +733,198 @@ private fun FastingRecentHistoryCard(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun FastingCompletionDialog(
-    session: FastingSession,
-    onDismiss: () -> Unit,
-    onSave: (FastingMood?, String, String) -> Unit,
+fun FastingLogScreen(
+    repository: FastingRepository,
+    onBack: () -> Unit,
+    initialDate: LocalDate? = null,
+    openCalendarInitially: Boolean = false,
+    relayPool: RelayPool? = null,
+    signer: EventSigner? = null,
 ) {
-    var mood by remember { mutableStateOf<FastingMood?>(null) }
-    var weight by remember { mutableStateOf("") }
-    var notes by remember { mutableStateOf("") }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Complete fast") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(
-                    text = "Duration: ${formatFastingDuration(session.elapsedSeconds())}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                FormSectionLabel("How did it feel?")
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FastingMood.entries.forEach { option ->
-                        FilterChip(
-                            selected = mood == option,
-                            onClick = { mood = if (mood == option) null else option },
-                            label = { Text(option.displayName()) },
+    var dateFilter by remember(initialDate) {
+        mutableStateOf(
+            if (initialDate != null) SectionLogDateFilter.SingleDay(initialDate)
+            else SectionLogDateFilter.AllHistory
+        )
+    }
+    var showCalendar by remember(openCalendarInitially) { mutableStateOf(openCalendarInitially) }
+    val state by repository.state.collectAsState(initial = FastingLibraryState())
+    val datedEntries = remember(state, dateFilter) {
+        state.datedFastingSessionsForSectionLog(dateFilter)
+    }
+    val showLogDateOnCards = dateFilter !is SectionLogDateFilter.SingleDay
+    val datesWithActivity = remember(state) { datesWithFastingActivity(state) }
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    val appContext = LocalContext.current.applicationContext
+    val keyManager = LocalKeyManager.current
+    var editing by remember { mutableStateOf<FastingSession?>(null) }
+    var addingPast by remember { mutableStateOf(false) }
+    var pendingDelete by remember { mutableStateOf<FastingSession?>(null) }
+
+    suspend fun publish(dates: Collection<LocalDate>) {
+        publishFastingChange(appContext, relayPool, signer, repository, dates, keyManager.relayUrlsForKind30078Publish())
+    }
+
+    Scaffold(
+        modifier = Modifier.fillMaxSize(),
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+        floatingActionButton = {
+            ExtendedFloatingActionButton(
+                onClick = { addingPast = true },
+                icon = { Icon(Icons.Default.Add, contentDescription = null) },
+                text = { Text("Log a past fast") }
+            )
+        },
+        topBar = {
+            TopAppBar(
+                title = { Text("Fasting Log") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                colors = ervTopAppBarColors(),
+            )
+        },
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .padding(padding)
+                .fillMaxSize(),
+        ) {
+            SectionLogFilterBar(
+                filter = dateFilter,
+                onOpenCalendar = { showCalendar = true },
+                onClearFilter = { dateFilter = SectionLogDateFilter.AllHistory },
+            )
+            if (datedEntries.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(24.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = when (dateFilter) {
+                                SectionLogDateFilter.AllHistory -> "No fasting logged yet."
+                                is SectionLogDateFilter.SingleDay -> "No fasts logged for this date."
+                                is SectionLogDateFilter.DateRange -> "No fasts logged in this date range."
+                            },
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            text = "Finish a fast, turn on automatic logging, or use Log a past fast.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
-                OutlinedTextField(
-                    value = weight,
-                    onValueChange = { weight = it },
-                    label = { FieldLabel("Weight (optional)") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = notes,
-                    onValueChange = { notes = it },
-                    label = { FieldLabel("Notes (optional)") },
-                    minLines = 3,
-                    modifier = Modifier.fillMaxWidth(),
-                )
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 96.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    item {
+                        Text(
+                            text = "Newest first, dated by when each fast ended. Tap a fast to edit or delete it.",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    items(datedEntries, key = { it.session.id }) { entry ->
+                        FastingHistoryRow(
+                            session = entry.session,
+                            showDateHeader = showLogDateOnCards,
+                            date = entry.date,
+                            onClick = { editing = entry.session },
+                        )
+                    }
+                }
             }
-        },
-        confirmButton = {
-            TextButton(onClick = { onSave(mood, weight, notes) }) {
-                Text("Save")
+        }
+    }
+
+    if (addingPast || editing != null) {
+        val target = editing
+        FastingSessionDialog(
+            editing = target,
+            onDismiss = {
+                addingPast = false
+                editing = null
+            },
+            onSave = { input ->
+                addingPast = false
+                editing = null
+                scope.launch {
+                    val hours = (((input.endedAtEpochSeconds - input.startedAtEpochSeconds) + 1800) / 3600).toInt().coerceAtLeast(1)
+                    val session = target?.copy(
+                        startedAtEpochSeconds = input.startedAtEpochSeconds,
+                        endedAtEpochSeconds = input.endedAtEpochSeconds,
+                        mood = input.mood,
+                        weight = input.weight,
+                        notes = input.notes,
+                    ) ?: FastingSession(
+                        targetDays = targetDaysForHours(hours),
+                        targetHours = hours,
+                        startedAtEpochSeconds = input.startedAtEpochSeconds,
+                        targetEndEpochSeconds = input.endedAtEpochSeconds,
+                        status = FastingStatus.COMPLETED,
+                        endedAtEpochSeconds = input.endedAtEpochSeconds,
+                        mood = input.mood,
+                        weight = input.weight,
+                        notes = input.notes,
+                    )
+                    repository.saveHistorySession(session)
+                    publish(listOfNotNull(target?.logDate(), session.logDate()))
+                    snackbarHostState.showSnackbar(if (target == null) "Fast logged" else "Fast updated")
+                }
+            },
+            onDelete = target?.let { t ->
+                {
+                    editing = null
+                    pendingDelete = t
+                }
             }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Not yet")
-            }
-        },
-    )
+        )
+    }
+
+    pendingDelete?.let { session ->
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = { Text("Delete this fast?") },
+            text = { Text("It is removed from your log on this phone and from your relays.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    pendingDelete = null
+                    scope.launch {
+                        repository.deleteHistorySession(session.id)
+                        publish(listOf(session.logDate()))
+                        snackbarHostState.showSnackbar("Fast deleted")
+                    }
+                }) { Text("Delete") }
+            },
+            dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("Cancel") } }
+        )
+    }
+
+    if (showCalendar) {
+        SectionLogCalendarSheet(
+            filter = dateFilter,
+            onDismiss = { showCalendar = false },
+            datesWithActivity = datesWithActivity,
+            onApplyFilter = {
+                dateFilter = it
+                showCalendar = false
+            },
+        )
+    }
 }
 
 @Composable
@@ -769,8 +932,13 @@ private fun FastingHistoryRow(
     session: FastingSession,
     showDateHeader: Boolean = false,
     date: LocalDate = session.logDate(),
+    onClick: (() -> Unit)? = null,
 ) {
-    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+    ElevatedCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+    ) {
         Column(
             modifier = Modifier.padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -822,17 +990,18 @@ private fun FastingHistoryRow(
     }
 }
 
-private fun formatMinuteOfDay(minuteOfDay: Int): String {
-    val time = java.time.LocalTime.of((minuteOfDay / 60).coerceIn(0, 23), minuteOfDay.floorMod(60))
-    return time.format(DateTimeFormatter.ofPattern("h:mm a"))
-}
+private fun minuteOfDayToTime(minuteOfDay: Int): LocalTime =
+    LocalTime.of((minuteOfDay / 60).coerceIn(0, 23), minuteOfDay.floorMod(60))
+
+private fun formatMinuteOfDay(minuteOfDay: Int): String =
+    minuteOfDayToTime(minuteOfDay).format(DateTimeFormatter.ofPattern("h:mm a"))
 
 private fun FastingSession.titleLabel(): String =
     when (kind) {
         FastingSessionKind.INTERMITTENT -> when (status) {
-            FastingStatus.COMPLETED -> "Completed intermittent fast"
-            FastingStatus.CANCELLED -> "Cancelled intermittent fast"
-            FastingStatus.ACTIVE -> "Active intermittent fast"
+            FastingStatus.COMPLETED -> "Daily fast"
+            FastingStatus.CANCELLED -> "Cancelled daily fast"
+            FastingStatus.ACTIVE -> "Active daily fast"
         }
         FastingSessionKind.EXTENDED -> when (status) {
             FastingStatus.COMPLETED -> "Completed fast"
@@ -845,7 +1014,7 @@ private fun FastingSession.targetLabel(): String =
     if (kind == FastingSessionKind.INTERMITTENT) {
         protocolLabel.ifBlank { "${fastingHours}:${eatingHours}" }
     } else {
-        "${targetDays}d target"
+        "${formatTargetHours(targetHoursTotal())} target"
     }
 
 private fun Int.floorMod(modulus: Int): Int = ((this % modulus) + modulus) % modulus

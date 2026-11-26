@@ -65,7 +65,7 @@ object FastingCompletionScheduler {
         val notification = NotificationCompat.Builder(app, FastingConstants.COMPLETION_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_erv)
             .setContentTitle(app.getString(R.string.fasting_complete_notification_title))
-            .setContentText(app.getString(R.string.fasting_complete_notification_text, session.targetDays))
+            .setContentText(app.getString(R.string.fasting_complete_notification_text, session.targetHoursTotal()))
             .setStyle(
                 NotificationCompat.BigTextStyle().bigText(
                     app.getString(R.string.fasting_complete_notification_big_text),
