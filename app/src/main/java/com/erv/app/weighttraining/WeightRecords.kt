@@ -55,9 +55,6 @@ data class WeightRecord(
 /** A record [WeightRecords.newRecords] found, with the one it beat. */
 data class WeightNewRecord(val record: WeightRecord, val previous: WeightRecord)
 
-/** One logged workout with its day, the input to records. */
-data class DatedWeightWorkout(val date: LocalDate, val workout: WeightWorkoutSession)
-
 object WeightRecords {
 
     /** Every record [workout] holds for [exerciseId] on its own, as if it were the only one logged. */
@@ -110,9 +107,9 @@ object WeightRecords {
     ): List<WeightRecord> {
         val best = LinkedHashMap<WeightRecordKind, WeightRecord>()
         // Oldest first, so a tie keeps the day it was first set.
-        for (dated in workouts.sortedBy { it.date }) {
+        for (dated in workouts.sortedBy { it.logDate }) {
             if (dated.workout.id in excludeWorkoutIds) continue
-            for (record in recordsOf(dated.workout, dated.date, exerciseId)) {
+            for (record in recordsOf(dated.workout, dated.logDate, exerciseId)) {
                 if (record.beats(best[record.kind])) best[record.kind] = record
             }
         }
