@@ -72,16 +72,73 @@ data class BodyTrackerDayLog(
     val updatedAtEpochSeconds: Long = 0L
 )
 
+/** Measurements shown on the form until the user picks their own. */
+val DEFAULT_TRACKED_MEASUREMENTS: List<BodyMeasurementKey> = listOf(
+    BodyMeasurementKey.NECK,
+    BodyMeasurementKey.CHEST,
+    BodyMeasurementKey.WAIST,
+    BodyMeasurementKey.HIPS,
+)
+
 @Serializable
 data class BodyTrackerLibraryState(
+    /** Only meaningful once [lengthUnitUpdatedAtEpochSeconds] is set; see [effectiveLengthUnit]. */
     val lengthUnit: BodyMeasurementLengthUnit = BodyMeasurementLengthUnit.CENTIMETERS,
-    /** For Nostr merge of display preference (cm vs in). */
+    /** For Nostr merge of display preference (cm vs in). 0 means the user never picked. */
     val lengthUnitUpdatedAtEpochSeconds: Long = 0L,
-    val logs: List<BodyTrackerDayLog> = emptyList()
+    val logs: List<BodyTrackerDayLog> = emptyList(),
+    /** [BodyMeasurementKey.name]s shown on the form; null means [DEFAULT_TRACKED_MEASUREMENTS]. */
+    val trackedMeasurements: List<String>? = null,
+    val trackedMeasurementsUpdatedAtEpochSeconds: Long = 0L,
 ) {
     fun logFor(date: LocalDate): BodyTrackerDayLog? =
         logs.firstOrNull { it.date == date.toString() }
 }
+
+/**
+ * The length unit to show. Until the user picks one it follows the body weight unit:
+ * pounds mean inches, kilograms mean centimeters.
+ */
+fun BodyTrackerLibraryState.effectiveLengthUnit(weightInKg: Boolean): BodyMeasurementLengthUnit =
+    when {
+        lengthUnitUpdatedAtEpochSeconds > 0L -> lengthUnit
+        weightInKg -> BodyMeasurementLengthUnit.CENTIMETERS
+        else -> BodyMeasurementLengthUnit.INCHES
+    }
+
+/** The measurements the user tracks, in the usual head-to-toe order. */
+fun BodyTrackerLibraryState.trackedMeasurementKeys(): List<BodyMeasurementKey> {
+    val chosen = trackedMeasurements
+        ?.mapNotNull { name -> BodyMeasurementKey.entries.firstOrNull { it.name == name } }
+        ?.toSet()
+        ?: DEFAULT_TRACKED_MEASUREMENTS.toSet()
+    return BodyMeasurementKey.entries.filter { it in chosen }
+}
+
+/** Fields for a day: the tracked ones plus any other measurement already saved that day. */
+fun BodyTrackerLibraryState.measurementKeysForForm(log: BodyTrackerDayLog?): List<BodyMeasurementKey> {
+    val tracked = trackedMeasurementKeys().toSet()
+    val saved = log?.measurementsCm?.keys.orEmpty()
+    return BodyMeasurementKey.entries.filter { it in tracked || it.name in saved }
+}
+
+data class BodyTrendPoint(val date: LocalDate, val value: Double)
+
+/** Weight in kg by date, oldest first. */
+fun BodyTrackerLibraryState.weightTrend(): List<BodyTrendPoint> =
+    logs.mapNotNull { log ->
+        val kg = log.weightKg ?: return@mapNotNull null
+        val d = runCatching { LocalDate.parse(log.date) }.getOrNull() ?: return@mapNotNull null
+        BodyTrendPoint(d, kg)
+    }.sortedBy { it.date }
+
+/** One measurement in cm by date, oldest first. */
+fun BodyTrackerLibraryState.measurementTrend(key: BodyMeasurementKey): List<BodyTrendPoint> =
+    logs.mapNotNull { log ->
+        val cm = log.measurementsCm[key.name] ?: return@mapNotNull null
+        val d = runCatching { LocalDate.parse(log.date) }.getOrNull() ?: return@mapNotNull null
+        BodyTrendPoint(d, cm)
+    }.sortedBy { it.date }
 
 fun List<BodyTrackerDayLog>.upsertLog(log: BodyTrackerDayLog): List<BodyTrackerDayLog> {
     val items = toMutableList()

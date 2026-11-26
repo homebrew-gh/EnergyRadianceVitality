@@ -32,12 +32,16 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddAPhoto
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
@@ -61,6 +65,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -85,6 +90,12 @@ import com.erv.app.bodytracker.BodyTrackerSync
 import com.erv.app.bodytracker.bodyTrackerDayLogsForSectionLog
 import com.erv.app.bodytracker.datesWithBodyTrackerActivity
 import com.erv.app.bodytracker.displayLabel
+import com.erv.app.bodytracker.effectiveLengthUnit
+import com.erv.app.bodytracker.hasActivityEntry
+import com.erv.app.bodytracker.measurementKeysForForm
+import com.erv.app.bodytracker.trackedMeasurementKeys
+import com.erv.app.ui.components.PastDatePickerDialog
+import com.erv.app.ui.components.pastEntryDateFormatter
 import com.erv.app.bodytracker.isEffectivelyEmpty
 import com.erv.app.data.BodyWeightUnit
 import com.erv.app.data.UserPreferences
@@ -183,7 +194,7 @@ private fun BodyTrackerPrivacyCard() {
 
 @Composable
 private fun BodyTrackerLengthUnitChips(
-    state: BodyTrackerLibraryState,
+    selected: BodyMeasurementLengthUnit,
     scope: CoroutineScope,
     repository: BodyTrackerRepository,
     relayPool: RelayPool?,
@@ -191,44 +202,33 @@ private fun BodyTrackerLengthUnitChips(
     keyManager: KeyManager,
     appContext: android.content.Context
 ) {
+    fun pick(unit: BodyMeasurementLengthUnit) {
+        scope.launch {
+            val current = repository.currentState()
+            // Re-picking the shown unit still saves it, so it stops following lb/kg.
+            if (current.lengthUnitUpdatedAtEpochSeconds > 0L && current.lengthUnit == unit) return@launch
+            repository.setLengthUnit(unit)
+            val pool = relayPool ?: return@launch
+            val sig = signer ?: return@launch
+            BodyTrackerSync.publishSettings(
+                appContext,
+                pool,
+                sig,
+                repository.currentState(),
+                keyManager.relayUrlsForKind30078Publish()
+            )
+        }
+    }
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         FilterChip(
-            selected = state.lengthUnit == BodyMeasurementLengthUnit.CENTIMETERS,
-            onClick = {
-                scope.launch {
-                    if (state.lengthUnit == BodyMeasurementLengthUnit.CENTIMETERS) return@launch
-                    repository.setLengthUnit(BodyMeasurementLengthUnit.CENTIMETERS)
-                    val pool = relayPool ?: return@launch
-                    val sig = signer ?: return@launch
-                    BodyTrackerSync.publishSettings(
-                        appContext,
-                        pool,
-                        sig,
-                        repository.currentState(),
-                        keyManager.relayUrlsForKind30078Publish()
-                    )
-                }
-            },
-            label = { FieldLabel("cm") }
+            selected = selected == BodyMeasurementLengthUnit.INCHES,
+            onClick = { pick(BodyMeasurementLengthUnit.INCHES) },
+            label = { Text("in") }
         )
         FilterChip(
-            selected = state.lengthUnit == BodyMeasurementLengthUnit.INCHES,
-            onClick = {
-                scope.launch {
-                    if (state.lengthUnit == BodyMeasurementLengthUnit.INCHES) return@launch
-                    repository.setLengthUnit(BodyMeasurementLengthUnit.INCHES)
-                    val pool = relayPool ?: return@launch
-                    val sig = signer ?: return@launch
-                    BodyTrackerSync.publishSettings(
-                        appContext,
-                        pool,
-                        sig,
-                        repository.currentState(),
-                        keyManager.relayUrlsForKind30078Publish()
-                    )
-                }
-            },
-            label = { FieldLabel("in") }
+            selected = selected == BodyMeasurementLengthUnit.CENTIMETERS,
+            onClick = { pick(BodyMeasurementLengthUnit.CENTIMETERS) },
+            label = { Text("cm") }
         )
     }
 }
@@ -333,6 +333,7 @@ private fun BodyTrackerLogEntryCard(
     lengthUnit: BodyMeasurementLengthUnit,
     showDateHeader: Boolean,
     onOpenPhoto: (String) -> Unit,
+    onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
     var photosExpanded by remember(log.date) { mutableStateOf(false) }
@@ -405,8 +406,13 @@ private fun BodyTrackerLogEntryCard(
                     }
                 }
             }
-            IconButton(onClick = onDelete) {
-                Icon(Icons.Default.Delete, contentDescription = "Delete entry")
+            Column {
+                IconButton(onClick = onEdit) {
+                    Icon(Icons.Default.Edit, contentDescription = "Edit this day")
+                }
+                IconButton(onClick = onDelete) {
+                    Icon(Icons.Default.Delete, contentDescription = "Delete entry")
+                }
             }
         }
     }
@@ -419,12 +425,14 @@ fun BodyTrackerCategoryScreen(
     relayPool: RelayPool?,
     signer: EventSigner?,
     onBack: () -> Unit,
-    onOpenLog: () -> Unit
+    onOpenLog: (() -> Unit)?,
+    initialDate: LocalDate? = null
 ) {
     BodyTrackerEditorScaffold(
         title = "Body Tracker",
-        showLogAction = true,
+        showLogAction = onOpenLog != null,
         onOpenLog = onOpenLog,
+        initialDate = initialDate,
         onBack = onBack,
         repository = repository,
         userPreferences = userPreferences,
@@ -440,6 +448,7 @@ fun BodyTrackerLogScreen(
     relayPool: RelayPool?,
     signer: EventSigner?,
     onBack: () -> Unit,
+    onEditDay: (LocalDate) -> Unit,
     initialDate: LocalDate? = null,
     openCalendarInitially: Boolean = false
 ) {
@@ -452,6 +461,7 @@ fun BodyTrackerLogScreen(
     var showCalendar by remember(openCalendarInitially) { mutableStateOf(openCalendarInitially) }
     var pendingDelete by remember { mutableStateOf<BodyTrackerDayLog?>(null) }
     var fullscreenPhotoId by remember { mutableStateOf<String?>(null) }
+    var pickingPastDay by remember { mutableStateOf(false) }
 
     val appContext = LocalContext.current.applicationContext
     val keyManager = LocalKeyManager.current
@@ -459,6 +469,18 @@ fun BodyTrackerLogScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val state by repository.state.collectAsState(initial = BodyTrackerLibraryState())
     val weightUnit by userPreferences.bodyWeightUnit.collectAsState(initial = BodyWeightUnit.LB)
+    val lengthUnit = state.effectiveLengthUnit(weightInKg = weightUnit == BodyWeightUnit.KG)
+
+    if (pickingPastDay) {
+        PastDatePickerDialog(
+            initial = LocalDate.now(),
+            onDismiss = { pickingPastDay = false },
+            onPicked = {
+                pickingPastDay = false
+                onEditDay(it)
+            }
+        )
+    }
 
     val datedEntries = remember(state, dateFilter) {
         state.bodyTrackerDayLogsForSectionLog(dateFilter)
@@ -537,6 +559,13 @@ fun BodyTrackerLogScreen(
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
+        floatingActionButton = {
+            ExtendedFloatingActionButton(
+                onClick = { pickingPastDay = true },
+                icon = { Icon(Icons.Default.Add, contentDescription = null) },
+                text = { Text("Log a past day") }
+            )
+        },
         topBar = {
             TopAppBar(
                 title = { Text("Body Tracker Log") },
@@ -574,7 +603,7 @@ fun BodyTrackerLogScreen(
                         )
                         Spacer(Modifier.height(8.dp))
                         Text(
-                            "Save from Body Tracker to create an entry for that day.",
+                            "Save from Body Tracker, or tap Log a past day to fill in an earlier date.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -583,12 +612,12 @@ fun BodyTrackerLogScreen(
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(16.dp),
+                    contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 88.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     item {
                         Text(
-                            "Newest first. Tap delete to remove a day.",
+                            "Newest first. Tap edit to change a day.",
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -599,9 +628,12 @@ fun BodyTrackerLogScreen(
                             log = log,
                             repository = repository,
                             weightUnit = weightUnit,
-                            lengthUnit = state.lengthUnit,
+                            lengthUnit = lengthUnit,
                             showDateHeader = showLogDateOnCards,
                             onOpenPhoto = { fullscreenPhotoId = it },
+                            onEdit = {
+                                runCatching { LocalDate.parse(log.date) }.getOrNull()?.let(onEditDay)
+                            },
                             onDelete = { pendingDelete = log }
                         )
                     }
@@ -628,6 +660,7 @@ private fun BodyTrackerEditorScaffold(
     title: String,
     showLogAction: Boolean,
     onOpenLog: (() -> Unit)?,
+    initialDate: LocalDate?,
     onBack: () -> Unit,
     repository: BodyTrackerRepository,
     userPreferences: UserPreferences,
@@ -644,7 +677,11 @@ private fun BodyTrackerEditorScaffold(
     val blossomPrivateOrigin by userPreferences.blossomPrivateServerOrigin.collectAsState(initial = "")
     val trustSelfSignedLanTls by userPreferences.trustSelfSignedLanTls.collectAsState(initial = false)
 
-    val selectedDate = LocalDate.now()
+    val lengthUnit = state.effectiveLengthUnit(weightInKg = weightUnit == BodyWeightUnit.KG)
+
+    var selectedDate by rememberSaveable(initialDate) { mutableStateOf(initialDate ?: LocalDate.now()) }
+    var pickingDate by remember { mutableStateOf(false) }
+    var choosingMeasurements by remember { mutableStateOf(false) }
     var weightText by remember { mutableStateOf("") }
     val measurementTexts = remember {
         BodyMeasurementKey.entries.associateWith { mutableStateOf("") }
@@ -659,13 +696,15 @@ private fun BodyTrackerEditorScaffold(
     }
     val photoCount = remember(state.logs) { state.logs.sumOf { it.photos.size } }
 
-    LaunchedEffect(selectedDate, state.logs, weightUnit, state.lengthUnit) {
+    val formKeys = remember(state, savedLog) { state.measurementKeysForForm(savedLog) }
+
+    LaunchedEffect(selectedDate, state.logs, weightUnit, lengthUnit) {
         val log = state.logs.firstOrNull { it.date == selectedDate.toString() }
         weightText = log?.weightKg?.let { formatDoubleForField(kgToDisplay(it, weightUnit)) }.orEmpty()
         BodyMeasurementKey.entries.forEach { key ->
             val cm = log?.measurementsCm?.get(key.name)
             measurementTexts[key]?.value =
-                cm?.let { formatDoubleForField(cmToDisplay(it, state.lengthUnit)) }.orEmpty()
+                cm?.let { formatDoubleForField(cmToDisplay(it, lengthUnit)) }.orEmpty()
         }
         noteText = log?.note.orEmpty()
     }
@@ -687,7 +726,7 @@ private fun BodyTrackerEditorScaffold(
         val mm = mutableMapOf<String, Double>()
         BodyMeasurementKey.entries.forEach { key ->
             parsePositiveDouble(measurementTexts[key]!!.value)?.let { display ->
-                mm[key.name] = displayToCm(display, state.lengthUnit)
+                mm[key.name] = displayToCm(display, lengthUnit)
             }
         }
         return BodyTrackerDayLog(
@@ -696,6 +735,39 @@ private fun BodyTrackerEditorScaffold(
             measurementsCm = mm,
             note = noteText.trim(),
             photos = savedLog?.photos.orEmpty()
+        )
+    }
+
+    if (pickingDate) {
+        PastDatePickerDialog(
+            initial = selectedDate,
+            onDismiss = { pickingDate = false },
+            onPicked = {
+                pickingDate = false
+                selectedDate = it
+            }
+        )
+    }
+
+    if (choosingMeasurements) {
+        BodyTrackerMeasurementPickerDialog(
+            initial = state.trackedMeasurementKeys(),
+            onDismiss = { choosingMeasurements = false },
+            onSave = { picked ->
+                choosingMeasurements = false
+                scope.launch {
+                    repository.setTrackedMeasurements(picked)
+                    val pool = relayPool ?: return@launch
+                    val sig = signer ?: return@launch
+                    BodyTrackerSync.publishSettings(
+                        appContext,
+                        pool,
+                        sig,
+                        repository.currentState(),
+                        keyManager.relayUrlsForKind30078Publish()
+                    )
+                }
+            }
         )
     }
 
@@ -799,24 +871,137 @@ private fun BodyTrackerEditorScaffold(
                     .padding(bottom = 24.dp)
             ) {
                 Spacer(Modifier.height(8.dp))
-                Text(
-                    "Fill in what you want to track for today, then save. Open the log to browse or filter by date.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            if (selectedDate == LocalDate.now()) "Today" else selectedDate.format(bodyTrackerLogCardDateFormatter),
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        Text(
+                            if (savedLog?.hasActivityEntry() == true) "Editing the saved entry for this day." else "Nothing saved for this day yet.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    if (selectedDate != LocalDate.now()) {
+                        TextButton(onClick = { selectedDate = LocalDate.now() }) { Text("Today") }
+                    }
+                    OutlinedButton(onClick = { pickingDate = true }) {
+                        Icon(Icons.Default.DateRange, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Change date")
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
+                OutlinedTextField(
+                    value = weightText,
+                    onValueChange = { weightText = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    label = { Text(if (weightUnit == BodyWeightUnit.KG) "Weight (kg)" else "Weight (lb)") },
+                    supportingText = { Text("Uses the lb/kg choice in Settings.") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
                 )
                 Spacer(Modifier.height(12.dp))
-                FormSectionLabelSmall("Units")
-                Spacer(Modifier.height(6.dp))
-                BodyTrackerLengthUnitChips(
-                    state = state,
-                    scope = scope,
-                    repository = repository,
-                    relayPool = relayPool,
-                    signer = signer,
-                    keyManager = keyManager,
-                    appContext = appContext
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    FormSectionLabelSmall("Measurements", modifier = Modifier.weight(1f))
+                    BodyTrackerLengthUnitChips(
+                        selected = lengthUnit,
+                        scope = scope,
+                        repository = repository,
+                        relayPool = relayPool,
+                        signer = signer,
+                        keyManager = keyManager,
+                        appContext = appContext
+                    )
+                }
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "Optional. Leave blank to skip.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(8.dp))
+                val lengthSuffix = if (lengthUnit == BodyMeasurementLengthUnit.INCHES) "in" else "cm"
+                formKeys.forEach { key ->
+                    OutlinedTextField(
+                        value = measurementTexts[key]!!.value,
+                        onValueChange = { measurementTexts[key]!!.value = it },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 8.dp),
+                        singleLine = true,
+                        label = { Text("${key.displayLabel()} ($lengthSuffix)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
+                    )
+                }
+                if (formKeys.isEmpty()) {
+                    Text(
+                        "No measurements picked.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                TextButton(onClick = { choosingMeasurements = true }) { Text("Choose measurements") }
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = noteText,
+                    onValueChange = { noteText = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 2,
+                    label = { FieldLabel("Note") }
                 )
                 Spacer(Modifier.height(16.dp))
+                Button(
+                    onClick = {
+                        scope.launch {
+                            val built = buildLogFromDraft()
+                            val cleared = built.isEffectivelyEmpty()
+                            repository.saveDayLog(built, fromMeasurementFormSave = true)
+                            val kg = built.weightKg
+                            // Only the newest weigh-in feeds the default body weight, not a backfilled day.
+                            val newerWeighIn = state.logs.any { it.weightKg != null && it.date > built.date }
+                            if (kg != null && !newerWeighIn) {
+                                val displayVal = kgToDisplay(kg, weightUnit)
+                                val raw = formatDoubleForField(displayVal)
+                                if (raw.isNotBlank()) {
+                                    userPreferences.setFallbackBodyWeight(raw, weightUnit)
+                                }
+                            }
+                            val pool = relayPool
+                            val sig = signer
+                            if (pool != null && sig != null) {
+                                BodyTrackerSync.publishDayAfterLocalChange(
+                                    appContext,
+                                    pool,
+                                    sig,
+                                    repository,
+                                    selectedDate,
+                                    keyManager.relayUrlsForKind30078Publish()
+                                )
+                            }
+                            snackbarHostState.showSnackbar(
+                                if (cleared) "Entry cleared" else "Saved for ${selectedDate.format(pastEntryDateFormatter)}"
+                            )
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(if (selectedDate == LocalDate.now()) "Save today" else "Save this day")
+                }
+                Spacer(Modifier.height(20.dp))
+                BodyTrackerTrendCard(
+                    state = state,
+                    weightUnit = weightUnit,
+                    lengthUnit = lengthUnit
+                )
+                Spacer(Modifier.height(20.dp))
                 BodyTrackerPhotoSection(
                     selectedDate = selectedDate,
                     savedLog = savedLog,
@@ -872,94 +1057,6 @@ private fun BodyTrackerEditorScaffold(
                 )
                 Spacer(Modifier.height(16.dp))
                 BodyTrackerPrivacyCard()
-                Spacer(Modifier.height(16.dp))
-                FormSectionLabelSmall("Weight")
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    "Uses the same lb/kg preference as Settings → Units & Body.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(Modifier.height(6.dp))
-                OutlinedTextField(
-                    value = weightText,
-                    onValueChange = { weightText = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    label = { Text(if (weightUnit == BodyWeightUnit.KG) "Weight (kg)" else "Weight (lb)") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
-                )
-                Spacer(Modifier.height(16.dp))
-                FormSectionLabelSmall("Measurements")
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    "Optional. Leave blank to skip. Stored internally as cm.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(Modifier.height(8.dp))
-                BodyMeasurementKey.entries.forEach { key ->
-                    OutlinedTextField(
-                        value = measurementTexts[key]!!.value,
-                        onValueChange = { measurementTexts[key]!!.value = it },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 8.dp),
-                        singleLine = true,
-                        label = {
-                            val u =
-                                if (state.lengthUnit == BodyMeasurementLengthUnit.INCHES) "in" else "cm"
-                            Text("${key.displayLabel()} ($u)")
-                        },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
-                    )
-                }
-                Spacer(Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = noteText,
-                    onValueChange = { noteText = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    minLines = 2,
-                    label = { FieldLabel("Note") }
-                )
-                Spacer(Modifier.height(20.dp))
-                OutlinedButton(
-                    onClick = {
-                        scope.launch {
-                            val built = buildLogFromDraft()
-                            val cleared = built.isEffectivelyEmpty()
-                            repository.saveDayLog(built, fromMeasurementFormSave = true)
-                            val kg = built.weightKg
-                            if (kg != null) {
-                                val displayVal = kgToDisplay(kg, weightUnit)
-                                val raw = formatDoubleForField(displayVal)
-                                if (raw.isNotBlank()) {
-                                    userPreferences.setFallbackBodyWeight(raw, weightUnit)
-                                }
-                            }
-                            val pool = relayPool
-                            val sig = signer
-                            if (pool != null && sig != null) {
-                                BodyTrackerSync.publishDayAfterLocalChange(
-                                    appContext,
-                                    pool,
-                                    sig,
-                                    repository,
-                                    selectedDate,
-                                    keyManager.relayUrlsForKind30078Publish()
-                                )
-                            }
-                            snackbarHostState.showSnackbar(
-                                if (cleared) "Entry cleared" else "Saved for ${selectedDate}"
-                            )
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(Icons.Default.PhotoLibrary, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Save this day")
-                }
             }
         }
     }

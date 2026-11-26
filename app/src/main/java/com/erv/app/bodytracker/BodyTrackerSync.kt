@@ -27,7 +27,10 @@ private data class BodyTrackerDayNostrPayload(
 @Serializable
 private data class BodyTrackerSettingsNostrPayload(
     val lengthUnit: BodyMeasurementLengthUnit = BodyMeasurementLengthUnit.CENTIMETERS,
-    val updatedAtEpochSeconds: Long = 0L
+    /** When the length unit was picked; 0 means never (the unit then follows lb/kg). */
+    val updatedAtEpochSeconds: Long = 0L,
+    val trackedMeasurements: List<String>? = null,
+    val trackedMeasurementsUpdatedAtEpochSeconds: Long = 0L
 )
 
 object BodyTrackerSync {
@@ -73,7 +76,9 @@ object BodyTrackerSync {
     private fun encodeSettingsPlaintext(state: BodyTrackerLibraryState): String {
         val payload = BodyTrackerSettingsNostrPayload(
             lengthUnit = state.lengthUnit,
-            updatedAtEpochSeconds = state.lengthUnitUpdatedAtEpochSeconds
+            updatedAtEpochSeconds = state.lengthUnitUpdatedAtEpochSeconds,
+            trackedMeasurements = state.trackedMeasurements,
+            trackedMeasurementsUpdatedAtEpochSeconds = state.trackedMeasurementsUpdatedAtEpochSeconds
         )
         return json.encodeToString(BodyTrackerSettingsNostrPayload.serializer(), payload)
     }
@@ -199,7 +204,9 @@ object BodyTrackerSync {
         return BodyTrackerLibraryState(
             lengthUnit = settings?.lengthUnit ?: BodyMeasurementLengthUnit.CENTIMETERS,
             lengthUnitUpdatedAtEpochSeconds = settings?.updatedAtEpochSeconds ?: 0L,
-            logs = logs.sortedBy { it.date }
+            logs = logs.sortedBy { it.date },
+            trackedMeasurements = settings?.trackedMeasurements,
+            trackedMeasurementsUpdatedAtEpochSeconds = settings?.trackedMeasurementsUpdatedAtEpochSeconds ?: 0L
         )
     }
 
