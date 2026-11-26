@@ -164,6 +164,7 @@ private object SettingsRoutes {
     const val EQUIPMENT = "settings_equipment"
     const val TRAINING_PROFILE = "settings_training_profile"
     const val STRETCHING = "settings_stretching"
+    const val WELLNESS_TIMERS = "settings_wellness_timers"
     const val SAVED_DEVICES = "settings_saved_devices"
     const val DATA_IMPORT_EXPORT = "settings_data_import_export?category={category}"
     const val DATA_MANAGEMENT = "settings_data_management"
@@ -288,6 +289,7 @@ fun SettingsScreen(
     LaunchedEffect(blossomPrivateSaved) { blossomPrivateDraft = blossomPrivateSaved }
     val weightTrainingLoadUnit by userPreferences.weightTrainingLoadUnit.collectAsState(initial = BodyWeightUnit.LB)
     val workoutBubbleEnabled by userPreferences.workoutBubbleEnabled.collectAsState(initial = true)
+    val classicWellnessTimer by userPreferences.classicWellnessTimer.collectAsState(initial = false)
     val gymMembership by userPreferences.gymMembership.collectAsState(initial = false)
     val ownedEquipment by userPreferences.ownedEquipment.collectAsState(initial = emptyList())
     val trainingProfile by userPreferences.trainingProfile.collectAsState(initial = com.erv.app.data.TrainingProfileNostrPayload())
@@ -516,6 +518,19 @@ fun SettingsScreen(
                         notificationsEnabled = NotificationManagerCompat.from(context).areNotificationsEnabled(),
                         onBubbleChange = { enabled ->
                             scope.launch { userPreferences.setWorkoutBubbleEnabled(enabled) }
+                        }
+                    )
+                }
+            }
+            composable(SettingsRoutes.WELLNESS_TIMERS) {
+                SettingsSubScreenScaffold(
+                    title = "Wellness Timers",
+                    onBack = { nestedNav.popBackStack() }
+                ) {
+                    WellnessTimerSettingsSection(
+                        classic = classicWellnessTimer,
+                        onClassicChange = { enabled ->
+                            scope.launch { userPreferences.setClassicWellnessTimer(enabled) }
                         }
                     )
                 }
@@ -1276,6 +1291,12 @@ private fun SettingsHomeScreen(
                 subtitle = stringResource(R.string.settings_stretch_guided_voice_hub_subtitle),
                 icon = Icons.Default.Timer,
                 onClick = { onOpenSection(SettingsRoutes.STRETCHING) }
+            )
+            SettingsHubRow(
+                title = "Wellness Timers",
+                subtitle = "Sauna, cold plunge and light therapy timers",
+                icon = Icons.Default.Timer,
+                onClick = { onOpenSection(SettingsRoutes.WELLNESS_TIMERS) }
             )
             SettingsHubSectionLabel("Devices & Equipment")
             SettingsHubRow(
@@ -2883,6 +2904,37 @@ private fun CardioNostrRouteShareSection(
                 }
             }
         )
+    }
+}
+
+@Composable
+private fun WellnessTimerSettingsSection(
+    classic: Boolean,
+    onClassicChange: (Boolean) -> Unit
+) {
+    Text(
+        "Sauna, cold plunge and light therapy timers keep running with the screen off, show a " +
+            "countdown on the lock screen with Pause and End and Save, and play the stretching " +
+            "sound style when they finish.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(bottom = 12.dp)
+    )
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+            Text("Use the classic timer", style = MaterialTheme.typography.bodyLarge)
+            Text(
+                "The old in-screen timer: it stops if you leave the screen and Cancel saves nothing. " +
+                    "Here so you can compare the two; it will be removed later.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Switch(checked = classic, onCheckedChange = onClassicChange)
     }
 }
 

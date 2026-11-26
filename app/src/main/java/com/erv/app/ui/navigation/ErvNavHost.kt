@@ -218,6 +218,21 @@ fun ErvNavHost(
             }
         }
     }
+    // The wellness timer notification was tapped: open the section whose timer is running.
+    val openWellnessTimer by com.erv.app.ui.wellness.WellnessTimerController.openRequests.collectAsState()
+    LaunchedEffect(openWellnessTimer) {
+        if (!openWellnessTimer) return@LaunchedEffect
+        com.erv.app.ui.wellness.WellnessTimerController.openRequests.value = false
+        val route = when (com.erv.app.ui.wellness.WellnessTimerController.state.value?.kind) {
+            com.erv.app.ui.wellness.WellnessTimerKind.LIGHT -> Routes.category("light_therapy")
+            com.erv.app.ui.wellness.WellnessTimerKind.SAUNA,
+            com.erv.app.ui.wellness.WellnessTimerKind.COLD_PLUNGE -> Routes.category("heat_cold")
+            null -> null
+        }
+        if (route != null) {
+            navController.navigate(route) { launchSingleTop = true }
+        }
+    }
     LaunchedEffect(openWorkoutRunId) {
         val workoutId = openWorkoutRunId ?: return@LaunchedEffect
         navController.navigate(Routes.workoutRun(workoutId)) {
@@ -359,6 +374,7 @@ fun ErvNavHost(
         composable(Routes.category("light_therapy")) {
             LightTherapyCategoryScreen(
                 repository = lightTherapyRepository,
+                userPreferences = userPreferences,
                 relayPool = relayPool,
                 signer = signer,
                 onBack = { navController.popBackStack() },

@@ -151,6 +151,14 @@
                 android:value="Guided stretching routine the person started: hold timer, spoken cues and a notification with Pause and Skip while the screen is off." />
         </service>
         <service
+            android:name=".ui.wellness.WellnessTimerService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Sauna, cold plunge or light therapy timer the person started: countdown notification with Pause and End and Save while the screen is off." />
+        </service>
+        <service
             android:name=".fasting.FastingForegroundService"
             android:exported="false"
             android:foregroundServiceType="specialUse">

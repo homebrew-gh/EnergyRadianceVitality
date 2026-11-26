@@ -58,6 +58,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -118,6 +119,10 @@ import com.erv.app.ui.theme.ErvLightTherapyRedGlow
 import com.erv.app.ui.theme.ErvLightTherapyRedMid
 import com.erv.app.ui.components.CompactIntWheel
 import com.erv.app.ui.components.FormSectionLabelSmall
+import com.erv.app.ui.wellness.WellnessTimerController
+import com.erv.app.ui.wellness.WellnessTimerFullScreen
+import com.erv.app.ui.wellness.WellnessTimerKind
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.abs
@@ -168,6 +173,8 @@ fun HeatColdCategoryScreen(
     var tempUnit by rememberSaveable { mutableStateOf(TemperatureUnit.FAHRENHEIT) }
     var timerRunning by remember { mutableStateOf(false) }
     var timerTotalSeconds by remember { mutableIntStateOf(0) }
+    val wellnessTimer by WellnessTimerController.state.collectAsState()
+    val classicTimer by userPreferences.classicWellnessTimer.collectAsState(initial = false)
 
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -185,6 +192,50 @@ fun HeatColdCategoryScreen(
         if (relayPool != null && signer != null) {
             val urls = keyManager.relayUrlsForKind30078Publish()
             HeatColdSync.publishDay(appContext, relayPool, signer, repository.currentState(), date, urls)
+        }
+    }
+
+    /** Starts [seconds] of the current [mode] at the current temperature on the background timer. */
+    fun startBackgroundTimer(seconds: Int): Boolean {
+        val sessionMode = mode
+        val tempValue = if (sessionMode == HeatColdMode.SAUNA) saunaTemp else coldTemp
+        val unit = tempUnit
+        val unitSuffix = if (unit == TemperatureUnit.FAHRENHEIT) "°F" else "°C"
+        val label = sessionMode.displayName()
+        return WellnessTimerController.start(
+            context = appContext,
+            kind = if (sessionMode == HeatColdMode.SAUNA) WellnessTimerKind.SAUNA else WellnessTimerKind.COLD_PLUNGE,
+            title = label,
+            detail = "$tempValue $unitSuffix",
+            totalSeconds = seconds,
+        ) { elapsed ->
+            val logDate = LocalDate.now()
+            repository.logSession(
+                mode = sessionMode,
+                date = logDate,
+                durationSeconds = elapsed,
+                tempValue = tempValue.toDouble(),
+                tempUnit = unit
+            )
+            syncDay(logDate)
+            "Logged $label • ${formatDurationSeconds(elapsed)}"
+        }
+    }
+
+    fun startSession(seconds: Int, classic: Boolean) {
+        if (classic) {
+            timerTotalSeconds = seconds
+            timerRunning = true
+        } else if (!startBackgroundTimer(seconds)) {
+            scope.launch { snackbarHostState.showSnackbar("Another timer is already running") }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        WellnessTimerController.results.collect { result ->
+            if (result.kind == WellnessTimerKind.SAUNA || result.kind == WellnessTimerKind.COLD_PLUNGE) {
+                snackbarHostState.showSnackbar(result.message)
+            }
         }
     }
 
@@ -212,7 +263,7 @@ fun HeatColdCategoryScreen(
                         timerTotalSeconds = snappedSec
                     }
                 }
-                timerRunning = true
+                startSession(timerTotalSeconds, userPreferences.classicWellnessTimer.first())
                 return@LaunchedEffect
             }
         }
@@ -244,6 +295,17 @@ fun HeatColdCategoryScreen(
             coldTemp = COLD_TEMP_DEFAULT_C
             tempUnit = TemperatureUnit.CELSIUS
         }
+    }
+
+    val backgroundTimer = wellnessTimer?.takeIf {
+        it.kind == WellnessTimerKind.SAUNA || it.kind == WellnessTimerKind.COLD_PLUNGE
+    }
+    if (backgroundTimer != null) {
+        Box(Modifier.fillMaxSize()) {
+            WellnessTimerFullScreen(state = backgroundTimer)
+            SnackbarHost(snackbarHostState, modifier = Modifier.align(Alignment.BottomCenter))
+        }
+        return
     }
 
     if (timerRunning) {
@@ -370,10 +432,7 @@ fun HeatColdCategoryScreen(
 
             val startSeconds = if (mode == HeatColdMode.SAUNA) saunaMinutes * 60 else coldSeconds
             Button(
-                onClick = {
-                    timerTotalSeconds = startSeconds
-                    timerRunning = true
-                },
+                onClick = { startSession(startSeconds, classicTimer) },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(56.dp),
@@ -389,7 +448,11 @@ fun HeatColdCategoryScreen(
             }
 
             Text(
-                "When the timer finishes, you’ll hear a tone and the session is saved for today.",
+                if (classicTimer) {
+                    "When the timer finishes, you’ll hear a tone and the session is saved for today."
+                } else {
+                    "The timer keeps running with the screen off. When it finishes you’ll hear a soft chime and the session is saved. End and Save keeps the time you did."
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

@@ -163,6 +163,9 @@ class MainActivity : AppCompatActivity() {
         if (intent.getBooleanExtra(com.erv.app.ui.stretching.GuidedStretchService.EXTRA_OPEN_GUIDED_STRETCH, false)) {
             com.erv.app.ui.stretching.GuidedStretchController.requestOpen()
         }
+        if (intent.getBooleanExtra(com.erv.app.ui.wellness.WellnessTimerService.EXTRA_OPEN_WELLNESS_TIMER, false)) {
+            com.erv.app.ui.wellness.WellnessTimerController.requestOpen()
+        }
 
         setContent {
             val userPreferences = remember { UserPreferences(this@MainActivity) }
@@ -212,6 +215,9 @@ class MainActivity : AppCompatActivity() {
         }
         if (intent.getBooleanExtra(com.erv.app.ui.stretching.GuidedStretchService.EXTRA_OPEN_GUIDED_STRETCH, false)) {
             com.erv.app.ui.stretching.GuidedStretchController.requestOpen()
+        }
+        if (intent.getBooleanExtra(com.erv.app.ui.wellness.WellnessTimerService.EXTRA_OPEN_WELLNESS_TIMER, false)) {
+            com.erv.app.ui.wellness.WellnessTimerController.requestOpen()
         }
     }
 

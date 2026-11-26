@@ -186,6 +186,10 @@ import com.erv.app.ui.cardio.CardioMultiLegTimerFullScreen
 import com.erv.app.ui.cardio.CardioWorkoutSummaryFullScreen
 import com.erv.app.ui.cardio.OutdoorRuckPackWeightDialog
 import com.erv.app.ui.lighttherapy.LightTherapyTimerFullScreen
+import com.erv.app.ui.lighttherapy.startLightWellnessTimer
+import com.erv.app.ui.wellness.WellnessTimerController
+import com.erv.app.ui.wellness.WellnessTimerFullScreen
+import com.erv.app.ui.wellness.WellnessTimerKind
 import com.erv.app.lighttherapy.LightTimeOfDay
 import com.erv.app.lighttherapy.lightActivityFor
 import com.erv.app.ui.theme.ErvDarkTherapyRedDark
@@ -401,6 +405,10 @@ fun DashboardScreen(
     var routineEditor by remember { mutableStateOf<SupplementRoutine?>(null) }
     var lightRoutinePreview by remember { mutableStateOf<LightRoutine?>(null) }
     var lightTimerSession by remember { mutableStateOf<LightTimerSession?>(null) }
+    /** A light timer started here runs on the background timer; this shows it over the dashboard. */
+    var showLightWellnessTimer by remember { mutableStateOf(false) }
+    val wellnessTimer by WellnessTimerController.state.collectAsState()
+    val classicWellnessTimer by userPreferences.classicWellnessTimer.collectAsState(initial = false)
     var cardioRoutinePreview by remember { mutableStateOf<CardioRoutine?>(null) }
     var pendingDashboardQuickLaunchRuck by remember { mutableStateOf<CardioQuickLaunch?>(null) }
     var showDashboardCardioFgsDialog by remember { mutableStateOf(false) }
@@ -419,6 +427,10 @@ fun DashboardScreen(
     var showGoalsSheet by remember { mutableStateOf(false) }
     var showErvSummarySheet by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
+    // A sauna, cold plunge or light timer that finished while the dashboard is open.
+    LaunchedEffect(Unit) {
+        WellnessTimerController.results.collect { result -> snackbarHostState.showSnackbar(result.message) }
+    }
     val fgsDisclosureSeen by userPreferences.weightLiveWorkoutFgsDisclosureSeen.collectAsState(initial = false)
     var showWeightFgsDialog by remember { mutableStateOf(false) }
     var pendingDashboardWeightBlank by remember { mutableStateOf(false) }
@@ -1405,16 +1417,42 @@ fun DashboardScreen(
                 },
                     onStartTimer = { r ->
                         val device = r.deviceId?.let { lightState.deviceById(it) }
-                        lightTimerSession = LightTimerSession(
-                            minutes = r.durationMinutes,
-                            routineId = r.id,
-                            routineName = r.name,
-                            deviceId = r.deviceId,
-                            deviceName = device?.name
-                        )
+                        if (classicWellnessTimer) {
+                            lightTimerSession = LightTimerSession(
+                                minutes = r.durationMinutes,
+                                routineId = r.id,
+                                routineName = r.name,
+                                deviceId = r.deviceId,
+                                deviceName = device?.name
+                            )
+                        } else {
+                            showLightWellnessTimer = startLightWellnessTimer(
+                                context = context,
+                                repository = lightTherapyRepository,
+                                relayPool = relayPool,
+                                signer = signer,
+                                keyManager = keyManager,
+                                minutes = r.durationMinutes,
+                                routineId = r.id,
+                                routineName = r.name,
+                                deviceId = r.deviceId,
+                                deviceName = device?.name,
+                            ) || wellnessTimer?.kind == WellnessTimerKind.LIGHT
+                        }
                         lightRoutinePreview = null
                     }
                 )
+            }
+
+            val lightWellness = wellnessTimer?.takeIf { it.kind == WellnessTimerKind.LIGHT }
+            if (showLightWellnessTimer && lightWellness != null) {
+                WellnessTimerFullScreen(
+                    state = lightWellness,
+                    onHide = { showLightWellnessTimer = false }
+                )
+            }
+            LaunchedEffect(lightWellness == null) {
+                if (lightWellness == null) showLightWellnessTimer = false
             }
 
             lightTimerSession?.let { session ->

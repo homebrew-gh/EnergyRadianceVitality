@@ -65,6 +65,12 @@ import com.erv.app.lighttherapy.datedLightSessionsForSectionLog
 import com.erv.app.ui.dashboard.SectionLogCalendarSheet
 import com.erv.app.ui.dashboard.SectionLogFilterBar
 import com.erv.app.ui.dashboard.datesWithLightActivity
+import com.erv.app.data.UserPreferences
+import com.erv.app.nostr.KeyManager
+import com.erv.app.ui.wellness.WellnessTimerController
+import com.erv.app.ui.wellness.WellnessTimerFullScreen
+import com.erv.app.ui.wellness.WellnessTimerKind
+import com.erv.app.ui.wellness.lightMinutesForSeconds
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
@@ -79,6 +85,7 @@ private enum class LightTab { Timer, Routines, Lights }
 @Composable
 fun LightTherapyCategoryScreen(
     repository: LightTherapyRepository,
+    userPreferences: UserPreferences,
     relayPool: RelayPool?,
     signer: EventSigner?,
     onBack: () -> Unit,
@@ -101,6 +108,8 @@ fun LightTherapyCategoryScreen(
     var timerRoutineName by remember { mutableStateOf<String?>(null) }
     var timerDeviceId by remember { mutableStateOf<String?>(null) }
     var timerDeviceName by remember { mutableStateOf<String?>(null) }
+    val wellnessTimer by WellnessTimerController.state.collectAsState()
+    val classicTimer by userPreferences.classicWellnessTimer.collectAsState(initial = false)
     var deviceEditor by remember { mutableStateOf<LightDevice?>(null) }
     var creatingDevice by remember { mutableStateOf(false) }
     var routineEditor by remember { mutableStateOf<LightRoutine?>(null) }
@@ -133,6 +142,48 @@ fun LightTherapyCategoryScreen(
 
     LaunchedEffect(reminderRepository) {
         reminderRepository.restoreAllSchedules()
+    }
+
+    LaunchedEffect(Unit) {
+        WellnessTimerController.results.collect { result ->
+            if (result.kind == WellnessTimerKind.LIGHT) snackbarHostState.showSnackbar(result.message)
+        }
+    }
+
+    /** Starts a light session on the background timer, or the classic in-screen one. */
+    fun startSession(minutes: Int, routineId: String?, routineName: String?, deviceId: String?, deviceName: String?) {
+        if (classicTimer) {
+            timerDurationMinutes = minutes
+            timerRoutineId = routineId
+            timerRoutineName = routineName
+            timerDeviceId = deviceId
+            timerDeviceName = deviceName
+            timerRunning = true
+        } else {
+            timerDurationMinutes = minutes
+            val started = startLightWellnessTimer(
+                context = context,
+                repository = repository,
+                relayPool = relayPool,
+                signer = signer,
+                keyManager = keyManager,
+                minutes = minutes,
+                routineId = routineId,
+                routineName = routineName,
+                deviceId = deviceId,
+                deviceName = deviceName,
+            )
+            if (!started) scope.launch { snackbarHostState.showSnackbar("Another timer is already running") }
+        }
+    }
+
+    val backgroundTimer = wellnessTimer?.takeIf { it.kind == WellnessTimerKind.LIGHT }
+    if (backgroundTimer != null) {
+        Box(Modifier.fillMaxSize()) {
+            WellnessTimerFullScreen(state = backgroundTimer)
+            SnackbarHost(snackbarHostState, modifier = Modifier.align(Alignment.BottomCenter))
+        }
+        return
     }
 
     if (timerRunning) {
@@ -204,12 +255,7 @@ fun LightTherapyCategoryScreen(
                 LightTab.Timer -> TimerTabContent(
                     defaultMinutes = timerDurationMinutes,
                     onStartTimer = { minutes ->
-                        timerDurationMinutes = minutes
-                        timerRoutineId = null
-                        timerRoutineName = null
-                        timerDeviceId = null
-                        timerDeviceName = null
-                        timerRunning = true
+                        startSession(minutes, routineId = null, routineName = null, deviceId = null, deviceName = null)
                     }
                 )
                 LightTab.Routines -> RoutinesTabContent(
@@ -229,12 +275,13 @@ fun LightTherapyCategoryScreen(
                     },
                     onRunRoutine = { routine ->
                         val device = routine.deviceId?.let { state.deviceById(it) }
-                        timerDurationMinutes = routine.durationMinutes
-                        timerRoutineId = routine.id
-                        timerRoutineName = routine.name
-                        timerDeviceId = routine.deviceId
-                        timerDeviceName = device?.name
-                        timerRunning = true
+                        startSession(
+                            routine.durationMinutes,
+                            routineId = routine.id,
+                            routineName = routine.name,
+                            deviceId = routine.deviceId,
+                            deviceName = device?.name
+                        )
                     }
                 )
                 LightTab.Lights -> LightsTabContent(
@@ -323,7 +370,53 @@ fun LightTherapyCategoryScreen(
     }
 }
 
-/** Full-screen countdown timer; can be used from Light Therapy screen or Dashboard. */
+/**
+ * Starts a light session on the shared background timer (lock-screen notification, soft chime,
+ * End and Save). On finish it logs the minutes done for today and syncs the day. Used by the Light
+ * Therapy screen and the dashboard. Returns false if another wellness timer is already running.
+ */
+fun startLightWellnessTimer(
+    context: android.content.Context,
+    repository: LightTherapyRepository,
+    relayPool: RelayPool?,
+    signer: EventSigner?,
+    keyManager: KeyManager,
+    minutes: Int,
+    routineId: String?,
+    routineName: String?,
+    deviceId: String?,
+    deviceName: String?,
+): Boolean {
+    val appContext = context.applicationContext
+    val title = routineName ?: "Light Therapy"
+    val detail = deviceName?.takeIf { it != title }.orEmpty()
+    return WellnessTimerController.start(
+        context = appContext,
+        kind = WellnessTimerKind.LIGHT,
+        title = title,
+        detail = detail,
+        totalSeconds = minutes * 60,
+    ) { elapsed ->
+        val loggedMinutes = lightMinutesForSeconds(elapsed)
+        val today = LocalDate.now()
+        repository.logSession(
+            date = today,
+            minutes = loggedMinutes,
+            deviceId = deviceId,
+            deviceName = deviceName,
+            routineId = routineId,
+            routineName = routineName
+        )
+        repository.currentState().logFor(today)?.let { log ->
+            if (relayPool != null && signer != null) {
+                LightSync.publishDailyLog(appContext, relayPool, signer, log, keyManager.relayUrlsForKind30078Publish())
+            }
+        }
+        "Logged ${routineName ?: "light therapy"} • $loggedMinutes min"
+    }
+}
+
+/** Classic full-screen countdown timer; can be used from Light Therapy screen or Dashboard. */
 @Composable
 fun LightTherapyTimerFullScreen(
     durationMinutes: Int,
