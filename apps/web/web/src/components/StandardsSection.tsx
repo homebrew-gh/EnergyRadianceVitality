@@ -2,7 +2,13 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import type { BodyWeightEntry } from "../lib/bodyWeight";
 import type { BodyWeightUnit } from "../lib/fitnessEquipment";
-import { evaluateStandard, type StandardEventResult, type StandardResult, type StandardTierId } from "../lib/standards";
+import {
+  evaluateStandard,
+  type FitnessStandard,
+  type StandardEventResult,
+  type StandardResult,
+  type StandardTierId,
+} from "../lib/standards";
 import { BUILT_IN_STANDARDS, builtInStandard } from "../lib/standardsLibrary";
 import {
   formatGap,
@@ -26,6 +32,18 @@ import {
   type StoredStandardResult,
 } from "../lib/standardResults";
 import { FieldLabel, SectionHeader } from "./FieldLabel";
+import { CustomStandardEditor } from "./CustomStandardEditor";
+import {
+  CUSTOM_STANDARDS_D_TAG,
+  deleteCustomStandard,
+  newStandardDraft,
+  parseCustomStandards,
+  serializeCustomStandards,
+  standardToDraft,
+  upsertCustomStandard,
+  type CustomStandardDraft,
+  type CustomStandardsPayload,
+} from "../lib/customStandards";
 import type { CardioDayLog, WeightDayLog } from "../lib/trainingHistory";
 
 const TIER_STYLE: Record<StandardTierId | "NONE", { background: string; color: string }> = {
@@ -72,7 +90,7 @@ function StandardsRadar({ result }: { result: StandardResult }) {
   const scored = result.events.some((e) => e.value != null);
   return (
     <svg
-      viewBox="0 0 440 380"
+      viewBox="-60 0 560 380"
       className="w-full max-w-xl mx-auto"
       role="img"
       aria-label={`${result.standard.name} scorecard`}
@@ -357,9 +375,27 @@ export function StandardsSection({
   relayRecords: AppDataRecord[];
 }) {
   const { published: profile, publishPatch, publishing, loading } = useTrainingProfile();
+
+  const relayCustom = useMemo(
+    () => parseCustomStandards(relayRecords.find((r) => r.d_tag === CUSTOM_STANDARDS_D_TAG)?.plaintext),
+    [relayRecords],
+  );
+  const [localCustom, setLocalCustom] = useState<CustomStandardsPayload | null>(null);
+  const custom =
+    localCustom && localCustom.lastModifiedEpochSeconds >= relayCustom.lastModifiedEpochSeconds
+      ? localCustom
+      : relayCustom;
+  const findStandard = (id: string): FitnessStandard | null =>
+    builtInStandard(id) ?? custom.standards.find((s) => s.id === id) ?? null;
+  const [editing, setEditing] = useState<CustomStandardDraft | null>(null);
+  const [savingCustom, setSavingCustom] = useState(false);
+
   const followed = useMemo(
-    () => (profile.followedStandardIds ?? []).filter((id) => builtInStandard(id) != null),
-    [profile.followedStandardIds],
+    () =>
+      (profile.followedStandardIds ?? []).filter(
+        (id) => builtInStandard(id) != null || custom.standards.some((s) => s.id === id),
+      ),
+    [profile.followedStandardIds, custom],
   );
   const mainId =
     profile.mainStandardId && followed.includes(profile.mainStandardId) ? profile.mainStandardId : followed[0];
@@ -367,7 +403,7 @@ export function StandardsSection({
   const [managing, setManaging] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const currentId = viewId && followed.includes(viewId) ? viewId : mainId;
-  const standard = currentId ? builtInStandard(currentId) : null;
+  const standard = currentId ? findStandard(currentId) : null;
   const showPicker = managing || (!loading && followed.length === 0);
 
   const relayResults = useMemo(
@@ -441,6 +477,46 @@ export function StandardsSection({
     void save(next, mainId ?? id);
   };
 
+  const publishCustom = async (next: CustomStandardsPayload): Promise<boolean> => {
+    setSavingCustom(true);
+    setSaveError(null);
+    try {
+      const now = next.lastModifiedEpochSeconds;
+      await api.publishAppData({ d_tag: CUSTOM_STANDARDS_D_TAG, plaintext: serializeCustomStandards(next, now) });
+      setLocalCustom(next);
+      return true;
+    } catch (e) {
+      setSaveError(e instanceof ApiError ? e.message : "Could not save the standard. Try again.");
+      return false;
+    } finally {
+      setSavingCustom(false);
+    }
+  };
+
+  const saveCustom = async (s: FitnessStandard) => {
+    const isNew = !custom.standards.some((c) => c.id === s.id);
+    const ok = await publishCustom(upsertCustomStandard(custom, s, Math.floor(Date.now() / 1000)));
+    if (!ok) return;
+    setEditing(null);
+    // A new standard is followed straight away, so it shows up on the card.
+    if (isNew && !followed.includes(s.id)) await save([...followed, s.id], mainId ?? s.id);
+  };
+
+  const removeCustom = async (id: string) => {
+    const ok = await publishCustom(deleteCustomStandard(custom, id, Math.floor(Date.now() / 1000)));
+    if (ok && followed.includes(id)) {
+      await save(
+        followed.filter((f) => f !== id),
+        mainId === id ? null : (mainId ?? null),
+      );
+    }
+  };
+
+  const pickerStandards: { standard: FitnessStandard; isCustom: boolean }[] = [
+    ...BUILT_IN_STANDARDS.map((standard) => ({ standard, isCustom: false })),
+    ...custom.standards.map((standard) => ({ standard, isCustom: true })),
+  ];
+
   const notScored = result ? result.events.length - result.scoredCount : 0;
   const belowBase = result
     ? result.scoredCount - result.tierCounts.BASE - result.tierCounts.STRONG - result.tierCounts.ELITE
@@ -459,13 +535,25 @@ export function StandardsSection({
 
       {saveError ? <p className="text-sm text-[var(--erv-error)]">{saveError}</p> : null}
 
-      {showPicker ? (
+      {editing ? (
+        <CustomStandardEditor
+          key={editing.id ?? "new"}
+          initial={editing}
+          unit={weightUnit}
+          exercises={exercises}
+          saving={savingCustom || publishing}
+          onSave={saveCustom}
+          onCancel={() => setEditing(null)}
+        />
+      ) : null}
+
+      {showPicker && !editing ? (
         <div className="space-y-3">
           <p className="text-sm text-muted">
             Follow one or more standards. Scores fill in from the lifts, runs and rucks you already log.
           </p>
           <ul className="space-y-2">
-            {BUILT_IN_STANDARDS.map((s) => {
+            {pickerStandards.map(({ standard: s, isCustom }) => {
               const isFollowed = followed.includes(s.id);
               const isMain = isFollowed && s.id === mainId;
               return (
@@ -478,9 +566,10 @@ export function StandardsSection({
                   <div className="min-w-0 flex-1">
                     <p className="font-medium text-heading">
                       {s.name}
+                      {isCustom ? <span className="text-xs text-muted"> · Custom</span> : null}
                       {isMain ? <span className="text-xs text-muted"> · Main</span> : null}
                     </p>
-                    <p className="text-sm text-muted">{s.description}</p>
+                    {s.description ? <p className="text-sm text-muted">{s.description}</p> : null}
                     <p className="text-xs text-muted mt-1">
                       {s.events.map((e) => e.name).join(" · ")}
                       {s.source ? (
@@ -493,7 +582,39 @@ export function StandardsSection({
                       ) : null}
                     </p>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
+                    {isCustom ? (
+                      <>
+                        <button
+                          type="button"
+                          className="btn-ghost px-2 py-1 text-xs"
+                          disabled={savingCustom}
+                          onClick={() => setEditing(standardToDraft(s, weightUnit, true))}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-ghost px-2 py-1 text-xs"
+                          disabled={savingCustom || publishing}
+                          onClick={() => {
+                            if (window.confirm(`Delete ${s.name}? Its logged test results stay saved.`)) {
+                              void removeCustom(s.id);
+                            }
+                          }}
+                        >
+                          Delete
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        className="btn-ghost px-2 py-1 text-xs"
+                        onClick={() => setEditing(standardToDraft(s, weightUnit, false))}
+                      >
+                        Copy
+                      </button>
+                    )}
                     {isFollowed && !isMain ? (
                       <button
                         type="button"
@@ -517,15 +638,18 @@ export function StandardsSection({
               );
             })}
           </ul>
+          <button type="button" className="btn-ghost px-3 py-1 text-sm" onClick={() => setEditing(newStandardDraft())}>
+            Create Custom Standard
+          </button>
         </div>
       ) : null}
 
-      {!showPicker && result ? (
+      {!showPicker && !editing && result ? (
         <div className="space-y-4">
           {followed.length > 1 ? (
             <div className="flex flex-wrap gap-2" role="tablist" aria-label="Followed standards">
               {followed.map((id) => {
-                const s = builtInStandard(id);
+                const s = findStandard(id);
                 if (!s) return null;
                 const selected = id === currentId;
                 return (

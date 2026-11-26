@@ -18,6 +18,8 @@ pub const MEDIA_LIBRARY_D_TAG: &str = "erv/media/library";
 pub const COACH_REVIEW_D_TAG: &str = "erv/coach/review";
 /// Logged fitness standard test results (plank, broad jump, carry, ...), written by the web companion.
 pub const STANDARD_RESULTS_D_TAG: &str = "erv/standards/results";
+/// Custom fitness standards the user built on the web companion.
+pub const CUSTOM_STANDARDS_D_TAG: &str = "erv/standards/custom";
 
 /// Whether a d-tag belongs to ERV encrypted app data.
 pub fn is_erv_d_tag(d_tag: &str) -> bool {
@@ -119,6 +121,7 @@ pub fn is_erv_publishable_d_tag(d_tag: &str) -> bool {
         || d_tag == MEDIA_LIBRARY_D_TAG
         || d_tag == COACH_REVIEW_D_TAG
         || d_tag == STANDARD_RESULTS_D_TAG
+        || d_tag == CUSTOM_STANDARDS_D_TAG
         || is_erv_catalog_d_tag(d_tag)
 }
 
@@ -160,6 +163,7 @@ mod tests {
         assert!(is_erv_publishable_d_tag(TRAINING_PROFILE_D_TAG));
         assert!(is_erv_publishable_d_tag(COACH_REVIEW_D_TAG));
         assert!(is_erv_publishable_d_tag(STANDARD_RESULTS_D_TAG));
+        assert!(is_erv_publishable_d_tag(CUSTOM_STANDARDS_D_TAG));
         assert!(is_erv_publishable_d_tag(MEDIA_LIBRARY_D_TAG));
         assert!(!is_erv_publishable_d_tag("erv/weight/2026-06-13"));
     }
