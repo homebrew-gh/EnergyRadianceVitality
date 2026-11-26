@@ -119,6 +119,7 @@ class UserPreferences(private val context: Context) {
         val GOALS_JSON_V1 = stringPreferencesKey("goals_json_v1")
         val TEMPERATURE_UNIT = stringPreferencesKey("temperature_unit")
         val WORKOUT_BUBBLE_ENABLED = booleanPreferencesKey("workout_bubble_enabled")
+        val CLASSIC_WELLNESS_TIMER = booleanPreferencesKey("classic_wellness_timer")
         val WEIGHT_LIVE_FGS_DISCLOSURE_SEEN = booleanPreferencesKey("weight_live_fgs_disclosure_seen")
         val CARDIO_GPS_RECORDING_PREFERRED = booleanPreferencesKey("cardio_gps_recording_preferred")
         val CARDIO_GPS_TRACK_RETAIN_ON_DEVICE = booleanPreferencesKey("cardio_gps_track_retain_on_device")
@@ -392,6 +393,20 @@ class UserPreferences(private val context: Context) {
     suspend fun setWorkoutBubbleEnabled(enabled: Boolean) {
         context.dataStore.edit { prefs ->
             prefs[Keys.WORKOUT_BUBBLE_ENABLED] = enabled
+        }
+    }
+
+    /**
+     * Sauna, cold plunge and light therapy use the old in-screen timers instead of the background
+     * wellness timer. Kept for a side-by-side check until the old timers are retired.
+     */
+    val classicWellnessTimer: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[Keys.CLASSIC_WELLNESS_TIMER] ?: false
+    }
+
+    suspend fun setClassicWellnessTimer(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.CLASSIC_WELLNESS_TIMER] = enabled
         }
     }
 
