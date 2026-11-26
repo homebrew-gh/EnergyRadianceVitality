@@ -84,7 +84,8 @@ class LightTherapyRepository(context: Context) {
         deviceId: String? = null,
         deviceName: String? = null,
         routineId: String? = null,
-        routineName: String? = null
+        routineName: String? = null,
+        loggedAtEpochSeconds: Long = nowEpochSeconds()
     ) {
         updateState { current ->
             val device = deviceId?.let { current.deviceById(it) }
@@ -96,7 +97,7 @@ class LightTherapyRepository(context: Context) {
                 deviceName = name,
                 routineId = routineId,
                 routineName = routineName,
-                loggedAtEpochSeconds = nowEpochSeconds(),
+                loggedAtEpochSeconds = loggedAtEpochSeconds,
                 id = UUID.randomUUID().toString()
             )
             current.copy(
@@ -104,6 +105,43 @@ class LightTherapyRepository(context: Context) {
                     log.copy(sessions = log.sessions + session)
                 )
             )
+        }
+    }
+
+    /**
+     * Changes a logged session's minutes, light and time. If [newDate] differs from [date] the
+     * session moves to that day. A routine session that changes light keeps its routine name.
+     */
+    suspend fun updateSession(
+        date: LocalDate,
+        sessionId: String,
+        newDate: LocalDate,
+        minutes: Int,
+        deviceId: String?,
+        loggedAtEpochSeconds: Long
+    ) {
+        updateState { current ->
+            val log = current.logFor(date) ?: return@updateState current
+            val old = log.sessions.firstOrNull { it.id == sessionId } ?: return@updateState current
+            val device = deviceId?.let { current.deviceById(it) }
+            val updated = old.copy(
+                minutes = minutes.coerceAtLeast(1),
+                deviceId = deviceId,
+                deviceName = if (deviceId == old.deviceId) old.deviceName ?: device?.name else device?.name,
+                loggedAtEpochSeconds = loggedAtEpochSeconds
+            )
+            if (newDate == date) {
+                current.copy(
+                    logs = current.logs.upsert(
+                        log.copy(sessions = log.sessions.map { if (it.id == sessionId) updated else it })
+                    )
+                )
+            } else {
+                val withoutOld = current.logs.upsert(log.copy(sessions = log.sessions.filterNot { it.id == sessionId }))
+                val target = withoutOld.firstOrNull { it.date == newDate.toString() }
+                    ?: LightDayLog(date = newDate.toString())
+                current.copy(logs = withoutOld.upsert(target.copy(sessions = target.sessions + updated)))
+            }
         }
     }
 

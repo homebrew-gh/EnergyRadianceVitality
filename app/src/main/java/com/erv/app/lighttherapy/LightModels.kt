@@ -1,6 +1,9 @@
 package com.erv.app.lighttherapy
 
 import com.erv.app.SectionLogDateFilter
+import com.erv.app.reminders.RoutineReminderDraft
+import com.erv.app.reminders.RoutineReminderFrequency
+import com.erv.app.reminders.Weekday
 import kotlinx.serialization.Serializable
 import java.nio.charset.StandardCharsets
 import java.time.LocalDate
@@ -18,11 +21,6 @@ enum class LightDeviceType {
 
 @Serializable
 enum class LightTimeOfDay { MORNING, AFTERNOON, NIGHT }
-
-@Serializable
-enum class LightWeekday {
-    MONDAY, TUESDAY, WEDNESDAY, THURSDAY, FRIDAY, SATURDAY, SUNDAY
-}
 
 /** User's catalog entry for a light device (Chroma-style: wavelengths, power, recommended duration). */
 @Serializable
@@ -48,11 +46,24 @@ data class LightRoutine(
     val timeOfDay: LightTimeOfDay = LightTimeOfDay.MORNING,
     val durationMinutes: Int = 15,
     val deviceId: String? = null,
-    /** Days of the week this routine is active; empty = every day */
-    val repeatDays: List<LightWeekday> = emptyList(),
+    /** Days of the week this routine is active; empty = every day. Also the reminder's days. */
+    val repeatDays: List<Weekday> = emptyList(),
     val notes: String = ""
 ) {
-    fun repeatDaysSet(): Set<LightWeekday> = repeatDays.toSet()
+    fun repeatDaysSet(): Set<Weekday> = repeatDays.toSet()
+}
+
+/**
+ * The routine's reminder follows its Repeat Days: none or all seven means every day, otherwise
+ * only those days. Keeps the reminder's on/off and time from [draft].
+ */
+fun LightRoutine.reminderDraftFollowingRepeatDays(draft: RoutineReminderDraft): RoutineReminderDraft {
+    val days = repeatDaysSet()
+    return if (days.isEmpty() || days.size == Weekday.entries.size) {
+        draft.copy(frequency = RoutineReminderFrequency.DAILY, repeatDays = Weekday.entries.toSet())
+    } else {
+        draft.copy(frequency = RoutineReminderFrequency.CUSTOM_DAYS, repeatDays = days)
+    }
 }
 
 /** A single logged session (from timer or manual). */
@@ -188,14 +199,4 @@ fun LightTimeOfDay.label(): String = when (this) {
     LightTimeOfDay.MORNING -> "Morning"
     LightTimeOfDay.AFTERNOON -> "Afternoon"
     LightTimeOfDay.NIGHT -> "Night"
-}
-
-fun LightWeekday.shortLabel(): String = when (this) {
-    LightWeekday.MONDAY -> "Mon"
-    LightWeekday.TUESDAY -> "Tue"
-    LightWeekday.WEDNESDAY -> "Wed"
-    LightWeekday.THURSDAY -> "Thu"
-    LightWeekday.FRIDAY -> "Fri"
-    LightWeekday.SATURDAY -> "Sat"
-    LightWeekday.SUNDAY -> "Sun"
 }
