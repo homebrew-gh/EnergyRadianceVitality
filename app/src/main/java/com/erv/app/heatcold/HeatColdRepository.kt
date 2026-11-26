@@ -24,6 +24,7 @@ class HeatColdRepository(context: Context) {
 
     private object Keys {
         val STATE = stringPreferencesKey("heat_cold_state")
+        val LAST_SETTINGS = stringPreferencesKey("heat_cold_last_settings")
     }
 
     private val json = Json {
@@ -39,6 +40,26 @@ class HeatColdRepository(context: Context) {
     suspend fun currentState(): HeatColdLibraryState =
         decodeState(appContext.heatColdDataStore.data.first()[Keys.STATE])
 
+    /** The last durations and temperatures used on this phone (not synced). */
+    val lastSettings: Flow<HeatColdLastSettings> = appContext.heatColdDataStore.data.map { prefs ->
+        decodeLastSettings(prefs[Keys.LAST_SETTINGS])
+    }
+
+    suspend fun currentLastSettings(): HeatColdLastSettings =
+        decodeLastSettings(appContext.heatColdDataStore.data.first()[Keys.LAST_SETTINGS])
+
+    suspend fun saveLastSettings(settings: HeatColdLastSettings) {
+        appContext.heatColdDataStore.edit { prefs ->
+            prefs[Keys.LAST_SETTINGS] = json.encodeToString(HeatColdLastSettings.serializer(), settings)
+        }
+    }
+
+    private fun decodeLastSettings(raw: String?): HeatColdLastSettings {
+        if (raw.isNullOrBlank()) return HeatColdLastSettings()
+        return runCatching { json.decodeFromString(HeatColdLastSettings.serializer(), raw) }
+            .getOrDefault(HeatColdLastSettings())
+    }
+
     suspend fun replaceAll(newState: HeatColdLibraryState) {
         updateState { newState.withStableSessionIds() }
     }
@@ -52,7 +73,9 @@ class HeatColdRepository(context: Context) {
         date: LocalDate,
         durationSeconds: Int,
         tempValue: Double? = null,
-        tempUnit: TemperatureUnit? = null
+        tempUnit: TemperatureUnit? = null,
+        loggedAtEpochSeconds: Long = nowEpochSeconds(),
+        contrastId: String? = null
     ) {
         updateState { current ->
             val log = current.logFor(mode, date) ?: HeatColdDayLog(date = date.toString())
@@ -61,18 +84,59 @@ class HeatColdRepository(context: Context) {
                 durationSeconds = durationSeconds,
                 tempValue = tempValue,
                 tempUnit = tempUnit,
-                loggedAtEpochSeconds = nowEpochSeconds()
+                loggedAtEpochSeconds = loggedAtEpochSeconds,
+                lastModifiedEpochSeconds = nowEpochSeconds(),
+                contrastId = contrastId
             )
             current.withLogs(mode, current.logsFor(mode).upsertLog(log.copy(sessions = log.sessions + session)))
+        }
+    }
+
+    /**
+     * Changes a saved session. A new [newMode] or [newDate] moves it, leaving a delete marker on the
+     * old day so a synced copy elsewhere does not bring it back there.
+     */
+    suspend fun updateSession(
+        mode: HeatColdMode,
+        date: LocalDate,
+        sessionId: String,
+        newMode: HeatColdMode,
+        newDate: LocalDate,
+        durationSeconds: Int,
+        tempValue: Double?,
+        tempUnit: TemperatureUnit?,
+        loggedAtEpochSeconds: Long
+    ) {
+        updateState { current ->
+            val oldLog = current.logFor(mode, date) ?: return@updateState current
+            val old = oldLog.sessions.firstOrNull { it.id == sessionId } ?: return@updateState current
+            val now = nowEpochSeconds()
+            val updated = old.copy(
+                durationSeconds = durationSeconds,
+                tempValue = tempValue,
+                tempUnit = tempUnit,
+                loggedAtEpochSeconds = loggedAtEpochSeconds,
+                lastModifiedEpochSeconds = now
+            )
+            if (newMode == mode && newDate == date) {
+                val sessions = oldLog.sessions.map { if (it.id == sessionId) updated else it }
+                return@updateState current.withLogs(mode, current.logsFor(mode).upsertLog(oldLog.copy(sessions = sessions)))
+            }
+            val removed = current.withLogs(mode, current.logsFor(mode).upsertLog(oldLog.removing(sessionId, now)))
+            val target = removed.logFor(newMode, newDate) ?: HeatColdDayLog(date = newDate.toString())
+            val targetLog = target.copy(
+                sessions = target.sessions.filterNot { it.id == sessionId } + updated,
+                deletedSessionIds = target.deletedSessionIds - sessionId
+            )
+            removed.withLogs(newMode, removed.logsFor(newMode).upsertLog(targetLog))
         }
     }
 
     suspend fun deleteSession(mode: HeatColdMode, date: LocalDate, sessionId: String) {
         updateState { current ->
             val log = current.logFor(mode, date) ?: return@updateState current
-            val newSessions = log.sessions.filterNot { it.id == sessionId }
-            if (newSessions.size == log.sessions.size) return@updateState current
-            current.withLogs(mode, current.logsFor(mode).upsertLog(log.copy(sessions = newSessions)))
+            if (log.sessions.none { it.id == sessionId }) return@updateState current
+            current.withLogs(mode, current.logsFor(mode).upsertLog(log.removing(sessionId, nowEpochSeconds())))
         }
     }
 
@@ -98,6 +162,12 @@ class HeatColdRepository(context: Context) {
         }
     }
 }
+
+private fun HeatColdDayLog.removing(sessionId: String, at: Long): HeatColdDayLog =
+    copy(
+        sessions = sessions.filterNot { it.id == sessionId },
+        deletedSessionIds = deletedSessionIds + (sessionId to at)
+    )
 
 private fun List<HeatColdDayLog>.upsertLog(log: HeatColdDayLog): List<HeatColdDayLog> {
     val items = toMutableList()

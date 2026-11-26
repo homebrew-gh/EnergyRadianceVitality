@@ -45,6 +45,20 @@ data class WellnessTimerState(
 /** What a finished timer saved, for the screen's snackbar. */
 data class WellnessTimerResult(val kind: WellnessTimerKind, val message: String)
 
+/**
+ * One step of a chained timer (a contrast session's sauna, switch and cold rounds).
+ * [onSave] works as in [WellnessTimerController.start]; [next] gives the step after this one,
+ * or null when this is the last.
+ */
+class WellnessTimerStep(
+    val kind: WellnessTimerKind,
+    val title: String,
+    val detail: String,
+    val totalSeconds: Int,
+    val onSave: suspend (elapsedSeconds: Int) -> String?,
+    val next: (() -> WellnessTimerStep?)? = null,
+)
+
 /** Whole minutes to log for [seconds] of light: rounded, never zero once something was done. */
 fun lightMinutesForSeconds(seconds: Int): Int = ((seconds + 30) / 60).coerceAtLeast(1)
 
@@ -72,6 +86,7 @@ object WellnessTimerController {
 
     private var appContext: Context? = null
     private var onSave: (suspend (elapsedSeconds: Int) -> String?)? = null
+    private var next: (() -> WellnessTimerStep?)? = null
     private var tickJob: Job? = null
     @Volatile private var soundStyle = StretchSoundStyle.SOFT_CHIME
 
@@ -91,20 +106,17 @@ object WellnessTimerController {
         detail: String,
         totalSeconds: Int,
         onSave: suspend (elapsedSeconds: Int) -> String?,
-    ): Boolean {
-        if (_state.value != null || totalSeconds <= 0) return false
+    ): Boolean = startSteps(context, WellnessTimerStep(kind, title, detail, totalSeconds, onSave))
+
+    /**
+     * Starts a chain of timers. When a step ends (time up or End and Save) it saves and the next
+     * step starts at once, without stopping the lock-screen notification. Discard stops the chain.
+     */
+    fun startSteps(context: Context, first: WellnessTimerStep): Boolean {
+        if (_state.value != null || first.totalSeconds <= 0) return false
         val app = context.applicationContext
         appContext = app
-        this.onSave = onSave
-        _state.value = WellnessTimerState(
-            kind = kind,
-            title = title,
-            detail = detail,
-            totalSeconds = totalSeconds,
-            endAtMs = System.currentTimeMillis() + totalSeconds * 1000L,
-            pausedRemainingSeconds = null,
-            remainingSeconds = totalSeconds,
-        )
+        load(first)
         scope.launch {
             soundStyle = runCatching { UserPreferences(app).stretchSoundStyle.first() }
                 .getOrDefault(StretchSoundStyle.SOFT_CHIME)
@@ -112,6 +124,20 @@ object WellnessTimerController {
         WellnessTimerService.start(app)
         startTicking()
         return true
+    }
+
+    private fun load(step: WellnessTimerStep) {
+        onSave = step.onSave
+        next = step.next
+        _state.value = WellnessTimerState(
+            kind = step.kind,
+            title = step.title,
+            detail = step.detail,
+            totalSeconds = step.totalSeconds,
+            endAtMs = System.currentTimeMillis() + step.totalSeconds * 1000L,
+            pausedRemainingSeconds = null,
+            remainingSeconds = step.totalSeconds,
+        )
     }
 
     fun togglePause() {
@@ -179,11 +205,19 @@ object WellnessTimerController {
     private fun finish(save: Boolean, elapsedSeconds: Int) {
         val s = _state.value ?: return
         val saver = onSave
+        val nextStep = if (save) runCatching { next?.invoke() }.getOrNull() else null
         tickJob?.cancel()
         tickJob = null
         onSave = null
-        _state.value = null
-        appContext?.let { WellnessTimerService.stop(it) }
+        next = null
+        if (nextStep != null && nextStep.totalSeconds > 0) {
+            // Straight into the next step: the state never goes null, so the service keeps running.
+            load(nextStep)
+            startTicking()
+        } else {
+            _state.value = null
+            appContext?.let { WellnessTimerService.stop(it) }
+        }
         if (save && saver != null && elapsedSeconds > 0) {
             scope.launch {
                 val message = runCatching { saver(elapsedSeconds) }.getOrNull()

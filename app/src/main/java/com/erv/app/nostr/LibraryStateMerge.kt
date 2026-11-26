@@ -258,21 +258,8 @@ object LibraryStateMerge {
         }
     }
 
-    private fun mergeHeatColdDay(local: HeatColdDayLog, remote: HeatColdDayLog): HeatColdDayLog {
-        val byId = remote.sessions.associateBy { it.id }.toMutableMap()
-        for (s in local.sessions) {
-            val other = byId[s.id]
-            byId[s.id] = when {
-                other == null -> s
-                s.loggedAtEpochSeconds >= other.loggedAtEpochSeconds -> s
-                else -> other
-            }
-        }
-        return HeatColdDayLog(
-            date = local.date,
-            sessions = byId.values.sortedWith(compareBy({ it.loggedAtEpochSeconds }, { it.id }))
-        )
-    }
+    private fun mergeHeatColdDay(local: HeatColdDayLog, remote: HeatColdDayLog): HeatColdDayLog =
+        com.erv.app.heatcold.mergeHeatColdDayLogs(local, remote)
 
     fun mergeBodyTracker(local: BodyTrackerLibraryState, remote: BodyTrackerLibraryState): BodyTrackerLibraryState {
         val localWinsSettings = local.lengthUnitUpdatedAtEpochSeconds >= remote.lengthUnitUpdatedAtEpochSeconds

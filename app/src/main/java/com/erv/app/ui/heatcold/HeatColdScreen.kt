@@ -6,34 +6,25 @@ import com.erv.app.ui.theme.ervSessionTopAppBarColors
 import com.erv.app.ui.theme.ervTopAppBarColors
 import android.media.AudioManager
 import android.media.ToneGenerator
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.horizontalDrag
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.PlayArrow
@@ -43,6 +34,10 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -54,43 +49,39 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
+import com.erv.app.heatcold.HeatColdLastSettings
 import com.erv.app.heatcold.HeatColdLibraryState
+import com.erv.app.heatcold.HeatColdModeTotals
+import com.erv.app.heatcold.HeatColdWeekSummary
+import com.erv.app.heatcold.convertTemperature
+import com.erv.app.heatcold.weekSummary
 import com.erv.app.heatcold.HeatColdMode
 import com.erv.app.heatcold.HeatColdRepository
 import com.erv.app.heatcold.HeatColdSession
 import com.erv.app.heatcold.HeatColdSync
-import com.erv.app.nostr.LibraryStateMerge
-import com.erv.app.nostr.RelayPayloadDigestStore
 import com.erv.app.data.TemperatureUnit
 import com.erv.app.heatcold.HeatColdTimelineEntry
-import com.erv.app.heatcold.chronologicalHeatColdTimelineFor
-import com.erv.app.heatcold.chronologicalHeatColdTimelineForRange
 import com.erv.app.heatcold.formatDurationSeconds
 import com.erv.app.heatcold.formatTemp
 import com.erv.app.nostr.EventSigner
@@ -131,24 +122,77 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import java.util.UUID
 
-private val SAUNA_MINUTE_OPTIONS = (5..30 step 5).toList()
-private val COLD_SECOND_OPTIONS = (30..300 step 30).toList()
+/** Sauna minutes: 1 to 60. */
+private val SAUNA_MINUTE_OPTIONS = (1..60).toList()
 
-private val SAUNA_TEMP_FAHRENHEIT = (130..200).toList()
-private val SAUNA_TEMP_CELSIUS = (54..93).toList()
-private val COLD_TEMP_FAHRENHEIT = (33..55).toList()
-private val COLD_TEMP_CELSIUS = (1..13).toList()
+/** Cold seconds: 15 s steps to 5 min, 30 s steps to 10 min, then whole minutes to 20 min. */
+private val COLD_SECOND_OPTIONS = (15..300 step 15).toList() + (330..600 step 30).toList() + (660..1200 step 60).toList()
 
-/** Defaults when toggling °F/°C (avoids wheel desync from converted values). */
-private const val SAUNA_TEMP_DEFAULT_F = 155
-private const val SAUNA_TEMP_DEFAULT_C = 68
-private const val COLD_TEMP_DEFAULT_F = 44
-private const val COLD_TEMP_DEFAULT_C = 7
+private val SAUNA_TEMP_FAHRENHEIT = (100..230).toList()
+private val SAUNA_TEMP_CELSIUS = (38..110).toList()
+private val COLD_TEMP_FAHRENHEIT = (32..70).toList()
+private val COLD_TEMP_CELSIUS = (0..21).toList()
+
+private val CONTRAST_ROUND_OPTIONS = (1..6).toList()
+private val SWITCH_SECOND_OPTIONS = listOf(0, 15, 30, 45, 60, 90, 120)
+
+private enum class HeatColdTab(val label: String) { SAUNA("Sauna"), COLD_PLUNGE("Cold Plunge"), CONTRAST("Contrast") }
+
+private fun List<Int>.nearest(value: Int): Int = minByOrNull { abs(it - value) } ?: value
+
+private fun saunaTempOptions(unit: TemperatureUnit) =
+    if (unit == TemperatureUnit.FAHRENHEIT) SAUNA_TEMP_FAHRENHEIT else SAUNA_TEMP_CELSIUS
+
+private fun coldTempOptions(unit: TemperatureUnit) =
+    if (unit == TemperatureUnit.FAHRENHEIT) COLD_TEMP_FAHRENHEIT else COLD_TEMP_CELSIUS
+
+private fun tempSuffix(unit: TemperatureUnit) = if (unit == TemperatureUnit.FAHRENHEIT) "°F" else "°C"
 
 @Composable
 fun HeatColdCategoryScreen(
     initialMode: HeatColdMode,
+    repository: HeatColdRepository,
+    userPreferences: UserPreferences,
+    relayPool: RelayPool?,
+    signer: EventSigner?,
+    onBack: () -> Unit,
+    onOpenLog: () -> Unit
+) {
+    // The wheels read their start value once, so wait for the saved settings and the unit.
+    val saved by produceState<HeatColdLastSettings?>(initialValue = null, repository) {
+        value = repository.currentLastSettings()
+    }
+    val unit by produceState<TemperatureUnit?>(initialValue = null, userPreferences) {
+        userPreferences.temperatureUnit.collect { value = it }
+    }
+    val loaded = saved
+    val tempUnit = unit
+    if (loaded == null || tempUnit == null) {
+        Box(Modifier.fillMaxSize())
+        return
+    }
+    key(tempUnit) {
+        HeatColdCategoryContent(
+            initialMode = initialMode,
+            saved = loaded,
+            tempUnit = tempUnit,
+            repository = repository,
+            userPreferences = userPreferences,
+            relayPool = relayPool,
+            signer = signer,
+            onBack = onBack,
+            onOpenLog = onOpenLog
+        )
+    }
+}
+
+@Composable
+private fun HeatColdCategoryContent(
+    initialMode: HeatColdMode,
+    saved: HeatColdLastSettings,
+    tempUnit: TemperatureUnit,
     repository: HeatColdRepository,
     userPreferences: UserPreferences,
     relayPool: RelayPool?,
@@ -165,28 +209,50 @@ fun HeatColdCategoryScreen(
     val coldMid = if (darkTheme) ErvDarkColdMid else ErvColdMid
     val coldGlow = if (darkTheme) ErvDarkColdGlow else ErvColdGlow
 
-    var mode by rememberSaveable { mutableStateOf(initialMode) }
-    var saunaMinutes by rememberSaveable { mutableIntStateOf(15) }
-    var coldSeconds by rememberSaveable { mutableIntStateOf(120) }
-    var saunaTemp by rememberSaveable { mutableIntStateOf(155) }
-    var coldTemp by rememberSaveable { mutableIntStateOf(44) }
-    var tempUnit by rememberSaveable { mutableStateOf(TemperatureUnit.FAHRENHEIT) }
+    val savedTab = runCatching { HeatColdTab.valueOf(saved.lastTab) }.getOrNull()
+    var tab by rememberSaveable {
+        mutableStateOf(
+            savedTab ?: if (initialMode == HeatColdMode.COLD_PLUNGE) HeatColdTab.COLD_PLUNGE else HeatColdTab.SAUNA
+        )
+    }
+    var saunaMinutes by rememberSaveable { mutableIntStateOf(SAUNA_MINUTE_OPTIONS.nearest(saved.saunaMinutes)) }
+    var coldSeconds by rememberSaveable { mutableIntStateOf(COLD_SECOND_OPTIONS.nearest(saved.coldSeconds)) }
+    var saunaTemp by rememberSaveable {
+        mutableIntStateOf(saunaTempOptions(tempUnit).nearest(convertTemperature(saved.saunaTempF, TemperatureUnit.FAHRENHEIT, tempUnit)))
+    }
+    var coldTemp by rememberSaveable {
+        mutableIntStateOf(coldTempOptions(tempUnit).nearest(convertTemperature(saved.coldTempF, TemperatureUnit.FAHRENHEIT, tempUnit)))
+    }
+    var contrastRounds by rememberSaveable { mutableIntStateOf(CONTRAST_ROUND_OPTIONS.nearest(saved.contrastRounds)) }
+    var switchSeconds by rememberSaveable { mutableIntStateOf(SWITCH_SECOND_OPTIONS.nearest(saved.switchSeconds)) }
     var timerRunning by remember { mutableStateOf(false) }
     var timerTotalSeconds by remember { mutableIntStateOf(0) }
+    var timerMode by remember { mutableStateOf(HeatColdMode.SAUNA) }
     val wellnessTimer by WellnessTimerController.state.collectAsState()
     val classicTimer by userPreferences.classicWellnessTimer.collectAsState(initial = false)
+    val libraryState by repository.state.collectAsState(initial = HeatColdLibraryState())
+    val weekSummary = remember(libraryState) { libraryState.weekSummary(LocalDate.now()) }
 
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     val keyManager = LocalKeyManager.current
     val appContext = LocalContext.current.applicationContext
 
-    val headerDark = if (mode == HeatColdMode.SAUNA) hotDark else coldDark
-    val headerMid = if (mode == HeatColdMode.SAUNA) hotMid else coldMid
-    val timerDark = headerDark
-    val timerMid = if (mode == HeatColdMode.SAUNA) hotMid else coldMid
-    val timerGlow = if (mode == HeatColdMode.SAUNA) hotGlow else coldGlow
-    val sessionLabel = mode.displayName()
+    val accentMid = if (tab == HeatColdTab.COLD_PLUNGE) coldMid else hotMid
+    val suffix = tempSuffix(tempUnit)
+
+    fun rememberSettings() {
+        val next = HeatColdLastSettings(
+            saunaMinutes = saunaMinutes,
+            coldSeconds = coldSeconds,
+            saunaTempF = convertTemperature(saunaTemp, tempUnit, TemperatureUnit.FAHRENHEIT),
+            coldTempF = convertTemperature(coldTemp, tempUnit, TemperatureUnit.FAHRENHEIT),
+            contrastRounds = contrastRounds,
+            switchSeconds = switchSeconds,
+            lastTab = tab.name
+        )
+        scope.launch { repository.saveLastSettings(next) }
+    }
 
     suspend fun syncDay(date: LocalDate) {
         if (relayPool != null && signer != null) {
@@ -195,18 +261,15 @@ fun HeatColdCategoryScreen(
         }
     }
 
-    /** Starts [seconds] of the current [mode] at the current temperature on the background timer. */
-    fun startBackgroundTimer(seconds: Int): Boolean {
-        val sessionMode = mode
+    /** Starts [seconds] of [sessionMode] at the current temperature on the background timer. */
+    fun startBackgroundTimer(sessionMode: HeatColdMode, seconds: Int): Boolean {
         val tempValue = if (sessionMode == HeatColdMode.SAUNA) saunaTemp else coldTemp
-        val unit = tempUnit
-        val unitSuffix = if (unit == TemperatureUnit.FAHRENHEIT) "°F" else "°C"
         val label = sessionMode.displayName()
         return WellnessTimerController.start(
             context = appContext,
             kind = if (sessionMode == HeatColdMode.SAUNA) WellnessTimerKind.SAUNA else WellnessTimerKind.COLD_PLUNGE,
             title = label,
-            detail = "$tempValue $unitSuffix",
+            detail = "$tempValue $suffix",
             totalSeconds = seconds,
         ) { elapsed ->
             val logDate = LocalDate.now()
@@ -215,18 +278,50 @@ fun HeatColdCategoryScreen(
                 date = logDate,
                 durationSeconds = elapsed,
                 tempValue = tempValue.toDouble(),
-                tempUnit = unit
+                tempUnit = tempUnit
             )
             syncDay(logDate)
             "Logged $label • ${formatDurationSeconds(elapsed)}"
         }
     }
 
-    fun startSession(seconds: Int, classic: Boolean) {
+    fun startSession(sessionMode: HeatColdMode, seconds: Int, classic: Boolean) {
+        rememberSettings()
         if (classic) {
+            timerMode = sessionMode
             timerTotalSeconds = seconds
             timerRunning = true
-        } else if (!startBackgroundTimer(seconds)) {
+        } else if (!startBackgroundTimer(sessionMode, seconds)) {
+            scope.launch { snackbarHostState.showSnackbar("Another timer is already running") }
+        }
+    }
+
+    fun startContrast() {
+        rememberSettings()
+        val plan = ContrastPlan(
+            rounds = contrastRounds,
+            saunaSeconds = saunaMinutes * 60,
+            coldSeconds = coldSeconds,
+            switchSeconds = switchSeconds,
+            saunaTemp = saunaTemp,
+            coldTemp = coldTemp,
+            unit = tempUnit
+        )
+        val contrastId = UUID.randomUUID().toString()
+        val unitAtStart = tempUnit
+        val first = plan.firstStep { mode, seconds, temp ->
+            val logDate = LocalDate.now()
+            repository.logSession(
+                mode = mode,
+                date = logDate,
+                durationSeconds = seconds,
+                tempValue = temp.toDouble(),
+                tempUnit = unitAtStart,
+                contrastId = contrastId
+            )
+            syncDay(logDate)
+        }
+        if (first == null || !WellnessTimerController.startSteps(appContext, first)) {
             scope.launch { snackbarHostState.showSnackbar("Another timer is already running") }
         }
     }
@@ -241,60 +336,23 @@ fun HeatColdCategoryScreen(
 
     LaunchedEffect(Unit) {
         val raw = userPreferences.consumeProgramDashboardHeatColdLaunchJson()
-        if (!raw.isNullOrBlank()) {
-            val payload = decodeHeatColdLaunch(raw)
-            val parsedMode = payload?.let { p -> runCatching { HeatColdMode.valueOf(p.mode) }.getOrNull() }
-            if (payload != null && parsedMode != null) {
-                mode = parsedMode
-                val secs = payload.durationSeconds.coerceIn(30, 2 * 60 * 60)
-                when (parsedMode) {
-                    HeatColdMode.SAUNA -> {
-                        val minuteOptions = (5..30 step 5).toList()
-                        val wantMin = ((secs + 59) / 60).coerceIn(5, 30)
-                        val snappedMin = minuteOptions.minByOrNull { kotlin.math.abs(it - wantMin) } ?: wantMin
-                        saunaMinutes = snappedMin
-                        timerTotalSeconds = snappedMin * 60
-                    }
-                    HeatColdMode.COLD_PLUNGE -> {
-                        val secondOptions = (30..300 step 30).toList()
-                        val snappedSec =
-                            secondOptions.minByOrNull { kotlin.math.abs(it - secs) } ?: secs.coerceIn(30, 300)
-                        coldSeconds = snappedSec
-                        timerTotalSeconds = snappedSec
-                    }
-                }
-                startSession(timerTotalSeconds, userPreferences.classicWellnessTimer.first())
-                return@LaunchedEffect
+        if (raw.isNullOrBlank()) return@LaunchedEffect
+        val payload = decodeHeatColdLaunch(raw) ?: return@LaunchedEffect
+        val parsedMode = runCatching { HeatColdMode.valueOf(payload.mode) }.getOrNull() ?: return@LaunchedEffect
+        val secs = payload.durationSeconds.coerceIn(15, 2 * 60 * 60)
+        val seconds = when (parsedMode) {
+            HeatColdMode.SAUNA -> {
+                tab = HeatColdTab.SAUNA
+                saunaMinutes = SAUNA_MINUTE_OPTIONS.nearest((secs + 59) / 60)
+                saunaMinutes * 60
+            }
+            HeatColdMode.COLD_PLUNGE -> {
+                tab = HeatColdTab.COLD_PLUNGE
+                coldSeconds = COLD_SECOND_OPTIONS.nearest(secs)
+                coldSeconds
             }
         }
-        coldSeconds = COLD_SECOND_OPTIONS.minByOrNull { abs(it - coldSeconds) } ?: coldSeconds
-        saunaMinutes = SAUNA_MINUTE_OPTIONS.minByOrNull { abs(it - saunaMinutes) } ?: saunaMinutes
-        when (tempUnit) {
-            TemperatureUnit.FAHRENHEIT -> {
-                saunaTemp = saunaTemp.coerceIn(SAUNA_TEMP_FAHRENHEIT.first(), SAUNA_TEMP_FAHRENHEIT.last())
-                coldTemp = coldTemp.coerceIn(COLD_TEMP_FAHRENHEIT.first(), COLD_TEMP_FAHRENHEIT.last())
-            }
-            TemperatureUnit.CELSIUS -> {
-                saunaTemp = saunaTemp.coerceIn(SAUNA_TEMP_CELSIUS.first(), SAUNA_TEMP_CELSIUS.last())
-                coldTemp = coldTemp.coerceIn(COLD_TEMP_CELSIUS.first(), COLD_TEMP_CELSIUS.last())
-            }
-        }
-    }
-
-    fun selectFahrenheit() {
-        if (tempUnit == TemperatureUnit.CELSIUS) {
-            saunaTemp = SAUNA_TEMP_DEFAULT_F
-            coldTemp = COLD_TEMP_DEFAULT_F
-            tempUnit = TemperatureUnit.FAHRENHEIT
-        }
-    }
-
-    fun selectCelsius() {
-        if (tempUnit == TemperatureUnit.FAHRENHEIT) {
-            saunaTemp = SAUNA_TEMP_DEFAULT_C
-            coldTemp = COLD_TEMP_DEFAULT_C
-            tempUnit = TemperatureUnit.CELSIUS
-        }
+        startSession(parsedMode, seconds, userPreferences.classicWellnessTimer.first())
     }
 
     val backgroundTimer = wellnessTimer?.takeIf {
@@ -309,25 +367,28 @@ fun HeatColdCategoryScreen(
     }
 
     if (timerRunning) {
+        val sauna = timerMode == HeatColdMode.SAUNA
         HeatColdTimerFullScreen(
             totalSeconds = timerTotalSeconds,
-            sessionLabel = sessionLabel,
-            dark = timerDark,
-            mid = timerMid,
-            glow = timerGlow,
+            sessionLabel = timerMode.displayName(),
+            dark = if (sauna) hotDark else coldDark,
+            mid = if (sauna) hotMid else coldMid,
+            glow = if (sauna) hotGlow else coldGlow,
             onComplete = {
+                val doneMode = timerMode
+                val doneSeconds = timerTotalSeconds
                 scope.launch {
-                    val tempVal = (if (mode == HeatColdMode.SAUNA) saunaTemp else coldTemp).toDouble()
+                    val tempVal = (if (doneMode == HeatColdMode.SAUNA) saunaTemp else coldTemp).toDouble()
                     val logDate = LocalDate.now()
                     repository.logSession(
-                        mode = mode,
+                        mode = doneMode,
                         date = logDate,
-                        durationSeconds = timerTotalSeconds,
+                        durationSeconds = doneSeconds,
                         tempValue = tempVal,
                         tempUnit = tempUnit
                     )
                     syncDay(logDate)
-                    snackbarHostState.showSnackbar("Logged $sessionLabel • ${formatDurationSeconds(timerTotalSeconds)}")
+                    snackbarHostState.showSnackbar("Logged ${doneMode.displayName()} • ${formatDurationSeconds(doneSeconds)}")
                 }
                 timerRunning = false
             },
@@ -351,7 +412,7 @@ fun HeatColdCategoryScreen(
                         Icon(Icons.Default.DateRange, contentDescription = "Open log")
                     }
                 },
-                colors = ervSessionTopAppBarColors(if (mode == HeatColdMode.SAUNA) ErvSessionRed else coldMid)
+                colors = ervSessionTopAppBarColors(if (tab == HeatColdTab.COLD_PLUNGE) coldMid else ErvSessionRed)
             )
         }
     ) { padding ->
@@ -363,95 +424,135 @@ fun HeatColdCategoryScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            HeatColdWeekCard(weekSummary)
+
             FormSectionLabelSmall("Session Type")
-            BinarySegmentedSlider(
-                selectedLeft = mode == HeatColdMode.SAUNA,
-                onSelectLeft = { mode = HeatColdMode.SAUNA },
-                onSelectRight = { mode = HeatColdMode.COLD_PLUNGE },
-                leftLabel = "Sauna",
-                rightLabel = "Cold Plunge",
-                accentColor = headerMid
-            )
+            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                HeatColdTab.entries.forEachIndexed { index, t ->
+                    SegmentedButton(
+                        selected = tab == t,
+                        onClick = {
+                            tab = t
+                            rememberSettings()
+                        },
+                        shape = SegmentedButtonDefaults.itemShape(index, HeatColdTab.entries.size)
+                    ) { Text(t.label, maxLines = 1) }
+                }
+            }
 
             HorizontalDivider()
 
-            FormSectionLabelSmall("Duration")
-            if (mode == HeatColdMode.SAUNA) {
+            val showSauna = tab != HeatColdTab.COLD_PLUNGE
+            val showCold = tab != HeatColdTab.SAUNA
+            if (tab == HeatColdTab.CONTRAST) {
+                FormSectionLabelSmall("Rounds")
+                CompactIntWheel(
+                    values = CONTRAST_ROUND_OPTIONS,
+                    currentValue = contrastRounds,
+                    onCommitted = { contrastRounds = it; rememberSettings() },
+                    formatLabel = { r -> if (r == 1) "1 round" else "$r rounds" },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+            if (showSauna) {
+                FormSectionLabelSmall(if (tab == HeatColdTab.CONTRAST) "Sauna time" else "Duration")
                 CompactIntWheel(
                     values = SAUNA_MINUTE_OPTIONS,
                     currentValue = saunaMinutes,
-                    onCommitted = { saunaMinutes = it },
+                    onCommitted = { saunaMinutes = it; rememberSettings() },
                     formatLabel = { m -> "$m min" },
                     modifier = Modifier.fillMaxWidth()
                 )
-            } else {
+                FormSectionLabelSmall(if (tab == HeatColdTab.CONTRAST) "Sauna temperature" else "Temperature")
+                CompactIntWheel(
+                    values = saunaTempOptions(tempUnit),
+                    currentValue = saunaTemp,
+                    onCommitted = { saunaTemp = it; rememberSettings() },
+                    formatLabel = { t -> "$t $suffix" },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+            if (showCold) {
+                FormSectionLabelSmall(if (tab == HeatColdTab.CONTRAST) "Cold time" else "Duration")
                 CompactIntWheel(
                     values = COLD_SECOND_OPTIONS,
                     currentValue = coldSeconds,
-                    onCommitted = { coldSeconds = it },
+                    onCommitted = { coldSeconds = it; rememberSettings() },
                     formatLabel = { s -> formatDurationSeconds(s) },
                     modifier = Modifier.fillMaxWidth()
                 )
+                FormSectionLabelSmall(if (tab == HeatColdTab.CONTRAST) "Cold temperature" else "Temperature")
+                CompactIntWheel(
+                    values = coldTempOptions(tempUnit),
+                    currentValue = coldTemp,
+                    onCommitted = { coldTemp = it; rememberSettings() },
+                    formatLabel = { t -> "$t $suffix" },
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
-
-            FormSectionLabelSmall("Temperature")
-            BinarySegmentedSlider(
-                selectedLeft = tempUnit == TemperatureUnit.FAHRENHEIT,
-                onSelectLeft = { selectFahrenheit() },
-                onSelectRight = { selectCelsius() },
-                leftLabel = "°F",
-                rightLabel = "°C",
-                accentColor = headerMid
+            if (tab == HeatColdTab.CONTRAST) {
+                FormSectionLabelSmall("Switch time")
+                CompactIntWheel(
+                    values = SWITCH_SECOND_OPTIONS,
+                    currentValue = switchSeconds,
+                    onCommitted = { switchSeconds = it; rememberSettings() },
+                    formatLabel = { s -> if (s == 0) "None" else formatDurationSeconds(s) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+            Text(
+                "Temperatures use the °F/°C choice in Settings.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
-            val saunaTempOptions =
-                if (tempUnit == TemperatureUnit.FAHRENHEIT) SAUNA_TEMP_FAHRENHEIT else SAUNA_TEMP_CELSIUS
-            val coldTempOptions =
-                if (tempUnit == TemperatureUnit.FAHRENHEIT) COLD_TEMP_FAHRENHEIT else COLD_TEMP_CELSIUS
-            val tempSuffix = if (tempUnit == TemperatureUnit.FAHRENHEIT) "°F" else "°C"
-
-            if (mode == HeatColdMode.SAUNA) {
-                CompactIntWheel(
-                    values = saunaTempOptions,
-                    currentValue = saunaTemp,
-                    onCommitted = { saunaTemp = it },
-                    formatLabel = { t -> "$t $tempSuffix" },
-                    modifier = Modifier.fillMaxWidth()
-                )
-            } else {
-                CompactIntWheel(
-                    values = coldTempOptions,
-                    currentValue = coldTemp,
-                    onCommitted = { coldTemp = it },
-                    formatLabel = { t -> "$t $tempSuffix" },
-                    modifier = Modifier.fillMaxWidth()
-                )
+            val contrastPlanSeconds = ContrastPlan(
+                rounds = contrastRounds,
+                saunaSeconds = saunaMinutes * 60,
+                coldSeconds = coldSeconds,
+                switchSeconds = switchSeconds,
+                saunaTemp = saunaTemp,
+                coldTemp = coldTemp,
+                unit = tempUnit
+            ).totalSeconds()
+            val startSeconds = when (tab) {
+                HeatColdTab.SAUNA -> saunaMinutes * 60
+                HeatColdTab.COLD_PLUNGE -> coldSeconds
+                HeatColdTab.CONTRAST -> contrastPlanSeconds
             }
-
-            Spacer(Modifier.height(8.dp))
-
-            val startSeconds = if (mode == HeatColdMode.SAUNA) saunaMinutes * 60 else coldSeconds
             Button(
-                onClick = { startSession(startSeconds, classicTimer) },
+                onClick = {
+                    when (tab) {
+                        HeatColdTab.SAUNA -> startSession(HeatColdMode.SAUNA, saunaMinutes * 60, classicTimer)
+                        HeatColdTab.COLD_PLUNGE -> startSession(HeatColdMode.COLD_PLUNGE, coldSeconds, classicTimer)
+                        HeatColdTab.CONTRAST -> startContrast()
+                    }
+                },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(56.dp),
                 enabled = startSeconds > 0,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = headerMid,
+                    containerColor = accentMid,
                     contentColor = Color.White
                 )
             ) {
                 Icon(Icons.Default.PlayArrow, contentDescription = null)
                 Spacer(Modifier.width(12.dp))
-                Text("Start ${formatDurationSeconds(startSeconds)}")
+                Text(
+                    if (tab == HeatColdTab.CONTRAST) "Start contrast · ${formatDurationSeconds(startSeconds)}"
+                    else "Start ${formatDurationSeconds(startSeconds)}"
+                )
             }
 
             Text(
-                if (classicTimer) {
-                    "When the timer finishes, you’ll hear a tone and the session is saved for today."
-                } else {
-                    "The timer keeps running with the screen off. When it finishes you’ll hear a soft chime and the session is saved. End and Save keeps the time you did."
+                when {
+                    tab == HeatColdTab.CONTRAST ->
+                        "Each round is sauna, then cold plunge, with a switch timer between. End and Save finishes the current part and moves on; Discard stops the session. Every sauna and cold round is saved."
+                    classicTimer ->
+                        "When the timer finishes, you’ll hear a tone and the session is saved for today."
+                    else ->
+                        "The timer keeps running with the screen off. When it finishes you’ll hear a soft chime and the session is saved. End and Save keeps the time you did."
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -461,155 +562,27 @@ fun HeatColdCategoryScreen(
 }
 
 @Composable
-private fun BinarySegmentedSlider(
-    selectedLeft: Boolean,
-    onSelectLeft: () -> Unit,
-    onSelectRight: () -> Unit,
-    leftLabel: String,
-    rightLabel: String,
-    accentColor: Color,
-    modifier: Modifier = Modifier,
-) {
-    val inset = 4.dp
-    val density = LocalDensity.current
-    val scope = rememberCoroutineScope()
-    val onSelectLeftLatest = rememberUpdatedState(onSelectLeft)
-    val onSelectRightLatest = rememberUpdatedState(onSelectRight)
-
-    BoxWithConstraints(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(44.dp)
-            .clip(RoundedCornerShape(22.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-    ) {
-        val insetPx = with(density) { inset.toPx() }
-        val maxWpx = with(density) { maxWidth.toPx() }
-        val thumbWpx = (maxWpx - 2f * insetPx) / 2f
-        val leftXPx = insetPx
-        val rightXPx = insetPx + thumbWpx
-        val thumbWidthDp = (maxWidth - inset * 2) / 2
-
-        val thumbX = remember { Animatable(Float.NaN) }
-        var dragging by remember { mutableStateOf(false) }
-
-        LaunchedEffect(leftXPx, rightXPx, selectedLeft, dragging) {
-            val target = if (selectedLeft) leftXPx else rightXPx
-            if (thumbX.value.isNaN()) {
-                thumbX.snapTo(target)
-                return@LaunchedEffect
-            }
-            if (!dragging) {
-                thumbX.animateTo(target, spring(dampingRatio = 0.82f, stiffness = 380f))
-            }
-        }
-
-        val thumbPosPx =
-            if (thumbX.value.isNaN()) {
-                if (selectedLeft) leftXPx else rightXPx
-            } else {
-                thumbX.value
-            }
-
-        Box(
-            Modifier
-                .padding(top = inset, bottom = inset)
-                .offset(x = with(density) { thumbPosPx.toDp() })
-                .width(thumbWidthDp)
-                .fillMaxHeight()
-                .clip(RoundedCornerShape(18.dp))
-                .background(accentColor.copy(alpha = 0.38f))
-        )
-
-        Row(Modifier.fillMaxSize()) {
-            Box(
-                Modifier
-                    .weight(1f)
-                    .fillMaxHeight(),
-                contentAlignment = Alignment.Center
-            ) {
+private fun HeatColdWeekCard(summary: HeatColdWeekSummary) {
+    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            FormSectionLabelSmall("This week")
+            fun line(label: String, totals: HeatColdModeTotals): String =
+                if (totals.sessions == 0) "$label · none yet"
+                else "$label · ${totals.sessions} session${if (totals.sessions == 1) "" else "s"}, ${formatDurationSeconds(totals.seconds)}"
+            Text(line("Sauna", summary.sauna), style = MaterialTheme.typography.bodyMedium)
+            Text(line("Cold Plunge", summary.cold), style = MaterialTheme.typography.bodyMedium)
+            if (summary.contrastSessions > 0) {
                 Text(
-                    leftLabel,
-                    style = MaterialTheme.typography.labelLarge,
-                    color = if (selectedLeft) MaterialTheme.colorScheme.onSurface
-                    else MaterialTheme.colorScheme.onSurfaceVariant
+                    "Contrast · ${summary.contrastSessions} session${if (summary.contrastSessions == 1) "" else "s"}",
+                    style = MaterialTheme.typography.bodyMedium
                 )
             }
-            Box(
-                Modifier
-                    .weight(1f)
-                    .fillMaxHeight(),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    rightLabel,
-                    style = MaterialTheme.typography.labelLarge,
-                    color = if (!selectedLeft) MaterialTheme.colorScheme.onSurface
-                    else MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
+            Text(
+                "Since Monday, ${summary.weekStart.format(DateTimeFormatter.ofPattern("MMM d", Locale.getDefault()))}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
-
-        Box(
-            Modifier
-                .fillMaxSize()
-                .pointerInput(
-                    leftXPx,
-                    rightXPx,
-                    selectedLeft,
-                    maxWpx,
-                ) {
-                    awaitEachGesture {
-                        val down = awaitFirstDown(requireUnconsumed = false)
-                        val pointerId = down.id
-                        val tapX = down.position.x
-                        var dragStarted = false
-                        var thumbAtGestureStart = 0f
-                        var cumulativeDx = 0f
-                        var dragCallbacks = 0
-                        try {
-                            horizontalDrag(pointerId) { change ->
-                                dragCallbacks++
-                                val dx = change.positionChange().x
-                                if (!dragStarted) {
-                                    dragStarted = true
-                                    dragging = true
-                                    thumbAtGestureStart =
-                                        if (thumbX.value.isNaN()) {
-                                            if (selectedLeft) leftXPx else rightXPx
-                                        } else {
-                                            thumbX.value
-                                        }
-                                    scope.launch { thumbX.stop() }
-                                }
-                                cumulativeDx += dx
-                                change.consume()
-                                val next =
-                                    (thumbAtGestureStart + cumulativeDx).coerceIn(leftXPx, rightXPx)
-                                scope.launch { thumbX.snapTo(next) }
-                            }
-                        } finally {
-                            dragging = false
-                        }
-                        if (dragCallbacks == 0) {
-                            val halfW = size.width / 2f
-                            if (tapX < halfW) {
-                                onSelectLeftLatest.value()
-                            } else {
-                                onSelectRightLatest.value()
-                            }
-                        } else {
-                            val distL = abs(thumbX.value - leftXPx)
-                            val distR = abs(thumbX.value - rightXPx)
-                            if (distL <= distR) {
-                                onSelectLeftLatest.value()
-                            } else {
-                                onSelectRightLatest.value()
-                            }
-                        }
-                    }
-                }
-        )
     }
 }
 
@@ -697,6 +670,7 @@ fun HeatColdTimerFullScreen(
 fun HeatColdLogScreen(
     repository: HeatColdRepository,
     state: HeatColdLibraryState,
+    userPreferences: UserPreferences,
     relayPool: RelayPool?,
     signer: EventSigner?,
     onBack: () -> Unit
@@ -704,6 +678,9 @@ fun HeatColdLogScreen(
     var dateFilter by remember { mutableStateOf<SectionLogDateFilter>(SectionLogDateFilter.AllHistory) }
     var showCalendar by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<HeatColdTimelineEntry?>(null) }
+    var editing by remember { mutableStateOf<HeatColdTimelineEntry?>(null) }
+    var addingPast by remember { mutableStateOf(false) }
+    val tempUnit by userPreferences.temperatureUnit.collectAsState(initial = TemperatureUnit.FAHRENHEIT)
     val timeline = remember(state, dateFilter) {
         state.heatColdTimelineForSectionLog(dateFilter)
     }
@@ -715,10 +692,63 @@ fun HeatColdLogScreen(
     val keyManager = LocalKeyManager.current
     val logAppContext = LocalContext.current.applicationContext
 
-    suspend fun syncAfterDeleteForDate(date: LocalDate) {
+    suspend fun syncDate(date: LocalDate) {
         if (relayPool == null || signer == null) return
         val urls = keyManager.relayUrlsForKind30078Publish()
         HeatColdSync.publishDay(logAppContext, relayPool, signer, repository.currentState(), date, urls)
+    }
+
+    if (addingPast || editing != null) {
+        val entry = editing
+        HeatColdSessionDialog(
+            editing = entry,
+            tempUnit = tempUnit,
+            onDismiss = {
+                addingPast = false
+                editing = null
+            },
+            onSave = { input ->
+                addingPast = false
+                editing = null
+                scope.launch {
+                    val tempValue = input.temp?.toDouble()
+                    val unit = input.temp?.let { input.tempUnit }
+                    if (entry == null) {
+                        repository.logSession(
+                            mode = input.mode,
+                            date = input.date,
+                            durationSeconds = input.durationSeconds,
+                            tempValue = tempValue,
+                            tempUnit = unit,
+                            loggedAtEpochSeconds = input.loggedAtEpochSeconds
+                        )
+                        syncDate(input.date)
+                        snackbarHostState.showSnackbar("Session logged")
+                    } else {
+                        repository.updateSession(
+                            mode = entry.mode,
+                            date = entry.logDate,
+                            sessionId = entry.session.id,
+                            newMode = input.mode,
+                            newDate = input.date,
+                            durationSeconds = input.durationSeconds,
+                            tempValue = tempValue,
+                            tempUnit = unit,
+                            loggedAtEpochSeconds = input.loggedAtEpochSeconds
+                        )
+                        syncDate(entry.logDate)
+                        if (input.date != entry.logDate) syncDate(input.date)
+                        snackbarHostState.showSnackbar("Session updated")
+                    }
+                }
+            },
+            onDelete = entry?.let { e ->
+                {
+                    editing = null
+                    pendingDelete = e
+                }
+            }
+        )
     }
 
     pendingDelete?.let { entry ->
@@ -740,7 +770,7 @@ fun HeatColdLogScreen(
                         pendingDelete = null
                         scope.launch {
                             repository.deleteSession(entry.mode, logDate, id)
-                            syncAfterDeleteForDate(logDate)
+                            syncDate(logDate)
                             snackbarHostState.showSnackbar("Session removed")
                         }
                     }
@@ -755,9 +785,16 @@ fun HeatColdLogScreen(
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         snackbarHost = { SnackbarHost(snackbarHostState) },
+        floatingActionButton = {
+            ExtendedFloatingActionButton(
+                onClick = { addingPast = true },
+                icon = { Icon(Icons.Default.Add, contentDescription = null) },
+                text = { Text("Log a past session") }
+            )
+        },
         topBar = {
             TopAppBar(
-                title = { Text("Hot + Cold log") },
+                title = { Text("Hot + Cold Log") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -793,12 +830,12 @@ fun HeatColdLogScreen(
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(16.dp),
+                    contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 88.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     item {
                         Text(
-                            "Newest first. Sauna and cold plunge are mixed by time. Tap delete to remove from that day.",
+                            "Newest first. Sauna and cold plunge are mixed by time. Tap a session to edit it.",
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -810,6 +847,7 @@ fun HeatColdLogScreen(
                             showLogDate = showLogDateOnCards,
                             logDate = entry.logDate,
                             session = entry.session,
+                            onEdit = { editing = entry },
                             onDelete = { pendingDelete = entry }
                         )
                     }
@@ -833,9 +871,10 @@ private fun HeatColdLogEntryCard(
     showLogDate: Boolean,
     logDate: LocalDate,
     session: HeatColdSession,
+    onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
-    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+    ElevatedCard(modifier = Modifier.fillMaxWidth(), onClick = onEdit) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -846,12 +885,15 @@ private fun HeatColdLogEntryCard(
             Column(modifier = Modifier.weight(1f)) {
                 if (showLogDate) {
                     Text(
-                        logDate.format(DateTimeFormatter.ISO_LOCAL_DATE),
+                        logDate.format(DateTimeFormatter.ofPattern("EEE, MMM d, yyyy", Locale.getDefault())),
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.primary
                     )
                 }
-                Text(title, style = MaterialTheme.typography.titleMedium)
+                Text(
+                    if (session.contrastId != null) "$title · contrast" else title,
+                    style = MaterialTheme.typography.titleMedium
+                )
                 Text(
                     formatDurationSeconds(session.durationSeconds),
                     style = MaterialTheme.typography.bodySmall,

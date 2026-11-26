@@ -289,6 +289,7 @@ fun SettingsScreen(
     LaunchedEffect(blossomPublicSaved) { blossomPublicDraft = blossomPublicSaved }
     LaunchedEffect(blossomPrivateSaved) { blossomPrivateDraft = blossomPrivateSaved }
     val weightTrainingLoadUnit by userPreferences.weightTrainingLoadUnit.collectAsState(initial = BodyWeightUnit.LB)
+    val temperatureUnit by userPreferences.temperatureUnit.collectAsState(initial = com.erv.app.data.TemperatureUnit.FAHRENHEIT)
     val workoutBubbleEnabled by userPreferences.workoutBubbleEnabled.collectAsState(initial = true)
     val classicWellnessTimer by userPreferences.classicWellnessTimer.collectAsState(initial = false)
     val gymMembership by userPreferences.gymMembership.collectAsState(initial = false)
@@ -456,6 +457,11 @@ fun SettingsScreen(
                     WeightTrainingLoadSection(
                         unit = weightTrainingLoadUnit,
                         onUnitChange = { u -> scope.launch { userPreferences.setWeightTrainingLoadUnit(u) } }
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    TemperatureUnitSection(
+                        unit = temperatureUnit,
+                        onUnitChange = { u -> scope.launch { userPreferences.setTemperatureUnit(u) } }
                     )
                 }
             }
@@ -2539,6 +2545,41 @@ private fun WeightTrainingLoadSection(
                     onClick = { onUnitChange(BodyWeightUnit.LB) },
                     shape = SegmentedButtonDefaults.itemShape(1, 2)
                 ) { Text("Pounds") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TemperatureUnitSection(
+    unit: com.erv.app.data.TemperatureUnit,
+    onUnitChange: (com.erv.app.data.TemperatureUnit) -> Unit
+) {
+    SectionHeader(
+        "Temperature",
+        modifier = Modifier.padding(bottom = 8.dp)
+    )
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                "Sauna and cold plunge temperatures. Sessions you already logged keep the unit they were saved in.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                SegmentedButton(
+                    selected = unit == com.erv.app.data.TemperatureUnit.FAHRENHEIT,
+                    onClick = { onUnitChange(com.erv.app.data.TemperatureUnit.FAHRENHEIT) },
+                    shape = SegmentedButtonDefaults.itemShape(0, 2)
+                ) { Text("°F") }
+                SegmentedButton(
+                    selected = unit == com.erv.app.data.TemperatureUnit.CELSIUS,
+                    onClick = { onUnitChange(com.erv.app.data.TemperatureUnit.CELSIUS) },
+                    shape = SegmentedButtonDefaults.itemShape(1, 2)
+                ) { Text("°C") }
             }
         }
     }
