@@ -53,6 +53,7 @@ How to read the context:\n\
 - ruleSuggestion is the next load from a standard double-progression rule. Follow it unless the flags, RPE, or weekly training give a reason not to, and say that reason.\n\
 - weeklyTraining compares training days in each recent week with plannedDaysPerWeek. weeklySetsByMuscle is the average working sets per week for each muscle group.\n\
 - bodyWeight, when present, is the logged body weight trend with weekly averages. Relate it to the goal, for example gaining while building muscle or losing while cutting. Do not comment on appearance or give diet prescriptions.\n\
+- wellness, when present, totals recovery habits logged on the phone in the period: sauna, coldPlunge and contrastSessions (sessions and minutes), lightTherapy, supplementDaysLogged out of periodDays, fasting (completed fasts and hours) and waist. Use it only as recovery and consistency context. Do not prescribe supplements, fasting, or temperatures.\n\
 - recentSessionSummaries are dates and counts per session, with the saved workout name when the session came from one.\n\
 - If a fact is not in the context, say it is unknown. Do not invent sessions, sets, or loads.\n\
 - Loads are in the unit named in units.weight (usually lb). Write every load in that unit and never convert to another.\n\

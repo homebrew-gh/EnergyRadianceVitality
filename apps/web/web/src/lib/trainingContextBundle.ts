@@ -3,6 +3,7 @@
  * Markdown (paste-friendly) + JSON (machine-readable dry run).
  */
 
+import type { AppDataRecord } from "./api";
 import type { BodyWeightEntry } from "./bodyWeight";
 import type { CardioCatalogActivity, StretchCatalogEntry } from "./catalog";
 import type { CardioRoutine } from "./cardioTraining";
@@ -109,6 +110,8 @@ export type TrainingContextBundleInput = {
   equipmentUnit?: BodyWeightUnit;
   /** Android body tracker weights, for the coach review only. */
   bodyWeights?: BodyWeightEntry[];
+  /** Relay records holding the phone's wellness logs, for the coach review only. */
+  wellnessRecords?: AppDataRecord[];
 };
 
 function mdListSection(title: string, items: string[], emptyMessage: string): string {

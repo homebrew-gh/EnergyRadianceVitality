@@ -48,6 +48,7 @@ const CONTEXT_KEYS: &[&str] = &[
     "weeklyTraining",
     "weeklySetsByMuscle",
     "bodyWeight",
+    "wellness",
 ];
 
 #[derive(Debug, Deserialize)]
@@ -620,7 +621,8 @@ mod tests {
             "liftTrends": [{"name": "Bench Press", "trend": "flat"}],
             "weeklyTraining": {"weeks": []},
             "weeklySetsByMuscle": [{"muscleGroup": "Chest", "setsPerWeek": 9.0}],
-            "bodyWeight": {"unit": "lb", "latest": {"date": "2026-11-24", "weight": 182.4}}
+            "bodyWeight": {"unit": "lb", "latest": {"date": "2026-11-24", "weight": 182.4}},
+            "wellness": {"periodDays": 28, "sauna": {"sessions": 6, "minutes": 90.0}}
         }))
         .is_ok());
     }
