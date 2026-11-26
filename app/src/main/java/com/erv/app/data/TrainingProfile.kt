@@ -59,6 +59,10 @@ data class TrainingProfileNostrPayload(
     val sex: String? = null,
     /** Height in cm, for fitness standards measured against it (broad jump). */
     val heightCm: Double? = null,
+    /** Fitness standards shown on Progress, by id; set on the web companion. */
+    val followedStandardIds: List<String> = emptyList(),
+    /** The followed standard shown first. */
+    val mainStandardId: String? = null,
     val heartRateMaxBpm: Int? = null,
     val heartRateRestingBpm: Int? = null,
     /** `percent_max_hr` or `karvonen_hrr` */
@@ -122,6 +126,8 @@ fun TrainingProfileNostrPayload.isBlank(): Boolean {
     if (ageYears != null) return false
     if (!sex.isNullOrBlank()) return false
     if (heightCm != null) return false
+    if (followedStandardIds.isNotEmpty()) return false
+    if (!mainStandardId.isNullOrBlank()) return false
     if (heartRateMaxBpm != null) return false
     if (heartRateRestingBpm != null) return false
     if (!heartRateZoneMethod.isNullOrBlank()) return false
