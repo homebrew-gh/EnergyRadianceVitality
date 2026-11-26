@@ -48,7 +48,11 @@ import com.erv.app.reminders.shortLabel
 fun RoutineReminderFormSection(
     reminderDraft: RoutineReminderDraft,
     onReminderDraftChange: (RoutineReminderDraft) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /** False when the caller sets the days itself (light routines follow their Repeat Days). */
+    showSchedule: Boolean = true,
+    /** Shown in place of the repeat controls when [showSchedule] is false. */
+    scheduleNote: String? = null
 ) {
     val context = LocalContext.current
     var showTimePicker by remember { mutableStateOf(false) }
@@ -109,7 +113,16 @@ fun RoutineReminderFormSection(
                 }
             )
         }
-        ReminderFrequencyDropdown(
+        if (!showSchedule) {
+            scheduleNote?.let {
+                Text(
+                    it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        if (showSchedule) ReminderFrequencyDropdown(
             value = reminderDraft.frequency,
             onSelected = { selected ->
                 onReminderDraftChange(
@@ -123,8 +136,8 @@ fun RoutineReminderFormSection(
             },
             modifier = Modifier.fillMaxWidth()
         )
-        if (reminderDraft.frequency == RoutineReminderFrequency.WEEKLY ||
-            reminderDraft.frequency == RoutineReminderFrequency.CUSTOM_DAYS
+        if (showSchedule && (reminderDraft.frequency == RoutineReminderFrequency.WEEKLY ||
+            reminderDraft.frequency == RoutineReminderFrequency.CUSTOM_DAYS)
         ) {
             FormSectionLabelMedium("Select days")
             FlowRow(
