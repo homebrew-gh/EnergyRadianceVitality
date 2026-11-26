@@ -597,6 +597,11 @@ fun SettingsScreen(
                     onBack = { nestedNav.popBackStack() }
                 ) {
                     TrainingProfileSettingsSection(profile = trainingProfile)
+                    val standardsCardHidden by userPreferences.standardsHomeCardHidden.collectAsState(initial = false)
+                    com.erv.app.ui.dashboard.StandardsHomeCardSetting(
+                        shown = !standardsCardHidden,
+                        onShownChange = { shown -> scope.launch { userPreferences.setStandardsHomeCardHidden(!shown) } },
+                    )
                 }
             }
             composable(SettingsRoutes.RELAYS) {

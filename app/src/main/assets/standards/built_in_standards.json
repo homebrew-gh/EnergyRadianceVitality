@@ -1,0 +1,902 @@
+[
+  {
+    "id": "erv-general-v1",
+    "name": "ERV General",
+    "description": "Strength, pulling, core, speed and load carrying. Lifts use your estimated 1RM against bodyweight. Separate targets for women where it changes the picture.",
+    "events": [
+      {
+        "id": "squat",
+        "name": "Squat",
+        "detail": "Estimated 1RM, times bodyweight",
+        "measure": {
+          "kind": "LIFT_MAX_BW",
+          "reps": 1
+        },
+        "exerciseIds": [
+          "erv-weight-exercise-squat-v1"
+        ],
+        "lowerIsBetter": false,
+        "tiers": {
+          "BASE": 1.25,
+          "STRONG": 1.5,
+          "ELITE": 2
+        },
+        "variants": [
+          {
+            "sex": "female",
+            "tiers": {
+              "BASE": 0.75,
+              "STRONG": 1,
+              "ELITE": 1.5
+            }
+          }
+        ]
+      },
+      {
+        "id": "bench",
+        "name": "Bench Press",
+        "detail": "Estimated 1RM, times bodyweight",
+        "measure": {
+          "kind": "LIFT_MAX_BW",
+          "reps": 1
+        },
+        "exerciseIds": [
+          "erv-weight-exercise-bench-v1"
+        ],
+        "lowerIsBetter": false,
+        "tiers": {
+          "BASE": 1,
+          "STRONG": 1.25,
+          "ELITE": 1.5
+        },
+        "variants": [
+          {
+            "sex": "female",
+            "tiers": {
+              "BASE": 0.5,
+              "STRONG": 0.75,
+              "ELITE": 1
+            }
+          }
+        ]
+      },
+      {
+        "id": "deadlift",
+        "name": "Deadlift",
+        "detail": "Estimated 1RM, times bodyweight",
+        "measure": {
+          "kind": "LIFT_MAX_BW",
+          "reps": 1
+        },
+        "exerciseIds": [
+          "erv-weight-exercise-deadlift-v1"
+        ],
+        "lowerIsBetter": false,
+        "tiers": {
+          "BASE": 1.5,
+          "STRONG": 2,
+          "ELITE": 2.5
+        },
+        "variants": [
+          {
+            "sex": "female",
+            "tiers": {
+              "BASE": 1,
+              "STRONG": 1.25,
+              "ELITE": 1.75
+            }
+          }
+        ]
+      },
+      {
+        "id": "pull-ups",
+        "name": "Pull-Ups",
+        "detail": "Most reps in one set",
+        "measure": {
+          "kind": "MAX_REPS"
+        },
+        "exerciseIds": [
+          "erv-weight-exercise-bw-pullup-v1"
+        ],
+        "exerciseNamePattern": "^(weighted )?pull[- ]?ups?$",
+        "lowerIsBetter": false,
+        "tiers": {
+          "BASE": 8,
+          "STRONG": 12,
+          "ELITE": 18
+        },
+        "variants": [
+          {
+            "sex": "female",
+            "tiers": {
+              "BASE": 3,
+              "STRONG": 6,
+              "ELITE": 10
+            }
+          }
+        ]
+      },
+      {
+        "id": "plank",
+        "name": "Plank",
+        "detail": "Longest hold",
+        "measure": {
+          "kind": "LONGEST_HOLD"
+        },
+        "exerciseIds": [
+          "erv-weight-exercise-bw-plank-v1"
+        ],
+        "lowerIsBetter": false,
+        "tiers": {
+          "BASE": 120,
+          "STRONG": 180,
+          "ELITE": 240
+        }
+      },
+      {
+        "id": "mile",
+        "name": "Mile Run",
+        "detail": "Fastest mile",
+        "measure": {
+          "kind": "FASTEST",
+          "meters": 1609.344,
+          "cardioGroups": [
+            "RUN"
+          ]
+        },
+        "lowerIsBetter": true,
+        "tiers": {
+          "BASE": 540,
+          "STRONG": 450,
+          "ELITE": 390
+        },
+        "variants": [
+          {
+            "sex": "female",
+            "tiers": {
+              "BASE": 630,
+              "STRONG": 540,
+              "ELITE": 450
+            }
+          }
+        ]
+      },
+      {
+        "id": "ruck-12mi",
+        "name": "12-Mile Ruck",
+        "detail": "Fastest 12 miles with at least 35 lb",
+        "measure": {
+          "kind": "FASTEST",
+          "meters": 19312.128,
+          "cardioGroups": [
+            "RUCK"
+          ],
+          "minPackKg": 15.875732950000002
+        },
+        "lowerIsBetter": true,
+        "tiers": {
+          "BASE": 12600,
+          "STRONG": 10800,
+          "ELITE": 9600
+        },
+        "variants": [
+          {
+            "sex": "female",
+            "tiers": {
+              "BASE": 13500,
+              "STRONG": 11700,
+              "ELITE": 10500
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "seven-event-v1",
+    "name": "Seven-Event Performance",
+    "description": "Seven events across power, pressing, pulling, hinge strength, core, grip and speed, mostly scaled to bodyweight. One set of targets for everyone.",
+    "events": [
+      {
+        "id": "broad-jump",
+        "name": "Broad Jump",
+        "detail": "Standing broad jump against your height",
+        "measure": {
+          "kind": "MANUAL",
+          "unit": "CM_OVER_HEIGHT"
+        },
+        "lowerIsBetter": false,
+        "tiers": {
+          "BASE": 0,
+          "STRONG": 30.48,
+          "ELITE": 60.96
+        }
+      },
+      {
+        "id": "bench-bw-reps",
+        "name": "Bench Press",
+        "detail": "Bodyweight on the bar, most reps",
+        "measure": {
+          "kind": "REPS_AT_BW"
+        },
+        "exerciseIds": [
+          "erv-weight-exercise-bench-v1"
+        ],
+        "lowerIsBetter": false,
+        "tiers": {
+          "BASE": 10,
+          "STRONG": 15,
+          "ELITE": 20
+        }
+      },
+      {
+        "id": "pull-ups",
+        "name": "Pull-Ups",
+        "detail": "Most reps in one set",
+        "measure": {
+          "kind": "MAX_REPS"
+        },
+        "exerciseIds": [
+          "erv-weight-exercise-bw-pullup-v1"
+        ],
+        "exerciseNamePattern": "^(weighted )?pull[- ]?ups?$",
+        "lowerIsBetter": false,
+        "tiers": {
+          "BASE": 10,
+          "STRONG": 15,
+          "ELITE": 20
+        }
+      },
+      {
+        "id": "trap-bar-5",
+        "name": "Trap Bar Deadlift",
+        "detail": "Heaviest 5 reps, times bodyweight",
+        "measure": {
+          "kind": "LIFT_MAX_BW",
+          "reps": 5
+        },
+        "exerciseNamePattern": "(trap|hex)[ -]?bar",
+        "fallbackExerciseIds": [
+          "erv-weight-exercise-deadlift-v1"
+        ],
+        "lowerIsBetter": false,
+        "tiers": {
+          "BASE": 1.5,
+          "STRONG": 1.75,
+          "ELITE": 2
+        }
+      },
+      {
+        "id": "plank",
+        "name": "Plank",
+        "detail": "Longest hold",
+        "measure": {
+          "kind": "LONGEST_HOLD"
+        },
+        "exerciseIds": [
+          "erv-weight-exercise-bw-plank-v1"
+        ],
+        "lowerIsBetter": false,
+        "tiers": {
+          "BASE": 120,
+          "STRONG": 150,
+          "ELITE": 180
+        }
+      },
+      {
+        "id": "farmers-carry",
+        "name": "Farmer's Carry",
+        "detail": "Bodyweight in total, distance carried",
+        "measure": {
+          "kind": "MANUAL",
+          "unit": "METERS"
+        },
+        "lowerIsBetter": false,
+        "tiers": {
+          "BASE": 53.34,
+          "STRONG": 68.58,
+          "ELITE": 76.2
+        }
+      },
+      {
+        "id": "run-800m",
+        "name": "800 m Run",
+        "detail": "Fastest 800 m",
+        "measure": {
+          "kind": "FASTEST",
+          "meters": 800,
+          "cardioGroups": [
+            "RUN"
+          ]
+        },
+        "lowerIsBetter": true,
+        "tiers": {
+          "BASE": 195,
+          "STRONG": 180,
+          "ELITE": 165
+        }
+      }
+    ]
+  },
+  {
+    "id": "army-aft-2025",
+    "name": "Army Fitness Test",
+    "description": "The US Army's five-event test (2025), combat scale, which is the same for men and women and adjusted for age. Base is 60 points per event, Strong 80, Elite 100.",
+    "source": {
+      "label": "army.mil/aft",
+      "url": "https://www.army.mil/aft/"
+    },
+    "events": [
+      {
+        "id": "deadlift-3rm",
+        "name": "Hex Bar Deadlift",
+        "detail": "Heaviest 3 reps",
+        "measure": {
+          "kind": "LIFT_MAX_LOAD",
+          "reps": 3
+        },
+        "exerciseNamePattern": "(trap|hex)[ -]?bar",
+        "fallbackExerciseIds": [
+          "erv-weight-exercise-deadlift-v1"
+        ],
+        "lowerIsBetter": false,
+        "tiers": {
+          "BASE": 68.0388555,
+          "STRONG": 113.3980925,
+          "ELITE": 154.2214058
+        },
+        "variants": [
+          {
+            "minAge": 17,
+            "maxAge": 21,
+            "tiers": {
+              "BASE": 68.0388555,
+              "STRONG": 113.3980925,
+              "ELITE": 154.2214058
+            }
+          },
+          {
+            "minAge": 22,
+            "maxAge": 26,
+            "tiers": {
+              "BASE": 68.0388555,
+              "STRONG": 113.3980925,
+              "ELITE": 158.7573295
+            }
+          },
+          {
+            "minAge": 27,
+            "maxAge": 31,
+            "tiers": {
+              "BASE": 68.0388555,
+              "STRONG": 113.3980925,
+              "ELITE": 158.7573295
+            }
+          },
+          {
+            "minAge": 32,
+            "maxAge": 36,
+            "tiers": {
+              "BASE": 63.502931800000006,
+              "STRONG": 113.3980925,
+              "ELITE": 158.7573295
+            }
+          },
+          {
+            "minAge": 37,
+            "maxAge": 41,
+            "tiers": {
+              "BASE": 63.502931800000006,
+              "STRONG": 113.3980925,
+              "ELITE": 158.7573295
+            }
+          },
+          {
+            "minAge": 42,
+            "maxAge": 46,
+            "tiers": {
+              "BASE": 63.502931800000006,
+              "STRONG": 113.3980925,
+              "ELITE": 158.7573295
+            }
+          },
+          {
+            "minAge": 47,
+            "maxAge": 51,
+            "tiers": {
+              "BASE": 63.502931800000006,
+              "STRONG": 108.8621688,
+              "ELITE": 154.2214058
+            }
+          },
+          {
+            "minAge": 52,
+            "maxAge": 56,
+            "tiers": {
+              "BASE": 63.502931800000006,
+              "STRONG": 104.32624510000001,
+              "ELITE": 149.6854821
+            }
+          },
+          {
+            "minAge": 57,
+            "maxAge": 61,
+            "tiers": {
+              "BASE": 63.502931800000006,
+              "STRONG": 90.718474,
+              "ELITE": 113.3980925
+            }
+          },
+          {
+            "minAge": 62,
+            "maxAge": 200,
+            "tiers": {
+              "BASE": 63.502931800000006,
+              "STRONG": 86.1825503,
+              "ELITE": 104.32624510000001
+            }
+          }
+        ]
+      },
+      {
+        "id": "hand-release-push-ups",
+        "name": "Hand-Release Push-Ups",
+        "detail": "Most reps in 2 minutes",
+        "measure": {
+          "kind": "MAX_REPS"
+        },
+        "exerciseNamePattern": "hand[- ]?release",
+        "lowerIsBetter": false,
+        "tiers": {
+          "BASE": 15,
+          "STRONG": 37,
+          "ELITE": 58
+        },
+        "variants": [
+          {
+            "minAge": 17,
+            "maxAge": 21,
+            "tiers": {
+              "BASE": 15,
+              "STRONG": 37,
+              "ELITE": 58
+            }
+          },
+          {
+            "minAge": 22,
+            "maxAge": 26,
+            "tiers": {
+              "BASE": 14,
+              "STRONG": 37,
+              "ELITE": 61
+            }
+          },
+          {
+            "minAge": 27,
+            "maxAge": 31,
+            "tiers": {
+              "BASE": 14,
+              "STRONG": 37,
+              "ELITE": 62
+            }
+          },
+          {
+            "minAge": 32,
+            "maxAge": 36,
+            "tiers": {
+              "BASE": 13,
+              "STRONG": 36,
+              "ELITE": 60
+            }
+          },
+          {
+            "minAge": 37,
+            "maxAge": 41,
+            "tiers": {
+              "BASE": 12,
+              "STRONG": 35,
+              "ELITE": 59
+            }
+          },
+          {
+            "minAge": 42,
+            "maxAge": 46,
+            "tiers": {
+              "BASE": 11,
+              "STRONG": 34,
+              "ELITE": 57
+            }
+          },
+          {
+            "minAge": 47,
+            "maxAge": 51,
+            "tiers": {
+              "BASE": 11,
+              "STRONG": 32,
+              "ELITE": 55
+            }
+          },
+          {
+            "minAge": 52,
+            "maxAge": 56,
+            "tiers": {
+              "BASE": 10,
+              "STRONG": 30,
+              "ELITE": 51
+            }
+          },
+          {
+            "minAge": 57,
+            "maxAge": 61,
+            "tiers": {
+              "BASE": 10,
+              "STRONG": 18,
+              "ELITE": 46
+            }
+          },
+          {
+            "minAge": 62,
+            "maxAge": 200,
+            "tiers": {
+              "BASE": 10,
+              "STRONG": 17,
+              "ELITE": 43
+            }
+          }
+        ]
+      },
+      {
+        "id": "sprint-drag-carry",
+        "name": "Sprint-Drag-Carry",
+        "detail": "5 x 50 m shuttles: sprint, sled drag, lateral, carry, sprint",
+        "measure": {
+          "kind": "MANUAL",
+          "unit": "SECONDS"
+        },
+        "lowerIsBetter": true,
+        "tiers": {
+          "BASE": 148,
+          "STRONG": 113,
+          "ELITE": 89
+        },
+        "variants": [
+          {
+            "minAge": 17,
+            "maxAge": 21,
+            "tiers": {
+              "BASE": 148,
+              "STRONG": 113,
+              "ELITE": 89
+            }
+          },
+          {
+            "minAge": 22,
+            "maxAge": 26,
+            "tiers": {
+              "BASE": 151,
+              "STRONG": 113,
+              "ELITE": 90
+            }
+          },
+          {
+            "minAge": 27,
+            "maxAge": 31,
+            "tiers": {
+              "BASE": 152,
+              "STRONG": 115,
+              "ELITE": 90
+            }
+          },
+          {
+            "minAge": 32,
+            "maxAge": 36,
+            "tiers": {
+              "BASE": 156,
+              "STRONG": 118,
+              "ELITE": 93
+            }
+          },
+          {
+            "minAge": 37,
+            "maxAge": 41,
+            "tiers": {
+              "BASE": 161,
+              "STRONG": 122,
+              "ELITE": 96
+            }
+          },
+          {
+            "minAge": 42,
+            "maxAge": 46,
+            "tiers": {
+              "BASE": 165,
+              "STRONG": 127,
+              "ELITE": 100
+            }
+          },
+          {
+            "minAge": 47,
+            "maxAge": 51,
+            "tiers": {
+              "BASE": 173,
+              "STRONG": 134,
+              "ELITE": 105
+            }
+          },
+          {
+            "minAge": 52,
+            "maxAge": 56,
+            "tiers": {
+              "BASE": 180,
+              "STRONG": 143,
+              "ELITE": 112
+            }
+          },
+          {
+            "minAge": 57,
+            "maxAge": 61,
+            "tiers": {
+              "BASE": 192,
+              "STRONG": 149,
+              "ELITE": 118
+            }
+          },
+          {
+            "minAge": 62,
+            "maxAge": 200,
+            "tiers": {
+              "BASE": 196,
+              "STRONG": 152,
+              "ELITE": 129
+            }
+          }
+        ]
+      },
+      {
+        "id": "plank",
+        "name": "Plank",
+        "detail": "Longest hold",
+        "measure": {
+          "kind": "LONGEST_HOLD"
+        },
+        "exerciseIds": [
+          "erv-weight-exercise-bw-plank-v1"
+        ],
+        "lowerIsBetter": false,
+        "tiers": {
+          "BASE": 90,
+          "STRONG": 155,
+          "ELITE": 220
+        },
+        "variants": [
+          {
+            "minAge": 17,
+            "maxAge": 21,
+            "tiers": {
+              "BASE": 90,
+              "STRONG": 155,
+              "ELITE": 220
+            }
+          },
+          {
+            "minAge": 22,
+            "maxAge": 26,
+            "tiers": {
+              "BASE": 85,
+              "STRONG": 150,
+              "ELITE": 215
+            }
+          },
+          {
+            "minAge": 27,
+            "maxAge": 31,
+            "tiers": {
+              "BASE": 80,
+              "STRONG": 145,
+              "ELITE": 210
+            }
+          },
+          {
+            "minAge": 32,
+            "maxAge": 36,
+            "tiers": {
+              "BASE": 75,
+              "STRONG": 140,
+              "ELITE": 205
+            }
+          },
+          {
+            "minAge": 37,
+            "maxAge": 41,
+            "tiers": {
+              "BASE": 70,
+              "STRONG": 135,
+              "ELITE": 200
+            }
+          },
+          {
+            "minAge": 42,
+            "maxAge": 46,
+            "tiers": {
+              "BASE": 70,
+              "STRONG": 135,
+              "ELITE": 200
+            }
+          },
+          {
+            "minAge": 47,
+            "maxAge": 51,
+            "tiers": {
+              "BASE": 70,
+              "STRONG": 135,
+              "ELITE": 200
+            }
+          },
+          {
+            "minAge": 52,
+            "maxAge": 56,
+            "tiers": {
+              "BASE": 70,
+              "STRONG": 135,
+              "ELITE": 200
+            }
+          },
+          {
+            "minAge": 57,
+            "maxAge": 61,
+            "tiers": {
+              "BASE": 70,
+              "STRONG": 135,
+              "ELITE": 200
+            }
+          },
+          {
+            "minAge": 62,
+            "maxAge": 200,
+            "tiers": {
+              "BASE": 70,
+              "STRONG": 135,
+              "ELITE": 200
+            }
+          }
+        ]
+      },
+      {
+        "id": "two-mile",
+        "name": "2-Mile Run",
+        "detail": "Fastest 2 miles",
+        "measure": {
+          "kind": "FASTEST",
+          "meters": 3218.688,
+          "cardioGroups": [
+            "RUN"
+          ]
+        },
+        "lowerIsBetter": true,
+        "tiers": {
+          "BASE": 1197,
+          "STRONG": 1033,
+          "ELITE": 802
+        },
+        "variants": [
+          {
+            "minAge": 17,
+            "maxAge": 21,
+            "tiers": {
+              "BASE": 1197,
+              "STRONG": 1033,
+              "ELITE": 802
+            }
+          },
+          {
+            "minAge": 22,
+            "maxAge": 26,
+            "tiers": {
+              "BASE": 1185,
+              "STRONG": 1037,
+              "ELITE": 805
+            }
+          },
+          {
+            "minAge": 27,
+            "maxAge": 31,
+            "tiers": {
+              "BASE": 1185,
+              "STRONG": 1041,
+              "ELITE": 805
+            }
+          },
+          {
+            "minAge": 32,
+            "maxAge": 36,
+            "tiers": {
+              "BASE": 1244,
+              "STRONG": 1036,
+              "ELITE": 822
+            }
+          },
+          {
+            "minAge": 37,
+            "maxAge": 41,
+            "tiers": {
+              "BASE": 1244,
+              "STRONG": 1053,
+              "ELITE": 822
+            }
+          },
+          {
+            "minAge": 42,
+            "maxAge": 46,
+            "tiers": {
+              "BASE": 1324,
+              "STRONG": 1067,
+              "ELITE": 845
+            }
+          },
+          {
+            "minAge": 47,
+            "maxAge": 51,
+            "tiers": {
+              "BASE": 1324,
+              "STRONG": 1092,
+              "ELITE": 870
+            }
+          },
+          {
+            "minAge": 52,
+            "maxAge": 56,
+            "tiers": {
+              "BASE": 1370,
+              "STRONG": 1140,
+              "ELITE": 909
+            }
+          },
+          {
+            "minAge": 57,
+            "maxAge": 61,
+            "tiers": {
+              "BASE": 1416,
+              "STRONG": 1185,
+              "ELITE": 928
+            }
+          },
+          {
+            "minAge": 62,
+            "maxAge": 200,
+            "tiers": {
+              "BASE": 1416,
+              "STRONG": 1185,
+              "ELITE": 928
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "ruck-12mi-v1",
+    "name": "12-Mile Ruck",
+    "description": "12 miles with at least 35 lb. Base is the Army's 3-hour standard for the Expert Infantry Badge; Strong and Elite are faster marks.",
+    "events": [
+      {
+        "id": "ruck-12mi",
+        "name": "12-Mile Ruck",
+        "detail": "Fastest 12 miles with at least 35 lb",
+        "measure": {
+          "kind": "FASTEST",
+          "meters": 19312.128,
+          "cardioGroups": [
+            "RUCK"
+          ],
+          "minPackKg": 15.875732950000002
+        },
+        "lowerIsBetter": true,
+        "tiers": {
+          "BASE": 10800,
+          "STRONG": 9900,
+          "ELITE": 9000
+        }
+      }
+    ]
+  }
+]

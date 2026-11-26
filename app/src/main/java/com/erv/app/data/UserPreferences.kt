@@ -1,6 +1,10 @@
 package com.erv.app.data
 
 import com.erv.app.cardio.CardioDistanceUnit
+import com.erv.app.standards.CustomStandardsPayload
+import com.erv.app.standards.StandardResultsPayload
+import com.erv.app.standards.decodeCustomStandards
+import com.erv.app.standards.decodeStandardResults
 import com.erv.app.hr.HeartRateZoneInputs
 import com.erv.app.hr.HeartRateZoneMethod
 import android.content.Context
@@ -97,6 +101,9 @@ class UserPreferences(private val context: Context) {
         val OWNED_EQUIPMENT_JSON_V1 = stringPreferencesKey("owned_equipment_json_v1")
         val TRAINING_PROFILE_JSON_V1 = stringPreferencesKey("training_profile_json_v1")
         val COACH_REVIEW_JSON_V1 = stringPreferencesKey("coach_review_json_v1")
+        val STANDARD_RESULTS_JSON_V1 = stringPreferencesKey("standard_results_json_v1")
+        val CUSTOM_STANDARDS_JSON_V1 = stringPreferencesKey("custom_standards_json_v1")
+        val STANDARDS_HOME_CARD_HIDDEN_V1 = booleanPreferencesKey("standards_home_card_hidden_v1")
         val ENABLED_WEIGHT_EXERCISE_PACK_IDS_V1 = stringPreferencesKey("enabled_weight_exercise_pack_ids_v1")
         val LIVE_WEIGHT_WORKOUT_DRAFT_JSON_V1 = stringPreferencesKey("live_weight_workout_draft_json_v1")
         val LIVE_WEIGHT_WORKOUT_NOTIFICATION_SUPPRESSED_V1 =
@@ -668,6 +675,47 @@ class UserPreferences(private val context: Context) {
         }
     }
 
+    /** Fitness standard test results logged on the web (`erv/standards/results`). */
+    val standardResults: Flow<StandardResultsPayload> = context.dataStore.data.map { prefs ->
+        decodeStandardResults(prefs[Keys.STANDARD_RESULTS_JSON_V1]) ?: StandardResultsPayload()
+    }
+
+    /** Keeps [raw] unless the stored results are newer. */
+    suspend fun setStandardResultsIfNewer(raw: String) {
+        val incoming = decodeStandardResults(raw) ?: return
+        context.dataStore.edit { prefs ->
+            val current = decodeStandardResults(prefs[Keys.STANDARD_RESULTS_JSON_V1])
+            if (current == null || incoming.lastModifiedEpochSeconds >= current.lastModifiedEpochSeconds) {
+                prefs[Keys.STANDARD_RESULTS_JSON_V1] = raw
+            }
+        }
+    }
+
+    /** Custom fitness standards built on the web (`erv/standards/custom`). */
+    val customStandards: Flow<CustomStandardsPayload> = context.dataStore.data.map { prefs ->
+        decodeCustomStandards(prefs[Keys.CUSTOM_STANDARDS_JSON_V1]) ?: CustomStandardsPayload()
+    }
+
+    /** Keeps [raw] unless the stored custom standards are newer. */
+    suspend fun setCustomStandardsIfNewer(raw: String) {
+        val incoming = decodeCustomStandards(raw) ?: return
+        context.dataStore.edit { prefs ->
+            val current = decodeCustomStandards(prefs[Keys.CUSTOM_STANDARDS_JSON_V1])
+            if (current == null || incoming.lastModifiedEpochSeconds >= current.lastModifiedEpochSeconds) {
+                prefs[Keys.CUSTOM_STANDARDS_JSON_V1] = raw
+            }
+        }
+    }
+
+    /** True when the user hid the Standards card on Home. */
+    val standardsHomeCardHidden: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[Keys.STANDARDS_HOME_CARD_HIDDEN_V1] ?: false
+    }
+
+    suspend fun setStandardsHomeCardHidden(hidden: Boolean) {
+        context.dataStore.edit { prefs -> prefs[Keys.STANDARDS_HOME_CARD_HIDDEN_V1] = hidden }
+    }
+
     /** Specialty exercise packs that should be visible in library pickers. */
     val enabledWeightExercisePackIds: Flow<Set<String>> = context.dataStore.data.map { prefs ->
         decodeDelimitedIdSet(prefs[Keys.ENABLED_WEIGHT_EXERCISE_PACK_IDS_V1])
@@ -1127,6 +1175,8 @@ class UserPreferences(private val context: Context) {
             prefs.remove(Keys.OWNED_EQUIPMENT_JSON_V1)
             prefs.remove(Keys.TRAINING_PROFILE_JSON_V1)
             prefs.remove(Keys.COACH_REVIEW_JSON_V1)
+            prefs.remove(Keys.STANDARD_RESULTS_JSON_V1)
+            prefs.remove(Keys.CUSTOM_STANDARDS_JSON_V1)
             prefs.remove(Keys.BLE_HEART_RATE_DEVICE_ADDRESS)
             prefs.remove(Keys.BLE_CSC_DEVICE_ADDRESS)
             prefs.remove(Keys.BLE_FTMS_DEVICE_ADDRESS)
