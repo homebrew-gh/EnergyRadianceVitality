@@ -4,6 +4,7 @@ import { SessionWatcher } from "./lib/sessionWatcher";
 import { hasRelayConfigured } from "./lib/relayUrl";
 import { AppShell } from "./routes/AppShell";
 import { CatalogEditorTab } from "./routes/CatalogEditorTab";
+import { WeightExerciseDetailPage } from "./routes/WeightExerciseDetailPage";
 import { EquipmentTab } from "./routes/EquipmentTab";
 import { MediaGalleryTab } from "./routes/MediaGalleryTab";
 import { PlannerTab } from "./routes/PlannerTab";
@@ -55,6 +56,7 @@ function Gate() {
           <Route path="cardio" element={<CardioRoutinesTab />} />
         </Route>
         <Route path="exercises" element={<CatalogEditorTab />} />
+        <Route path="exercises/weight/:exerciseId" element={<WeightExerciseDetailPage />} />
         {/* Old address from before the sidebar; kept so bookmarks still work. */}
         <Route path="catalog" element={<Navigate to="/app/exercises" replace />} />
         <Route path="equipment" element={<EquipmentTab />} />

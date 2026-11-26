@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { SessionMediaGallery } from "../components/SessionMediaPreview";
 import { TrainingBaselinePanel } from "../components/TrainingBaselinePanel";
 import { PageHeader } from "../components/PageHeader";
@@ -1121,22 +1122,32 @@ export function ProgressTab() {
           {exerciseOptions.length > 0 ? (
             <section className="card p-5 space-y-4">
               <SectionHeader>Exercise history</SectionHeader>
-              <label className="block space-y-1 max-w-md">
-                <span className="label">
-                  <FieldLabel>Exercise</FieldLabel>
-                </span>
-                <select
-                  className="input w-full"
-                  value={activeExerciseId}
-                  onChange={(e) => setSelectedExerciseId(e.target.value)}
-                >
-                  {exerciseOptions.map((o) => (
-                    <option key={o.id} value={o.id}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <div className="flex flex-wrap items-end gap-3">
+                <label className="block space-y-1 max-w-md flex-1">
+                  <span className="label">
+                    <FieldLabel>Exercise</FieldLabel>
+                  </span>
+                  <select
+                    className="input w-full"
+                    value={activeExerciseId}
+                    onChange={(e) => setSelectedExerciseId(e.target.value)}
+                  >
+                    {exerciseOptions.map((o) => (
+                      <option key={o.id} value={o.id}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {activeExerciseId ? (
+                  <Link
+                    to={`/app/exercises/weight/${encodeURIComponent(activeExerciseId)}`}
+                    className="btn-ghost text-sm"
+                  >
+                    Open Exercise Page
+                  </Link>
+                ) : null}
+              </div>
 
               {repBucketChart.length > 0 ? (
                 <div className="space-y-2">
