@@ -79,6 +79,7 @@ import com.erv.app.data.SavedBluetoothDevice
 import com.erv.app.data.SavedBluetoothDeviceKind
 import com.erv.app.data.StretchGuidedTtsVoice
 import com.erv.app.data.StretchSoundStyle
+import com.erv.app.data.StretchGuidanceDetail
 import com.erv.app.stretching.StretchCue
 import com.erv.app.ui.media.StretchCuePlayer
 import androidx.compose.foundation.selection.selectable
@@ -296,6 +297,9 @@ fun SettingsScreen(
     )
     val stretchSoundStyle by userPreferences.stretchSoundStyle.collectAsState(
         initial = StretchSoundStyle.SOFT_CHIME
+    )
+    val stretchGuidanceDetail by userPreferences.stretchGuidanceDetail.collectAsState(
+        initial = StretchGuidanceDetail.FULL
     )
 
     var relayRevision by remember { mutableIntStateOf(0) }
@@ -525,6 +529,13 @@ fun SettingsScreen(
                         style = stretchSoundStyle,
                         onStyleChange = { st ->
                             scope.launch { userPreferences.setStretchSoundStyle(st) }
+                        }
+                    )
+                    Spacer(Modifier.height(20.dp))
+                    StretchGuidanceDetailSection(
+                        detail = stretchGuidanceDetail,
+                        onDetailChange = { d ->
+                            scope.launch { userPreferences.setStretchGuidanceDetail(d) }
                         }
                     )
                     Spacer(Modifier.height(20.dp))
@@ -2950,6 +2961,65 @@ private fun previewStretchSoundStyle(context: android.content.Context, style: St
     android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
         StretchCuePlayer.play(context, style, StretchCue.HOLD_END)
     }, if (style == StretchSoundStyle.SINGING_BOWL) 1_800L else 900L)
+}
+
+@Composable
+private fun StretchGuidanceDetailSection(
+    detail: StretchGuidanceDetail,
+    onDetailChange: (StretchGuidanceDetail) -> Unit
+) {
+    FormSectionLabel(
+        text = "Guidance detail",
+        modifier = Modifier.padding(bottom = 4.dp)
+    )
+    Text(
+        "How much the voice says about each stretch in a guided routine. The screen always shows the how-to.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(bottom = 8.dp)
+    )
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(modifier = Modifier.padding(vertical = 4.dp)) {
+            StretchGuidanceDetail.entries.forEach { option ->
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .selectable(
+                            selected = option == detail,
+                            role = Role.RadioButton,
+                            onClick = { onDetailChange(option) }
+                        )
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                ) {
+                    RadioButton(selected = option == detail, onClick = null)
+                    Spacer(Modifier.width(12.dp))
+                    Column {
+                        Text(
+                            when (option) {
+                                StretchGuidanceDetail.FULL -> "Full How-To"
+                                StretchGuidanceDetail.FIRST_TIME -> "How-To Once"
+                                StretchGuidanceDetail.NAMES_ONLY -> "Names Only"
+                            },
+                            style = MaterialTheme.typography.bodyLarge
+                        )
+                        Text(
+                            when (option) {
+                                StretchGuidanceDetail.FULL -> "Reads how to do every stretch."
+                                StretchGuidanceDetail.FIRST_TIME -> "Reads the how-to the first time a stretch comes up, then just its name."
+                                StretchGuidanceDetail.NAMES_ONLY -> "Just the name and side of each stretch."
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable

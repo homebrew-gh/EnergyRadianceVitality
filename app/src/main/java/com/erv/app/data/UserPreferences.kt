@@ -68,6 +68,18 @@ enum class StretchSoundStyle {
     VIBRATE_ONLY,
 }
 
+/** How much the guided stretch voice says about each stretch. */
+enum class StretchGuidanceDetail {
+    /** Name and how-to for every stretch. */
+    FULL,
+
+    /** How-to only the first time a stretch comes up in a session; names after that. */
+    FIRST_TIME,
+
+    /** Names and sides only. */
+    NAMES_ONLY,
+}
+
 /** Guided stretching “Next stretch” TTS voice; actual voices depend on the device TTS engine. */
 enum class StretchGuidedTtsVoice {
     /** Follow the engine default for the current language. */
@@ -128,6 +140,7 @@ class UserPreferences(private val context: Context) {
             booleanPreferencesKey("live_weight_workout_notification_suppressed_v1")
         val STRETCH_GUIDED_TTS_VOICE = stringPreferencesKey("stretch_guided_tts_voice")
         val STRETCH_SOUND_STYLE = stringPreferencesKey("stretch_sound_style")
+        val STRETCH_GUIDANCE_DETAIL = stringPreferencesKey("stretch_guidance_detail")
         /** MAC address of last paired BLE heart rate sensor (standard Heart Rate GATT service). */
         val BLE_HEART_RATE_DEVICE_ADDRESS = stringPreferencesKey("ble_heart_rate_device_address_v1")
         /** MAC address of preferred Cycling Speed and Cadence sensor for live cycling workouts. */
@@ -800,6 +813,16 @@ class UserPreferences(private val context: Context) {
         }
     }
 
+    val stretchGuidanceDetail: Flow<StretchGuidanceDetail> = context.dataStore.data.map { prefs ->
+        parseStretchGuidanceDetail(prefs[Keys.STRETCH_GUIDANCE_DETAIL])
+    }
+
+    suspend fun setStretchGuidanceDetail(detail: StretchGuidanceDetail) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.STRETCH_GUIDANCE_DETAIL] = detail.name
+        }
+    }
+
     val bleHeartRateDeviceAddress: Flow<String?> = context.dataStore.data.map { prefs ->
         normalizeBluetoothAddressOrNull(prefs[Keys.BLE_HEART_RATE_DEVICE_ADDRESS])
     }
@@ -1287,3 +1310,7 @@ private fun decodeStringList(raw: String?): List<String> {
 /** Unknown or missing values fall back to [StretchSoundStyle.SOFT_CHIME]. */
 fun parseStretchSoundStyle(raw: String?): StretchSoundStyle =
     StretchSoundStyle.entries.firstOrNull { it.name == raw?.uppercase() } ?: StretchSoundStyle.SOFT_CHIME
+
+/** Unknown or missing values fall back to [StretchGuidanceDetail.FULL] (what the voice always did). */
+fun parseStretchGuidanceDetail(raw: String?): StretchGuidanceDetail =
+    StretchGuidanceDetail.entries.firstOrNull { it.name == raw?.uppercase() } ?: StretchGuidanceDetail.FULL
