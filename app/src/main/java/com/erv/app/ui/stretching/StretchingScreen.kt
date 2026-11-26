@@ -27,6 +27,17 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
+import androidx.activity.compose.BackHandler
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.IconButtonDefaults
+import com.erv.app.stretching.GuidedStretchResult
+import com.erv.app.stretching.guidedBackTarget
+import com.erv.app.stretching.guidedSkipTarget
+import com.erv.app.stretching.guidedStretchResult
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -283,14 +294,14 @@ private fun buildFirstStretchIntroSpeech(entry: StretchCatalogEntry): String {
  * Spoken cue during the transition into [next]. Reads the procedure when the stretch changes;
  * when only the side changes (right → left of the same stretch) just announces the side.
  */
-private fun buildNextStepSpeech(prev: GuidedStretchStep, next: GuidedStretchStep): String {
+private fun buildNextStepSpeech(prev: GuidedStretchStep?, next: GuidedStretchStep): String {
     val name = titleCaseStretchLabel(next.entry.name).ifBlank { "the next stretch" }
     val label = when (next.side) {
         null -> name
         StretchSide.RIGHT -> "$name, right side"
         StretchSide.LEFT -> "$name, left side"
     }
-    val sameStretchOtherSide = prev.entry.id == next.entry.id && next.side == StretchSide.LEFT
+    val sameStretchOtherSide = prev != null && prev.entry.id == next.entry.id && next.side == StretchSide.LEFT
     val procedure = if (sameStretchOtherSide) "" else spokenProcedure(next.entry)
     return if (procedure.isEmpty()) "Next: $label." else "Next: $label. $procedure"
 }
@@ -510,7 +521,7 @@ fun StretchingCategoryScreen(
             holdSeconds = holdSec,
             stretchGuidedTtsVoice = stretchGuidedTtsVoice,
             stretchSoundStyle = stretchSoundStyle,
-            onFinished = { totalMinutes ->
+            onFinished = { result ->
                 scope.launch {
                     val today = LocalDate.now()
                     val workoutState = workoutRepository.currentState()
@@ -522,8 +533,8 @@ fun StretchingCategoryScreen(
                         date = today,
                         routineId = routine.id,
                         routineName = routine.name,
-                        stretchIds = routine.stretchIds,
-                        totalMinutes = totalMinutes,
+                        stretchIds = result.stretchIds,
+                        totalMinutes = result.totalMinutes,
                         workoutLink = workoutLink,
                     )
                     val log = repository.currentState().logFor(today)
@@ -895,7 +906,7 @@ private fun StretchGuidedSessionOverlay(
     holdSeconds: Int,
     stretchGuidedTtsVoice: StretchGuidedTtsVoice,
     stretchSoundStyle: StretchSoundStyle,
-    onFinished: (totalMinutes: Int) -> Unit,
+    onFinished: (GuidedStretchResult) -> Unit,
     onCancel: () -> Unit
 ) {
     val context = LocalContext.current
@@ -955,40 +966,139 @@ private fun StretchGuidedSessionOverlay(
     val currentStep = steps.getOrNull(index)
     val nextStep = steps.getOrNull(index + 1)
     val firstStep = steps.firstOrNull()
+    /** The step being held, or the one coming up during a get-ready or gap. */
+    val focusIndex = if (phaseHold || firstPrepActive) index.coerceAtLeast(0) else index + 1
 
-    LaunchedEffect(stretchEntries, holdSeconds, tts, ttsInitSettled, context) {
+    /** Pause, Skip and Back: a jump restarts the session coroutine at [jumpTo] (null = from the intro). */
+    var paused by remember { mutableStateOf(false) }
+    val pausedState = rememberUpdatedState(paused)
+    var jumpTo by remember { mutableStateOf<Int?>(null) }
+    var runToken by remember { mutableIntStateOf(0) }
+    var showEndDialog by remember { mutableStateOf(false) }
+    var pausedBeforeEndDialog by remember { mutableStateOf(false) }
+    /** Steps held for at least a second, and seconds spent (prep, holds, gaps) while not paused. */
+    val heldStepIndexes = remember { mutableStateListOf<Int>() }
+    var activeSeconds by remember { mutableIntStateOf(0) }
+
+    val plannedMinutes = remember(steps, holdSeconds) { guidedSessionTotalMinutes(steps, holdSeconds) }
+    fun result(): GuidedStretchResult? = guidedStretchResult(
+        steps = steps,
+        heldStepIndexes = heldStepIndexes.toSet(),
+        routineStretchIds = stretchEntries.map { it.id },
+        plannedMinutes = plannedMinutes,
+        activeSeconds = activeSeconds,
+    )
+
+    fun jump(target: Int) {
+        try {
+            tts.stop()
+        } catch (_: Exception) {
+        }
+        jumpTo = target
+        runToken++
+    }
+
+    fun skip() {
+        val target = guidedSkipTarget(focusIndex, steps.size)
+        if (target == null) {
+            // Skipping the last stretch ends the session; it logs what was held.
+            val r = result()
+            if (r != null) onFinished(r) else onCancel()
+        } else {
+            jump(target)
+        }
+    }
+
+    fun back() {
+        val intoHold = if (phaseHold) holdSeconds - secondsLeft else 0
+        jump(guidedBackTarget(focusIndex, phaseHold, intoHold))
+    }
+
+    fun openEndDialog() {
+        pausedBeforeEndDialog = paused
+        paused = true
+        try {
+            tts.stop()
+        } catch (_: Exception) {
+        }
+        showEndDialog = true
+    }
+
+    BackHandler { openEndDialog() }
+
+    /** One second of session time; paused time does not count. */
+    suspend fun waitOneSecond() {
+        var ms = 0
+        while (ms < 1000) {
+            delay(100)
+            if (!pausedState.value) ms += 100
+        }
+        activeSeconds++
+    }
+
+    LaunchedEffect(stretchEntries, holdSeconds, tts, ttsInitSettled, context, runToken) {
         if (!ttsInitSettled) return@LaunchedEffect
-        val sessionSteps = stretchEntries.toGuidedSessionSteps()
+        val sessionSteps = steps
         if (stretchEntries.isEmpty() || sessionSteps.isEmpty()) {
-            onFinished(guidedSessionTotalMinutes(sessionSteps, holdSeconds))
+            onFinished(GuidedStretchResult(emptyList(), plannedMinutes))
             return@LaunchedEffect
         }
         if (ttsEngineOkState.value) {
             applyStretchingTtsLayerConfig(tts, stretchGuidedTtsVoice)
             delay(150)
         }
-        firstPrepActive = true
-        phaseHold = false
-        index = 0
-        secondsLeft = -1
-        if (voiceEnabledState.value && ttsEngineOkState.value) {
-            speakAndAwaitUtterance(
-                context,
-                tts,
-                buildFirstStretchIntroSpeech(stretchEntries[0]),
-                FIRST_INTRO_UTTERANCE_ID,
-                ttsEngineOkState.value,
-                FIRST_INTRO_SPEAK_WAIT_MS
-            )
+        val start = jumpTo
+        var i: Int
+        if (start == null) {
+            firstPrepActive = true
+            phaseHold = false
+            index = 0
+            secondsLeft = -1
+            if (voiceEnabledState.value && ttsEngineOkState.value) {
+                speakAndAwaitUtterance(
+                    context,
+                    tts,
+                    buildFirstStretchIntroSpeech(stretchEntries[0]),
+                    FIRST_INTRO_UTTERANCE_ID,
+                    ttsEngineOkState.value,
+                    FIRST_INTRO_SPEAK_WAIT_MS
+                )
+            }
+            secondsLeft = FIRST_STRETCH_PREP_SECONDS
+            while (secondsLeft > 0) {
+                waitOneSecond()
+                secondsLeft--
+            }
+            firstPrepActive = false
+            i = 0
+        } else {
+            // After Skip or Back: a short get-ready for the chosen stretch, announced like any other.
+            firstPrepActive = false
+            phaseHold = false
+            i = start.coerceIn(0, sessionSteps.lastIndex)
+            index = i - 1
+            secondsLeft = TRANSITION_SECONDS_BILATERAL_SIDE
+            val announce = if (voiceEnabledState.value && ttsEngineOkState.value) {
+                async {
+                    speakAndAwaitUtterance(
+                        context,
+                        tts,
+                        buildNextStepSpeech(sessionSteps.getOrNull(i - 1), sessionSteps[i]),
+                        NEXT_STEP_UTTERANCE_ID,
+                        ttsEngineOkState.value,
+                        NEXT_STEP_SPEAK_WAIT_MS
+                    )
+                }
+            } else {
+                null
+            }
+            while (secondsLeft > 0) {
+                waitOneSecond()
+                secondsLeft--
+            }
+            announce?.await()
         }
-        secondsLeft = FIRST_STRETCH_PREP_SECONDS
-        while (secondsLeft > 0) {
-            delay(1000)
-            secondsLeft--
-        }
-        firstPrepActive = false
 
-        var i = 0
         while (i < sessionSteps.size) {
             phaseHold = true
             index = i
@@ -998,7 +1108,8 @@ private fun StretchGuidedSessionOverlay(
                 stretchCueForSecondLeft(soundStyleState.value, holdSeconds, secondsLeft)?.let { cue ->
                     StretchCuePlayer.play(context, soundStyleState.value, cue)
                 }
-                delay(1000)
+                waitOneSecond()
+                if (i !in heldStepIndexes) heldStepIndexes.add(i)
                 secondsLeft--
             }
             StretchCuePlayer.play(context, soundStyleState.value, StretchCue.HOLD_END)
@@ -1023,7 +1134,7 @@ private fun StretchGuidedSessionOverlay(
                 null
             }
             while (secondsLeft > 0) {
-                delay(1000)
+                waitOneSecond()
                 secondsLeft--
             }
             announce?.await()
@@ -1040,7 +1151,7 @@ private fun StretchGuidedSessionOverlay(
                 COMPLETE_SPEAK_WAIT_MS
             )
         }
-        onFinished(guidedSessionTotalMinutes(sessionSteps, holdSeconds))
+        onFinished(result() ?: GuidedStretchResult(stretchEntries.map { it.id }, plannedMinutes))
     }
 
     val gradientBottom = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f)
@@ -1162,10 +1273,62 @@ private fun StretchGuidedSessionOverlay(
             Text(
                 text = if (secondsLeft < 0) "—" else "%d:%02d".format(secondsLeft / 60, secondsLeft % 60),
                 style = MaterialTheme.typography.displayLarge,
-                color = Color.White
+                color = Color.White.copy(alpha = if (paused) 0.6f else 1f)
             )
+            if (paused) {
+                Text(
+                    "Paused",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Color.White.copy(alpha = 0.9f)
+                )
+            }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(20.dp),
+                modifier = Modifier.padding(vertical = 12.dp)
+            ) {
+                IconButton(onClick = { back() }, enabled = secondsLeft >= 0) {
+                    Icon(
+                        Icons.Default.SkipPrevious,
+                        contentDescription = "Previous stretch",
+                        tint = Color.White,
+                        modifier = Modifier.size(32.dp)
+                    )
+                }
+                FilledIconButton(
+                    onClick = {
+                        paused = !paused
+                        if (paused) {
+                            try {
+                                tts.stop()
+                            } catch (_: Exception) {
+                            }
+                        }
+                    },
+                    enabled = secondsLeft >= 0,
+                    colors = IconButtonDefaults.filledIconButtonColors(
+                        containerColor = Color.White.copy(alpha = 0.22f),
+                        contentColor = Color.White
+                    ),
+                    modifier = Modifier.size(72.dp)
+                ) {
+                    Icon(
+                        if (paused) Icons.Default.PlayArrow else Icons.Default.Pause,
+                        contentDescription = if (paused) "Resume" else "Pause",
+                        modifier = Modifier.size(40.dp)
+                    )
+                }
+                IconButton(onClick = { skip() }, enabled = secondsLeft >= 0) {
+                    Icon(
+                        Icons.Default.SkipNext,
+                        contentDescription = "Skip stretch",
+                        tint = Color.White,
+                        modifier = Modifier.size(32.dp)
+                    )
+                }
+            }
             OutlinedButton(
-                onClick = onCancel,
+                onClick = { openEndDialog() },
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
                 border = ButtonDefaults.outlinedButtonBorder.copy(
                     brush = SolidColor(Color.White)
@@ -1175,6 +1338,53 @@ private fun StretchGuidedSessionOverlay(
                 Spacer(Modifier.width(8.dp))
                 Text("End session")
             }
+        }
+        if (showEndDialog) {
+            val partial = result()
+            AlertDialog(
+                onDismissRequest = {
+                    showEndDialog = false
+                    paused = pausedBeforeEndDialog
+                },
+                title = { Text("End Session?") },
+                text = {
+                    Text(
+                        if (partial != null) {
+                            val n = partial.stretchIds.size
+                            "You held $n ${if (n == 1) "stretch" else "stretches"} so far. Log them, or end without logging."
+                        } else {
+                            "Nothing has been held yet, so there is nothing to log."
+                        }
+                    )
+                },
+                confirmButton = {
+                    if (partial != null) {
+                        TextButton(onClick = {
+                            showEndDialog = false
+                            onFinished(partial)
+                        }) { Text("Log and End") }
+                    } else {
+                        TextButton(onClick = {
+                            showEndDialog = false
+                            onCancel()
+                        }) { Text("End") }
+                    }
+                },
+                dismissButton = {
+                    Row {
+                        if (partial != null) {
+                            TextButton(onClick = {
+                                showEndDialog = false
+                                onCancel()
+                            }) { Text("Discard") }
+                        }
+                        TextButton(onClick = {
+                            showEndDialog = false
+                            paused = pausedBeforeEndDialog
+                        }) { Text("Keep Going") }
+                    }
+                }
+            )
         }
         IconButton(
             onClick = {
