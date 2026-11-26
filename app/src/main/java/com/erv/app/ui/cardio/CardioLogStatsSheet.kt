@@ -30,6 +30,9 @@ import androidx.compose.ui.unit.dp
 import com.erv.app.cardio.CardioDistanceUnit
 import com.erv.app.cardio.CardioLogAggregatedStats
 import com.erv.app.cardio.CardioMonthlyWorkoutBucket
+import com.erv.app.cardio.CardioRecord
+import com.erv.app.cardio.CardioRecords
+import com.erv.app.cardio.formatValue
 import com.erv.app.cardio.DatedCardioSession
 import com.erv.app.cardio.computeCardioLogStats
 import com.erv.app.cardio.formatCardioDistanceFromMeters
@@ -53,6 +56,7 @@ fun CardioLogStatsBottomSheet(
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val stats = remember(entries, zoneInputs) { computeCardioLogStats(entries, zoneInputs) }
+    val records = remember(entries) { CardioRecords.best(entries) }
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
@@ -61,6 +65,7 @@ fun CardioLogStatsBottomSheet(
             stats = stats,
             distanceUnit = distanceUnit,
             periodLabel = periodLabel,
+            records = records,
             modifier = Modifier
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
@@ -76,6 +81,8 @@ fun CardioLogStatsSheetContent(
     distanceUnit: CardioDistanceUnit,
     periodLabel: String,
     modifier: Modifier = Modifier,
+    /** Best of each record in this period, by activity. */
+    records: List<CardioRecord> = emptyList(),
 ) {
     val primary = MaterialTheme.colorScheme.primary
     val onVar = MaterialTheme.colorScheme.onSurfaceVariant
@@ -126,6 +133,19 @@ fun CardioLogStatsSheetContent(
                 value = "~${k.toInt()} kcal",
                 valueColor = MaterialTheme.colorScheme.onSurface,
             )
+        }
+        if (records.isNotEmpty()) {
+            FormSectionLabelSmall("Personal records", color = onVar)
+            records.groupBy { it.group }.forEach { (group, groupRecords) ->
+                Text(group.label, style = MaterialTheme.typography.titleSmall)
+                groupRecords.forEach { record ->
+                    StatRow(
+                        label = record.kind.title,
+                        value = "${record.formatValue(distanceUnit)} · ${recordDateFormatter.format(record.date)}",
+                        valueColor = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+            }
         }
         if (stats.workoutsWithHeartRate > 0) {
             FormSectionLabelSmall("Heart rate (this period)", color = onVar)
@@ -219,6 +239,8 @@ private fun StatRow(
         )
     }
 }
+
+private val recordDateFormatter = DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.getDefault())
 
 private val monthChartLabelFormatter =
     DateTimeFormatter.ofPattern("MMM yy", Locale.getDefault())
