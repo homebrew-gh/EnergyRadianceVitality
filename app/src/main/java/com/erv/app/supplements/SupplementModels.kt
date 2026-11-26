@@ -6,7 +6,35 @@ import java.time.LocalDate
 import java.util.UUID
 
 @Serializable
-enum class SupplementForm { CAPSULE, POWDER }
+enum class SupplementForm { CAPSULE, TABLET, SOFTGEL, GUMMY, POWDER, LIQUID }
+
+fun SupplementForm.label(): String = when (this) {
+    SupplementForm.CAPSULE -> "Capsule"
+    SupplementForm.TABLET -> "Tablet"
+    SupplementForm.SOFTGEL -> "Softgel"
+    SupplementForm.GUMMY -> "Gummy"
+    SupplementForm.POWDER -> "Powder"
+    SupplementForm.LIQUID -> "Liquid"
+}
+
+/** Counted forms measure a serving in pieces (2 capsules), not in a unit (5 g). */
+fun SupplementForm.isCounted(): Boolean = when (this) {
+    SupplementForm.CAPSULE, SupplementForm.TABLET, SupplementForm.SOFTGEL, SupplementForm.GUMMY -> true
+    SupplementForm.POWDER, SupplementForm.LIQUID -> false
+}
+
+/** Lowercase piece noun for counted forms, e.g. "capsule" / "capsules", "gummy" / "gummies". */
+fun SupplementForm.pieceLabel(count: Double): String {
+    val one = count == 1.0
+    return when (this) {
+        SupplementForm.CAPSULE -> if (one) "capsule" else "capsules"
+        SupplementForm.TABLET -> if (one) "tablet" else "tablets"
+        SupplementForm.SOFTGEL -> if (one) "softgel" else "softgels"
+        SupplementForm.GUMMY -> if (one) "gummy" else "gummies"
+        SupplementForm.POWDER -> "powder"
+        SupplementForm.LIQUID -> "liquid"
+    }
+}
 
 @Serializable
 enum class SupplementUnit { MG, MCG, G, IU, ML, DROPS }
@@ -42,21 +70,18 @@ data class SupplementDosagePlan(
     val amount: Double? = null,
     val unit: SupplementUnit = SupplementUnit.MG,
 ) {
-    /** Display label for unit: "-" when form is Capsule (amount = number of capsules), else e.g. "mg". */
-    fun unitDisplayLabel(): String = if (form == SupplementForm.CAPSULE) "-" else unit.label()
+    /** Display label for unit: "-" for counted forms (amount = number of pieces), else e.g. "mg". */
+    fun unitDisplayLabel(): String = if (form.isCounted()) "-" else unit.label()
+
+    /** "2 capsules" for counted forms, "5 g" otherwise. */
+    fun amountText(total: Double): String =
+        if (form.isCounted()) "${formatAmount(total)} ${form.pieceLabel(total)}"
+        else "${formatAmount(total)} ${unit.label()}"
 
     fun summary(): String = buildString {
-        append(
-            when (form) {
-                SupplementForm.CAPSULE -> "Capsule"
-                SupplementForm.POWDER -> "Powder"
-            }
-        )
+        append(form.label())
         if (servingSize.isNotBlank()) append(" • $servingSize")
-        val dosage = when (form) {
-            SupplementForm.CAPSULE -> amount?.let { a -> "${formatAmount(a)} capsule${if (a == 1.0) "" else "s"} per serving" }
-            SupplementForm.POWDER -> amount?.let { a -> "${formatAmount(a)} ${unit.label()} per serving" }
-        }
+        val dosage = amount?.let { a -> "${amountText(a)} per serving" }
         if (!dosage.isNullOrBlank()) append(" • $dosage")
     }.trim()
 
@@ -83,10 +108,7 @@ data class SupplementDosagePlan(
             note = buildString {
                 append(notePrefix)
                 append(": ")
-                val serving = when (form) {
-                    SupplementForm.CAPSULE -> amount?.let { a -> "${formatAmount(a)} capsule${if (a == 1.0) "" else "s"}" }
-                    SupplementForm.POWDER -> amount?.let { a -> "${formatAmount(a)} ${unit.label()}" }
-                }
+                val serving = amount?.let { a -> amountText(a) }
                 if (!serving.isNullOrBlank()) append("$quantity x $serving")
                 else if (servingSize.isNotBlank()) append("$quantity x $servingSize")
                 else append("$quantity serving${if (quantity == 1) "" else "s"}")
@@ -182,6 +204,65 @@ data class SupplementLibraryState(
             routineNames = routineNames
         )
     }
+}
+
+/** How often a supplement was logged on one day (routine steps and ad hoc). */
+data class SupplementTakenStatus(
+    val count: Int,
+    val lastTakenAtEpochSeconds: Long?
+)
+
+/** Today's progress for one routine: how many active steps were logged through it. */
+data class SupplementRoutineDayStatus(
+    val activeStepCount: Int,
+    val takenStepCount: Int,
+    val lastLoggedAtEpochSeconds: Long?
+) {
+    val isComplete: Boolean get() = activeStepCount > 0 && takenStepCount >= activeStepCount
+}
+
+fun SupplementLibraryState.takenStatus(supplementId: String, date: LocalDate): SupplementTakenStatus {
+    val log = logFor(date) ?: return SupplementTakenStatus(0, null)
+    val times = buildList {
+        log.routineRuns.forEach { run ->
+            run.stepIntakes.filter { it.supplementId == supplementId }
+                .forEach { add(it.takenAtEpochSeconds ?: run.takenAtEpochSeconds) }
+        }
+        log.adHocIntakes.filter { it.supplementId == supplementId }
+            .forEach { add(it.takenAtEpochSeconds ?: 0L) }
+    }
+    return SupplementTakenStatus(
+        count = times.size,
+        lastTakenAtEpochSeconds = times.filter { it > 0L }.maxOrNull()
+    )
+}
+
+/** Supplement ids already logged on [date] through [routineId], with the time each was logged. */
+fun SupplementLibraryState.routineStepsTakenOn(routineId: String, date: LocalDate): Map<String, Long> {
+    val log = logFor(date) ?: return emptyMap()
+    val taken = linkedMapOf<String, Long>()
+    log.routineRuns.filter { it.routineId == routineId }.forEach { run ->
+        run.stepIntakes.forEach { intake ->
+            val at = intake.takenAtEpochSeconds ?: run.takenAtEpochSeconds
+            val prev = taken[intake.supplementId]
+            if (prev == null || at > prev) taken[intake.supplementId] = at
+        }
+    }
+    return taken
+}
+
+/** Steps that would be logged by default: not paused and pointing at a supplement that exists. */
+fun SupplementLibraryState.activeSteps(routine: SupplementRoutine): List<SupplementRoutineStep> =
+    routine.steps.filter { !it.paused && supplementById(it.supplementId) != null }
+
+fun SupplementLibraryState.routineDayStatus(routine: SupplementRoutine, date: LocalDate): SupplementRoutineDayStatus {
+    val active = activeSteps(routine).map { it.supplementId }.distinct()
+    val taken = routineStepsTakenOn(routine.id, date)
+    return SupplementRoutineDayStatus(
+        activeStepCount = active.size,
+        takenStepCount = active.count { it in taken },
+        lastLoggedAtEpochSeconds = taken.values.maxOrNull()
+    )
 }
 
 data class SupplementDaySummary(
@@ -373,18 +454,11 @@ fun routineStepListAmountDisplay(step: SupplementRoutineStep, supplement: Supple
     val qty = (step.quantity ?: 1).coerceAtLeast(1).toDouble()
     if (plan != null && plan.amount != null) {
         val total = qty * plan.amount
-        return when (plan.form) {
-            SupplementForm.CAPSULE -> "${formatAmount(total)} capsule${if (total == 1.0) "" else "s"}"
-            SupplementForm.POWDER -> "${formatAmount(total)} ${plan.unit.label()}"
-        }
+        return plan.amountText(total)
     }
     step.dosageOverride?.takeIf { it.isNotBlank() }?.trim()?.let { return it }
     plan?.servingSize?.takeIf { it.isNotBlank() }?.let { return it }
-    return when (plan?.form) {
-        SupplementForm.CAPSULE -> "capsule"
-        SupplementForm.POWDER -> "powder"
-        else -> "take as directed"
-    }
+    return plan?.form?.let { it.pieceLabel(1.0) } ?: "take as directed"
 }
 
 /** One line per step: "Name amount" like dashboard supplement activity rows. */
@@ -428,10 +502,7 @@ private fun resolveSupplementAmountDisplay(
     val amount = plan.amount
     return if (amount != null) {
         val total = intakes.sumOf { (it.quantity ?: 1).toDouble() } * amount
-        when (plan.form) {
-            SupplementForm.CAPSULE -> "${formatAmount(total)} capsule${if (total == 1.0) "" else "s"}"
-            SupplementForm.POWDER -> "${formatAmount(total)} ${plan.unit.label()}"
-        }
+        plan.amountText(total)
     } else {
         intakes.firstNotBlankDosageTaken()
             ?: supplement.dosagePlan.summary()

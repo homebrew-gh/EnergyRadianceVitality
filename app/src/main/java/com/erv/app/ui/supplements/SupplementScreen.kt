@@ -77,6 +77,14 @@ import com.erv.app.supplements.SupplementTimeOfDay
 import com.erv.app.reminders.Weekday
 import com.erv.app.supplements.SupplementUnit
 import com.erv.app.supplements.activityStyleSummary
+import com.erv.app.supplements.isCounted
+import com.erv.app.supplements.pieceLabel
+import com.erv.app.supplements.routineDayStatus
+import com.erv.app.supplements.routineStepsTakenOn
+import com.erv.app.supplements.takenStatus
+import com.erv.app.supplements.activeSteps
+import com.erv.app.supplements.SupplementRoutineDayStatus
+import com.erv.app.supplements.SupplementTakenStatus
 import com.erv.app.supplements.label
 import com.erv.app.reminders.shortLabel
 import com.erv.app.supplements.SupplementSync
@@ -162,7 +170,9 @@ fun SupplementCategoryScreen(
     var creatingRoutine by remember { mutableStateOf(false) }
     var showRoutineTimePicker by remember { mutableStateOf(false) }
     var initialTimeForNewRoutine by remember { mutableStateOf<SupplementTimeOfDay?>(null) }
-    val singleTimeSlots = remember { listOf(SupplementTimeOfDay.MORNING, SupplementTimeOfDay.MIDDAY, SupplementTimeOfDay.NIGHT) }
+    var routineToLog by remember { mutableStateOf<SupplementRoutine?>(null) }
+    var routinePendingDelete by remember { mutableStateOf<SupplementRoutine?>(null) }
+    val statusDate = LocalDate.now()
 
     val supplementApiClient = remember { SupplementApiClient() }
     val openFoodFactsClient = remember { OpenFoodFactsClient() }
@@ -254,14 +264,23 @@ fun SupplementCategoryScreen(
                 when (SupplementsTab.entries[activeTab]) {
                     SupplementsTab.Supplements -> SupplementsTabContent(
                         state = state,
+                        takenStatusFor = { id -> state.takenStatus(id, statusDate) },
                         onRequestAddSupplementChooser = { showAddSupplementChooser = true },
                         onOpenDetail = onOpenSupplementDetail,
                         onTakeNow = { supplement ->
                             scope.launch {
                                 val today = LocalDate.now()
-                                repository.logAdHocIntake(today, supplement.id)
+                                val intakeId = repository.logAdHocIntake(today, supplement.id)
                                 repository.currentState().logFor(today)?.let { syncDailyLog(it) }
-                                snackbarHostState.showSnackbar("Logged ${supplement.name}")
+                                val result = snackbarHostState.showSnackbar(
+                                    message = "Logged ${supplement.name}",
+                                    actionLabel = if (intakeId != null) "Undo" else null,
+                                    duration = SnackbarDuration.Short
+                                )
+                                if (result == SnackbarResult.ActionPerformed && intakeId != null) {
+                                    repository.removeIntake(today, intakeId)
+                                    repository.currentState().logFor(today)?.let { syncDailyLog(it) }
+                                }
                             }
                         },
                         supplementEditor = supplementEditor,
@@ -300,37 +319,17 @@ fun SupplementCategoryScreen(
                     },
                     showRoutineTimePicker = showRoutineTimePicker,
                     onTimeSelectedForNew = { slot ->
-                        if (slot in singleTimeSlots && state.routines.any { it.timeOfDay == slot }) {
-                            scope.launch {
-                                snackbarHostState.showSnackbar("You already have a ${slot.label()} routine. Edit it instead.")
-                            }
-                        } else {
-                            initialTimeForNewRoutine = slot
-                            creatingRoutine = true
-                            showRoutineTimePicker = false
-                        }
+                        initialTimeForNewRoutine = slot
+                        creatingRoutine = true
+                        showRoutineTimePicker = false
                     },
                     onDismissRoutineTimePicker = { showRoutineTimePicker = false },
                     onEditRoutine = { routineEditor = it },
                     onDeleteRoutine = { routineId ->
-                        scope.launch {
-                            repository.deleteRoutine(routineId)
-                            reminderRepository.deleteReminder(routineId)
-                            syncMaster()
-                        }
+                        routinePendingDelete = state.routines.firstOrNull { it.id == routineId }
                     },
-                    onRunRoutine = { routine ->
-                        scope.launch {
-                            val today = LocalDate.now()
-                            val ok = repository.logRoutineRun(today, routine.id)
-                            if (ok) {
-                                repository.currentState().logFor(today)?.let { syncDailyLog(it) }
-                                snackbarHostState.showSnackbar("Logged ${routine.name}")
-                            } else {
-                                snackbarHostState.showSnackbar("Nothing to log — all steps are paused or missing supplements.")
-                            }
-                        }
-                    },
+                    onRunRoutine = { routine -> routineToLog = routine },
+                    routineStatusFor = { routine -> state.routineDayStatus(routine, statusDate) },
                     onCreateRoutine = { name, timeOfDay, steps, notes, reminderDraft ->
                         scope.launch {
                             val created = repository.addRoutine(name, timeOfDay, steps, notes)
@@ -425,6 +424,63 @@ fun SupplementCategoryScreen(
                 )
             }
         }
+    }
+
+    routineToLog?.let { routine ->
+        RoutineLogChecklistDialog(
+            routine = routine,
+            state = state,
+            takenToday = state.routineStepsTakenOn(routine.id, LocalDate.now()),
+            onDismiss = { routineToLog = null },
+            onLog = { picked ->
+                routineToLog = null
+                scope.launch {
+                    val today = LocalDate.now()
+                    val runId = repository.logRoutineSteps(today, routine, picked)
+                    if (runId == null) {
+                        snackbarHostState.showSnackbar("Nothing to log for ${routine.name}.")
+                        return@launch
+                    }
+                    repository.currentState().logFor(today)?.let { syncDailyLog(it) }
+                    val result = snackbarHostState.showSnackbar(
+                        message = "Logged ${picked.size} from ${routine.name}",
+                        actionLabel = "Undo",
+                        duration = SnackbarDuration.Short
+                    )
+                    if (result == SnackbarResult.ActionPerformed) {
+                        repository.removeRoutineRun(today, runId)
+                        repository.currentState().logFor(today)?.let { syncDailyLog(it) }
+                    }
+                }
+            }
+        )
+    }
+
+    routinePendingDelete?.let { routine ->
+        AlertDialog(
+            onDismissRequest = { routinePendingDelete = null },
+            title = { Text("Delete ${routine.name}?") },
+            text = {
+                Text(
+                    "This removes the routine and its reminder. Supplements and past logs stay.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        routinePendingDelete = null
+                        scope.launch {
+                            repository.deleteRoutine(routine.id)
+                            reminderRepository.deleteReminder(routine.id)
+                            syncMaster()
+                            snackbarHostState.showSnackbar("Deleted ${routine.name}")
+                        }
+                    }
+                ) { Text("Delete") }
+            },
+            dismissButton = { TextButton(onClick = { routinePendingDelete = null }) { Text("Cancel") } }
+        )
     }
 
     if (showAddSupplementChooser) {
@@ -570,6 +626,7 @@ private fun RoutinesTab(
     onEditRoutine: (SupplementRoutine) -> Unit,
     onDeleteRoutine: (String) -> Unit,
     onRunRoutine: (SupplementRoutine) -> Unit,
+    routineStatusFor: (SupplementRoutine) -> SupplementRoutineDayStatus,
     onCreateRoutine: (String, SupplementTimeOfDay, List<SupplementRoutineStep>, String, RoutineReminderDraft) -> Unit,
     onUpdateRoutine: (String, String, SupplementTimeOfDay, List<SupplementRoutineStep>, String, RoutineReminderDraft) -> Unit,
     routineEditor: SupplementRoutine?,
@@ -582,7 +639,7 @@ private fun RoutinesTab(
         if (state.routines.isEmpty()) {
             EmptyState(
                 title = "No routines yet",
-                subtitle = "Add a routine for Morning, Midday, Night, or Other. One routine per time (except Other)."
+                subtitle = "Add a routine for Morning, Midday, Night, or Other. You can have more than one at each time."
             )
         } else {
             LazyColumn(
@@ -590,7 +647,11 @@ private fun RoutinesTab(
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                items(state.routines, key = { it.id }) { routine ->
+                val sortedRoutines = state.routines.sortedWith(
+                    compareBy<SupplementRoutine> { it.timeOfDay.ordinal }.thenBy { it.name.lowercase() }
+                )
+                items(sortedRoutines, key = { it.id }) { routine ->
+                    val dayStatus = routineStatusFor(routine)
                     ElevatedCard(modifier = Modifier.fillMaxWidth()) {
                         Column(modifier = Modifier.padding(16.dp)) {
                             Text(
@@ -608,6 +669,15 @@ private fun RoutinesTab(
                                     )
                                 }
                             }
+                            routineStatusLine(dayStatus)?.let { line ->
+                                Spacer(Modifier.height(8.dp))
+                                Text(
+                                    line,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = if (dayStatus.isComplete) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                             Spacer(Modifier.height(12.dp))
                             Row(
                                 horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -616,13 +686,13 @@ private fun RoutinesTab(
                                 FilledTonalButton(onClick = { onRunRoutine(routine) }) {
                                     Icon(Icons.Default.PlayArrow, contentDescription = null)
                                     Spacer(Modifier.width(8.dp))
-                                    Text("Log")
+                                    Text(if (dayStatus.isComplete) "Log again" else "Log")
                                 }
                                 IconButton(onClick = { onEditRoutine(routine) }) {
                                     Icon(Icons.Default.Edit, contentDescription = "Edit routine")
                                 }
                                 IconButton(onClick = { onDeleteRoutine(routine.id) }) {
-                                    Icon(Icons.Default.Close, contentDescription = "Delete routine")
+                                    Icon(Icons.Default.Delete, contentDescription = "Delete routine")
                                 }
                             }
                         }
@@ -648,7 +718,7 @@ private fun RoutinesTab(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        "One routine per Morning, Midday, or Night. You can create multiple \"Other\" routines.",
+                        "Pick when you take it. You can have more than one routine at the same time of day.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -658,16 +728,11 @@ private fun RoutinesTab(
                         SupplementTimeOfDay.NIGHT,
                         SupplementTimeOfDay.OTHER
                     ).forEach { slot ->
-                        val alreadyExists = slot != SupplementTimeOfDay.OTHER && state.routines.any { it.timeOfDay == slot }
                         FilledTonalButton(
                             onClick = { onTimeSelectedForNew(slot) },
-                            modifier = Modifier.fillMaxWidth(),
-                            enabled = !alreadyExists
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text(
-                                if (alreadyExists) "${slot.label()} (already have one — edit it)"
-                                else slot.label()
-                            )
+                            Text(slot.label())
                         }
                     }
                 }
@@ -698,6 +763,7 @@ private fun RoutinesTab(
 @Composable
 private fun SupplementsTabContent(
     state: SupplementLibraryState,
+    takenStatusFor: (String) -> SupplementTakenStatus,
     onRequestAddSupplementChooser: () -> Unit,
     onOpenDetail: (String) -> Unit,
     onTakeNow: (SupplementEntry) -> Unit,
@@ -758,9 +824,18 @@ private fun SupplementsTabContent(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
+                            val taken = takenStatusFor(supplement.id)
+                            if (taken.count > 0) {
+                                Spacer(Modifier.height(6.dp))
+                                Text(
+                                    takenTodayLine(taken),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
                             Spacer(Modifier.height(12.dp))
                             FilledTonalButton(onClick = { onTakeNow(supplement) }) {
-                                Text("Take now")
+                                Text(if (taken.count > 0) "Take again" else "Take now")
                             }
                         }
                     }
@@ -824,6 +899,8 @@ fun SupplementLogScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val keyManager = LocalKeyManager.current
     val logAppContext = LocalContext.current.applicationContext
+    var showPastEntry by remember { mutableStateOf(false) }
+    var editingEntry by remember { mutableStateOf<Pair<LocalDate, SupplementLogEntry>?>(null) }
 
     suspend fun syncDailyLogForDate(date: LocalDate) {
         if (relayPool != null && signer != null) {
@@ -842,6 +919,13 @@ fun SupplementLogScreen(
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         snackbarHost = { SnackbarHost(snackbarHostState) },
+        floatingActionButton = {
+            ExtendedFloatingActionButton(
+                onClick = { showPastEntry = true },
+                icon = { Icon(Icons.Default.Add, contentDescription = null) },
+                text = { Text("Log a past day") }
+            )
+        },
         topBar = {
             TopAppBar(
                 title = { Text("Supplement Log") },
@@ -884,7 +968,7 @@ fun SupplementLogScreen(
                         )
                         Spacer(Modifier.height(8.dp))
                         Text(
-                            text = "Use Take now on the Supplements tab or your routines.",
+                            text = "Use Take now on the Supplements tab, your routines, or Log a past day.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -898,7 +982,7 @@ fun SupplementLogScreen(
                 ) {
                     item {
                         Text(
-                            text = "Grouped by day, newest first. Open a day to see each intake. Delete removes one line.",
+                            text = "Grouped by day, newest first. Open a day to see each intake, then edit or delete a line.",
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -919,6 +1003,7 @@ fun SupplementLogScreen(
                                         expandedLogDates + section.logDate
                                     }
                             },
+                            onEditEntry = { entry -> editingEntry = section.logDate to entry },
                             onDeleteEntry = { entry ->
                                 scope.launch {
                                     val logDate = section.logDate
@@ -952,6 +1037,58 @@ fun SupplementLogScreen(
             onApplyFilter = { dateFilter = it }
         )
     }
+
+    if (showPastEntry) {
+        SupplementPastEntryDialog(
+            state = state,
+            initialDate = (dateFilter as? SectionLogDateFilter.SingleDay)?.day ?: LocalDate.now().minusDays(1),
+            onDismiss = { showPastEntry = false },
+            onSave = { date, takenAt, target ->
+                showPastEntry = false
+                scope.launch {
+                    val logged = when (target) {
+                        is SupplementPastEntryTarget.Supplement ->
+                            repository.logAdHocIntake(date, target.supplementId, takenAtEpochSeconds = takenAt) != null
+                        is SupplementPastEntryTarget.Routine -> {
+                            val current = repository.currentState()
+                            val routine = current.routineById(target.routineId)
+                            routine != null && repository.logRoutineSteps(
+                                date = date,
+                                routine = routine,
+                                supplementIds = current.activeSteps(routine).map { it.supplementId }.toSet(),
+                                takenAtEpochSeconds = takenAt
+                            ) != null
+                        }
+                    }
+                    if (logged) {
+                        syncDailyLogForDate(date)
+                        expandedLogDates = expandedLogDates + date
+                        snackbarHostState.showSnackbar("Logged for ${date.format(SupplementLogFriendlyDate)}")
+                    } else {
+                        snackbarHostState.showSnackbar("Nothing to log — the routine has no active supplements.")
+                    }
+                }
+            }
+        )
+    }
+
+    editingEntry?.let { (logDate, entry) ->
+        SupplementIntakeEditDialog(
+            entry = entry,
+            logDate = logDate,
+            onDismiss = { editingEntry = null },
+            onSave = { dosage, takenAt ->
+                editingEntry = null
+                entry.intakeId?.let { intakeId ->
+                    scope.launch {
+                        repository.updateIntake(logDate, intakeId, dosage, takenAt)
+                        syncDailyLogForDate(logDate)
+                        snackbarHostState.showSnackbar("Entry updated")
+                    }
+                }
+            }
+        )
+    }
 }
 
 @Composable
@@ -959,6 +1096,7 @@ private fun SupplementLogDayCard(
     section: SupplementDayLogSection,
     expanded: Boolean,
     onToggleExpand: () -> Unit,
+    onEditEntry: (SupplementLogEntry) -> Unit,
     onDeleteEntry: (SupplementLogEntry) -> Unit
 ) {
     val distinctNames = remember(section.entries) {
@@ -1004,6 +1142,7 @@ private fun SupplementLogDayCard(
                     key(entry.intakeId ?: "legacy-$index", entry.takenAtEpochSeconds, entry.supplementId) {
                         SupplementLogIntakeRow(
                             entry = entry,
+                            onEdit = if (entry.intakeId != null) ({ onEditEntry(entry) }) else null,
                             onDelete = { onDeleteEntry(entry) }
                         )
                     }
@@ -1016,6 +1155,7 @@ private fun SupplementLogDayCard(
 @Composable
 private fun SupplementLogIntakeRow(
     entry: SupplementLogEntry,
+    onEdit: (() -> Unit)?,
     onDelete: () -> Unit
 ) {
     Row(
@@ -1055,6 +1195,14 @@ private fun SupplementLogIntakeRow(
                 }
             )
         }
+        if (onEdit != null) {
+            IconButton(onClick = onEdit) {
+                Icon(
+                    Icons.Default.Edit,
+                    contentDescription = "Edit this intake"
+                )
+            }
+        }
         IconButton(onClick = onDelete) {
             Icon(
                 Icons.Default.Delete,
@@ -1062,6 +1210,17 @@ private fun SupplementLogIntakeRow(
             )
         }
     }
+}
+
+private fun takenTodayLine(status: SupplementTakenStatus): String {
+    val at = status.lastTakenAtEpochSeconds?.let { " at ${formatSupplementTime(it)}" }.orEmpty()
+    return if (status.count == 1) "Taken today$at" else "Taken ${status.count}× today, last$at"
+}
+
+private fun routineStatusLine(status: SupplementRoutineDayStatus): String? = when {
+    status.takenStepCount == 0 -> null
+    status.isComplete -> "Logged today" + (status.lastLoggedAtEpochSeconds?.let { " at ${formatSupplementTime(it)}" }.orEmpty())
+    else -> "${status.takenStepCount} of ${status.activeStepCount} taken today"
 }
 
 private fun formatLogTime(epochSeconds: Long): String {
@@ -1145,16 +1304,11 @@ private fun SupplementEditorDialog(
                         value = draft.form,
                         label = "Form",
                         options = SupplementForm.entries,
-                        optionLabel = {
-                            when (it) {
-                                SupplementForm.CAPSULE -> "Capsule"
-                                SupplementForm.POWDER -> "Powder"
-                            }
-                        },
+                        optionLabel = { it.label() },
                         onSelected = { draft = draft.copy(form = it) },
                         modifier = Modifier.weight(1f)
                     )
-                    if (draft.form == SupplementForm.CAPSULE) {
+                    if (draft.form.isCounted()) {
                         OutlinedTextField(
                             value = "-",
                             onValueChange = { },
@@ -1178,8 +1332,8 @@ private fun SupplementEditorDialog(
                     value = draft.servingAmount,
                     onValueChange = { draft = draft.copy(servingAmount = it) },
                     label = {
-                        Text(
-                            if (draft.form == SupplementForm.CAPSULE) "Capsules per serving"
+                        FieldLabel(
+                            if (draft.form.isCounted()) "${draft.form.pieceLabel(2.0)} per serving"
                             else "Amount"
                         )
                     },

@@ -75,12 +75,15 @@ class SupplementRepository(context: Context) {
         }
     }
 
+    /** @return the new intake id, or null when the supplement no longer exists. */
     suspend fun logAdHocIntake(
         date: LocalDate,
         supplementId: String,
         dosageTaken: String? = null,
-        note: String? = null
-    ) {
+        note: String? = null,
+        takenAtEpochSeconds: Long = nowEpochSeconds()
+    ): String? {
+        var createdId: String? = null
         updateState { current ->
             val supplement = current.supplementById(supplementId) ?: return@updateState current
             val log = current.logFor(date) ?: SupplementDayLog(date = date.toString())
@@ -88,12 +91,14 @@ class SupplementRepository(context: Context) {
                 supplementId = supplement.id,
                 supplementName = supplement.name,
                 dosageTaken = dosageTaken ?: supplement.dosagePlan.summary(),
-                takenAtEpochSeconds = nowEpochSeconds(),
+                takenAtEpochSeconds = takenAtEpochSeconds,
                 note = note,
                 id = UUID.randomUUID().toString()
             )
+            createdId = intake.id
             current.copy(logs = current.logs.upsert(log.copy(adHocIntakes = log.adHocIntakes + intake)))
         }
+        return createdId
     }
 
     /** @return true if a routine run was appended (had at least one non-paused step with a valid supplement). */
@@ -108,23 +113,48 @@ class SupplementRepository(context: Context) {
         routineId: String,
         routineName: String,
         steps: List<SupplementRoutineStep>
-    ): Boolean {
-        val activeSteps = steps.filterNot { it.paused }
-        if (activeSteps.isEmpty()) return false
-        var appended = false
+    ): Boolean = appendRoutineRun(date, routineId, routineName, steps.filterNot { it.paused }, nowEpochSeconds()) != null
+
+    /**
+     * Logs only the steps of [routine] whose supplement id is in [supplementIds] (paused steps included
+     * when picked). Used by the routine checklist and by past-day entries.
+     * @return the new run id, or null when nothing was logged.
+     */
+    suspend fun logRoutineSteps(
+        date: LocalDate,
+        routine: SupplementRoutine,
+        supplementIds: Set<String>,
+        takenAtEpochSeconds: Long = nowEpochSeconds()
+    ): String? = appendRoutineRun(
+        date = date,
+        routineId = routine.id,
+        routineName = routine.name,
+        steps = routine.steps.filter { it.supplementId in supplementIds },
+        takenAtEpochSeconds = takenAtEpochSeconds
+    )
+
+    private suspend fun appendRoutineRun(
+        date: LocalDate,
+        routineId: String,
+        routineName: String,
+        steps: List<SupplementRoutineStep>,
+        takenAtEpochSeconds: Long
+    ): String? {
+        if (steps.isEmpty()) return null
+        var createdRunId: String? = null
         updateState { current ->
             val log = current.logFor(date) ?: SupplementDayLog(date = date.toString())
             val run = SupplementRoutineRun(
                 routineId = routineId,
                 routineName = routineName,
-                takenAtEpochSeconds = nowEpochSeconds(),
-                stepIntakes = activeSteps.mapNotNull { step ->
+                takenAtEpochSeconds = takenAtEpochSeconds,
+                stepIntakes = steps.mapNotNull { step ->
                     val supplement = current.supplementById(step.supplementId) ?: return@mapNotNull null
                     SupplementIntake(
                         supplementId = supplement.id,
                         supplementName = supplement.name,
                         dosageTaken = step.dosageOverride ?: step.describe(supplement.name),
-                        takenAtEpochSeconds = nowEpochSeconds(),
+                        takenAtEpochSeconds = takenAtEpochSeconds,
                         note = step.note,
                         quantity = step.quantity?.coerceAtLeast(1) ?: 1,
                         id = UUID.randomUUID().toString()
@@ -134,11 +164,39 @@ class SupplementRepository(context: Context) {
             if (run.stepIntakes.isEmpty()) {
                 current
             } else {
-                appended = true
+                createdRunId = run.id
                 current.copy(logs = current.logs.upsert(log.copy(routineRuns = log.routineRuns + run)))
             }
         }
-        return appended
+        return createdRunId
+    }
+
+    /** Removes a whole routine run (used by Undo right after logging a routine). */
+    suspend fun removeRoutineRun(date: LocalDate, runId: String) {
+        updateState { current ->
+            val log = current.logFor(date) ?: return@updateState current
+            if (log.routineRuns.none { it.id == runId }) return@updateState current
+            current.copy(logs = current.logs.upsert(log.copy(routineRuns = log.routineRuns.filterNot { it.id == runId })))
+        }
+    }
+
+    /** Edits the dose text and time of one logged intake (routine step or ad hoc). */
+    suspend fun updateIntake(
+        date: LocalDate,
+        intakeId: String,
+        dosageTaken: String,
+        takenAtEpochSeconds: Long
+    ) {
+        updateState { current ->
+            val log = current.logFor(date) ?: return@updateState current
+            fun SupplementIntake.edited(): SupplementIntake =
+                if (id == intakeId) copy(dosageTaken = dosageTaken, takenAtEpochSeconds = takenAtEpochSeconds) else this
+            val newLog = log.copy(
+                routineRuns = log.routineRuns.map { run -> run.copy(stepIntakes = run.stepIntakes.map { it.edited() }) },
+                adHocIntakes = log.adHocIntakes.map { it.edited() }
+            )
+            current.copy(logs = current.logs.upsert(newLog))
+        }
     }
 
     /**
