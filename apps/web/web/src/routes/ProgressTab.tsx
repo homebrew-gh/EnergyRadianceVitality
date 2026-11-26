@@ -3,6 +3,7 @@ import { SessionMediaGallery } from "../components/SessionMediaPreview";
 import { TrainingBaselinePanel } from "../components/TrainingBaselinePanel";
 import { PageHeader } from "../components/PageHeader";
 import { CoachReviewCard } from "../components/CoachReviewCard";
+import { CardioProgressSection } from "../components/CardioProgressSection";
 import { TrainingContextExportCard } from "../components/TrainingContextExportCard";
 import { FieldLabel, SectionHeader } from "../components/FieldLabel";
 import { useWeightLoadUnit } from "../lib/weightLoadUnit";
@@ -1081,6 +1082,13 @@ export function ProgressTab() {
           <section className="card p-5 space-y-4">
             <VerticalWeekChart buckets={weeklyBuckets} />
           </section>
+
+          <CardioProgressSection
+            cardioLogs={cardioLogs}
+            filteredCardioLogs={filteredCardioLogs}
+            periodWeeks={periodWeeks}
+            weightUnit={weightLoadUnit}
+          />
 
           {muscleVolumes.length > 0 ? (
             <section className="card p-5">
