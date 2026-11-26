@@ -1,5 +1,7 @@
 import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import { useWorkoutDrafts } from "../hooks/useWorkoutDrafts";
+import { buildStandardTestWorkout } from "../lib/standardTestWorkout";
 import type { BodyWeightEntry } from "../lib/bodyWeight";
 import type { BodyWeightUnit } from "../lib/fitnessEquipment";
 import {
@@ -460,6 +462,24 @@ export function StandardsSection({
   );
   const latestBodyWeightKg = bodyWeights.length > 0 ? bodyWeights[bodyWeights.length - 1].weightKg : null;
 
+  const navigate = useNavigate();
+  const { updateDrafts } = useWorkoutDrafts();
+  /** A test-day workout for [s], opened in the builder as a draft; nothing is published yet. */
+  const buildTestWorkout = (s: FitnessStandard) => {
+    const workout = buildStandardTestWorkout(s, {
+      exercises,
+      profile: { ageYears: profile.ageYears, sex: profile.sex, heightCm: profile.heightCm },
+      unit: weightUnit,
+      latestBodyWeightKg,
+    });
+    const id = crypto.randomUUID();
+    updateDrafts((prev) => ({
+      ...prev,
+      [id]: { id, name: workout.name, segments: workout.segments, savedAtMs: Date.now() },
+    }));
+    navigate(`/app/workouts/${id}/edit`);
+  };
+
   const save = async (nextFollowed: string[], nextMain: string | null) => {
     setSaveError(null);
     try {
@@ -683,6 +703,18 @@ export function StandardsSection({
                 .concat(notScored > 0 ? [`${notScored} not scored yet`] : [])
                 .join(" · ")}
             </p>
+          </div>
+          <div>
+            <button
+              type="button"
+              className="btn-ghost px-3 py-1 text-sm"
+              onClick={() => buildTestWorkout(result.standard)}
+            >
+              Build Test Workout
+            </button>
+            <span className="ml-2 text-xs text-muted">
+              Opens a draft in the workout builder, one section per event.
+            </span>
           </div>
           <p className="text-xs text-muted">
             Overall is the lowest tier across scored events. Est. means estimated from your lift records or the average
