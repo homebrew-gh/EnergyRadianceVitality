@@ -27,6 +27,18 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.Crossfade
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.layout.size
 import androidx.activity.compose.BackHandler
 import androidx.compose.material.icons.filled.Pause
@@ -56,11 +68,9 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -70,7 +80,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -101,7 +110,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -112,6 +120,10 @@ import com.erv.app.ui.components.FieldLabel
 import com.erv.app.ui.components.FormSectionLabel
 import com.erv.app.data.StretchGuidedTtsVoice
 import com.erv.app.data.StretchSoundStyle
+import com.erv.app.data.StretchGuidanceDetail
+import com.erv.app.stretching.guidedReadsProcedure
+import com.erv.app.stretching.guidedEntryPositions
+import com.erv.app.stretching.guidedSecondsRemaining
 import com.erv.app.stretching.StretchCue
 import com.erv.app.stretching.stretchCueForSecondLeft
 import com.erv.app.ui.media.StretchCuePlayer
@@ -208,6 +220,29 @@ private const val TRANSITION_SECONDS_BILATERAL_SIDE = 5
 /** Prep time before the first hold (longer than between-stretch transitions so there is time to get into position). */
 private const val FIRST_STRETCH_PREP_SECONDS = 10
 
+/** Guided player palette: dusk blue into deep sage, soft off-white text, a pale sage accent. */
+private val CalmGuidedTop = Color(0xFF243047)
+private val CalmGuidedBottom = Color(0xFF2F4A45)
+private val CalmGuidedInk = Color(0xFFECEFE8)
+private val CalmGuidedAccent = Color(0xFFB7D3C1)
+
+/** One paced breath on the guided screen: 4 seconds in, 6 out. */
+private const val BREATH_IN_MS = 4_000
+private const val BREATH_CYCLE_MS = 10_000
+
+/** Glow scale through a breath: eases up while breathing in, back down while breathing out. */
+private fun breathScaleAt(ms: Float): Float {
+    fun ease(x: Float) = (0.5f - 0.5f * kotlin.math.cos(Math.PI.toFloat() * x.coerceIn(0f, 1f)))
+    val lift = if (ms < BREATH_IN_MS) ease(ms / BREATH_IN_MS) else 1f - ease((ms - BREATH_IN_MS) / (BREATH_CYCLE_MS - BREATH_IN_MS))
+    return 0.82f + 0.18f * lift
+}
+
+private fun guidedTimeLeftLabel(seconds: Int): String = when {
+    seconds <= 0 -> "Almost done"
+    seconds < 60 -> "Under a minute left"
+    else -> "About ${(seconds + 30) / 60} min left"
+}
+
 
 private const val TTS_LOG_TAG = "StretchingTts"
 
@@ -279,31 +314,26 @@ private fun spokenProcedure(entry: StretchCatalogEntry): String {
     return if (p.last() in ".!?") p else "$p."
 }
 
-private fun buildFirstStretchIntroSpeech(entry: StretchCatalogEntry): String {
+private fun buildFirstStretchIntroSpeech(entry: StretchCatalogEntry, readProcedure: Boolean): String {
     val name = entry.name.trim().ifBlank { "this stretch" }
-    val procedure = spokenProcedure(entry).let { if (it.isEmpty()) "" else " $it" }
-    val bilateralNote = if (entry.requiresBothSides) {
-        " We will do the right side first, then the left."
-    } else {
-        ""
-    }
-    return "Welcome to your routine. Your first stretch is the $name.$procedure$bilateralNote The hold begins after this countdown."
+    val procedure = if (readProcedure) spokenProcedure(entry).let { if (it.isEmpty()) "" else " $it" } else ""
+    val bilateralNote = if (entry.requiresBothSides) " Right side first, then the left." else ""
+    return "Welcome. Settle in, and take a slow breath. Your first stretch is the $name.$procedure$bilateralNote"
 }
 
 /**
- * Spoken cue during the transition into [next]. Reads the procedure when the stretch changes;
- * when only the side changes (right → left of the same stretch) just announces the side.
+ * Spoken cue during the transition into [next]: its name and side, plus the how-to when
+ * [readProcedure] (see [guidedReadsProcedure]).
  */
-private fun buildNextStepSpeech(prev: GuidedStretchStep?, next: GuidedStretchStep): String {
+private fun buildNextStepSpeech(next: GuidedStretchStep, readProcedure: Boolean): String {
     val name = titleCaseStretchLabel(next.entry.name).ifBlank { "the next stretch" }
     val label = when (next.side) {
         null -> name
         StretchSide.RIGHT -> "$name, right side"
         StretchSide.LEFT -> "$name, left side"
     }
-    val sameStretchOtherSide = prev != null && prev.entry.id == next.entry.id && next.side == StretchSide.LEFT
-    val procedure = if (sameStretchOtherSide) "" else spokenProcedure(next.entry)
-    return if (procedure.isEmpty()) "Next: $label." else "Next: $label. $procedure"
+    val procedure = if (readProcedure) spokenProcedure(next.entry) else ""
+    return if (procedure.isEmpty()) "Next, $label." else "Next, $label. $procedure"
 }
 
 private const val FIRST_INTRO_UTTERANCE_ID = "stretchFirst"
@@ -384,8 +414,9 @@ private fun applyStretchingTtsLayerConfig(
     stretchGuidedTtsVoice: StretchGuidedTtsVoice
 ) {
     applyStretchGuidedTtsVoice(tts, Locale.getDefault(), stretchGuidedTtsVoice)
-    tts.setSpeechRate(0.95f)
-    tts.setPitch(1f)
+    // A touch slower and lower than normal speech, so the guidance sounds unhurried.
+    tts.setSpeechRate(0.88f)
+    tts.setPitch(0.95f)
     tts.setAudioAttributes(
         AudioAttributes.Builder()
             .setUsage(AudioAttributes.USAGE_MEDIA)
@@ -436,6 +467,9 @@ fun StretchingCategoryScreen(
     )
     val stretchSoundStyle by userPreferences.stretchSoundStyle.collectAsState(
         initial = StretchSoundStyle.SOFT_CHIME
+    )
+    val stretchGuidanceDetail by userPreferences.stretchGuidanceDetail.collectAsState(
+        initial = StretchGuidanceDetail.FULL
     )
     val state by repository.state.collectAsState(initial = StretchLibraryState())
     val scope = rememberCoroutineScope()
@@ -521,6 +555,7 @@ fun StretchingCategoryScreen(
             holdSeconds = holdSec,
             stretchGuidedTtsVoice = stretchGuidedTtsVoice,
             stretchSoundStyle = stretchSoundStyle,
+            stretchGuidanceDetail = stretchGuidanceDetail,
             onFinished = { result ->
                 scope.launch {
                     val today = LocalDate.now()
@@ -906,6 +941,7 @@ private fun StretchGuidedSessionOverlay(
     holdSeconds: Int,
     stretchGuidedTtsVoice: StretchGuidedTtsVoice,
     stretchSoundStyle: StretchSoundStyle,
+    stretchGuidanceDetail: StretchGuidanceDetail,
     onFinished: (GuidedStretchResult) -> Unit,
     onCancel: () -> Unit
 ) {
@@ -952,6 +988,7 @@ private fun StretchGuidedSessionOverlay(
     }
 
     val soundStyleState = rememberUpdatedState(stretchSoundStyle)
+    val guidanceDetailState = rememberUpdatedState(stretchGuidanceDetail)
     var voiceEnabled by remember { mutableStateOf(true) }
     val voiceEnabledState = rememberUpdatedState(voiceEnabled)
     val ttsEngineOkState = rememberUpdatedState(ttsEngineOk)
@@ -1058,7 +1095,10 @@ private fun StretchGuidedSessionOverlay(
                 speakAndAwaitUtterance(
                     context,
                     tts,
-                    buildFirstStretchIntroSpeech(stretchEntries[0]),
+                    buildFirstStretchIntroSpeech(
+                        stretchEntries[0],
+                        guidedReadsProcedure(guidanceDetailState.value, sessionSteps, 0)
+                    ),
                     FIRST_INTRO_UTTERANCE_ID,
                     ttsEngineOkState.value,
                     FIRST_INTRO_SPEAK_WAIT_MS
@@ -1083,7 +1123,10 @@ private fun StretchGuidedSessionOverlay(
                     speakAndAwaitUtterance(
                         context,
                         tts,
-                        buildNextStepSpeech(sessionSteps.getOrNull(i - 1), sessionSteps[i]),
+                        buildNextStepSpeech(
+                            sessionSteps[i],
+                            guidedReadsProcedure(guidanceDetailState.value, sessionSteps, i)
+                        ),
                         NEXT_STEP_UTTERANCE_ID,
                         ttsEngineOkState.value,
                         NEXT_STEP_SPEAK_WAIT_MS
@@ -1124,7 +1167,10 @@ private fun StretchGuidedSessionOverlay(
                     speakAndAwaitUtterance(
                         context,
                         tts,
-                        buildNextStepSpeech(sessionSteps[i], sessionSteps[i + 1]),
+                        buildNextStepSpeech(
+                            sessionSteps[i + 1],
+                            guidedReadsProcedure(guidanceDetailState.value, sessionSteps, i + 1)
+                        ),
                         NEXT_STEP_UTTERANCE_ID,
                         ttsEngineOkState.value,
                         NEXT_STEP_SPEAK_WAIT_MS
@@ -1154,145 +1200,215 @@ private fun StretchGuidedSessionOverlay(
         onFinished(result() ?: GuidedStretchResult(stretchEntries.map { it.id }, plannedMinutes))
     }
 
-    val gradientBottom = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f)
-    val gradientTop = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.9f)
+    // A calm, fixed palette (dusk blue into sage) rather than the app's accent colors.
+    val ink = CalmGuidedInk
+    val positions = remember(steps) { guidedEntryPositions(steps) }
+    val entryCount = (positions.lastOrNull() ?: -1) + 1
+    val focusPosition = positions.getOrNull(focusIndex.coerceIn(0, (steps.size - 1).coerceAtLeast(0))) ?: 0
+    val secondsRemaining = guidedSecondsRemaining(
+        steps = steps,
+        holdSeconds = holdSeconds,
+        focusIndex = focusIndex.coerceIn(0, (steps.size - 1).coerceAtLeast(0)),
+        inHold = phaseHold,
+        secondsLeftInPhase = secondsLeft,
+        gapSeconds = ::transitionSecondsBetweenSteps,
+    )
+    val shownStep = when {
+        phaseHold -> currentStep
+        firstPrepActive -> firstStep
+        else -> nextStep
+    }
+    val phaseTotal = when {
+        phaseHold -> holdSeconds
+        firstPrepActive -> FIRST_STRETCH_PREP_SECONDS
+        else -> currentStep?.let { c -> nextStep?.let { n -> transitionSecondsBetweenSteps(c, n) } }
+            ?: TRANSITION_SECONDS_BILATERAL_SIDE
+    }
+    val ringTarget = if (secondsLeft < 0 || phaseTotal <= 0) 0f else
+        ((phaseTotal - secondsLeft).toFloat() / phaseTotal).coerceIn(0f, 1f)
+    val ringProgress by animateFloatAsState(
+        targetValue = ringTarget,
+        animationSpec = tween(durationMillis = if (ringTarget == 0f) 300 else 1000, easing = LinearEasing),
+        label = "stretchRing"
+    )
+    // One slow breath: 4 s in, 6 s out. The ring's inner glow swells and settles with it.
+    val breath = rememberInfiniteTransition(label = "stretchBreath")
+    val breathMs by breath.animateFloat(
+        initialValue = 0f,
+        targetValue = BREATH_CYCLE_MS.toFloat(),
+        animationSpec = infiniteRepeatable(tween(BREATH_CYCLE_MS, easing = LinearEasing)),
+        label = "stretchBreathMs"
+    )
+    val breathingIn = breathMs < BREATH_IN_MS
+    val breathScale = if (paused) 0.9f else breathScaleAt(breathMs)
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(
-                Brush.verticalGradient(listOf(gradientTop, gradientBottom))
-            )
+            .background(Brush.verticalGradient(listOf(CalmGuidedTop, CalmGuidedBottom)))
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(24.dp),
+                .padding(horizontal = 24.dp, vertical = 20.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.SpaceBetween
         ) {
             Text(
-                if (phaseHold) "Hold" else "Get ready",
-                style = MaterialTheme.typography.titleLarge,
-                color = Color.White.copy(alpha = 0.95f)
+                when {
+                    phaseHold -> "Hold"
+                    firstPrepActive -> "Settle In"
+                    else -> "Next"
+                },
+                style = MaterialTheme.typography.titleMedium,
+                color = ink.copy(alpha = 0.75f),
+                modifier = Modifier.padding(top = 8.dp)
             )
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
+            Spacer(Modifier.height(10.dp))
+            if (entryCount in 2..14) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    repeat(entryCount) { k ->
+                        Box(
+                            Modifier
+                                .size(if (k == focusPosition) 9.dp else 7.dp)
+                                .background(
+                                    color = when {
+                                        k < focusPosition -> ink.copy(alpha = 0.55f)
+                                        k == focusPosition -> CalmGuidedAccent
+                                        else -> ink.copy(alpha = 0.18f)
+                                    },
+                                    shape = CircleShape
+                                )
+                        )
+                    }
+                }
+            } else if (entryCount > 14) {
+                Text(
+                    "${focusPosition + 1} of $entryCount",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = ink.copy(alpha = 0.7f)
+                )
+            }
+            if (secondsLeft >= 0) {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    guidedTimeLeftLabel(secondsRemaining),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = ink.copy(alpha = 0.6f)
+                )
+            }
+
+            Crossfade(
+                targetState = Triple(phaseHold, firstPrepActive, shownStep),
+                animationSpec = tween(700),
+                label = "stretchText",
                 modifier = Modifier
                     .weight(1f)
-                    .verticalScroll(rememberScrollState())
-            ) {
-                if (phaseHold && currentStep != null) {
-                    Text(
-                        titleCaseStretchLabel(currentStep.entry.name),
-                        style = MaterialTheme.typography.headlineMedium,
-                        color = Color.White,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 8.dp)
-                    )
-                    guidedSideLabel(currentStep.side)?.let { sideLabel ->
+                    .fillMaxWidth()
+            ) { (hold, _, step) ->
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(vertical = 16.dp)
+                ) {
+                    if (step != null) {
                         Text(
-                            sideLabel,
-                            style = MaterialTheme.typography.headlineSmall,
-                            color = Color.White.copy(alpha = 0.92f),
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(bottom = 12.dp)
-                        )
-                    }
-                    Text(
-                        currentStep.entry.procedure.ifBlank { "Breathe and hold the position." },
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = Color.White.copy(alpha = 0.9f),
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                } else if (!phaseHold && firstPrepActive && firstStep != null) {
-                    Text(
-                        "First stretch",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = Color.White.copy(alpha = 0.85f)
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        titleCaseStretchLabel(firstStep.entry.name),
-                        style = MaterialTheme.typography.headlineSmall,
-                        color = Color.White,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    guidedSideLabel(firstStep.side)?.let { sideLabel ->
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            sideLabel,
-                            style = MaterialTheme.typography.titleMedium,
-                            color = Color.White.copy(alpha = 0.9f),
+                            titleCaseStretchLabel(step.entry.name),
+                            style = MaterialTheme.typography.headlineMedium,
+                            fontWeight = FontWeight.Light,
+                            color = ink,
                             textAlign = TextAlign.Center,
                             modifier = Modifier.fillMaxWidth()
                         )
-                    }
-                    Spacer(Modifier.height(12.dp))
-                    Text(
-                        firstStep.entry.procedure.ifBlank { "Get into position; the hold starts when the timer switches to Hold." },
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = Color.White.copy(alpha = 0.9f),
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                } else if (!phaseHold) {
-                    Text(
-                        "Next",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = Color.White.copy(alpha = 0.85f)
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    if (nextStep != null) {
-                        Text(
-                            titleCaseStretchLabel(nextStep.entry.name),
-                            style = MaterialTheme.typography.headlineSmall,
-                            color = Color.White,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        guidedSideLabel(nextStep.side)?.let { sideLabel ->
-                            Spacer(Modifier.height(8.dp))
+                        guidedSideLabel(step.side)?.let { sideLabel ->
+                            Spacer(Modifier.height(6.dp))
                             Text(
                                 sideLabel,
                                 style = MaterialTheme.typography.titleMedium,
-                                color = Color.White.copy(alpha = 0.9f),
+                                color = CalmGuidedAccent,
                                 textAlign = TextAlign.Center,
                                 modifier = Modifier.fillMaxWidth()
                             )
                         }
+                        Spacer(Modifier.height(14.dp))
+                        Text(
+                            step.entry.procedure.ifBlank {
+                                if (hold) "Breathe and hold the position." else "Ease into position when you're ready."
+                            },
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = ink.copy(alpha = 0.78f),
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth()
+                        )
                     }
                 }
             }
-            Text(
-                text = if (secondsLeft < 0) "—" else "%d:%02d".format(secondsLeft / 60, secondsLeft % 60),
-                style = MaterialTheme.typography.displayLarge,
-                color = Color.White.copy(alpha = if (paused) 0.6f else 1f)
-            )
-            if (paused) {
-                Text(
-                    "Paused",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = Color.White.copy(alpha = 0.9f)
-                )
+
+            Box(contentAlignment = Alignment.Center, modifier = Modifier.size(210.dp)) {
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val stroke = 6.dp.toPx()
+                    val inset = stroke / 2f
+                    val arcSize = androidx.compose.ui.geometry.Size(size.width - stroke, size.height - stroke)
+                    val topLeft = androidx.compose.ui.geometry.Offset(inset, inset)
+                    // Breathing glow inside the ring.
+                    drawCircle(
+                        color = ink.copy(alpha = if (phaseHold) 0.08f else 0.04f),
+                        radius = (size.minDimension / 2f - stroke * 2.5f) * breathScale
+                    )
+                    drawArc(
+                        color = ink.copy(alpha = 0.14f),
+                        startAngle = 0f,
+                        sweepAngle = 360f,
+                        useCenter = false,
+                        topLeft = topLeft,
+                        size = arcSize,
+                        style = Stroke(width = stroke)
+                    )
+                    drawArc(
+                        color = if (phaseHold) CalmGuidedAccent else ink.copy(alpha = 0.45f),
+                        startAngle = -90f,
+                        sweepAngle = 360f * ringProgress,
+                        useCenter = false,
+                        topLeft = topLeft,
+                        size = arcSize,
+                        style = Stroke(width = stroke, cap = StrokeCap.Round)
+                    )
+                }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = if (secondsLeft < 0) "—" else "%d:%02d".format(secondsLeft / 60, secondsLeft % 60),
+                        style = MaterialTheme.typography.displayMedium,
+                        fontWeight = FontWeight.Light,
+                        color = ink.copy(alpha = if (paused) 0.55f else 0.95f)
+                    )
+                    val caption = when {
+                        paused -> "Paused"
+                        phaseHold -> if (breathingIn) "Breathe in" else "Breathe out"
+                        else -> null
+                    }
+                    if (caption != null) {
+                        Text(
+                            caption,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = ink.copy(alpha = 0.65f)
+                        )
+                    }
+                }
             }
+
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(20.dp),
-                modifier = Modifier.padding(vertical = 12.dp)
+                horizontalArrangement = Arrangement.spacedBy(24.dp),
+                modifier = Modifier.padding(top = 18.dp, bottom = 4.dp)
             ) {
                 IconButton(onClick = { back() }, enabled = secondsLeft >= 0) {
                     Icon(
                         Icons.Default.SkipPrevious,
                         contentDescription = "Previous stretch",
-                        tint = Color.White,
-                        modifier = Modifier.size(32.dp)
+                        tint = ink.copy(alpha = 0.8f),
+                        modifier = Modifier.size(30.dp)
                     )
                 }
                 FilledIconButton(
@@ -1307,36 +1423,28 @@ private fun StretchGuidedSessionOverlay(
                     },
                     enabled = secondsLeft >= 0,
                     colors = IconButtonDefaults.filledIconButtonColors(
-                        containerColor = Color.White.copy(alpha = 0.22f),
-                        contentColor = Color.White
+                        containerColor = ink.copy(alpha = 0.14f),
+                        contentColor = ink
                     ),
-                    modifier = Modifier.size(72.dp)
+                    modifier = Modifier.size(68.dp)
                 ) {
                     Icon(
                         if (paused) Icons.Default.PlayArrow else Icons.Default.Pause,
                         contentDescription = if (paused) "Resume" else "Pause",
-                        modifier = Modifier.size(40.dp)
+                        modifier = Modifier.size(36.dp)
                     )
                 }
                 IconButton(onClick = { skip() }, enabled = secondsLeft >= 0) {
                     Icon(
                         Icons.Default.SkipNext,
                         contentDescription = "Skip stretch",
-                        tint = Color.White,
-                        modifier = Modifier.size(32.dp)
+                        tint = ink.copy(alpha = 0.8f),
+                        modifier = Modifier.size(30.dp)
                     )
                 }
             }
-            OutlinedButton(
-                onClick = { openEndDialog() },
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
-                border = ButtonDefaults.outlinedButtonBorder.copy(
-                    brush = SolidColor(Color.White)
-                )
-            ) {
-                Icon(Icons.Default.Stop, contentDescription = null)
-                Spacer(Modifier.width(8.dp))
-                Text("End session")
+            TextButton(onClick = { openEndDialog() }) {
+                Text("End session", color = ink.copy(alpha = 0.6f))
             }
         }
         if (showEndDialog) {
@@ -1398,7 +1506,7 @@ private fun StretchGuidedSessionOverlay(
             Icon(
                 imageVector = if (voiceEnabled) Icons.AutoMirrored.Filled.VolumeUp else Icons.AutoMirrored.Filled.VolumeOff,
                 contentDescription = if (voiceEnabled) "Mute next-stretch voice" else "Unmute next-stretch voice",
-                tint = Color.White.copy(alpha = 0.95f)
+                tint = CalmGuidedInk.copy(alpha = 0.75f)
             )
         }
     }

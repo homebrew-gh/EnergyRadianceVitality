@@ -7,6 +7,8 @@ import com.erv.app.data.LaunchPadTileId
 import com.erv.app.data.StretchGuidedTtsVoice
 import com.erv.app.data.StretchSoundStyle
 import com.erv.app.data.parseStretchSoundStyle
+import com.erv.app.data.StretchGuidanceDetail
+import com.erv.app.data.parseStretchGuidanceDetail
 import com.erv.app.data.TemperatureUnit
 import com.erv.app.data.ThemeMode
 import com.erv.app.data.UserPreferences
@@ -46,6 +48,7 @@ data class AppPreferencesExportV1(
     val liveWeightWorkoutNotificationSuppressed: Boolean = false,
     val stretchGuidedTtsVoice: String = StretchGuidedTtsVoice.SYSTEM_DEFAULT.name,
     val stretchSoundStyle: String = StretchSoundStyle.SOFT_CHIME.name,
+    val stretchGuidanceDetail: String = StretchGuidanceDetail.FULL.name,
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val bleHeartRateDeviceAddress: String? = null,
     @EncodeDefault(EncodeDefault.Mode.NEVER)
@@ -95,6 +98,7 @@ suspend fun UserPreferences.snapshotAppPreferencesForBackup(): AppPreferencesExp
         liveWeightWorkoutNotificationSuppressed = liveWeightWorkoutNotificationSuppressed.first(),
         stretchGuidedTtsVoice = stretchGuidedTtsVoice.first().name,
         stretchSoundStyle = stretchSoundStyle.first().name,
+        stretchGuidanceDetail = stretchGuidanceDetail.first().name,
         bleHeartRateDeviceAddress = bleHeartRateDeviceAddress.first(),
         bleCscDeviceAddress = bleCscDeviceAddress.first(),
         bleConcept2DeviceAddress = bleConcept2DeviceAddress.first(),
@@ -136,6 +140,7 @@ suspend fun UserPreferences.restoreAppPreferencesFromBackup(snapshot: AppPrefere
     setLiveWeightWorkoutNotificationSuppressed(snapshot.liveWeightWorkoutNotificationSuppressed)
     setStretchGuidedTtsVoice(parseStretchGuidedTtsVoice(snapshot.stretchGuidedTtsVoice))
     setStretchSoundStyle(parseStretchSoundStyle(snapshot.stretchSoundStyle))
+    setStretchGuidanceDetail(parseStretchGuidanceDetail(snapshot.stretchGuidanceDetail))
     setBleHeartRateDeviceAddress(snapshot.bleHeartRateDeviceAddress)
     setBleCscDeviceAddress(snapshot.bleCscDeviceAddress)
     setBleConcept2DeviceAddress(snapshot.bleConcept2DeviceAddress)
