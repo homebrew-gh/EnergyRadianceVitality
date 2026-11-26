@@ -75,6 +75,23 @@ export type CardioSession = {
   heartRate?: CardioHeartRateSummary | null;
   routeImageUrl?: string | null;
   workoutLink?: WorkoutSessionLink | null;
+  /** Lap or auto splits from the phone, in order. */
+  splits?: CardioSplit[];
+  elevationGainMeters?: number | null;
+  /** Pack weight for a ruck (outdoor field or treadmill load). */
+  ruckLoadKg?: number | null;
+  /** Legs of a multi-activity session (brick); their count is all the web needs. */
+  segmentCount?: number;
+};
+
+export type CardioSplit = {
+  orderIndex: number;
+  /** Time from the start to the end of this split. */
+  elapsedSeconds: number;
+  /** Time for this split alone. */
+  segmentElapsedSeconds: number;
+  totalDistanceMeters?: number | null;
+  segmentDistanceMeters?: number | null;
 };
 
 export type HeartRateLoadSummary = {
@@ -327,7 +344,39 @@ function parseCardioSession(raw: unknown): CardioSession | null {
       s.workoutLink && typeof s.workoutLink === "object"
         ? parseWorkoutSessionLink(s.workoutLink)
         : null,
+    splits: parseCardioSplits(s.splits),
+    elevationGainMeters: finiteNumber(s.elevationGainMeters),
+    ruckLoadKg:
+      finiteNumber(s.ruckLoadKg) ??
+      (s.treadmill && typeof s.treadmill === "object"
+        ? finiteNumber((s.treadmill as Record<string, unknown>).loadKg)
+        : null),
+    segmentCount: hasSegments ? (s.segments as unknown[]).length : 0,
   };
+}
+
+function finiteNumber(raw: unknown): number | null {
+  return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
+}
+
+function parseCardioSplits(raw: unknown): CardioSplit[] {
+  if (!Array.isArray(raw)) return [];
+  const out: CardioSplit[] = [];
+  raw.forEach((item, index) => {
+    if (!item || typeof item !== "object") return;
+    const s = item as Record<string, unknown>;
+    const elapsed = finiteNumber(s.elapsedSeconds);
+    const segment = finiteNumber(s.segmentElapsedSeconds);
+    if (elapsed == null || segment == null) return;
+    out.push({
+      orderIndex: finiteNumber(s.orderIndex) ?? index,
+      elapsedSeconds: elapsed,
+      segmentElapsedSeconds: segment,
+      totalDistanceMeters: finiteNumber(s.totalDistanceMeters),
+      segmentDistanceMeters: finiteNumber(s.segmentDistanceMeters),
+    });
+  });
+  return out.sort((a, b) => a.orderIndex - b.orderIndex);
 }
 
 function parseHeartRateLoadSummary(raw: unknown): HeartRateLoadSummary | null {
