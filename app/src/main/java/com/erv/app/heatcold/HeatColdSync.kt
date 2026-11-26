@@ -2,13 +2,15 @@ package com.erv.app.heatcold
 
 import android.content.Context
 import com.erv.app.nostr.EventSigner
+import com.erv.app.nostr.NostrEvent
 import com.erv.app.nostr.dTagOrNull
 import com.erv.app.nostr.fetchLatestKind30078ByDTag
-import com.erv.app.nostr.NostrEvent
 import com.erv.app.nostr.RelayPool
-import com.erv.app.nostr.RelayPublishOutbox
+import com.erv.app.nostr.decryptSelfPayloadOrNull
+import com.erv.app.nostr.publishSelfKind30078
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
+import java.time.LocalDate
 
 object HeatColdSync {
 
@@ -18,55 +20,55 @@ object HeatColdSync {
         prettyPrint = false
     }
 
-    suspend fun publishSaunaDailyLog(
+    fun dTagFor(mode: HeatColdMode, dateIso: String): String = when (mode) {
+        HeatColdMode.SAUNA -> "erv/sauna/$dateIso"
+        HeatColdMode.COLD_PLUNGE -> "erv/cold/$dateIso"
+    }
+
+    suspend fun publishDailyLog(
         appContext: Context,
         relayPool: RelayPool,
         signer: EventSigner,
+        mode: HeatColdMode,
         log: HeatColdDayLog,
         dataRelayUrls: List<String>,
     ): Boolean {
         val content = json.encodeToString(HeatColdDayLog.serializer(), log)
-        return publishEvent(appContext, relayPool, signer, "erv/sauna/${log.date}", content, dataRelayUrls)
+        return publishSelfKind30078(appContext, relayPool, signer, dTagFor(mode, log.date), content, dataRelayUrls)
     }
 
-    suspend fun publishColdDailyLog(
+    /** Publishes the sauna and cold plunge day logs for [date] (whichever exist). */
+    suspend fun publishDay(
         appContext: Context,
         relayPool: RelayPool,
         signer: EventSigner,
-        log: HeatColdDayLog,
+        state: HeatColdLibraryState,
+        date: LocalDate,
         dataRelayUrls: List<String>,
-    ): Boolean {
-        val content = json.encodeToString(HeatColdDayLog.serializer(), log)
-        return publishEvent(appContext, relayPool, signer, "erv/cold/${log.date}", content, dataRelayUrls)
+    ) {
+        for (mode in HeatColdMode.entries) {
+            state.logFor(mode, date)?.let { log ->
+                publishDailyLog(appContext, relayPool, signer, mode, log, dataRelayUrls)
+            }
+        }
     }
 
-    fun fullOutboxEntries(state: HeatColdLibraryState): List<Pair<String, String>> {
-        val pairs = mutableListOf<Pair<String, String>>()
-        for (log in state.saunaLogs) {
-            pairs += "erv/sauna/${log.date}" to json.encodeToString(HeatColdDayLog.serializer(), log)
+    fun fullOutboxEntries(state: HeatColdLibraryState): List<Pair<String, String>> =
+        HeatColdMode.entries.flatMap { mode ->
+            state.logsFor(mode).map { log ->
+                dTagFor(mode, log.date) to json.encodeToString(HeatColdDayLog.serializer(), log)
+            }
         }
-        for (log in state.coldLogs) {
-            pairs += "erv/cold/${log.date}" to json.encodeToString(HeatColdDayLog.serializer(), log)
-        }
-        return pairs
-    }
 
-    fun clearOutboxEntries(state: HeatColdLibraryState): List<Pair<String, String>> {
-        val pairs = mutableListOf<Pair<String, String>>()
-        for (dateIso in state.saunaLogs.map { it.date }.distinct().sorted()) {
-            pairs += "erv/sauna/$dateIso" to json.encodeToString(
-                HeatColdDayLog.serializer(),
-                HeatColdDayLog(date = dateIso)
-            )
+    fun clearOutboxEntries(state: HeatColdLibraryState): List<Pair<String, String>> =
+        HeatColdMode.entries.flatMap { mode ->
+            state.logsFor(mode).map { it.date }.distinct().sorted().map { dateIso ->
+                dTagFor(mode, dateIso) to json.encodeToString(
+                    HeatColdDayLog.serializer(),
+                    HeatColdDayLog(date = dateIso)
+                )
+            }
         }
-        for (dateIso in state.coldLogs.map { it.date }.distinct().sorted()) {
-            pairs += "erv/cold/$dateIso" to json.encodeToString(
-                HeatColdDayLog.serializer(),
-                HeatColdDayLog(date = dateIso)
-            )
-        }
-        return pairs
-    }
 
     suspend fun fetchFromNetwork(
         relayPool: RelayPool,
@@ -86,7 +88,7 @@ object HeatColdSync {
         val saunaLogs = latestByTag
             .filterKeys { it.startsWith("erv/sauna/") }
             .mapNotNull { (dTag, event) ->
-                val raw = event.decryptPayload(signer) ?: return@mapNotNull null
+                val raw = event.decryptSelfPayloadOrNull(signer) ?: return@mapNotNull null
                 val date = dTag.removePrefix("erv/sauna/")
                 decodeLog(raw, date)
             }
@@ -94,7 +96,7 @@ object HeatColdSync {
         val coldLogs = latestByTag
             .filterKeys { it.startsWith("erv/cold/") }
             .mapNotNull { (dTag, event) ->
-                val raw = event.decryptPayload(signer) ?: return@mapNotNull null
+                val raw = event.decryptSelfPayloadOrNull(signer) ?: return@mapNotNull null
                 val date = dTag.removePrefix("erv/cold/")
                 decodeLog(raw, date)
             }
@@ -105,25 +107,6 @@ object HeatColdSync {
         )
     }
 
-    private suspend fun publishEvent(
-        appContext: Context,
-        relayPool: RelayPool,
-        signer: EventSigner,
-        dTag: String,
-        plaintext: String,
-        dataRelayUrls: List<String>,
-    ): Boolean {
-        val r = RelayPublishOutbox.get(appContext).enqueueReplaceByDTagAndKickDrain(
-            appContext,
-            relayPool,
-            signer,
-            dataRelayUrls,
-            dTag,
-            plaintext,
-        )
-        return r.publishedFail == 0
-    }
-
     private fun decodeLog(raw: String, date: String): HeatColdDayLog? =
         try {
             val parsed = json.decodeFromString(HeatColdDayLog.serializer(), raw)
@@ -131,13 +114,6 @@ object HeatColdSync {
         } catch (_: SerializationException) {
             null
         } catch (_: IllegalArgumentException) {
-            null
-        }
-
-    private suspend fun NostrEvent.decryptPayload(signer: EventSigner): String? =
-        try {
-            signer.decryptFromSelf(content)
-        } catch (_: Exception) {
             null
         }
 }

@@ -512,12 +512,7 @@ fun DashboardScreen(
             cardioRepository.currentState().logFor(selectedDate)?.let { log ->
                 CardioSync.publishDailyLog(context.applicationContext, relayPool, signer, log, urls)
             }
-            heatColdRepository.currentState().saunaLogFor(today)?.let { log ->
-                HeatColdSync.publishSaunaDailyLog(context.applicationContext, relayPool, signer, log, urls)
-            }
-            heatColdRepository.currentState().coldLogFor(today)?.let { log ->
-                HeatColdSync.publishColdDailyLog(context.applicationContext, relayPool, signer, log, urls)
-            }
+            HeatColdSync.publishDay(context.applicationContext, relayPool, signer, heatColdRepository.currentState(), today, urls)
             stretchingRepository.currentState().logFor(today)?.let { log ->
                 StretchingSync.publishDailyLog(context.applicationContext, relayPool, signer, log, urls)
             }

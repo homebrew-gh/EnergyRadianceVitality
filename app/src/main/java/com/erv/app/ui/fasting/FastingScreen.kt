@@ -279,13 +279,13 @@ private fun FastingModeSelector(
         FilterChip(
             selected = selectedMode == FastingMode.INTERMITTENT,
             onClick = { onSelected(FastingMode.INTERMITTENT) },
-            label = { FieldLabel("Intermittent") },
+            label = { Text("Intermittent") },
             modifier = Modifier.weight(1f),
         )
         FilterChip(
             selected = selectedMode == FastingMode.EXTENDED,
             onClick = { onSelected(FastingMode.EXTENDED) },
-            label = { FieldLabel("1-3 day fast") },
+            label = { Text("1-3 Day Fast") },
             modifier = Modifier.weight(1f),
         )
     }
@@ -641,7 +641,7 @@ private fun ActiveFastingCard(
 private fun FastingStatChip(label: String, value: String) {
     AssistChip(
         onClick = {},
-        label = { FieldLabel("$label: $value") },
+        label = { Text("$label: $value") },
     )
 }
 

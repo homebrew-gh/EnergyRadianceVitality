@@ -1,6 +1,6 @@
 package com.erv.app.reminders
 
-import com.erv.app.supplements.SupplementWeekday
+import com.erv.app.reminders.Weekday
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -19,7 +19,7 @@ data class RoutineReminder(
     val hour: Int = 8,
     val minute: Int = 0,
     val frequency: RoutineReminderFrequency = RoutineReminderFrequency.DAILY,
-    val repeatDays: List<SupplementWeekday> = emptyList()
+    val repeatDays: List<Weekday> = emptyList()
 )
 
 @Serializable

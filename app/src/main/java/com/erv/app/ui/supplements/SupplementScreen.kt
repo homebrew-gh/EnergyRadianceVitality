@@ -74,11 +74,11 @@ import com.erv.app.supplements.SupplementRepository
 import com.erv.app.supplements.SupplementRoutine
 import com.erv.app.supplements.SupplementRoutineStep
 import com.erv.app.supplements.SupplementTimeOfDay
-import com.erv.app.supplements.SupplementWeekday
+import com.erv.app.reminders.Weekday
 import com.erv.app.supplements.SupplementUnit
 import com.erv.app.supplements.activityStyleSummary
 import com.erv.app.supplements.label
-import com.erv.app.supplements.shortLabel
+import com.erv.app.reminders.shortLabel
 import com.erv.app.supplements.SupplementSync
 import com.erv.app.supplements.SupplementDayLogSection
 import com.erv.app.supplements.groupIntoDaySectionsNewestFirst
@@ -153,7 +153,6 @@ fun SupplementCategoryScreen(
     val state by repository.state.collectAsState(initial = SupplementLibraryState())
     val reminderRepository = remember(context) { RoutineReminderRepository(context) }
     val reminderState by reminderRepository.state.collectAsState(initial = RoutineReminderState())
-    val today = remember { LocalDate.now() }
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     var activeTab by rememberSaveable { mutableIntStateOf(0) }
@@ -259,6 +258,7 @@ fun SupplementCategoryScreen(
                         onOpenDetail = onOpenSupplementDetail,
                         onTakeNow = { supplement ->
                             scope.launch {
+                                val today = LocalDate.now()
                                 repository.logAdHocIntake(today, supplement.id)
                                 repository.currentState().logFor(today)?.let { syncDailyLog(it) }
                                 snackbarHostState.showSnackbar("Logged ${supplement.name}")
@@ -321,6 +321,7 @@ fun SupplementCategoryScreen(
                     },
                     onRunRoutine = { routine ->
                         scope.launch {
+                            val today = LocalDate.now()
                             val ok = repository.logRoutineRun(today, routine.id)
                             if (ok) {
                                 repository.currentState().logFor(today)?.let { syncDailyLog(it) }
@@ -834,7 +835,6 @@ fun SupplementLogScreen(
                     log,
                     keyManager.relayUrlsForKind30078Publish(),
                 )
-                repository.markLogPublished(date.toString())
             }
         }
     }

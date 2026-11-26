@@ -88,6 +88,8 @@ import com.erv.app.bodytracker.displayLabel
 import com.erv.app.bodytracker.isEffectivelyEmpty
 import com.erv.app.data.BodyWeightUnit
 import com.erv.app.data.UserPreferences
+import com.erv.app.data.kgToLb
+import com.erv.app.data.lbToKg
 import com.erv.app.nostr.EventSigner
 import com.erv.app.nostr.KeyManager
 import com.erv.app.nostr.LocalKeyManager
@@ -102,7 +104,6 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.roundToInt
 
-private const val LB_PER_KG = 2.2046226218
 private const val CM_PER_IN = 2.54
 
 private val bodyTrackerLogCardDateFormatter =
@@ -111,13 +112,13 @@ private val bodyTrackerLogCardDateFormatter =
 private fun kgToDisplay(kg: Double, unit: BodyWeightUnit): Double =
     when (unit) {
         BodyWeightUnit.KG -> kg
-        BodyWeightUnit.LB -> kg * LB_PER_KG
+        BodyWeightUnit.LB -> kgToLb(kg)
     }
 
 private fun displayToKg(value: Double, unit: BodyWeightUnit): Double =
     when (unit) {
         BodyWeightUnit.KG -> value
-        BodyWeightUnit.LB -> value / LB_PER_KG
+        BodyWeightUnit.LB -> lbToKg(value)
     }
 
 private fun cmToDisplay(cm: Double, lengthUnit: BodyMeasurementLengthUnit): Double =

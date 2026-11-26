@@ -18,6 +18,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.MapSerializer
 import kotlinx.serialization.builtins.serializer
@@ -31,6 +32,8 @@ enum class BodyWeightUnit {
     LB, KG
 }
 
+/** Stored by name in preferences and in heat/cold session JSON (`tempUnit`). */
+@Serializable
 enum class TemperatureUnit {
     FAHRENHEIT, CELSIUS
 }

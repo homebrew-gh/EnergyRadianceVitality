@@ -86,7 +86,7 @@ import com.erv.app.heatcold.HeatColdSession
 import com.erv.app.heatcold.HeatColdSync
 import com.erv.app.nostr.LibraryStateMerge
 import com.erv.app.nostr.RelayPayloadDigestStore
-import com.erv.app.heatcold.TemperatureUnit
+import com.erv.app.data.TemperatureUnit
 import com.erv.app.heatcold.HeatColdTimelineEntry
 import com.erv.app.heatcold.chronologicalHeatColdTimelineFor
 import com.erv.app.heatcold.chronologicalHeatColdTimelineForRange
@@ -98,6 +98,7 @@ import com.erv.app.nostr.RelayPool
 import com.erv.app.SectionLogDateFilter
 import com.erv.app.data.UserPreferences
 import com.erv.app.programs.decodeHeatColdLaunch
+import com.erv.app.heatcold.displayName
 import com.erv.app.heatcold.heatColdTimelineForSectionLog
 import com.erv.app.ui.dashboard.SectionLogCalendarSheet
 import com.erv.app.ui.dashboard.SectionLogFilterBar
@@ -168,7 +169,6 @@ fun HeatColdCategoryScreen(
     var timerRunning by remember { mutableStateOf(false) }
     var timerTotalSeconds by remember { mutableIntStateOf(0) }
 
-    val today = remember { LocalDate.now() }
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     val keyManager = LocalKeyManager.current
@@ -179,23 +179,12 @@ fun HeatColdCategoryScreen(
     val timerDark = headerDark
     val timerMid = if (mode == HeatColdMode.SAUNA) hotMid else coldMid
     val timerGlow = if (mode == HeatColdMode.SAUNA) hotGlow else coldGlow
-    val sessionLabel = if (mode == HeatColdMode.SAUNA) "Sauna" else "Cold Plunge"
+    val sessionLabel = mode.displayName()
 
-    suspend fun syncSaunaLog() {
+    suspend fun syncDay(date: LocalDate) {
         if (relayPool != null && signer != null) {
             val urls = keyManager.relayUrlsForKind30078Publish()
-            repository.currentState().saunaLogFor(today)?.let { log ->
-                HeatColdSync.publishSaunaDailyLog(appContext, relayPool, signer, log, urls)
-            }
-        }
-    }
-
-    suspend fun syncColdLog() {
-        if (relayPool != null && signer != null) {
-            val urls = keyManager.relayUrlsForKind30078Publish()
-            repository.currentState().coldLogFor(today)?.let { log ->
-                HeatColdSync.publishColdDailyLog(appContext, relayPool, signer, log, urls)
-            }
+            HeatColdSync.publishDay(appContext, relayPool, signer, repository.currentState(), date, urls)
         }
     }
 
@@ -267,24 +256,15 @@ fun HeatColdCategoryScreen(
             onComplete = {
                 scope.launch {
                     val tempVal = (if (mode == HeatColdMode.SAUNA) saunaTemp else coldTemp).toDouble()
-                    val tempU = tempUnit
-                    if (mode == HeatColdMode.SAUNA) {
-                        repository.logSaunaSession(
-                            date = today,
-                            durationSeconds = timerTotalSeconds,
-                            tempValue = tempVal,
-                            tempUnit = tempU
-                        )
-                        syncSaunaLog()
-                    } else {
-                        repository.logColdSession(
-                            date = today,
-                            durationSeconds = timerTotalSeconds,
-                            tempValue = tempVal,
-                            tempUnit = tempU
-                        )
-                        syncColdLog()
-                    }
+                    val logDate = LocalDate.now()
+                    repository.logSession(
+                        mode = mode,
+                        date = logDate,
+                        durationSeconds = timerTotalSeconds,
+                        tempValue = tempVal,
+                        tempUnit = tempUnit
+                    )
+                    syncDay(logDate)
                     snackbarHostState.showSnackbar("Logged $sessionLabel • ${formatDurationSeconds(timerTotalSeconds)}")
                 }
                 timerRunning = false
@@ -675,12 +655,7 @@ fun HeatColdLogScreen(
     suspend fun syncAfterDeleteForDate(date: LocalDate) {
         if (relayPool == null || signer == null) return
         val urls = keyManager.relayUrlsForKind30078Publish()
-        repository.currentState().saunaLogFor(date)?.let {
-            HeatColdSync.publishSaunaDailyLog(logAppContext, relayPool, signer, it, urls)
-        }
-        repository.currentState().coldLogFor(date)?.let {
-            HeatColdSync.publishColdDailyLog(logAppContext, relayPool, signer, it, urls)
-        }
+        HeatColdSync.publishDay(logAppContext, relayPool, signer, repository.currentState(), date, urls)
     }
 
     pendingDelete?.let { entry ->
@@ -701,10 +676,7 @@ fun HeatColdLogScreen(
                         val logDate = entry.logDate
                         pendingDelete = null
                         scope.launch {
-                            when (entry.mode) {
-                                HeatColdMode.SAUNA -> repository.deleteSaunaSession(logDate, id)
-                                HeatColdMode.COLD_PLUNGE -> repository.deleteColdSession(logDate, id)
-                            }
+                            repository.deleteSession(entry.mode, logDate, id)
                             syncAfterDeleteForDate(logDate)
                             snackbarHostState.showSnackbar("Session removed")
                         }
@@ -770,12 +742,8 @@ fun HeatColdLogScreen(
                         Spacer(Modifier.height(8.dp))
                     }
                     items(timeline, key = { "${it.logDate}-${it.mode}-${it.session.id}" }) { entry ->
-                        val title = when (entry.mode) {
-                            HeatColdMode.SAUNA -> "Sauna"
-                            HeatColdMode.COLD_PLUNGE -> "Cold Plunge"
-                        }
                         HeatColdLogEntryCard(
-                            title = title,
+                            title = entry.mode.displayName(),
                             showLogDate = showLogDateOnCards,
                             logDate = entry.logDate,
                             session = entry.session,
