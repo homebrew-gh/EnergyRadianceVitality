@@ -67,7 +67,7 @@ class GuidedStretchService : Service() {
                 GuidedStretchController.state
                     // Only re-post when what the notification shows changes, not every second.
                     .distinctUntilChangedBy { s ->
-                        s?.let { listOf(it.index, it.phaseHold, it.firstPrepActive, it.paused, it.secondsLeft < 0, it.outcome != null) }
+                        s?.let { listOf(it.index, it.phaseHold, it.firstPrepActive, it.restActive, it.paused, it.secondsLeft < 0, it.outcome != null) }
                     }
                     .collect { s ->
                         if (s == null || s.outcome != null) {
@@ -120,6 +120,7 @@ class GuidedStretchService : Service() {
             guidedSideLabel(st.side)?.let { "$base, ${it.lowercase()}" } ?: base
         }.orEmpty()
         val phase = when {
+            s.restActive -> "Rest"
             s.phaseHold -> "Hold"
             s.firstPrepActive -> "Settle in"
             else -> "Next"

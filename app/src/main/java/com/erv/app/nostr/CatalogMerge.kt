@@ -25,12 +25,48 @@ object CatalogMerge {
         val bundledById = bundled.associateBy { it.id }
         val relayFilled = relay?.stretches.orEmpty().map { entry ->
             val base = bundledById[entry.id] ?: return@map entry
-            entry.copy(
-                name = entry.name.ifBlank { base.name },
-                procedure = entry.procedure.ifBlank { base.procedure },
-            )
+            entry.withBundledGaps(base)
         }
         return mergeById(bundled, relayFilled) { it.id }
+    }
+
+    /** Fills only what a relay copy of a bundled stretch lacks; never replaces what is there. */
+    private fun StretchCatalogEntry.withBundledGaps(base: StretchCatalogEntry): StretchCatalogEntry = copy(
+        name = name.ifBlank { base.name },
+        procedure = procedure.ifBlank { base.procedure },
+        muscleGroups = muscleGroups.ifEmpty { base.muscleGroups },
+        defaultHoldSeconds = defaultHoldSeconds ?: base.defaultHoldSeconds,
+    )
+
+    /**
+     * After an app update that adds built-in stretches: the relay catalog plus the stretches added
+     * in bundled revisions newer than [offeredRevision] that the relay lacks, and bundled tags filled
+     * into relay copies that have none. Relay rows are otherwise kept as they are (web edits win), and
+     * a stretch the relay lacks from an older revision is not brought back (it may have been deleted
+     * on purpose). Null when nothing would change.
+     */
+    fun offerNewBuiltinStretches(
+        relay: StretchCatalogPayload,
+        bundled: com.erv.app.stretching.StretchCatalogRoot,
+        offeredRevision: Int,
+        nowEpochSeconds: Long,
+    ): StretchCatalogPayload? {
+        if (bundled.catalogRevision <= offeredRevision) return null
+        val newIds = bundled.addedByRevision
+            .filterKeys { (it.toIntOrNull() ?: 0) > offeredRevision }
+            .values.flatten().toSet()
+        val bundledById = bundled.stretches.associateBy { it.id }
+        val relayIds = relay.stretches.map { it.id }.toSet()
+        var changed = false
+        val filled = relay.stretches.map { entry ->
+            val base = bundledById[entry.id] ?: return@map entry
+            val next = entry.withBundledGaps(base)
+            if (next != entry) changed = true
+            next
+        }
+        val added = bundled.stretches.filter { it.id in newIds && it.id !in relayIds }
+        if (!changed && added.isEmpty()) return null
+        return relay.copy(publishedAtEpochSeconds = nowEpochSeconds, stretches = filled + added)
     }
 
     fun effectiveCardioCatalog(

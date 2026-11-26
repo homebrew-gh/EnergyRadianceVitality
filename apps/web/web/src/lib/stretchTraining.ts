@@ -11,6 +11,8 @@ export type StretchRoutine = {
   holdSecondsByStretchId?: Record<string, number>;
   /** Seconds between different stretches in the guided player; null/missing keeps the default. */
   gapSeconds?: number | null;
+  /** A minute's breathing settle and a closing rest; only plays when the routine has a restorative pose. */
+  settleAndRest?: boolean;
 };
 
 export const STRETCH_HOLD_MIN_SECONDS = 5;
@@ -22,6 +24,25 @@ export const STRETCH_GAP_MAX_SECONDS = 60;
 export const STRETCH_SIDE_SWITCH_SECONDS = 5;
 /** Matches Android: settling in before the first hold. */
 export const STRETCH_FIRST_PREP_SECONDS = 10;
+/** Matches Android STRETCH_SETTLE_SECONDS / STRETCH_CLOSING_REST_SECONDS (Settle In and Rest). */
+export const STRETCH_SETTLE_SECONDS = 60;
+export const STRETCH_CLOSING_REST_SECONDS = 60;
+export const STRETCH_CATEGORY_RESTORATIVE = "restorative";
+
+export function isRestorativeStretch(entry: { category?: string } | undefined): boolean {
+  return (entry?.category ?? "").trim().toLowerCase() === STRETCH_CATEGORY_RESTORATIVE;
+}
+
+/** Whether Settle In and Rest plays for this routine (it needs a restorative pose). */
+export function playsSettleAndRest(
+  routine: StretchRoutine,
+  catalog: { id: string; category?: string }[],
+): boolean {
+  return (
+    routine.settleAndRest === true &&
+    routine.stretchIds.some((id) => isRestorativeStretch(catalog.find((e) => e.id === id)))
+  );
+}
 
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
 
@@ -60,7 +81,7 @@ export function cleanedHoldOverrides(
 /** Planned minutes for the guided player, matching Android's guidedSessionTotalMinutes. */
 export function stretchRoutineMinutes(
   routine: StretchRoutine,
-  catalog: { id: string; requiresBothSides?: boolean }[],
+  catalog: { id: string; requiresBothSides?: boolean; category?: string }[],
 ): number {
   const steps: { id: string; side: "right" | "left" | null; hold: number }[] = [];
   for (const id of routine.stretchIds) {
@@ -74,7 +95,8 @@ export function stretchRoutineMinutes(
   }
   if (steps.length === 0) return 0;
   const gap = stretchGapFor(routine);
-  let total = STRETCH_FIRST_PREP_SECONDS;
+  const settle = playsSettleAndRest(routine, catalog);
+  let total = settle ? STRETCH_SETTLE_SECONDS + STRETCH_CLOSING_REST_SECONDS : STRETCH_FIRST_PREP_SECONDS;
   steps.forEach((s, i) => {
     total += s.hold;
     if (i > 0) {

@@ -82,4 +82,59 @@ class CatalogMergeTest {
         // Relay-only entries have no bundled fallback and are passed through unchanged.
         assertEquals("", effective.first { it.id == "custom_c" }.name)
     }
+
+    private val bundledRoot = com.erv.app.stretching.StretchCatalogRoot(
+        catalogRevision = 2,
+        addedByRevision = mapOf("2" to listOf("new_a", "new_b")),
+        stretches = listOf(
+            StretchCatalogEntry(id = "old_a", name = "Old A", muscleGroups = listOf("legs")),
+            StretchCatalogEntry(id = "old_b", name = "Old B", muscleGroups = listOf("back")),
+            StretchCatalogEntry(id = "new_a", name = "New A", muscleGroups = listOf("chest")),
+            StretchCatalogEntry(id = "new_b", name = "New B", category = "restorative", defaultHoldSeconds = 120),
+        ),
+    )
+
+    @Test
+    fun offerNewBuiltinStretches_addsOnlyNewRevisionRowsAndKeepsWebEdits() {
+        // The web renamed old_a, deleted old_b, and added a custom stretch.
+        val relay = StretchCatalogPayload(
+            catalogVersion = 4,
+            stretches = listOf(
+                StretchCatalogEntry(id = "old_a", name = "My Hamstring"),
+                StretchCatalogEntry(id = "custom", name = "Custom"),
+            ),
+        )
+        val out = CatalogMerge.offerNewBuiltinStretches(relay, bundledRoot, offeredRevision = 1, nowEpochSeconds = 99)!!
+        assertEquals(listOf("old_a", "custom", "new_a", "new_b"), out.stretches.map { it.id })
+        assertEquals(4, out.catalogVersion)
+        assertEquals(99L, out.publishedAtEpochSeconds)
+        val oldA = out.stretches.first { it.id == "old_a" }
+        assertEquals("My Hamstring", oldA.name)
+        // Tags fill in where the relay copy had none.
+        assertEquals(listOf("legs"), oldA.muscleGroups)
+        assertEquals(120, out.stretches.first { it.id == "new_b" }.defaultHoldSeconds)
+    }
+
+    @Test
+    fun offerNewBuiltinStretches_onlyOnce() {
+        val relay = StretchCatalogPayload(stretches = listOf(StretchCatalogEntry(id = "old_a", name = "Old A")))
+        assertEquals(null, CatalogMerge.offerNewBuiltinStretches(relay, bundledRoot, offeredRevision = 2, nowEpochSeconds = 1))
+    }
+
+    @Test
+    fun offerNewBuiltinStretches_nullWhenNothingChanges() {
+        val relay = StretchCatalogPayload(stretches = bundledRoot.stretches)
+        assertEquals(null, CatalogMerge.offerNewBuiltinStretches(relay, bundledRoot, offeredRevision = 1, nowEpochSeconds = 1))
+    }
+
+    @Test
+    fun effectiveStretchCatalog_fillsMissingTagsFromBundled() {
+        val effective = CatalogMerge.effectiveStretchCatalog(
+            bundledRoot.stretches,
+            StretchCatalogPayload(stretches = listOf(StretchCatalogEntry(id = "new_b", name = "Edited"))),
+        )
+        val b = effective.first { it.id == "new_b" }
+        assertEquals("Edited", b.name)
+        assertEquals(120, b.defaultHoldSeconds)
+    }
 }

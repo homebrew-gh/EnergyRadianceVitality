@@ -8,6 +8,7 @@ import { SavedRoutinesPanel } from "../components/SavedRoutinesPanel";
 import { upsertRoutine } from "../lib/cardioTraining";
 import {
   cleanedHoldOverrides,
+  isRestorativeStretch,
   STRETCH_GAP_DEFAULT_SECONDS,
   STRETCH_GAP_MAX_SECONDS,
   STRETCH_GAP_MIN_SECONDS,
@@ -42,6 +43,7 @@ export function StretchRoutinesTab() {
   /** Per-stretch hold times as typed; a missing or blank entry uses the routine's hold. */
   const [holdOverrides, setHoldOverrides] = useState<Record<string, string>>({});
   const [gapText, setGapText] = useState("");
+  const [settleAndRest, setSettleAndRest] = useState(true);
   const [formError, setFormError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
@@ -55,9 +57,11 @@ export function StretchRoutinesTab() {
     setHoldSeconds(30);
     setHoldOverrides({});
     setGapText("");
+    setSettleAndRest(true);
     setFormError(null);
   };
 
+  const hasRestorative = draftIds.some((id) => isRestorativeStretch(catalog.find((e) => e.id === id)));
   const clampHold = (n: number) =>
     Math.min(STRETCH_HOLD_MAX_SECONDS, Math.max(STRETCH_HOLD_MIN_SECONDS, Math.round(n)));
   const defaultHold = clampHold(Number.isFinite(holdSeconds) && holdSeconds > 0 ? holdSeconds : 30);
@@ -82,10 +86,17 @@ export function StretchRoutinesTab() {
     holdSecondsPerStretch: defaultHold,
     holdSecondsByStretchId: cleanedHoldOverrides(parsedOverrides, draftIds, defaultHold),
     gapSeconds: parsedGap != null && parsedGap !== STRETCH_GAP_DEFAULT_SECONDS ? parsedGap : null,
+    settleAndRest: settleAndRest && hasRestorative,
   };
 
   const addStretch = (id: string) => {
+    if (draftIds.includes(id)) return;
     setDraftIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
+    // Restorative poses come with a longer suggested hold.
+    const suggested = catalog.find((e) => e.id === id)?.defaultHoldSeconds;
+    if (typeof suggested === "number" && suggested > 0) {
+      setHoldOverrides((prev) => (prev[id] != null ? prev : { ...prev, [id]: String(suggested) }));
+    }
   };
 
   const removeStretch = (id: string) => {
@@ -108,6 +119,7 @@ export function StretchRoutinesTab() {
       ),
     );
     setGapText(routine.gapSeconds != null ? String(routine.gapSeconds) : "");
+    setSettleAndRest(routine.settleAndRest === true);
     setFormError(null);
     setSuccess(null);
   };
@@ -296,6 +308,24 @@ export function StretchRoutinesTab() {
               />
             )}
           </div>
+          {hasRestorative ? (
+            <label className="flex items-start gap-2 text-sm" htmlFor="stretch-settle">
+              <input
+                id="stretch-settle"
+                type="checkbox"
+                className="mt-1"
+                checked={settleAndRest}
+                onChange={(e) => setSettleAndRest(e.target.checked)}
+              />
+              <span>
+                <FieldLabel>Settle in and rest</FieldLabel>
+                <span className="block text-xs text-muted">
+                  A minute of slow breathing before the first pose, and a minute of rest with a soft
+                  bell at the end.
+                </span>
+              </span>
+            </label>
+          ) : null}
           <div className="flex flex-wrap gap-2">
             <button type="submit" className="btn-primary" disabled={saving || loading}>
               {saving ? "Publishing…" : editingId ? "Save changes" : "Publish to relay"}
