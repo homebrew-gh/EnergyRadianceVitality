@@ -2,7 +2,7 @@ import { Fragment, useState, type KeyboardEvent, type ReactNode } from "react";
 import clsx from "clsx";
 import { useDroppable } from "@dnd-kit/core";
 import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
-import { formatLastLift, lastLiftTopWeightKg, type LastLift } from "../../lib/lastLift";
+import { formatLastLift, formatLiftBests, lastLiftTopWeightKg, type LastLift } from "../../lib/lastLift";
 import {
   applyCardioAmount,
   applyCardioHeartRate,
@@ -771,6 +771,9 @@ export function SegmentCard({
                         ) : (
                           <span className="block text-xs text-muted">Last: {formatLastLift(last, weightLoadUnit, todayIso)}</span>
                         )
+                      ) : null}
+                      {last && formatLiftBests(last, weightLoadUnit) ? (
+                        <span className="block text-xs text-muted">{formatLiftBests(last, weightLoadUnit)}</span>
                       ) : null}
                     </td>
                     <td className="px-1 py-1">
