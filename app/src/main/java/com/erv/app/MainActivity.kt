@@ -160,6 +160,9 @@ class MainActivity : AppCompatActivity() {
         intent.getStringExtra(WorkoutSessionForegroundService.EXTRA_OPEN_WORKOUT_RUN_ID)?.let { workoutId ->
             navigateToWorkoutRun.value = workoutId
         }
+        if (intent.getBooleanExtra(com.erv.app.ui.stretching.GuidedStretchService.EXTRA_OPEN_GUIDED_STRETCH, false)) {
+            com.erv.app.ui.stretching.GuidedStretchController.requestOpen()
+        }
 
         setContent {
             val userPreferences = remember { UserPreferences(this@MainActivity) }
@@ -206,6 +209,9 @@ class MainActivity : AppCompatActivity() {
         }
         intent.getStringExtra(WorkoutSessionForegroundService.EXTRA_OPEN_WORKOUT_RUN_ID)?.let { workoutId ->
             navigateToWorkoutRun.value = workoutId
+        }
+        if (intent.getBooleanExtra(com.erv.app.ui.stretching.GuidedStretchService.EXTRA_OPEN_GUIDED_STRETCH, false)) {
+            com.erv.app.ui.stretching.GuidedStretchController.requestOpen()
         }
     }
 

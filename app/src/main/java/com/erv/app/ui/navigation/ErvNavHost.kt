@@ -207,6 +207,17 @@ fun ErvNavHost(
             navigateToFasting.value = false
         }
     }
+    // The guided stretch notification was tapped: show the Stretching screen, which draws the running routine.
+    val openGuidedStretch by com.erv.app.ui.stretching.GuidedStretchController.openRequests.collectAsState()
+    LaunchedEffect(openGuidedStretch) {
+        if (!openGuidedStretch) return@LaunchedEffect
+        com.erv.app.ui.stretching.GuidedStretchController.openRequests.value = false
+        if (com.erv.app.ui.stretching.GuidedStretchController.state.value != null) {
+            navController.navigate(Routes.stretchingCategoryTab("Routines")) {
+                launchSingleTop = true
+            }
+        }
+    }
     LaunchedEffect(openWorkoutRunId) {
         val workoutId = openWorkoutRunId ?: return@LaunchedEffect
         navController.navigate(Routes.workoutRun(workoutId)) {
