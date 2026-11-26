@@ -789,6 +789,7 @@ function readPrescriptionSet(
     issues,
     1,
   );
+  if (raw.warmup === true) set.warmup = true;
   if (raw.side != null) {
     if (typeof raw.side !== "string" || !isSetSide(raw.side)) {
       issues.push({

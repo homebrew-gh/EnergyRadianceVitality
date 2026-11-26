@@ -1,11 +1,10 @@
 package com.erv.app.weighttraining
 
-import kotlin.math.max
 import kotlinx.serialization.Serializable
 
 /**
  * One row per calendar day + workout for this exercise: volume and best estimated 1RM among logged
- * sets (Epley vs Brzycki max). Built from day logs only — safe to rebuild any time.
+ * working sets (Epley, see [estimatedOneRmKg]). Built from day logs only — safe to rebuild any time.
  */
 @Serializable
 data class WeightExerciseSessionSummary(
@@ -17,24 +16,30 @@ data class WeightExerciseSessionSummary(
     val workingSetCount: Int = 0
 )
 
-/** Epley and Brzycki; returns the larger when both apply. */
+/** Sets above this many reps say little about a single-rep max, so they give no estimate. */
+const val EST_ONE_RM_MAX_REPS = 12
+
+/**
+ * Estimated one-rep max (Epley), the same formula as the web app. A single is its own weight;
+ * sets of more than [EST_ONE_RM_MAX_REPS] reps give no estimate.
+ */
 fun estimatedOneRmKg(weightKg: Double, reps: Int): Double? {
-    if (reps <= 0 || weightKg <= 0.0) return null
-    val epley = weightKg * (1.0 + reps / 30.0)
-    val brzycki = if (reps < 37) weightKg * 36.0 / (37.0 - reps) else null
-    return if (brzycki != null) max(epley, brzycki) else epley
+    if (reps <= 0 || weightKg <= 0.0 || reps > EST_ONE_RM_MAX_REPS) return null
+    if (reps == 1) return weightKg
+    return weightKg * (1.0 + reps / 30.0)
 }
 
+/** Reps × weight over the working sets (warm-ups left out), or the interval block's load. */
 fun WeightWorkoutEntry.volumeKgForEntry(): Double {
     hiitBlock?.let { b ->
         return (b.weightKg ?: 0.0) * b.intervals.coerceAtLeast(0)
     }
-    return sets.sumOf { s -> (s.weightKg ?: 0.0) * s.reps }
+    return sets.filter { !it.isWarmup() }.sumOf { s -> (s.weightKg ?: 0.0) * s.reps }
 }
 
 fun WeightWorkoutEntry.bestEstOneRmKgForEntry(): Double? {
     if (hiitBlock != null) return null
-    return sets.mapNotNull { s ->
+    return sets.filter { !it.isWarmup() }.mapNotNull { s ->
         val w = s.weightKg ?: return@mapNotNull null
         estimatedOneRmKg(w, s.reps)
     }.maxOrNull()
@@ -42,7 +47,7 @@ fun WeightWorkoutEntry.bestEstOneRmKgForEntry(): Double? {
 
 fun WeightWorkoutEntry.workingSetCount(): Int {
     hiitBlock?.let { return it.intervals.coerceAtLeast(0) }
-    return sets.count { it.isLogged() }
+    return sets.count { it.isWorkingSet() }
 }
 
 /**

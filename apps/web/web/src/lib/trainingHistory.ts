@@ -16,6 +16,8 @@ export type WeightSet = {
   rpe?: number | null;
   rir?: number | null;
   durationSeconds?: number | null;
+  /** A warm-up set: shown, but left out of records, volume and working-set counts. */
+  warmup?: boolean | null;
 };
 
 export type WeightHiitBlockLog = {
@@ -185,6 +187,7 @@ function parseWeightSet(raw: unknown): WeightSet | null {
     rpe: typeof s.rpe === "number" ? s.rpe : null,
     rir: typeof s.rir === "number" ? s.rir : null,
     durationSeconds: typeof s.durationSeconds === "number" ? s.durationSeconds : null,
+    ...(s.warmup === true ? { warmup: true } : {}),
   };
 }
 
@@ -1016,8 +1019,24 @@ export function weeklySessionCounts(
   return [...map.values()].sort((a, b) => a.weekStart.localeCompare(b.weekStart));
 }
 
-function isWorkingSet(set: WeightSet): boolean {
-  return set.reps > 0 || (set.durationSeconds ?? 0) > 0;
+/** A logged set that is not a warm-up. */
+export function isWorkingSet(set: WeightSet): boolean {
+  return set.warmup !== true && (set.reps > 0 || (set.durationSeconds ?? 0) > 0);
+}
+
+/**
+ * Everything [exerciseId] got in this workout as one entry. An exercise done twice (a second block
+ * of the same lift) has its sets joined in order; a lone interval block keeps its block.
+ */
+export function entryForExercise(
+  workout: WeightWorkoutSession,
+  exerciseId: string,
+): WeightWorkoutEntry | null {
+  const matches = workout.entries.filter((e) => e.exerciseId === exerciseId);
+  if (matches.length <= 1) return matches[0] ?? null;
+  const withSets = matches.filter((e) => e.sets.length > 0);
+  if (withSets.length === 0) return matches[0]!;
+  return { ...withSets[0]!, sets: withSets.flatMap((e) => e.sets), hiitBlock: null };
 }
 
 export function volumeByMuscleGroup(
@@ -1069,7 +1088,7 @@ export function historyForExercise(
   const rows: ExerciseHistoryRow[] = [];
   for (const log of weightLogs) {
     for (const workout of log.workouts) {
-      const entry = workout.entries.find((e) => e.exerciseId === exerciseId);
+      const entry = entryForExercise(workout, exerciseId);
       if (!entry) continue;
       rows.push({
         date: log.date,
@@ -1100,9 +1119,10 @@ export function maxWeightByRepBucketKg(
 
   for (const log of weightLogs) {
     for (const workout of log.workouts) {
-      const entry = workout.entries.find((e) => e.exerciseId === exerciseId);
+      const entry = entryForExercise(workout, exerciseId);
       if (!entry) continue;
       for (const set of entry.sets) {
+        if (set.warmup === true) continue;
         const reps = set.reps;
         const w = set.weightKg;
         if (reps <= 0 || w == null || w <= 0) continue;

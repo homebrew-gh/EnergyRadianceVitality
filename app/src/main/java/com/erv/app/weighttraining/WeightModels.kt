@@ -138,6 +138,12 @@ data class WeightSet(
      */
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val done: Boolean? = null,
+    /**
+     * A warm-up set: logged and shown, but left out of records, volume and working-set counts.
+     * Set in the web builder's per-set targets or by tapping the set number on the phone.
+     */
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val warmup: Boolean? = null,
 )
 
 /** Ghost text for the live-workout reps field (single target or range label). */
@@ -147,6 +153,12 @@ fun WeightSet.repsShadowText(): String? =
 
 /** A set is "logged" (worth keeping) when it has reps or a timed hold. */
 fun WeightSet.isLogged(): Boolean = reps > 0 || (durationSeconds ?: 0) > 0
+
+/** True for a set marked as a warm-up. */
+fun WeightSet.isWarmup(): Boolean = warmup == true
+
+/** A logged set that counts toward records and volume: not a warm-up. */
+fun WeightSet.isWorkingSet(): Boolean = isLogged() && !isWarmup()
 
 /** True when the athlete has checked this set off in a live session. */
 fun WeightSet.isDone(): Boolean = done == true

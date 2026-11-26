@@ -25,7 +25,10 @@ export function lastLiftByExercise(weightLogs: WeightDayLog[]): Map<string, Last
     for (const session of sessions) {
       for (const entry of session.entries) {
         if (out.has(entry.exerciseId)) continue;
-        const sets = entry.sets.filter((s) => s.reps > 0 || (s.durationSeconds ?? 0) > 0);
+        // Warm-ups are left out: the line is about the working sets to match or beat.
+        const sets = entry.sets.filter(
+          (s) => s.warmup !== true && (s.reps > 0 || (s.durationSeconds ?? 0) > 0),
+        );
         if (sets.length > 0) out.set(entry.exerciseId, { date: day.date, sets });
       }
     }
