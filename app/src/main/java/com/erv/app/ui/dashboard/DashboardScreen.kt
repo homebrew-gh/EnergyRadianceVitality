@@ -1,5 +1,14 @@
 package com.erv.app.ui.dashboard
 
+import com.erv.app.bodytracker.BodyTrackerLibraryState
+import com.erv.app.bodytracker.BodyTrackerRepository
+import com.erv.app.data.TrainingProfileNostrPayload
+import com.erv.app.standards.BuiltInStandards
+import com.erv.app.standards.CustomStandardsPayload
+import com.erv.app.standards.StandardResultsPayload
+import com.erv.app.standards.buildStandardInputs
+import com.erv.app.standards.evaluateStandard
+import com.erv.app.standards.followedStandards
 import androidx.compose.material3.SnackbarResult
 import com.erv.app.workouts.startCardioQuickStart
 import com.erv.app.workouts.sessionScreenCardioDraft
@@ -255,6 +264,7 @@ fun DashboardScreen(
     stretchingRepository: StretchingRepository,
     programRepository: ProgramRepository,
     workoutRepository: WorkoutRepository,
+    bodyTrackerRepository: BodyTrackerRepository,
     weightLiveWorkoutViewModel: WeightLiveWorkoutViewModel,
     cardioLiveWorkoutViewModel: CardioLiveWorkoutViewModel,
     userPreferences: UserPreferences,
@@ -281,6 +291,12 @@ fun DashboardScreen(
     val selectedDate by viewModel.selectedDate.collectAsState()
     val coachReview by userPreferences.coachReview.collectAsState(initial = null)
     var showCoachReview by remember { mutableStateOf(false) }
+    val trainingProfileForStandards by userPreferences.trainingProfile.collectAsState(initial = TrainingProfileNostrPayload())
+    val standardResultsPayload by userPreferences.standardResults.collectAsState(initial = StandardResultsPayload())
+    val customStandardsPayload by userPreferences.customStandards.collectAsState(initial = CustomStandardsPayload())
+    val standardsCardHidden by userPreferences.standardsHomeCardHidden.collectAsState(initial = true)
+    val bodyTrackerState by bodyTrackerRepository.state.collectAsState(initial = BodyTrackerLibraryState())
+    var showStandards by remember { mutableStateOf(false) }
     val nowEpochSeconds = remember(selectedDate) { System.currentTimeMillis() / 1000 }
     val supplementState by supplementRepository.state.collectAsState(initial = SupplementLibraryState())
     val lightState by lightTherapyRepository.state.collectAsState(initial = LightLibraryState())
@@ -927,6 +943,45 @@ fun DashboardScreen(
                                     .padding(bottom = if (launchPadEditMode) 112.dp else 16.dp)
                             ) {
                                 Spacer(Modifier.height(14.dp))
+                                if (!standardsCardHidden) {
+                                    val builtInStandards = remember { BuiltInStandards.all(context) }
+                                    val followed = remember(trainingProfileForStandards, customStandardsPayload) {
+                                        followedStandards(trainingProfileForStandards, builtInStandards, customStandardsPayload.standards)
+                                    }
+                                    val standardResults = remember(followed, weightState, cardioState, bodyTrackerState, standardResultsPayload) {
+                                        val inputs = buildStandardInputs(
+                                            weightState,
+                                            cardioState,
+                                            bodyTrackerState,
+                                            trainingProfileForStandards,
+                                            standardResultsPayload.results,
+                                        )
+                                        followed.map { evaluateStandard(it, inputs) }
+                                    }
+                                    val latestBodyWeightKg = remember(bodyTrackerState) {
+                                        bodyTrackerState.logs.filter { (it.weightKg ?: 0.0) > 0 }.maxByOrNull { it.date }?.weightKg
+                                    }
+                                    val metric = weightTrainingLoadUnit == BodyWeightUnit.KG
+                                    StandardsDashboardCard(
+                                        main = standardResults.firstOrNull(),
+                                        metric = metric,
+                                        latestBodyWeightKg = latestBodyWeightKg,
+                                        onOpen = { showStandards = true },
+                                        modifier = Modifier.padding(bottom = 14.dp),
+                                    )
+                                    if (showStandards) {
+                                        StandardsSheet(
+                                            results = standardResults,
+                                            metric = metric,
+                                            latestBodyWeightKg = latestBodyWeightKg,
+                                            onHideCard = {
+                                                showStandards = false
+                                                scope.launch { userPreferences.setStandardsHomeCardHidden(true) }
+                                            },
+                                            onDismiss = { showStandards = false },
+                                        )
+                                    }
+                                }
                                 coachReview?.let { review ->
                                     CoachReviewDashboardCard(
                                         payload = review,

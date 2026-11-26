@@ -68,7 +68,7 @@ enum class UserDataSection(
     ),
     PERSONAL_DATA(
         label = "Personal data",
-        description = "Goals, gym equipment, saved devices, and local profile",
+        description = "Goals, gym equipment, saved devices, local profile, and fitness standard results",
         exportCategory = DataExportCategory.PERSONAL_DATA,
         relayBacked = true,
     );

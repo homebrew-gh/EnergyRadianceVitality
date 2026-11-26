@@ -231,6 +231,7 @@ fun ErvNavHost(
                 lightTherapyRepository = lightTherapyRepository,
                 cardioRepository = cardioRepository,
                 weightRepository = weightRepository,
+                bodyTrackerRepository = bodyTrackerRepository,
                 weightLiveWorkoutViewModel = weightLiveWorkoutViewModel,
                 cardioLiveWorkoutViewModel = cardioLiveWorkoutViewModel,
                 userPreferences = userPreferences,

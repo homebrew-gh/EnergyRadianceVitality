@@ -634,6 +634,12 @@ private fun MainAppShell(
                 latestByTag[CoachReviewSync.D_TAG]?.let { event ->
                     CoachReviewSync.fromLatestEvent(event, sig)
                 }?.let { remote -> userPreferences.setCoachReviewIfNewer(remote) }
+                latestByTag[StandardsSync.RESULTS_D_TAG]?.let { event ->
+                    StandardsSync.plaintextOf(event, sig)
+                }?.let { raw -> userPreferences.setStandardResultsIfNewer(raw) }
+                latestByTag[StandardsSync.CUSTOM_D_TAG]?.let { event ->
+                    StandardsSync.plaintextOf(event, sig)
+                }?.let { raw -> userPreferences.setCustomStandardsIfNewer(raw) }
                 latestByTag[TrainingProfileSync.D_TAG]?.let { event ->
                     TrainingProfileSync.fromLatestEvent(event, sig)
                 }?.let { remote ->

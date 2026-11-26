@@ -40,6 +40,8 @@ private val PRIORITY_KIND_30078_MASTER_D_TAGS = listOf(
     "erv/equipment",
     "erv/training-profile",
     CoachReviewSync.D_TAG,
+    StandardsSync.RESULTS_D_TAG,
+    StandardsSync.CUSTOM_D_TAG,
     MEDIA_LIBRARY_D_TAG,
     WEIGHT_CATALOG_D_TAG,
     STRETCH_CATALOG_D_TAG,

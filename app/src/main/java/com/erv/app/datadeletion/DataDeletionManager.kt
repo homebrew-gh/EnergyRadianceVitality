@@ -22,9 +22,12 @@ import com.erv.app.nostr.RelayPayloadDigestStore
 import com.erv.app.nostr.RelayPool
 import com.erv.app.nostr.RelayPublishOutbox
 import com.erv.app.nostr.SettingsSync
+import com.erv.app.nostr.StandardsSync
 import com.erv.app.programs.ProgramRepository
 import com.erv.app.programs.ProgramSync
 import com.erv.app.reminders.RoutineReminderRepository
+import com.erv.app.standards.emptyCustomStandardsJson
+import com.erv.app.standards.emptyStandardResultsJson
 import com.erv.app.stretching.StretchingRepository
 import com.erv.app.stretching.StretchingSync
 import com.erv.app.supplements.SupplementRepository
@@ -179,6 +182,9 @@ class DataDeletionManager(
                         enabledWeightExercisePackIds = emptyList(),
                     ),
                     TrainingProfileSync.plaintextFor(TrainingProfileNostrPayload()),
+                    // Results and custom standards are made on the web; empty replacements clear them.
+                    StandardsSync.RESULTS_D_TAG to emptyStandardResultsJson(System.currentTimeMillis() / 1000),
+                    StandardsSync.CUSTOM_D_TAG to emptyCustomStandardsJson(System.currentTimeMillis() / 1000),
                 )
             UserDataSection.UNIFIED_ROUTINES,
             UserDataSection.REMINDERS -> emptyList()
