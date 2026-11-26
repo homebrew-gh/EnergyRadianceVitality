@@ -69,9 +69,63 @@ class GuidedStretchSessionTest {
     @Test
     fun secondsRemainingCountsHoldsAndGaps() {
         // In the first hold with 10 s left; 4 more holds of 30 and 4 gaps of 5.
-        assertEquals(10 + 4 * 35, guidedSecondsRemaining(steps, 30, 0, inHold = true, secondsLeftInPhase = 10) { _, _ -> 5 })
+        assertEquals(10 + 4 * 35, guidedSecondsRemaining(steps, List(5) { 30 }, 0, inHold = true, secondsLeftInPhase = 10) { _, _ -> 5 })
         // In the gap before the last step: 3 s of gap plus its whole hold.
-        assertEquals(3 + 30, guidedSecondsRemaining(steps, 30, 4, inHold = false, secondsLeftInPhase = 3) { _, _ -> 5 })
+        assertEquals(3 + 30, guidedSecondsRemaining(steps, List(5) { 30 }, 4, inHold = false, secondsLeftInPhase = 3) { _, _ -> 5 })
+    }
+
+    @Test
+    fun secondsRemainingUsesEachStepsHold() {
+        // neck 20 a side, child 60, quad 45 a side; in the gap before child with 4 s left.
+        val holds = listOf(20, 20, 60, 45, 45)
+        assertEquals(4 + 60 + (5 + 45) * 2, guidedSecondsRemaining(steps, holds, 2, inHold = false, secondsLeftInPhase = 4) { _, _ -> 5 })
+    }
+
+    @Test
+    fun routineHoldsFallBackToTheRoutineTime() {
+        val r = StretchRoutine(
+            name = "R",
+            stretchIds = listOf("neck", "child", "quad"),
+            holdSecondsPerStretch = 30,
+            holdSecondsByStretchId = mapOf("child" to 90, "quad" to 0, "gone" to 40),
+        )
+        assertEquals(listOf(30, 90, 30), r.entryHoldSeconds())
+        assertEquals(listOf(30, 30, 90, 30, 30), guidedStepHoldSeconds(entries, r.entryHoldSeconds()))
+    }
+
+    @Test
+    fun holdsAreClampedToTheAllowedRange() {
+        val r = StretchRoutine(name = "R", stretchIds = listOf("a", "b"), holdSecondsByStretchId = mapOf("a" to 2, "b" to 900))
+        assertEquals(listOf(STRETCH_HOLD_MIN_SECONDS, STRETCH_HOLD_MAX_SECONDS), r.entryHoldSeconds())
+    }
+
+    @Test
+    fun gapDefaultsAndClamps() {
+        assertEquals(STRETCH_GAP_DEFAULT_SECONDS, StretchRoutine(name = "R").gapSecondsOrDefault())
+        assertEquals(20, StretchRoutine(name = "R", gapSeconds = 20).gapSecondsOrDefault())
+        assertEquals(STRETCH_GAP_MIN_SECONDS, StretchRoutine(name = "R", gapSeconds = 0).gapSecondsOrDefault())
+    }
+
+    @Test
+    fun cleanedOverridesDropStaleAndDefaultTimes() {
+        val cleaned = cleanedStretchHoldOverrides(
+            mapOf("neck" to 30, "child" to 90, "gone" to 45),
+            listOf("neck", "child"),
+            default = 30,
+        )
+        assertEquals(mapOf("child" to 90), cleaned)
+    }
+
+    @Test
+    fun oldRoutineJsonStillReads() {
+        val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+        val r = json.decodeFromString(
+            StretchRoutine.serializer(),
+            """{"id":"x","name":"Old","stretchIds":["neck"],"holdSecondsPerStretch":45}""",
+        )
+        assertEquals(emptyMap<String, Int>(), r.holdSecondsByStretchId)
+        assertNull(r.gapSeconds)
+        assertEquals(listOf(45), r.entryHoldSeconds())
     }
 
     @Test

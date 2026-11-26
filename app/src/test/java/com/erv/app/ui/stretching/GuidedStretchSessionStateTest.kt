@@ -17,8 +17,8 @@ class GuidedStretchSessionStateTest {
         routineId = "r",
         routineName = "Evening",
         entries = entries,
-        holdSeconds = 30,
         steps = entries.toGuidedSessionSteps(),
+        stepHoldSeconds = listOf(30, 30, 30),
     )
 
     @Test
@@ -46,6 +46,16 @@ class GuidedStretchSessionStateTest {
     fun plannedMinutesCountHoldsGapsAndPrep() {
         // 3 holds of 30 s, a 5 s side switch, a 10 s gap and 10 s of settling in: 115 s, rounded up to 2 min.
         assertEquals(2, state().plannedMinutes)
+    }
+
+    @Test
+    fun plannedMinutesUseEachHoldAndTheGap() {
+        // Neck 45 a side, child 120, a 5 s side switch, a 30 s gap and 10 s settling in: 255 s → 5 min.
+        val s = state().copy(stepHoldSeconds = listOf(45, 45, 120), gapSeconds = 30)
+        assertEquals(5, s.plannedMinutes)
+        assertEquals(120, s.holdAt(2))
+        assertEquals(30, s.copy(index = 1).gapAfterCurrent)
+        assertEquals(5, s.copy(index = 0).gapAfterCurrent)
     }
 
     @Test
