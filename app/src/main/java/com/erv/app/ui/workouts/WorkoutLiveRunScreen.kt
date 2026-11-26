@@ -1074,9 +1074,11 @@ fun WorkoutLiveRunScreen(
         WorkoutPaceGoals.goalFor(item.cardio, activeRun?.standaloneCardioDraftFor(item.id)?.paceGoal)
     }
     val itemCoveredMeters = liveRoute?.let { CardioGpsMath.pathLengthMeters(it) } ?: sensorMeters
-    val paceGoalStatus = if (paceGoal != null && cueLeg != null) {
+    // Only with a distance to measure (a route or a machine): without one it would read as ever
+    // further behind, and say so out loud.
+    val paceGoalStatus = if (paceGoal != null && cueLeg != null && itemCoveredMeters != null) {
         val elapsed = activeRun?.sessionCardioItemElapsedSeconds(cueLeg, nowWorkoutEpochSeconds()) ?: 0
-        WorkoutPaceGoals.status(paceGoal, elapsed, itemCoveredMeters ?: 0.0)
+        WorkoutPaceGoals.status(paceGoal, elapsed, itemCoveredMeters)
     } else {
         null
     }
@@ -1922,6 +1924,15 @@ fun WorkoutLiveRunScreen(
                                                     status = status,
                                                     distanceUnit = distanceUnit,
                                                     cycling = cycling,
+                                                )
+                                                goal != null -> Text(
+                                                    if (gpsWanted) {
+                                                        "Pace goal starts once GPS has a fix."
+                                                    } else {
+                                                        "Connect a bike, trainer or sensor with the plug icon to race your pace goal."
+                                                    },
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                 )
                                                 ghost != null && versusGhost != null -> SessionPaceGoalTrack(
                                                     goal = ghost,
