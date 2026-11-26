@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { lbToKg } from "./fitnessEquipment";
-import { formatLastLift, lastLiftByExercise, lastLiftTopWeightKg } from "./lastLift";
+import { formatLastLift, formatLiftBests, lastLiftByExercise, lastLiftTopWeightKg } from "./lastLift";
 import type { WeightDayLog } from "./trainingHistory";
 
 const lb = (n: number) => lbToKg(n);
@@ -48,5 +48,15 @@ describe("last lift", () => {
     expect(formatLastLift(last.get("row")!, "LB", "2026-11-25")).toBe("155×8, 155×7 lb · Nov 20");
     expect(formatLastLift(last.get("pullup")!, "LB", "2026-11-20")).toBe("2×10 · today");
     expect(formatLastLift(last.get("plank")!, "LB", "2026-11-25")).toBe("2×0:45 · Nov 20");
+  });
+
+  it("adds the best est. 1RM and 10 rep max across all sessions", () => {
+    // Bench: 205×5 → 239 lb est. 1RM beats 185×8 → 234; no set of 10, so no 10RM.
+    expect(formatLiftBests(last.get("bench")!, "LB")).toBe("Best: 1RM 239 lb");
+    const withTen = lastLiftByExercise([
+      { date: "2026-11-01", workouts: [{ id: "x", source: "LIVE", entries: [{ exerciseId: "bench", sets: [{ reps: 10, weightKg: lb(185) }, { reps: 12, weightKg: lb(195), warmup: true }] }] }] },
+    ]);
+    expect(formatLiftBests(withTen.get("bench")!, "LB")).toBe("Best: 1RM 247 lb · 10RM 185 lb");
+    expect(formatLiftBests(last.get("pullup")!, "LB")).toBeNull();
   });
 });
