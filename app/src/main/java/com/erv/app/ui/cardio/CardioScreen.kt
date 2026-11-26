@@ -50,6 +50,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.CloudUpload
@@ -405,6 +406,22 @@ fun CardioCategoryScreen(
     val today = remember { LocalDate.now() }
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
+    // A GPX, TCX or FIT file from a watch or another app, picked here.
+    var importFileUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    val pickImportFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) importFileUri = uri
+    }
+    importFileUri?.let { uri ->
+        CardioFileImportDialog(
+            uri = uri,
+            repository = repository,
+            userPreferences = userPreferences,
+            onDone = { message ->
+                importFileUri = null
+                if (message != null) scope.launch { snackbarHostState.showSnackbar(message) }
+            },
+        )
+    }
     val resolvedInitialTab = CardioTab.entries
         .firstOrNull { it.name.equals(initialTab, ignoreCase = true) }
         ?.ordinal
@@ -586,6 +603,9 @@ fun CardioCategoryScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = { pickImportFile.launch(arrayOf("*/*")) }) {
+                        Icon(Icons.Filled.FileUpload, contentDescription = "Import GPX, TCX or FIT file")
+                    }
                     IconButton(onClick = { showCardioStatsSheet = true }) {
                         Icon(Icons.Filled.BarChart, contentDescription = "Stats and graphs")
                     }

@@ -83,6 +83,7 @@ import com.erv.app.ui.onboarding.RelaySetupScreen
 import com.erv.app.ui.onboarding.shouldShowFirstRunSetup
 import com.erv.app.ui.theme.ErvTheme
 import androidx.core.content.ContextCompat
+import com.erv.app.ui.cardio.CardioFileImportDialog
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -138,12 +139,15 @@ class MainActivity : AppCompatActivity() {
     private val navigateToCardioLiveWorkout = MutableStateFlow(false)
     private val navigateToFasting = MutableStateFlow(false)
     private val navigateToWorkoutRun = MutableStateFlow<String?>(null)
+    /** A GPX, TCX or FIT file opened with or shared to ERV, waiting for the import dialog. */
+    private val pendingCardioImport = MutableStateFlow<android.net.Uri?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         amberHost = AmberLauncherHost(this)
         keyManager = KeyManager(this)
         handleReminderIntent(intent)
+        handleCardioImportIntent(intent)
         if (intent.getBooleanExtra(WeightLiveWorkoutConstants.EXTRA_OPEN_WEIGHT_LIVE, false)) {
             navigateToWeightLiveWorkout.value = true
         }
@@ -179,6 +183,7 @@ class MainActivity : AppCompatActivity() {
                         navigateToCardioLiveWorkout = navigateToCardioLiveWorkout,
                         navigateToFasting = navigateToFasting,
                         navigateToWorkoutRun = navigateToWorkoutRun,
+                        pendingCardioImport = pendingCardioImport,
                     )
                 }
             }
@@ -189,6 +194,7 @@ class MainActivity : AppCompatActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         handleReminderIntent(intent)
+        handleCardioImportIntent(intent)
         if (intent.getBooleanExtra(WeightLiveWorkoutConstants.EXTRA_OPEN_WEIGHT_LIVE, false)) {
             navigateToWeightLiveWorkout.value = true
         }
@@ -201,6 +207,20 @@ class MainActivity : AppCompatActivity() {
         intent.getStringExtra(WorkoutSessionForegroundService.EXTRA_OPEN_WORKOUT_RUN_ID)?.let { workoutId ->
             navigateToWorkoutRun.value = workoutId
         }
+    }
+
+    private fun handleCardioImportIntent(intent: android.content.Intent?) {
+        val uri = when (intent?.action) {
+            android.content.Intent.ACTION_VIEW -> intent.data
+            android.content.Intent.ACTION_SEND -> if (Build.VERSION.SDK_INT >= 33) {
+                intent.getParcelableExtra(android.content.Intent.EXTRA_STREAM, android.net.Uri::class.java)
+            } else {
+                @Suppress("DEPRECATION")
+                intent.getParcelableExtra(android.content.Intent.EXTRA_STREAM)
+            }
+            else -> null
+        }
+        if (uri != null) pendingCardioImport.value = uri
     }
 
     private fun handleReminderIntent(intent: android.content.Intent?) {
@@ -225,6 +245,7 @@ private fun ErvApp(
     navigateToCardioLiveWorkout: MutableStateFlow<Boolean>,
     navigateToFasting: MutableStateFlow<Boolean>,
     navigateToWorkoutRun: MutableStateFlow<String?>,
+    pendingCardioImport: MutableStateFlow<android.net.Uri?>,
 ) {
     val context = LocalContext.current
     var appState by remember {
@@ -374,6 +395,7 @@ private fun ErvApp(
                 navigateToCardioLiveWorkout = navigateToCardioLiveWorkout,
                 navigateToFasting = navigateToFasting,
                 navigateToWorkoutRun = navigateToWorkoutRun,
+                pendingCardioImport = pendingCardioImport,
                 onRequestNostrLogin = {
                     scope.launch {
                         userPreferences.setUseAppWithoutNostrAccount(false)
@@ -434,6 +456,7 @@ private fun MainAppShell(
     navigateToCardioLiveWorkout: MutableStateFlow<Boolean>,
     navigateToFasting: MutableStateFlow<Boolean>,
     navigateToWorkoutRun: MutableStateFlow<String?>,
+    pendingCardioImport: MutableStateFlow<android.net.Uri?>,
     onRequestNostrLogin: () -> Unit,
     onLogout: () -> Unit,
     onAllDataDeleted: () -> Unit,
@@ -933,6 +956,21 @@ private fun MainAppShell(
             LocalFtms provides ftmsBleViewModel,
             LocalKeyManager provides keyManager,
         ) {
+            // A workout file opened with or shared to ERV from another app.
+            val cardioImportUri by pendingCardioImport.collectAsState()
+            cardioImportUri?.let { uri ->
+                CardioFileImportDialog(
+                    uri = uri,
+                    repository = cardioRepository,
+                    userPreferences = userPreferences,
+                    onDone = { message ->
+                        pendingCardioImport.value = null
+                        if (message != null) {
+                            android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_LONG).show()
+                        }
+                    },
+                )
+            }
             Column(Modifier.fillMaxSize()) {
                 ErvNavHost(
                     modifier = Modifier.weight(1f),
