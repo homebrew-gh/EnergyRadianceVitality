@@ -9,9 +9,6 @@ import java.util.UUID
 enum class SupplementForm { CAPSULE, POWDER }
 
 @Serializable
-enum class SupplementFrequency { DAILY, WEEKLY, MONTHLY, MORE_THAN_ONCE_PER_DAY }
-
-@Serializable
 enum class SupplementUnit { MG, MCG, G, IU, ML, DROPS }
 
 @Serializable
@@ -21,9 +18,6 @@ enum class SupplementTimeOfDay {
     NIGHT,
     OTHER
 }
-
-@Serializable
-enum class SupplementWeekday { MONDAY, TUESDAY, WEDNESDAY, THURSDAY, FRIDAY, SATURDAY, SUNDAY }
 
 @Serializable
 data class SupplementInfo(
@@ -424,16 +418,6 @@ fun SupplementRoutineStep.describe(supplementName: String): String = buildString
         append(" • ")
         append(it)
     }
-}
-
-fun SupplementWeekday.shortLabel(): String = when (this) {
-    SupplementWeekday.MONDAY -> "Mon"
-    SupplementWeekday.TUESDAY -> "Tue"
-    SupplementWeekday.WEDNESDAY -> "Wed"
-    SupplementWeekday.THURSDAY -> "Thu"
-    SupplementWeekday.FRIDAY -> "Fri"
-    SupplementWeekday.SATURDAY -> "Sat"
-    SupplementWeekday.SUNDAY -> "Sun"
 }
 
 private fun resolveSupplementAmountDisplay(

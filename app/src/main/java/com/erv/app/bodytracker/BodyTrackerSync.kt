@@ -2,11 +2,12 @@ package com.erv.app.bodytracker
 
 import android.content.Context
 import com.erv.app.nostr.EventSigner
+import com.erv.app.nostr.NostrEvent
 import com.erv.app.nostr.dTagOrNull
 import com.erv.app.nostr.fetchLatestKind30078ByDTag
-import com.erv.app.nostr.NostrEvent
 import com.erv.app.nostr.RelayPool
-import com.erv.app.nostr.RelayPublishOutbox
+import com.erv.app.nostr.decryptSelfPayloadOrNull
+import com.erv.app.nostr.publishSelfKind30078
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
@@ -89,7 +90,7 @@ object BodyTrackerSync {
         dataRelayUrls: List<String>,
     ): Boolean {
         if (log.isNostrEmpty()) return false
-        return publishEvent(
+        return publishSelfKind30078(
             appContext,
             relayPool,
             signer,
@@ -110,7 +111,7 @@ object BodyTrackerSync {
         dataRelayUrls: List<String>,
     ): Boolean {
         val content = encodeEmptyDayPlaintext(dateIso, nowEpochSeconds())
-        return publishEvent(appContext, relayPool, signer, dailyTag(dateIso), content, dataRelayUrls)
+        return publishSelfKind30078(appContext, relayPool, signer, dailyTag(dateIso), content, dataRelayUrls)
     }
 
     suspend fun publishSettings(
@@ -121,7 +122,7 @@ object BodyTrackerSync {
         dataRelayUrls: List<String>,
     ): Boolean {
         val content = encodeSettingsPlaintext(state)
-        return publishEvent(appContext, relayPool, signer, SETTINGS_D_TAG, content, dataRelayUrls)
+        return publishSelfKind30078(appContext, relayPool, signer, SETTINGS_D_TAG, content, dataRelayUrls)
     }
 
     /**
@@ -143,7 +144,7 @@ object BodyTrackerSync {
             publishDailyLog(appContext, relayPool, signer, log, dataRelayUrls)
         } else if (log.updatedAtEpochSeconds > 0L) {
             val content = encodeEmptyDayPlaintext(log.date, log.updatedAtEpochSeconds)
-            publishEvent(appContext, relayPool, signer, dailyTag(log.date), content, dataRelayUrls)
+            publishSelfKind30078(appContext, relayPool, signer, dailyTag(log.date), content, dataRelayUrls)
         }
     }
 
@@ -184,13 +185,13 @@ object BodyTrackerSync {
         latestByTag: Map<String, NostrEvent>,
         signer: EventSigner,
     ): BodyTrackerLibraryState {
-        val settingsRaw = latestByTag[SETTINGS_D_TAG]?.decryptPayload(signer)
+        val settingsRaw = latestByTag[SETTINGS_D_TAG]?.decryptSelfPayloadOrNull(signer)
         val settings = settingsRaw?.let { decodeSettings(it) }
 
         val logs = latestByTag
             .filterKeys { it.startsWith("erv/body_tracker/") && it != SETTINGS_D_TAG }
             .mapNotNull { (dTag, event) ->
-                val raw = event.decryptPayload(signer) ?: return@mapNotNull null
+                val raw = event.decryptSelfPayloadOrNull(signer) ?: return@mapNotNull null
                 val dateIso = dTag.removePrefix("erv/body_tracker/")
                 decodeDay(raw, dateIso)
             }
@@ -200,25 +201,6 @@ object BodyTrackerSync {
             lengthUnitUpdatedAtEpochSeconds = settings?.updatedAtEpochSeconds ?: 0L,
             logs = logs.sortedBy { it.date }
         )
-    }
-
-    private suspend fun publishEvent(
-        appContext: Context,
-        relayPool: RelayPool,
-        signer: EventSigner,
-        dTag: String,
-        plaintext: String,
-        dataRelayUrls: List<String>,
-    ): Boolean {
-        val r = RelayPublishOutbox.get(appContext).enqueueReplaceByDTagAndKickDrain(
-            appContext,
-            relayPool,
-            signer,
-            dataRelayUrls,
-            dTag,
-            plaintext,
-        )
-        return r.publishedFail == 0
     }
 
     private fun decodeSettings(raw: String): BodyTrackerSettingsNostrPayload? =
@@ -238,13 +220,6 @@ object BodyTrackerSync {
         } catch (_: SerializationException) {
             null
         } catch (_: IllegalArgumentException) {
-            null
-        }
-
-    private suspend fun NostrEvent.decryptPayload(signer: EventSigner): String? =
-        try {
-            signer.decryptFromSelf(content)
-        } catch (_: Exception) {
             null
         }
 }

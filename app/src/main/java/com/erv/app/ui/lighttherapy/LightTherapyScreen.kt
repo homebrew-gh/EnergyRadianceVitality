@@ -92,7 +92,6 @@ fun LightTherapyCategoryScreen(
     val state by repository.state.collectAsState(initial = LightLibraryState())
     val reminderRepository = remember(context) { RoutineReminderRepository(context) }
     val reminderState by reminderRepository.state.collectAsState(initial = RoutineReminderState())
-    val today = remember { LocalDate.now() }
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     var activeTab by rememberSaveable { mutableIntStateOf(0) }
@@ -145,6 +144,7 @@ fun LightTherapyCategoryScreen(
             redGlow = therapyRedGlow,
             onComplete = {
                 scope.launch {
+                    val today = LocalDate.now()
                     repository.logSession(
                         date = today,
                         minutes = timerDurationMinutes,

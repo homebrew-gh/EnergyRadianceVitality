@@ -1,6 +1,7 @@
 package com.erv.app.heatcold
 
 import com.erv.app.SectionLogDateFilter
+import com.erv.app.data.TemperatureUnit
 import kotlinx.serialization.Serializable
 import java.nio.charset.StandardCharsets
 import java.time.LocalDate
@@ -8,9 +9,6 @@ import java.util.UUID
 
 @Serializable
 enum class HeatColdMode { SAUNA, COLD_PLUNGE }
-
-@Serializable
-enum class TemperatureUnit { FAHRENHEIT, CELSIUS }
 
 @Serializable
 data class HeatColdSession(
@@ -32,26 +30,32 @@ data class HeatColdLibraryState(
     val saunaLogs: List<HeatColdDayLog> = emptyList(),
     val coldLogs: List<HeatColdDayLog> = emptyList()
 ) {
-    fun saunaLogFor(date: LocalDate): HeatColdDayLog? =
-        saunaLogs.firstOrNull { it.date == date.toString() }
+    fun logsFor(mode: HeatColdMode): List<HeatColdDayLog> = when (mode) {
+        HeatColdMode.SAUNA -> saunaLogs
+        HeatColdMode.COLD_PLUNGE -> coldLogs
+    }
 
-    fun coldLogFor(date: LocalDate): HeatColdDayLog? =
-        coldLogs.firstOrNull { it.date == date.toString() }
+    fun logFor(mode: HeatColdMode, date: LocalDate): HeatColdDayLog? =
+        logsFor(mode).firstOrNull { it.date == date.toString() }
+
+    fun withLogs(mode: HeatColdMode, logs: List<HeatColdDayLog>): HeatColdLibraryState = when (mode) {
+        HeatColdMode.SAUNA -> copy(saunaLogs = logs)
+        HeatColdMode.COLD_PLUNGE -> copy(coldLogs = logs)
+    }
+
+    fun saunaLogFor(date: LocalDate): HeatColdDayLog? = logFor(HeatColdMode.SAUNA, date)
+
+    fun coldLogFor(date: LocalDate): HeatColdDayLog? = logFor(HeatColdMode.COLD_PLUNGE, date)
 }
 
-fun HeatColdLibraryState.withStableSessionIds(): HeatColdLibraryState =
-    copy(
-        saunaLogs = saunaLogs.map { log ->
-            log.copy(sessions = log.sessions.map { s ->
-                if (s.id.isNotEmpty()) s else s.copy(id = stableLegacyHeatColdSessionId(s))
-            })
-        },
-        coldLogs = coldLogs.map { log ->
-            log.copy(sessions = log.sessions.map { s ->
-                if (s.id.isNotEmpty()) s else s.copy(id = stableLegacyHeatColdSessionId(s))
-            })
-        }
-    )
+fun HeatColdLibraryState.withStableSessionIds(): HeatColdLibraryState {
+    fun List<HeatColdDayLog>.stable() = map { log ->
+        log.copy(sessions = log.sessions.map { s ->
+            if (s.id.isNotEmpty()) s else s.copy(id = stableLegacyHeatColdSessionId(s))
+        })
+    }
+    return copy(saunaLogs = saunaLogs.stable(), coldLogs = coldLogs.stable())
+}
 
 internal fun stableLegacyHeatColdSessionId(session: HeatColdSession): String {
     val key = listOf(
@@ -71,45 +75,42 @@ data class HeatColdActivityRow(
     val session: HeatColdSession
 )
 
-fun HeatColdLibraryState.saunaActivityFor(date: LocalDate): List<HeatColdActivityRow> {
-    val log = saunaLogFor(date) ?: return emptyList()
+fun HeatColdMode.displayName(): String = when (this) {
+    HeatColdMode.SAUNA -> "Sauna"
+    HeatColdMode.COLD_PLUNGE -> "Cold Plunge"
+}
+
+fun HeatColdLibraryState.activityFor(mode: HeatColdMode, date: LocalDate): List<HeatColdActivityRow> {
+    val log = logFor(mode, date) ?: return emptyList()
     return log.sessions.map { session ->
         HeatColdActivityRow(
-            displayName = "Sauna",
+            displayName = mode.displayName(),
             durationSeconds = session.durationSeconds,
-            mode = HeatColdMode.SAUNA,
+            mode = mode,
             tempDisplay = session.formatTemp(),
             session = session
         )
     }
 }
 
-fun HeatColdLibraryState.coldActivityFor(date: LocalDate): List<HeatColdActivityRow> {
-    val log = coldLogFor(date) ?: return emptyList()
-    return log.sessions.map { session ->
-        HeatColdActivityRow(
-            displayName = "Cold Plunge",
-            durationSeconds = session.durationSeconds,
-            mode = HeatColdMode.COLD_PLUNGE,
-            tempDisplay = session.formatTemp(),
-            session = session
-        )
-    }
-}
+fun HeatColdLibraryState.saunaActivityFor(date: LocalDate): List<HeatColdActivityRow> =
+    activityFor(HeatColdMode.SAUNA, date)
 
-fun HeatColdLibraryState.chronologicalSaunaLogFor(date: LocalDate): List<HeatColdSession> {
-    val log = saunaLogFor(date) ?: return emptyList()
+fun HeatColdLibraryState.coldActivityFor(date: LocalDate): List<HeatColdActivityRow> =
+    activityFor(HeatColdMode.COLD_PLUNGE, date)
+
+fun HeatColdLibraryState.chronologicalLogFor(mode: HeatColdMode, date: LocalDate): List<HeatColdSession> {
+    val log = logFor(mode, date) ?: return emptyList()
     return log.sessions.sortedWith(
         compareBy<HeatColdSession> { it.loggedAtEpochSeconds }.thenBy { it.id }
     )
 }
 
-fun HeatColdLibraryState.chronologicalColdLogFor(date: LocalDate): List<HeatColdSession> {
-    val log = coldLogFor(date) ?: return emptyList()
-    return log.sessions.sortedWith(
-        compareBy<HeatColdSession> { it.loggedAtEpochSeconds }.thenBy { it.id }
-    )
-}
+fun HeatColdLibraryState.chronologicalSaunaLogFor(date: LocalDate): List<HeatColdSession> =
+    chronologicalLogFor(HeatColdMode.SAUNA, date)
+
+fun HeatColdLibraryState.chronologicalColdLogFor(date: LocalDate): List<HeatColdSession> =
+    chronologicalLogFor(HeatColdMode.COLD_PLUNGE, date)
 
 data class HeatColdTimelineEntry(
     val logDate: LocalDate,
@@ -156,13 +157,11 @@ fun HeatColdLibraryState.heatColdTimelineForSectionLog(filter: SectionLogDateFil
     when (filter) {
         SectionLogDateFilter.AllHistory -> {
             val rows = mutableListOf<HeatColdTimelineEntry>()
-            for (dl in saunaLogs) {
-                val d = LocalDate.parse(dl.date)
-                dl.sessions.forEach { rows.add(HeatColdTimelineEntry(d, HeatColdMode.SAUNA, it)) }
-            }
-            for (dl in coldLogs) {
-                val d = LocalDate.parse(dl.date)
-                dl.sessions.forEach { rows.add(HeatColdTimelineEntry(d, HeatColdMode.COLD_PLUNGE, it)) }
+            for (mode in HeatColdMode.entries) {
+                for (dl in logsFor(mode)) {
+                    val d = LocalDate.parse(dl.date)
+                    dl.sessions.forEach { rows.add(HeatColdTimelineEntry(d, mode, it)) }
+                }
             }
             rows.sortedHeatColdNewestFirst()
         }

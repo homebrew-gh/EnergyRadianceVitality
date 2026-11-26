@@ -1,6 +1,6 @@
 package com.erv.app.reminders
 
-import com.erv.app.supplements.SupplementWeekday
+import com.erv.app.reminders.Weekday
 
 /** UI state for editing a [RoutineReminder] (12h clock + repeat options). */
 data class RoutineReminderDraft(
@@ -9,7 +9,7 @@ data class RoutineReminderDraft(
     val minute: Int = 0,
     val isPm: Boolean = false,
     val frequency: RoutineReminderFrequency = RoutineReminderFrequency.DAILY,
-    val repeatDays: Set<SupplementWeekday> = SupplementWeekday.entries.toSet()
+    val repeatDays: Set<Weekday> = Weekday.entries.toSet()
 )
 
 fun RoutineReminderDraft.displayTimeLabel(): String {

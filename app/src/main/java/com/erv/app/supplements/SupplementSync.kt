@@ -2,11 +2,13 @@ package com.erv.app.supplements
 
 import android.content.Context
 import com.erv.app.nostr.EventSigner
+import com.erv.app.nostr.NostrEvent
 import com.erv.app.nostr.dTagOrNull
 import com.erv.app.nostr.fetchLatestKind30078ByDTag
-import com.erv.app.nostr.NostrEvent
 import com.erv.app.nostr.RelayPool
 import com.erv.app.nostr.RelayPublishOutbox
+import com.erv.app.nostr.decryptSelfPayloadOrNull
+import com.erv.app.nostr.publishSelfKind30078
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
@@ -83,7 +85,7 @@ object SupplementSync {
             routines = state.routines
         )
         val content = json.encodeToString(SupplementMasterPayload.serializer(), payload)
-        return publishEvent(appContext, relayPool, signer, SUPPLEMENT_MASTER_D_TAG, content, dataRelayUrls)
+        return publishSelfKind30078(appContext, relayPool, signer, SUPPLEMENT_MASTER_D_TAG, content, dataRelayUrls)
     }
 
     suspend fun publishDailyLog(
@@ -94,7 +96,7 @@ object SupplementSync {
         dataRelayUrls: List<String>,
     ): Boolean {
         val content = json.encodeToString(SupplementDayLog.serializer(), log)
-        return publishEvent(appContext, relayPool, signer, dailyTag(log.date), content, dataRelayUrls)
+        return publishSelfKind30078(appContext, relayPool, signer, dailyTag(log.date), content, dataRelayUrls)
     }
 
     suspend fun fetchFromNetwork(
@@ -113,13 +115,13 @@ object SupplementSync {
         signer: EventSigner,
     ): SupplementLibraryState {
         val master = latestByTag[SUPPLEMENT_MASTER_D_TAG]
-            ?.decryptPayload(signer)
+            ?.decryptSelfPayloadOrNull(signer)
             ?.let { decodeMaster(it) }
 
         val logs = latestByTag
             .filterKeys { it.startsWith("erv/supplements/") && it != SUPPLEMENT_MASTER_D_TAG }
             .mapNotNull { (dTag, event) ->
-                val raw = event.decryptPayload(signer) ?: return@mapNotNull null
+                val raw = event.decryptSelfPayloadOrNull(signer) ?: return@mapNotNull null
                 decodeLog(raw, dTag.removePrefix("erv/supplements/"))
             }
 
@@ -128,25 +130,6 @@ object SupplementSync {
             routines = master?.routines ?: emptyList(),
             logs = logs.sortedBy { it.date }
         )
-    }
-
-    private suspend fun publishEvent(
-        appContext: Context,
-        relayPool: RelayPool,
-        signer: EventSigner,
-        dTag: String,
-        plaintext: String,
-        dataRelayUrls: List<String>,
-    ): Boolean {
-        val r = RelayPublishOutbox.get(appContext).enqueueReplaceByDTagAndKickDrain(
-            appContext,
-            relayPool,
-            signer,
-            dataRelayUrls,
-            dTag,
-            plaintext,
-        )
-        return r.publishedFail == 0
     }
 
     private fun decodeMaster(raw: String): SupplementMasterPayload? =
@@ -165,13 +148,6 @@ object SupplementSync {
         } catch (_: SerializationException) {
             null
         } catch (_: IllegalArgumentException) {
-            null
-        }
-
-    private suspend fun NostrEvent.decryptPayload(signer: EventSigner): String? =
-        try {
-            signer.decryptFromSelf(content)
-        } catch (_: Exception) {
             null
         }
 

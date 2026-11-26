@@ -38,8 +38,8 @@ import com.erv.app.reminders.RoutineReminderDraft
 import com.erv.app.reminders.RoutineReminderFrequency
 import com.erv.app.reminders.RoutineReminderScheduler
 import com.erv.app.reminders.displayTimeLabel
-import com.erv.app.supplements.SupplementWeekday
-import com.erv.app.supplements.shortLabel
+import com.erv.app.reminders.Weekday
+import com.erv.app.reminders.shortLabel
 
 /**
  * Shared reminder UI: enable toggle, wheel time picker, repeat frequency, weekdays, exact-alarm hint.
@@ -117,7 +117,7 @@ fun RoutineReminderFormSection(
                         frequency = selected,
                         repeatDays = if (selected == RoutineReminderFrequency.DAILY || selected == RoutineReminderFrequency.ONCE) {
                             emptySet()
-                        } else reminderDraft.repeatDays.ifEmpty { SupplementWeekday.entries.toSet() }
+                        } else reminderDraft.repeatDays.ifEmpty { Weekday.entries.toSet() }
                     )
                 )
             },
@@ -132,7 +132,7 @@ fun RoutineReminderFormSection(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                SupplementWeekday.entries.forEach { weekday ->
+                Weekday.entries.forEach { weekday ->
                     FilterChip(
                         selected = weekday in reminderDraft.repeatDays,
                         onClick = {

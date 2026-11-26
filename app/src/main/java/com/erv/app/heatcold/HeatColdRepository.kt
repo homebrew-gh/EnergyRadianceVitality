@@ -1,5 +1,6 @@
 package com.erv.app.heatcold
 
+import com.erv.app.data.TemperatureUnit
 import com.erv.app.data.preserveUnreadableState
 import android.content.Context
 import androidx.datastore.core.DataStore
@@ -46,14 +47,15 @@ class HeatColdRepository(context: Context) {
         replaceAll(HeatColdLibraryState())
     }
 
-    suspend fun logSaunaSession(
+    suspend fun logSession(
+        mode: HeatColdMode,
         date: LocalDate,
         durationSeconds: Int,
         tempValue: Double? = null,
         tempUnit: TemperatureUnit? = null
     ) {
         updateState { current ->
-            val log = current.saunaLogFor(date) ?: HeatColdDayLog(date = date.toString())
+            val log = current.logFor(mode, date) ?: HeatColdDayLog(date = date.toString())
             val session = HeatColdSession(
                 id = UUID.randomUUID().toString(),
                 durationSeconds = durationSeconds,
@@ -61,44 +63,16 @@ class HeatColdRepository(context: Context) {
                 tempUnit = tempUnit,
                 loggedAtEpochSeconds = nowEpochSeconds()
             )
-            current.copy(saunaLogs = current.saunaLogs.upsertLog(log.copy(sessions = log.sessions + session)))
+            current.withLogs(mode, current.logsFor(mode).upsertLog(log.copy(sessions = log.sessions + session)))
         }
     }
 
-    suspend fun logColdSession(
-        date: LocalDate,
-        durationSeconds: Int,
-        tempValue: Double? = null,
-        tempUnit: TemperatureUnit? = null
-    ) {
+    suspend fun deleteSession(mode: HeatColdMode, date: LocalDate, sessionId: String) {
         updateState { current ->
-            val log = current.coldLogFor(date) ?: HeatColdDayLog(date = date.toString())
-            val session = HeatColdSession(
-                id = UUID.randomUUID().toString(),
-                durationSeconds = durationSeconds,
-                tempValue = tempValue,
-                tempUnit = tempUnit,
-                loggedAtEpochSeconds = nowEpochSeconds()
-            )
-            current.copy(coldLogs = current.coldLogs.upsertLog(log.copy(sessions = log.sessions + session)))
-        }
-    }
-
-    suspend fun deleteSaunaSession(date: LocalDate, sessionId: String) {
-        updateState { current ->
-            val log = current.saunaLogFor(date) ?: return@updateState current
+            val log = current.logFor(mode, date) ?: return@updateState current
             val newSessions = log.sessions.filterNot { it.id == sessionId }
             if (newSessions.size == log.sessions.size) return@updateState current
-            current.copy(saunaLogs = current.saunaLogs.upsertLog(log.copy(sessions = newSessions)))
-        }
-    }
-
-    suspend fun deleteColdSession(date: LocalDate, sessionId: String) {
-        updateState { current ->
-            val log = current.coldLogFor(date) ?: return@updateState current
-            val newSessions = log.sessions.filterNot { it.id == sessionId }
-            if (newSessions.size == log.sessions.size) return@updateState current
-            current.copy(coldLogs = current.coldLogs.upsertLog(log.copy(sessions = newSessions)))
+            current.withLogs(mode, current.logsFor(mode).upsertLog(log.copy(sessions = newSessions)))
         }
     }
 

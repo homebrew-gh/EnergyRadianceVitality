@@ -13,7 +13,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.erv.app.MainActivity
 import com.erv.app.R
-import com.erv.app.supplements.SupplementWeekday
+import com.erv.app.reminders.Weekday
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -171,13 +171,13 @@ object RoutineReminderScheduler {
             RoutineReminderFrequency.WEEKLY,
             RoutineReminderFrequency.CUSTOM_DAYS -> {
                 val selectedDays = if (reminder.repeatDays.isEmpty()) {
-                    SupplementWeekday.entries
+                    Weekday.entries
                 } else {
                     reminder.repeatDays
                 }
                 for (offset in 0..13) {
                     val date = now.toLocalDate().plusDays(offset.toLong())
-                    val weekday = date.dayOfWeek.toSupplementWeekday()
+                    val weekday = date.dayOfWeek.toWeekday()
                     if (weekday in selectedDays) {
                         val candidate = candidateForDate(date)
                         if (candidate > nowMillis) return candidate
@@ -194,14 +194,14 @@ object RoutineReminderScheduler {
         nowMillis: Long = System.currentTimeMillis(),
     ): Long? = nextTriggerMillis(reminder, nowMillis)
 
-    private fun DayOfWeek.toSupplementWeekday(): SupplementWeekday = when (this) {
-        DayOfWeek.MONDAY -> SupplementWeekday.MONDAY
-        DayOfWeek.TUESDAY -> SupplementWeekday.TUESDAY
-        DayOfWeek.WEDNESDAY -> SupplementWeekday.WEDNESDAY
-        DayOfWeek.THURSDAY -> SupplementWeekday.THURSDAY
-        DayOfWeek.FRIDAY -> SupplementWeekday.FRIDAY
-        DayOfWeek.SATURDAY -> SupplementWeekday.SATURDAY
-        DayOfWeek.SUNDAY -> SupplementWeekday.SUNDAY
+    private fun DayOfWeek.toWeekday(): Weekday = when (this) {
+        DayOfWeek.MONDAY -> Weekday.MONDAY
+        DayOfWeek.TUESDAY -> Weekday.TUESDAY
+        DayOfWeek.WEDNESDAY -> Weekday.WEDNESDAY
+        DayOfWeek.THURSDAY -> Weekday.THURSDAY
+        DayOfWeek.FRIDAY -> Weekday.FRIDAY
+        DayOfWeek.SATURDAY -> Weekday.SATURDAY
+        DayOfWeek.SUNDAY -> Weekday.SUNDAY
     }
 
     private fun notificationId(routineId: String): Int = routineId.hashCode()

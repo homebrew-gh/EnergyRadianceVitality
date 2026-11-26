@@ -1,6 +1,6 @@
 package com.erv.app.reminders
 
-import com.erv.app.supplements.SupplementWeekday
+import com.erv.app.reminders.Weekday
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -58,7 +58,7 @@ class RoutineReminderSchedulerTest {
             hour = 8,
             minute = 0,
             frequency = RoutineReminderFrequency.CUSTOM_DAYS,
-            repeatDays = listOf(SupplementWeekday.MONDAY),
+            repeatDays = listOf(Weekday.MONDAY),
         )
         val trigger = RoutineReminderScheduler.nextTriggerMillisForTest(reminder, now)!!
         val expected = LocalDate.of(2026, 7, 6).atTime(8, 0).atZone(zone).toInstant().toEpochMilli()
