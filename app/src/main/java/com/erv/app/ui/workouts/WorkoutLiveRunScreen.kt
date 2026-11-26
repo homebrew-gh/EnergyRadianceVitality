@@ -1,5 +1,11 @@
 package com.erv.app.ui.workouts
 
+import com.erv.app.weighttraining.formatValue
+import com.erv.app.weighttraining.allDatedWorkouts
+import com.erv.app.weighttraining.WeightWorkoutSource
+import com.erv.app.weighttraining.WeightWorkoutSession
+import com.erv.app.weighttraining.WeightRecords
+import com.erv.app.weighttraining.WeightNewRecord
 import kotlin.math.roundToInt
 import com.erv.app.workouts.WorkoutCardioPrescription
 import com.erv.app.data.coachLineFor
@@ -2678,6 +2684,22 @@ private fun ComposedWorkoutSummaryScreen(
     val weightSessions = summary.sections.mapNotNull { it.weightSession }
     val totalSets = weightSessions.sumOf { it.totalSetCount() }
     val totalVolume = weightSessions.sumOf { it.totalVolumeLoadTimesReps(loadUnit) }
+    // Lift records today's run beat, against everything logged before it. The run's sessions are
+    // looked at as one, so a lift split over two sections isn't compared with itself.
+    val liftRecords = remember(weightSessions, weightState.logs) {
+        if (weightSessions.isEmpty()) {
+            emptyList()
+        } else {
+            val todaysIds = weightSessions.map { it.id }.toSet()
+            val combined = WeightWorkoutSession(
+                id = "this-run",
+                source = WeightWorkoutSource.LIVE,
+                entries = weightSessions.flatMap { it.entries },
+            )
+            val earlier = weightState.allDatedWorkouts().filter { it.workout.id !in todaysIds }
+            WeightRecords.newRecords(earlier, combined, LocalDate.now())
+        }
+    }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -2749,6 +2771,11 @@ private fun ComposedWorkoutSummaryScreen(
                             )
                         }
                     }
+                }
+            }
+            if (liftRecords.isNotEmpty()) {
+                item(key = "lift_records") {
+                    LiftNewRecordsBanner(liftRecords, weightState, loadUnit)
                 }
             }
             if (summary.wholeRun != null) {
@@ -2971,6 +2998,49 @@ private fun WorkoutSkipStepButton(
         modifier = Modifier.fillMaxWidth(),
     ) {
         Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+/**
+ * "New Record" for the lifts: one line per exercise with each record it beat today and the old
+ * value, e.g. "Bench Press: Est. 1RM 268 lb (was 262 lb) · Heaviest 245 lb × 2 (was 240 lb × 3)".
+ */
+@Composable
+private fun LiftNewRecordsBanner(
+    records: List<WeightNewRecord>,
+    weightState: WeightLibraryState,
+    loadUnit: BodyWeightUnit,
+) {
+    val byExercise = records.groupBy { it.record.exerciseId }
+    Surface(
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.tertiaryContainer,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(
+                    Icons.Filled.EmojiEvents,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onTertiaryContainer,
+                )
+                Text(
+                    if (records.size == 1) "New Record" else "${records.size} New Records",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer,
+                )
+            }
+            byExercise.forEach { (exerciseId, list) ->
+                val name = weightState.exerciseById(exerciseId)?.name ?: "Exercise"
+                Text(
+                    "$name: " + list.joinToString(" · ") { (record, previous) ->
+                        "${record.kind.title} ${record.formatValue(loadUnit)} (was ${previous.formatValue(loadUnit)})"
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer,
+                )
+            }
+        }
     }
 }
 
