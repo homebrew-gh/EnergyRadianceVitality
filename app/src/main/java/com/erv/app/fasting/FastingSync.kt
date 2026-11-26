@@ -78,7 +78,7 @@ object FastingSync {
         return pairs
     }
 
-    fun fromLatestByTag(latestByTag: Map<String, NostrEvent>, signer: EventSigner): FastingLibraryState {
+    suspend fun fromLatestByTag(latestByTag: Map<String, NostrEvent>, signer: EventSigner): FastingLibraryState {
         val statePayload = latestByTag[FASTING_STATE_D_TAG]
             ?.decryptSelfPayloadOrNull(signer)
             ?.let { raw -> runCatching { json.decodeFromString(FastingStatePayload.serializer(), raw) }.getOrNull() }
