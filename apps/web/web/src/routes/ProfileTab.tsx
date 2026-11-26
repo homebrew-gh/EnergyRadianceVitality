@@ -16,6 +16,16 @@ import {
   type TrainingProfilePayload,
 } from "../lib/trainingProfile";
 import { PageHeader } from "../components/PageHeader";
+import { useWeightLoadUnit } from "../lib/weightLoadUnit";
+
+const INCH_CM = 2.54;
+
+/** Whole feet and inches for a height in cm. */
+function feetInches(cm: number | null | undefined): { feet: number; inches: number } | null {
+  if (!cm) return null;
+  const total = Math.round(cm / INCH_CM);
+  return { feet: Math.floor(total / 12), inches: total % 12 };
+}
 
 export function ProfileTab() {
   const {
@@ -32,6 +42,12 @@ export function ProfileTab() {
   } = useTrainingProfile();
 
   const [success, setSuccess] = useState<string | null>(null);
+  const [weightUnit] = useWeightLoadUnit();
+  const height = feetInches(profile.heightCm);
+  const setFeetInches = (feet: number, inches: number) => {
+    const total = feet * 12 + inches;
+    patch({ heightCm: total > 0 ? Math.round(total * INCH_CM * 10) / 10 : null });
+  };
 
   useUnsavedChangesWarning(dirty);
 
@@ -259,6 +275,80 @@ export function ProfileTab() {
               }
             />
           </label>
+          <label className="block space-y-1">
+            <span className="label">
+              <FieldLabel>Sex</FieldLabel>
+            </span>
+            <select
+              className="input w-full"
+              value={profile.sex ?? ""}
+              onChange={(e) =>
+                patch({
+                  sex: e.target.value ? (e.target.value as TrainingProfilePayload["sex"]) : null,
+                })
+              }
+            >
+              <option value="">Not set</option>
+              <option value="male">Male</option>
+              <option value="female">Female</option>
+            </select>
+            <span className="text-xs text-muted block">
+              Only used for fitness standards that set different targets.
+            </span>
+          </label>
+          {weightUnit === "LB" ? (
+            <fieldset className="block space-y-1">
+              <legend className="label">
+                <FieldLabel>Height</FieldLabel>
+              </legend>
+              <div className="flex gap-2">
+                <label className="flex flex-1 items-center gap-2">
+                  <input
+                    type="number"
+                    className="input w-full"
+                    min={3}
+                    max={8}
+                    aria-label="Height feet"
+                    value={height?.feet ?? ""}
+                    onChange={(e) =>
+                      setFeetInches(e.target.value ? Number(e.target.value) : 0, height?.inches ?? 0)
+                    }
+                  />
+                  <span className="text-sm text-muted">ft</span>
+                </label>
+                <label className="flex flex-1 items-center gap-2">
+                  <input
+                    type="number"
+                    className="input w-full"
+                    min={0}
+                    max={11}
+                    aria-label="Height inches"
+                    value={height?.inches ?? ""}
+                    onChange={(e) =>
+                      setFeetInches(height?.feet ?? 0, e.target.value ? Number(e.target.value) : 0)
+                    }
+                  />
+                  <span className="text-sm text-muted">in</span>
+                </label>
+              </div>
+              <span className="text-xs text-muted block">For standards measured against your height, like the broad jump.</span>
+            </fieldset>
+          ) : (
+            <label className="block space-y-1">
+              <span className="label">
+                <FieldLabel>Height (cm)</FieldLabel>
+              </span>
+              <input
+                type="number"
+                className="input w-full"
+                min={50}
+                max={272}
+                value={profile.heightCm ?? ""}
+                onChange={(e) => patch({ heightCm: e.target.value ? Number(e.target.value) : null })}
+              />
+              <span className="text-xs text-muted block">For standards measured against your height, like the broad jump.</span>
+            </label>
+          )}
         </div>
       </section>
 
