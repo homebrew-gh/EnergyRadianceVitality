@@ -64,7 +64,9 @@ class BuildForTodayTest {
     fun legDayPicksLegStretchesThatFitTheTime() {
         val today = TodayTraining(TodayTrainingSource.LOGGED, mapOf("legs" to 5))
         for (minutes in BUILD_FOR_TODAY_MINUTES) {
-            val built = assertNotNull(buildStretchesForToday(catalog, today, minutes))!!
+            val built = buildStretchesForToday(catalog, today, minutes)
+            assertNotNull(built)
+            built!!
             assertTrue("$minutes min: ${built.totalSeconds}", built.totalSeconds <= minutes * 60)
             assertTrue("$minutes min too short: ${built.totalSeconds}", built.totalSeconds >= minutes * 60 * 3 / 4)
             assertTrue(built.entries.all { "legs" in it.muscleGroups })
