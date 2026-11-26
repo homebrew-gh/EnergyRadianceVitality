@@ -221,12 +221,14 @@ object CatalogSync {
             CatalogPublishAction.None -> Unit
         }
 
+        val bundledStretchRoot = StretchCatalogLoader.loadRoot(appContext)
         when (catalogPublishAction(remoteStretch?.catalogVersion, fetchComplete)) {
             CatalogPublishAction.Bootstrap -> {
                 val payload = cachedStretch?.let { CatalogMerge.upgradeStretchCatalog(bundledStretch, it) } ?: bundledStretch
                 publishCatalog(appContext, relayPool, signer, dataRelayUrls, STRETCH_CATALOG_D_TAG, encodeStretchCatalog(payload))
+                setOfferedStretchRevision(appContext, bundledStretchRoot.catalogRevision)
             }
-            CatalogPublishAction.Upgrade ->
+            CatalogPublishAction.Upgrade -> {
                 publishCatalog(
                     appContext,
                     relayPool,
@@ -235,7 +237,28 @@ object CatalogSync {
                     STRETCH_CATALOG_D_TAG,
                     encodeStretchCatalog(CatalogMerge.upgradeStretchCatalog(bundledStretch, remoteStretch!!)),
                 )
-            CatalogPublishAction.None -> Unit
+                setOfferedStretchRevision(appContext, bundledStretchRoot.catalogRevision)
+            }
+            CatalogPublishAction.None -> if (remoteStretch != null && fetchComplete) {
+                // The relay copy is the web's (or another device's), so it is never replaced; new
+                // built-in stretches from an app update are added to it once.
+                val offered = offeredStretchRevision(appContext)
+                val upgraded = CatalogMerge.offerNewBuiltinStretches(
+                    relay = remoteStretch,
+                    bundled = bundledStretchRoot,
+                    offeredRevision = offered,
+                    nowEpochSeconds = System.currentTimeMillis() / 1000,
+                )
+                if (upgraded != null) {
+                    publishCatalog(appContext, relayPool, signer, dataRelayUrls, STRETCH_CATALOG_D_TAG, encodeStretchCatalog(upgraded))
+                    store.mergeReceivedRelayCatalogs(weight = null, stretch = upgraded, cardio = null)
+                }
+                if (bundledStretchRoot.catalogRevision > offered) {
+                    setOfferedStretchRevision(appContext, bundledStretchRoot.catalogRevision)
+                }
+            } else {
+                Unit
+            }
         }
 
         when (catalogPublishAction(remoteCardio?.catalogVersion, fetchComplete)) {
@@ -298,6 +321,19 @@ object CatalogSync {
             return null
         }
         return decode(raw)
+    }
+
+    private const val CATALOG_SYNC_PREFS = "erv_catalog_sync"
+    private const val KEY_STRETCH_OFFERED_REVISION = "stretch_builtin_offered_revision"
+
+    /** The newest bundled stretch revision this device has already added to the relay catalog. */
+    private fun offeredStretchRevision(context: Context): Int =
+        context.getSharedPreferences(CATALOG_SYNC_PREFS, Context.MODE_PRIVATE)
+            .getInt(KEY_STRETCH_OFFERED_REVISION, 1)
+
+    private fun setOfferedStretchRevision(context: Context, revision: Int) {
+        context.getSharedPreferences(CATALOG_SYNC_PREFS, Context.MODE_PRIVATE)
+            .edit().putInt(KEY_STRETCH_OFFERED_REVISION, revision).apply()
     }
 
     private suspend fun publishCatalog(

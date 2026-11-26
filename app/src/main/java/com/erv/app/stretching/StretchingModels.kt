@@ -19,6 +19,7 @@ fun stretchCategoryDisplayLabel(categoryKey: String): String =
         "core" -> "Core"
         "glutes" -> "Glutes"
         "legs" -> "Legs"
+        "restorative" -> "Restorative"
         "other" -> "Other"
         else -> categoryKey.replaceFirstChar { it.titlecase(Locale.getDefault()) }
     }
@@ -47,8 +48,21 @@ data class StretchCatalogEntry(
      */
     val requiresBothSides: Boolean = false,
     val targetBodyParts: List<String> = emptyList(),
-    val procedure: String = ""
+    val procedure: String = "",
+    /**
+     * The weight-training muscle groups this stretch helps after (chest, back, shoulders, biceps,
+     * triceps, legs, core, neck), so stretches can be picked for what a workout worked.
+     */
+    val muscleGroups: List<String> = emptyList(),
+    /** A suggested hold when this stretch is added to a routine (longer for restorative poses). */
+    val defaultHoldSeconds: Int? = null,
 )
+
+const val STRETCH_CATEGORY_RESTORATIVE = "restorative"
+
+/** A long, gentle, supported pose (child's pose, legs up the wall, savasana, …). */
+val StretchCatalogEntry.isRestorative: Boolean
+    get() = category.trim().equals(STRETCH_CATEGORY_RESTORATIVE, ignoreCase = true)
 
 /** Hold segments for one catalog slot (1 = single timer; 2 = left + right each for full hold). */
 fun StretchCatalogEntry.holdSideSegments(): Int = if (requiresBothSides) 2 else 1
@@ -84,6 +98,10 @@ fun List<StretchCatalogEntry>.toGuidedSessionSteps(): List<GuidedStretchStep> =
 
 @Serializable
 data class StretchCatalogRoot(
+    /** Bumped when the bundled catalog gains stretches. */
+    val catalogRevision: Int = 1,
+    /** Ids added in each revision after the first, so an app update can offer just those to the relay. */
+    val addedByRevision: Map<String, List<String>> = emptyMap(),
     val stretches: List<StretchCatalogEntry> = emptyList()
 )
 
@@ -101,7 +119,22 @@ data class StretchRoutine(
     val holdSecondsByStretchId: Map<String, Int> = emptyMap(),
     /** Seconds between different stretches in the guided player; null keeps the default. */
     val gapSeconds: Int? = null,
+    /**
+     * A one-minute breathing settle before the first pose and a closing rest with a soft bell. Only
+     * offered, and only played, when the routine has a restorative pose.
+     */
+    val settleAndRest: Boolean = false,
 )
+
+/** Seconds of the opening breathing settle when [StretchRoutine.settleAndRest] plays. */
+const val STRETCH_SETTLE_SECONDS = 60
+
+/** Seconds of the closing rest when [StretchRoutine.settleAndRest] plays. */
+const val STRETCH_CLOSING_REST_SECONDS = 60
+
+/** Whether Settle In and Rest plays for this routine with these [entries] (it needs a restorative pose). */
+fun StretchRoutine.playsSettleAndRest(entries: List<StretchCatalogEntry>): Boolean =
+    settleAndRest && entries.any { it.isRestorative }
 
 const val STRETCH_HOLD_MIN_SECONDS = 5
 const val STRETCH_HOLD_MAX_SECONDS = 300

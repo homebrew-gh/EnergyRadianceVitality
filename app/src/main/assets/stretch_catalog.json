@@ -1,236 +1,958 @@
 {
+  "catalogRevision": 2,
+  "addedByRevision": {
+    "2": [
+      "builtin_chest_clasp_behind",
+      "builtin_corner_pec",
+      "builtin_lying_chest_opener",
+      "builtin_biceps_wall",
+      "builtin_behind_back_towel",
+      "builtin_sleeper_stretch",
+      "builtin_eagle_arms",
+      "builtin_levator_scap",
+      "builtin_lat_wall",
+      "builtin_kneeling_lat",
+      "builtin_overhead_side_reach",
+      "builtin_open_book",
+      "builtin_knees_to_chest",
+      "builtin_seated_forward_fold",
+      "builtin_ragdoll_fold",
+      "builtin_cobra",
+      "builtin_standing_back_extension",
+      "builtin_ninety_ninety",
+      "builtin_frog",
+      "builtin_butterfly",
+      "builtin_lizard",
+      "builtin_couch_stretch",
+      "builtin_deep_squat",
+      "builtin_kneeling_ankle",
+      "builtin_bent_knee_calf",
+      "builtin_toe_stretch",
+      "builtin_supported_childs_pose",
+      "builtin_sphinx",
+      "builtin_reclined_butterfly",
+      "builtin_legs_up_wall",
+      "builtin_happy_baby",
+      "builtin_puppy_pose",
+      "builtin_banana_pose",
+      "builtin_savasana"
+    ]
+  },
   "stretches": [
     {
       "id": "builtin_neck_side",
       "name": "Neck Side Stretch",
       "category": "neck",
       "requiresBothSides": true,
-      "targetBodyParts": ["neck"],
-      "procedure": "Gently tilt your head toward one shoulder until you feel a mild stretch. Hold, then switch sides. Keep shoulders relaxed."
+      "targetBodyParts": [
+        "neck"
+      ],
+      "procedure": "Gently tilt your head toward one shoulder until you feel a mild stretch. Hold, then switch sides. Keep shoulders relaxed.",
+      "muscleGroups": [
+        "neck"
+      ]
     },
     {
       "id": "builtin_neck_rotation",
       "name": "Neck Rotation",
       "category": "neck",
       "requiresBothSides": true,
-      "targetBodyParts": ["neck"],
-      "procedure": "Sit tall. Slowly turn your head to look over one shoulder until you feel a gentle stretch. Return to center, then repeat on the other side. Do not force the range."
+      "targetBodyParts": [
+        "neck"
+      ],
+      "procedure": "Sit tall. Slowly turn your head to look over one shoulder until you feel a gentle stretch. Return to center, then repeat on the other side. Do not force the range.",
+      "muscleGroups": [
+        "neck"
+      ]
     },
     {
       "id": "builtin_chin_tuck",
       "name": "Chin Tuck",
       "category": "neck",
       "requiresBothSides": false,
-      "targetBodyParts": ["neck", "upper back"],
-      "procedure": "Sit or stand with a tall spine. Gently draw your chin straight back as if making a double chin, lengthening the back of your neck. Relax and repeat slowly."
+      "targetBodyParts": [
+        "neck",
+        "upper back"
+      ],
+      "procedure": "Sit or stand with a tall spine. Gently draw your chin straight back as if making a double chin, lengthening the back of your neck. Relax and repeat slowly.",
+      "muscleGroups": [
+        "neck",
+        "back"
+      ]
     },
     {
       "id": "builtin_upper_trap_stretch",
       "name": "Upper Trapezius Stretch",
       "category": "neck",
       "requiresBothSides": true,
-      "targetBodyParts": ["neck", "shoulders"],
-      "procedure": "Sit tall. Gently bring one ear toward the shoulder on the same side. Optionally place the hand on your head for light pressure. Hold, then switch sides."
+      "targetBodyParts": [
+        "neck",
+        "shoulders"
+      ],
+      "procedure": "Sit tall. Gently bring one ear toward the shoulder on the same side. Optionally place the hand on your head for light pressure. Hold, then switch sides.",
+      "muscleGroups": [
+        "neck",
+        "shoulders"
+      ]
     },
     {
       "id": "builtin_shoulder_cross",
       "name": "Cross-body Shoulder Stretch",
       "category": "shoulders",
       "requiresBothSides": true,
-      "targetBodyParts": ["shoulders"],
-      "procedure": "Bring one arm across your chest. Use the other arm to hug it closer. Hold, then switch arms."
+      "targetBodyParts": [
+        "shoulders"
+      ],
+      "procedure": "Bring one arm across your chest. Use the other arm to hug it closer. Hold, then switch arms.",
+      "muscleGroups": [
+        "shoulders"
+      ]
     },
     {
       "id": "builtin_wall_slides",
       "name": "Wall Slides (W/Y)",
       "category": "shoulders",
       "requiresBothSides": false,
-      "targetBodyParts": ["shoulders", "upper back"],
-      "procedure": "Stand with your back against a wall, arms bent at 90° at shoulder height. Slowly slide arms upward toward a Y shape while keeping contact with the wall, then lower with control."
+      "targetBodyParts": [
+        "shoulders",
+        "upper back"
+      ],
+      "procedure": "Stand with your back against a wall, arms bent at 90° at shoulder height. Slowly slide arms upward toward a Y shape while keeping contact with the wall, then lower with control.",
+      "muscleGroups": [
+        "shoulders",
+        "back"
+      ]
     },
     {
       "id": "builtin_triceps_overhead",
       "name": "Overhead Triceps Stretch",
       "category": "arms",
       "requiresBothSides": true,
-      "targetBodyParts": ["arms", "shoulders"],
-      "procedure": "Raise one arm overhead, bend the elbow so your hand reaches toward the opposite shoulder blade. Gently press with the other hand. Switch sides."
+      "targetBodyParts": [
+        "arms",
+        "shoulders"
+      ],
+      "procedure": "Raise one arm overhead, bend the elbow so your hand reaches toward the opposite shoulder blade. Gently press with the other hand. Switch sides.",
+      "muscleGroups": [
+        "triceps",
+        "shoulders"
+      ]
     },
     {
       "id": "builtin_wrist_flexor",
       "name": "Wrist Flexor Stretch",
       "category": "arms",
       "requiresBothSides": true,
-      "targetBodyParts": ["forearms", "wrists"],
-      "procedure": "Extend one arm forward, palm up. With the other hand, gently pull the fingers back until you feel a mild stretch along the inner forearm. Switch arms."
+      "targetBodyParts": [
+        "forearms",
+        "wrists"
+      ],
+      "procedure": "Extend one arm forward, palm up. With the other hand, gently pull the fingers back until you feel a mild stretch along the inner forearm. Switch arms.",
+      "muscleGroups": [
+        "biceps"
+      ]
     },
     {
       "id": "builtin_wrist_extensor",
       "name": "Wrist Extensor Stretch",
       "category": "arms",
       "requiresBothSides": true,
-      "targetBodyParts": ["forearms", "wrists"],
-      "procedure": "Extend one arm forward, palm down. Bend the wrist so fingers point toward the floor; use the other hand to add gentle pressure. Switch arms."
+      "targetBodyParts": [
+        "forearms",
+        "wrists"
+      ],
+      "procedure": "Extend one arm forward, palm down. Bend the wrist so fingers point toward the floor; use the other hand to add gentle pressure. Switch arms.",
+      "muscleGroups": [
+        "biceps",
+        "triceps"
+      ]
     },
     {
       "id": "builtin_prayer_stretch",
       "name": "Prayer Stretch (Forearms)",
       "category": "arms",
       "requiresBothSides": false,
-      "targetBodyParts": ["forearms", "wrists"],
-      "procedure": "Press palms together in front of your chest, elbows pointing out. Lower hands toward your waistline until you feel a stretch through the forearms. Hold and breathe."
+      "targetBodyParts": [
+        "forearms",
+        "wrists"
+      ],
+      "procedure": "Press palms together in front of your chest, elbows pointing out. Lower hands toward your waistline until you feel a stretch through the forearms. Hold and breathe.",
+      "muscleGroups": [
+        "biceps"
+      ]
     },
     {
       "id": "builtin_doorway_pec",
       "name": "Doorway Pec Stretch",
       "category": "chest",
       "requiresBothSides": true,
-      "targetBodyParts": ["chest", "shoulders"],
-      "procedure": "Place forearms on a door frame with elbows about shoulder height. Step through gently until you feel a stretch across the chest. Hold, then adjust arm height slightly and repeat."
+      "targetBodyParts": [
+        "chest",
+        "shoulders"
+      ],
+      "procedure": "Place forearms on a door frame with elbows about shoulder height. Step through gently until you feel a stretch across the chest. Hold, then adjust arm height slightly and repeat.",
+      "muscleGroups": [
+        "chest",
+        "shoulders"
+      ]
     },
     {
       "id": "builtin_cat_cow",
       "name": "Cat–Cow (Spine Mobility)",
       "category": "back",
       "requiresBothSides": false,
-      "targetBodyParts": ["back", "core"],
-      "procedure": "On hands and knees, alternate rounding your spine toward the ceiling (cat) and arching gently (cow) with slow breaths."
+      "targetBodyParts": [
+        "back",
+        "core"
+      ],
+      "procedure": "On hands and knees, alternate rounding your spine toward the ceiling (cat) and arching gently (cow) with slow breaths.",
+      "muscleGroups": [
+        "back",
+        "core"
+      ]
     },
     {
       "id": "builtin_childs_pose",
       "name": "Child's Pose",
       "category": "back",
       "requiresBothSides": false,
-      "targetBodyParts": ["back", "hips"],
-      "procedure": "Kneel and sit back toward your heels, arms extended forward or alongside your body. Breathe and relax the lower back."
+      "targetBodyParts": [
+        "back",
+        "hips"
+      ],
+      "procedure": "Kneel and sit back toward your heels, arms extended forward or alongside your body. Breathe and relax the lower back.",
+      "muscleGroups": [
+        "back"
+      ]
     },
     {
       "id": "builtin_thread_needle",
       "name": "Thread the Needle",
       "category": "back",
       "requiresBothSides": true,
-      "targetBodyParts": ["upper back", "shoulders"],
-      "procedure": "On hands and knees, reach one arm under the opposite arm, lowering the shoulder and cheek toward the mat. Hold, then open into a gentle twist on the other side."
+      "targetBodyParts": [
+        "upper back",
+        "shoulders"
+      ],
+      "procedure": "On hands and knees, reach one arm under the opposite arm, lowering the shoulder and cheek toward the mat. Hold, then open into a gentle twist on the other side.",
+      "muscleGroups": [
+        "back",
+        "shoulders"
+      ]
     },
     {
       "id": "builtin_thoracic_extension_chair",
       "name": "Thoracic Extension (Chair)",
       "category": "back",
       "requiresBothSides": false,
-      "targetBodyParts": ["upper back"],
-      "procedure": "Sit in a chair, interlace hands behind your head. Lean back over the chair support to open the upper back slightly. Keep movements small and comfortable."
+      "targetBodyParts": [
+        "upper back"
+      ],
+      "procedure": "Sit in a chair, interlace hands behind your head. Lean back over the chair support to open the upper back slightly. Keep movements small and comfortable.",
+      "muscleGroups": [
+        "back"
+      ]
     },
     {
       "id": "builtin_supine_twist",
       "name": "Supine Spinal Twist",
       "category": "back",
       "requiresBothSides": true,
-      "targetBodyParts": ["back", "hips"],
-      "procedure": "Lie on your back, hug one knee toward your chest, then guide it across the body toward the floor while keeping shoulders down. Switch sides."
+      "targetBodyParts": [
+        "back",
+        "hips"
+      ],
+      "procedure": "Lie on your back, hug one knee toward your chest, then guide it across the body toward the floor while keeping shoulders down. Switch sides.",
+      "muscleGroups": [
+        "back",
+        "core"
+      ]
     },
     {
       "id": "builtin_seated_side_bend",
       "name": "Seated Side Bend",
       "category": "core",
       "requiresBothSides": true,
-      "targetBodyParts": ["obliques", "core"],
-      "procedure": "Sit tall in a chair or on the floor. Reach one arm overhead and lean to the opposite side until you feel a stretch along the side of your torso. Switch sides."
+      "targetBodyParts": [
+        "obliques",
+        "core"
+      ],
+      "procedure": "Sit tall in a chair or on the floor. Reach one arm overhead and lean to the opposite side until you feel a stretch along the side of your torso. Switch sides.",
+      "muscleGroups": [
+        "core"
+      ]
     },
     {
       "id": "builtin_standing_hamstring",
       "name": "Standing Hamstring Stretch",
       "category": "legs",
       "requiresBothSides": true,
-      "targetBodyParts": ["hamstrings"],
-      "procedure": "Hinge at the hips with a flat back, resting hands on thighs or a support. Feel a gentle stretch along the backs of the legs."
+      "targetBodyParts": [
+        "hamstrings"
+      ],
+      "procedure": "Hinge at the hips with a flat back, resting hands on thighs or a support. Feel a gentle stretch along the backs of the legs.",
+      "muscleGroups": [
+        "legs"
+      ]
     },
     {
       "id": "builtin_seated_hamstring",
       "name": "Seated Hamstring Stretch",
       "category": "legs",
       "requiresBothSides": true,
-      "targetBodyParts": ["hamstrings", "calves"],
-      "procedure": "Sit on the edge of a chair or on the floor with one leg extended, toes up. Hinge forward from the hips with a long spine. Switch legs."
+      "targetBodyParts": [
+        "hamstrings",
+        "calves"
+      ],
+      "procedure": "Sit on the edge of a chair or on the floor with one leg extended, toes up. Hinge forward from the hips with a long spine. Switch legs.",
+      "muscleGroups": [
+        "legs"
+      ]
     },
     {
       "id": "builtin_quad_standing",
       "name": "Standing Quad Stretch",
       "category": "legs",
       "requiresBothSides": true,
-      "targetBodyParts": ["quads", "hips"],
-      "procedure": "Stand on one leg (use a wall for balance if needed). Bend the other knee and bring heel toward glute. Keep knees together. Switch legs."
+      "targetBodyParts": [
+        "quads",
+        "hips"
+      ],
+      "procedure": "Stand on one leg (use a wall for balance if needed). Bend the other knee and bring heel toward glute. Keep knees together. Switch legs.",
+      "muscleGroups": [
+        "legs"
+      ]
     },
     {
       "id": "builtin_calf_wall",
       "name": "Calf Stretch (Wall)",
       "category": "legs",
       "requiresBothSides": true,
-      "targetBodyParts": ["calves"],
-      "procedure": "Place hands on a wall, step one foot back with the leg straight and heel down. Lean gently forward. Switch legs."
+      "targetBodyParts": [
+        "calves"
+      ],
+      "procedure": "Place hands on a wall, step one foot back with the leg straight and heel down. Lean gently forward. Switch legs.",
+      "muscleGroups": [
+        "legs"
+      ]
     },
     {
       "id": "builtin_hip_flexor_lunge",
       "name": "Hip Flexor Lunge Stretch",
       "category": "legs",
       "requiresBothSides": true,
-      "targetBodyParts": ["hips", "quads"],
-      "procedure": "Step into a low lunge, back leg straight or knee down. Shift weight forward slightly to open the front of the hip. Switch sides."
+      "targetBodyParts": [
+        "hips",
+        "quads"
+      ],
+      "procedure": "Step into a low lunge, back leg straight or knee down. Shift weight forward slightly to open the front of the hip. Switch sides.",
+      "muscleGroups": [
+        "legs"
+      ]
     },
     {
       "id": "builtin_seated_groin",
       "name": "Seated Groin (Butterfly)",
       "category": "legs",
       "requiresBothSides": false,
-      "targetBodyParts": ["adductors", "hips"],
-      "procedure": "Sit with soles of the feet together and knees apart. Hold ankles, sit tall, and gently press knees toward the floor without bouncing."
+      "targetBodyParts": [
+        "adductors",
+        "hips"
+      ],
+      "procedure": "Sit with soles of the feet together and knees apart. Hold ankles, sit tall, and gently press knees toward the floor without bouncing.",
+      "muscleGroups": [
+        "legs"
+      ]
     },
     {
       "id": "builtin_it_band_side_lean",
       "name": "Standing IT Band Side Lean",
       "category": "legs",
       "requiresBothSides": true,
-      "targetBodyParts": ["it band", "hips"],
-      "procedure": "Stand near a wall for support. Cross one leg behind the other and reach the same-side arm overhead, leaning away until you feel a stretch along the outer hip and thigh. Switch sides."
+      "targetBodyParts": [
+        "it band",
+        "hips"
+      ],
+      "procedure": "Stand near a wall for support. Cross one leg behind the other and reach the same-side arm overhead, leaning away until you feel a stretch along the outer hip and thigh. Switch sides.",
+      "muscleGroups": [
+        "legs"
+      ]
     },
     {
       "id": "builtin_worlds_greatest",
       "name": "World's Greatest Stretch",
       "category": "legs",
       "requiresBothSides": true,
-      "targetBodyParts": ["hips", "hamstrings", "thoracic spine"],
-      "procedure": "From a lunge, place both hands inside the front foot. Rotate the same-side arm toward the ceiling in a controlled opener, then step to repeat on the other side."
+      "targetBodyParts": [
+        "hips",
+        "hamstrings",
+        "thoracic spine"
+      ],
+      "procedure": "From a lunge, place both hands inside the front foot. Rotate the same-side arm toward the ceiling in a controlled opener, then step to repeat on the other side.",
+      "muscleGroups": [
+        "legs",
+        "back"
+      ]
     },
     {
       "id": "builtin_lying_side_quad",
       "name": "Side-Lying Quad Stretch",
       "category": "legs",
       "requiresBothSides": true,
-      "targetBodyParts": ["quads", "hips"],
-      "procedure": "Lie on your side, bend the top knee and catch the ankle behind you, drawing the heel toward your glute. Keep knees aligned. Switch sides."
+      "targetBodyParts": [
+        "quads",
+        "hips"
+      ],
+      "procedure": "Lie on your side, bend the top knee and catch the ankle behind you, drawing the heel toward your glute. Keep knees aligned. Switch sides.",
+      "muscleGroups": [
+        "legs"
+      ]
     },
     {
       "id": "builtin_figure_four",
       "name": "Figure-four (Glute) Stretch",
       "category": "glutes",
       "requiresBothSides": true,
-      "targetBodyParts": ["glutes", "hips"],
-      "procedure": "Lie on your back, cross one ankle over the opposite knee, gently pull the thigh toward you. Switch sides."
+      "targetBodyParts": [
+        "glutes",
+        "hips"
+      ],
+      "procedure": "Lie on your back, cross one ankle over the opposite knee, gently pull the thigh toward you. Switch sides.",
+      "muscleGroups": [
+        "legs"
+      ]
     },
     {
       "id": "builtin_pigeon_glute",
       "name": "Pigeon Pose (Glute)",
       "category": "glutes",
       "requiresBothSides": true,
-      "targetBodyParts": ["glutes", "hips"],
-      "procedure": "From hands and knees, bring one knee forward toward the same-side wrist and extend the other leg back. Square hips and fold forward as tolerated. Switch sides."
+      "targetBodyParts": [
+        "glutes",
+        "hips"
+      ],
+      "procedure": "From hands and knees, bring one knee forward toward the same-side wrist and extend the other leg back. Square hips and fold forward as tolerated. Switch sides.",
+      "muscleGroups": [
+        "legs"
+      ]
     },
     {
       "id": "builtin_seated_piriformis",
       "name": "Seated Piriformis Stretch",
       "category": "glutes",
       "requiresBothSides": true,
-      "targetBodyParts": ["glutes", "hips"],
-      "procedure": "Sit tall, cross one ankle over the opposite knee into a figure-four. Hinge forward slightly from the hips until you feel a stretch in the glute. Switch sides."
+      "targetBodyParts": [
+        "glutes",
+        "hips"
+      ],
+      "procedure": "Sit tall, cross one ankle over the opposite knee into a figure-four. Hinge forward slightly from the hips until you feel a stretch in the glute. Switch sides.",
+      "muscleGroups": [
+        "legs"
+      ]
+    },
+    {
+      "id": "builtin_chest_clasp_behind",
+      "name": "Clasped Hands Chest Opener",
+      "category": "chest",
+      "requiresBothSides": false,
+      "targetBodyParts": [
+        "chest",
+        "shoulders"
+      ],
+      "muscleGroups": [
+        "chest",
+        "shoulders"
+      ],
+      "procedure": "Stand tall and clasp your hands behind your back. Straighten your arms, draw your shoulder blades together, and lift your chest. Keep your chin level and breathe into the front of your chest."
+    },
+    {
+      "id": "builtin_corner_pec",
+      "name": "Corner Chest Stretch",
+      "category": "chest",
+      "requiresBothSides": false,
+      "targetBodyParts": [
+        "chest",
+        "shoulders"
+      ],
+      "muscleGroups": [
+        "chest",
+        "shoulders"
+      ],
+      "procedure": "Face a room corner. Place a forearm on each wall with elbows just below shoulder height. Step one foot forward and lean in gently until you feel the stretch across your chest. Keep your neck long."
+    },
+    {
+      "id": "builtin_lying_chest_opener",
+      "name": "Lying Chest Opener",
+      "category": "chest",
+      "requiresBothSides": false,
+      "targetBodyParts": [
+        "chest",
+        "shoulders",
+        "thoracic spine"
+      ],
+      "muscleGroups": [
+        "chest",
+        "shoulders"
+      ],
+      "procedure": "Lie on your back with a rolled towel along your spine. Let your arms fall open to the sides, palms up, elbows soft. Let gravity open your chest and breathe slowly."
+    },
+    {
+      "id": "builtin_biceps_wall",
+      "name": "Wall Biceps Stretch",
+      "category": "arms",
+      "requiresBothSides": true,
+      "targetBodyParts": [
+        "arms",
+        "forearms",
+        "chest"
+      ],
+      "muscleGroups": [
+        "biceps",
+        "chest"
+      ],
+      "procedure": "Stand side-on to a wall. Place your palm flat on the wall behind you at shoulder height, thumb up. Slowly turn your body away from the wall until you feel a stretch along the front of the arm."
+    },
+    {
+      "id": "builtin_behind_back_towel",
+      "name": "Behind-the-Back Towel Stretch",
+      "category": "arms",
+      "requiresBothSides": true,
+      "targetBodyParts": [
+        "arms",
+        "shoulders"
+      ],
+      "muscleGroups": [
+        "triceps",
+        "shoulders"
+      ],
+      "procedure": "Hold a towel in one hand over your shoulder and let it hang down your back. Reach behind with the other hand and grab the towel. Gently pull down with the lower hand to stretch the top arm."
+    },
+    {
+      "id": "builtin_sleeper_stretch",
+      "name": "Sleeper Stretch",
+      "category": "shoulders",
+      "requiresBothSides": true,
+      "targetBodyParts": [
+        "shoulders"
+      ],
+      "muscleGroups": [
+        "shoulders"
+      ],
+      "procedure": "Lie on one side with that arm out in front at shoulder height and the elbow bent to ninety degrees, fingers up. With the other hand, gently press the forearm toward the floor until you feel a stretch at the back of the shoulder."
+    },
+    {
+      "id": "builtin_eagle_arms",
+      "name": "Eagle Arms",
+      "category": "shoulders",
+      "requiresBothSides": true,
+      "targetBodyParts": [
+        "shoulders",
+        "upper back"
+      ],
+      "muscleGroups": [
+        "shoulders",
+        "back"
+      ],
+      "procedure": "Reach your arms forward, cross one elbow over the other, and bend both elbows so the backs of your hands or palms meet. Lift your elbows slightly and let your shoulder blades spread apart."
+    },
+    {
+      "id": "builtin_levator_scap",
+      "name": "Levator Scapulae Stretch",
+      "category": "neck",
+      "requiresBothSides": true,
+      "targetBodyParts": [
+        "neck",
+        "shoulders"
+      ],
+      "muscleGroups": [
+        "neck",
+        "shoulders"
+      ],
+      "procedure": "Sit tall. Turn your head about halfway toward one armpit and gently look down. Rest the hand on that side on the back of your head for light pressure. Keep the opposite shoulder low."
+    },
+    {
+      "id": "builtin_lat_wall",
+      "name": "Wall Lat Stretch",
+      "category": "back",
+      "requiresBothSides": false,
+      "targetBodyParts": [
+        "back",
+        "shoulders"
+      ],
+      "muscleGroups": [
+        "back",
+        "shoulders"
+      ],
+      "procedure": "Place your hands on a wall or counter at hip height, arms straight. Walk your feet back and hinge at the hips until your arms are in line with your back. Let your chest sink and feel the stretch along your sides."
+    },
+    {
+      "id": "builtin_kneeling_lat",
+      "name": "Kneeling Lat Stretch",
+      "category": "back",
+      "requiresBothSides": true,
+      "targetBodyParts": [
+        "back",
+        "shoulders"
+      ],
+      "muscleGroups": [
+        "back"
+      ],
+      "procedure": "Kneel in front of a bench or chair. Place one elbow on it, turn the palm up, and sit your hips back toward your heels. Let your chest drop until you feel a stretch down the side of your back."
+    },
+    {
+      "id": "builtin_overhead_side_reach",
+      "name": "Overhead Side Reach",
+      "category": "back",
+      "requiresBothSides": true,
+      "targetBodyParts": [
+        "back",
+        "obliques"
+      ],
+      "muscleGroups": [
+        "back",
+        "core"
+      ],
+      "procedure": "Stand with feet hip-width apart. Reach one arm overhead and lean gently to the opposite side, lengthening from hip to fingertips. Keep both feet grounded and breathe into the long side."
+    },
+    {
+      "id": "builtin_open_book",
+      "name": "Open Book",
+      "category": "back",
+      "requiresBothSides": true,
+      "targetBodyParts": [
+        "thoracic spine",
+        "chest"
+      ],
+      "muscleGroups": [
+        "back",
+        "chest"
+      ],
+      "procedure": "Lie on your side with knees bent and stacked, arms reaching forward together. Slowly open the top arm up and over to the other side, following it with your eyes, letting your upper back rotate. Keep your knees together."
+    },
+    {
+      "id": "builtin_knees_to_chest",
+      "name": "Knees to Chest",
+      "category": "back",
+      "requiresBothSides": false,
+      "targetBodyParts": [
+        "back",
+        "glutes"
+      ],
+      "muscleGroups": [
+        "back",
+        "legs"
+      ],
+      "procedure": "Lie on your back and hug both knees toward your chest. Let your lower back settle into the floor. You can rock gently side to side."
+    },
+    {
+      "id": "builtin_seated_forward_fold",
+      "name": "Seated Forward Fold",
+      "category": "back",
+      "requiresBothSides": false,
+      "targetBodyParts": [
+        "back",
+        "hamstrings"
+      ],
+      "muscleGroups": [
+        "back",
+        "legs"
+      ],
+      "procedure": "Sit with your legs straight out in front. Lengthen your spine, then hinge forward from the hips and reach toward your shins or feet. Let your head relax and keep the knees soft if needed."
+    },
+    {
+      "id": "builtin_ragdoll_fold",
+      "name": "Ragdoll Forward Fold",
+      "category": "back",
+      "requiresBothSides": false,
+      "targetBodyParts": [
+        "back",
+        "hamstrings"
+      ],
+      "muscleGroups": [
+        "back",
+        "legs"
+      ],
+      "procedure": "Stand with feet hip-width apart and knees softly bent. Fold forward and hold opposite elbows, letting your head and upper body hang heavy. Sway gently if it feels good."
+    },
+    {
+      "id": "builtin_cobra",
+      "name": "Cobra Stretch",
+      "category": "core",
+      "requiresBothSides": false,
+      "targetBodyParts": [
+        "core",
+        "back"
+      ],
+      "muscleGroups": [
+        "core",
+        "back"
+      ],
+      "procedure": "Lie face down with your hands under your shoulders. Press gently to lift your chest, keeping your hips on the floor and elbows slightly bent. Lift only as far as feels comfortable for your lower back."
+    },
+    {
+      "id": "builtin_standing_back_extension",
+      "name": "Standing Back Extension",
+      "category": "core",
+      "requiresBothSides": false,
+      "targetBodyParts": [
+        "core",
+        "back"
+      ],
+      "muscleGroups": [
+        "core",
+        "back"
+      ],
+      "procedure": "Stand tall with your hands on your lower back, fingers pointing down. Gently lift your chest and lean back a little, keeping your neck long. Breathe into your belly."
+    },
+    {
+      "id": "builtin_ninety_ninety",
+      "name": "90/90 Hip Stretch",
+      "category": "glutes",
+      "requiresBothSides": true,
+      "targetBodyParts": [
+        "hips",
+        "glutes"
+      ],
+      "muscleGroups": [
+        "legs"
+      ],
+      "procedure": "Sit with your front leg bent ninety degrees in front of you and your back leg bent ninety degrees to the side. Sit tall, then hinge gently forward over the front shin."
+    },
+    {
+      "id": "builtin_frog",
+      "name": "Frog Stretch",
+      "category": "legs",
+      "requiresBothSides": false,
+      "targetBodyParts": [
+        "adductors",
+        "hips"
+      ],
+      "muscleGroups": [
+        "legs"
+      ],
+      "procedure": "Start on hands and knees. Slide your knees wide apart with your shins parallel and ankles in line with your knees. Lower onto your forearms and ease your hips back until you feel the inner thighs."
+    },
+    {
+      "id": "builtin_butterfly",
+      "name": "Seated Butterfly",
+      "category": "legs",
+      "requiresBothSides": false,
+      "targetBodyParts": [
+        "adductors",
+        "hips"
+      ],
+      "muscleGroups": [
+        "legs"
+      ],
+      "procedure": "Sit with the soles of your feet together and your knees falling open. Hold your feet, sit tall, and let your knees relax toward the floor. Hinge slightly forward for more."
+    },
+    {
+      "id": "builtin_lizard",
+      "name": "Lizard Lunge",
+      "category": "legs",
+      "requiresBothSides": true,
+      "targetBodyParts": [
+        "hips",
+        "hamstrings",
+        "quads"
+      ],
+      "muscleGroups": [
+        "legs"
+      ],
+      "procedure": "From a low lunge, place both hands inside your front foot and lower your back knee to the floor. Sink your hips forward and down. Lower onto your forearms if that is comfortable."
+    },
+    {
+      "id": "builtin_couch_stretch",
+      "name": "Couch Stretch",
+      "category": "legs",
+      "requiresBothSides": true,
+      "targetBodyParts": [
+        "quads",
+        "hips"
+      ],
+      "muscleGroups": [
+        "legs"
+      ],
+      "procedure": "Kneel with one shin up against a couch or wall behind you and the other foot planted in front. Lift your chest and squeeze the glute of the back leg until you feel the front of the thigh and hip."
+    },
+    {
+      "id": "builtin_deep_squat",
+      "name": "Deep Squat Hold",
+      "category": "legs",
+      "requiresBothSides": false,
+      "targetBodyParts": [
+        "hips",
+        "adductors",
+        "ankles"
+      ],
+      "muscleGroups": [
+        "legs"
+      ],
+      "procedure": "Stand with feet a little wider than your hips, toes slightly out. Lower into a deep squat, heels down if you can, elbows gently pressing your knees apart. Hold onto something for balance if needed."
+    },
+    {
+      "id": "builtin_kneeling_ankle",
+      "name": "Kneeling Ankle Stretch",
+      "category": "legs",
+      "requiresBothSides": false,
+      "targetBodyParts": [
+        "ankles",
+        "shins"
+      ],
+      "muscleGroups": [
+        "legs"
+      ],
+      "procedure": "Kneel with the tops of your feet flat on the floor and sit back on your heels. Lean back a little on your hands to stretch the front of the ankles and shins. Use a cushion under your knees if needed."
+    },
+    {
+      "id": "builtin_bent_knee_calf",
+      "name": "Bent-Knee Calf Stretch",
+      "category": "legs",
+      "requiresBothSides": true,
+      "targetBodyParts": [
+        "calves",
+        "ankles"
+      ],
+      "muscleGroups": [
+        "legs"
+      ],
+      "procedure": "Stand facing a wall with one foot back. Keep the back heel down and bend the back knee until you feel a stretch low in the calf, near the Achilles."
+    },
+    {
+      "id": "builtin_toe_stretch",
+      "name": "Kneeling Toe Stretch",
+      "category": "legs",
+      "requiresBothSides": false,
+      "targetBodyParts": [
+        "feet",
+        "ankles"
+      ],
+      "muscleGroups": [
+        "legs"
+      ],
+      "procedure": "Kneel and tuck your toes under, then sit back gently on your heels. Keep the stretch mild and come forward onto your hands if it is too strong."
+    },
+    {
+      "id": "builtin_supported_childs_pose",
+      "name": "Supported Child's Pose",
+      "category": "restorative",
+      "requiresBothSides": false,
+      "targetBodyParts": [
+        "back",
+        "hips"
+      ],
+      "muscleGroups": [
+        "back",
+        "legs"
+      ],
+      "procedure": "Kneel with knees wide and a pillow lengthwise between them. Fold forward and rest your chest and head on the pillow, turning your head to one side. Let your arms rest and your whole back soften.",
+      "defaultHoldSeconds": 120
+    },
+    {
+      "id": "builtin_sphinx",
+      "name": "Sphinx Pose",
+      "category": "restorative",
+      "requiresBothSides": false,
+      "targetBodyParts": [
+        "back",
+        "core"
+      ],
+      "muscleGroups": [
+        "back",
+        "core"
+      ],
+      "procedure": "Lie face down and rest on your forearms, elbows under your shoulders. Let your belly and legs be heavy. Relax your shoulders away from your ears and breathe slowly.",
+      "defaultHoldSeconds": 120
+    },
+    {
+      "id": "builtin_reclined_butterfly",
+      "name": "Reclined Butterfly",
+      "category": "restorative",
+      "requiresBothSides": false,
+      "targetBodyParts": [
+        "hips",
+        "adductors"
+      ],
+      "muscleGroups": [
+        "legs"
+      ],
+      "procedure": "Lie on your back with the soles of your feet together and knees falling open. Rest a pillow under each knee if you like. Let your arms rest by your sides, palms up.",
+      "defaultHoldSeconds": 150
+    },
+    {
+      "id": "builtin_legs_up_wall",
+      "name": "Legs Up the Wall",
+      "category": "restorative",
+      "requiresBothSides": false,
+      "targetBodyParts": [
+        "hamstrings",
+        "back"
+      ],
+      "muscleGroups": [
+        "legs"
+      ],
+      "procedure": "Sit side-on to a wall, then lie back and swing your legs up the wall. Let your hips rest close to the wall and your arms fall open. Close your eyes and let your legs feel light.",
+      "defaultHoldSeconds": 180
+    },
+    {
+      "id": "builtin_happy_baby",
+      "name": "Happy Baby",
+      "category": "restorative",
+      "requiresBothSides": false,
+      "targetBodyParts": [
+        "hips",
+        "back"
+      ],
+      "muscleGroups": [
+        "legs",
+        "back"
+      ],
+      "procedure": "Lie on your back and draw your knees toward your armpits. Hold the outsides of your feet or the backs of your thighs, with your shins pointing up. Let your lower back rest on the floor and rock gently.",
+      "defaultHoldSeconds": 90
+    },
+    {
+      "id": "builtin_puppy_pose",
+      "name": "Puppy Pose",
+      "category": "restorative",
+      "requiresBothSides": false,
+      "targetBodyParts": [
+        "shoulders",
+        "upper back",
+        "chest"
+      ],
+      "muscleGroups": [
+        "shoulders",
+        "back",
+        "chest"
+      ],
+      "procedure": "From hands and knees, walk your hands forward and let your chest melt toward the floor while your hips stay over your knees. Rest your forehead on the floor or a pillow.",
+      "defaultHoldSeconds": 90
+    },
+    {
+      "id": "builtin_banana_pose",
+      "name": "Banana Pose",
+      "category": "restorative",
+      "requiresBothSides": true,
+      "targetBodyParts": [
+        "obliques",
+        "back"
+      ],
+      "muscleGroups": [
+        "core",
+        "back"
+      ],
+      "procedure": "Lie on your back and reach your arms overhead. Walk your upper body and your legs toward the same side so your body makes a gentle curve, like a banana. Feel the long opposite side.",
+      "defaultHoldSeconds": 120
+    },
+    {
+      "id": "builtin_savasana",
+      "name": "Savasana",
+      "category": "restorative",
+      "requiresBothSides": false,
+      "targetBodyParts": [],
+      "muscleGroups": [],
+      "procedure": "Lie on your back with your legs long and arms resting a little away from your sides, palms up. Let your whole body be heavy. Let your breath be easy and simply rest.",
+      "defaultHoldSeconds": 180
     }
   ]
 }

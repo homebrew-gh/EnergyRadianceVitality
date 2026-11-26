@@ -59,6 +59,20 @@ class GuidedStretchSessionStateTest {
     }
 
     @Test
+    fun settleAndRestAddToPlannedMinutes() {
+        // 90 s of holds, 15 s of gaps, a 60 s settle and a 60 s rest: 225 s → 4 min.
+        val s = state().copy(settleSeconds = 60, closingRestSeconds = 60)
+        assertEquals(4, s.plannedMinutes)
+    }
+
+    @Test
+    fun restShowsNoStretch() {
+        val s = state().copy(firstPrepActive = false, phaseHold = false, restActive = true, index = 2)
+        assertNull(s.shownStep)
+        assertEquals(3, s.focusIndex)
+    }
+
+    @Test
     fun resultFollowsHeldSteps() {
         assertNull(state().result())
         val all = state().copy(heldStepIndexes = setOf(0, 1, 2))

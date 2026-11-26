@@ -109,6 +109,10 @@ import com.erv.app.ui.components.FieldLabel
 import com.erv.app.ui.components.FormSectionLabel
 import com.erv.app.stretching.guidedEntryPositions
 import com.erv.app.stretching.guidedSecondsRemaining
+import com.erv.app.stretching.playsSettleAndRest
+import com.erv.app.stretching.isRestorative
+import com.erv.app.stretching.STRETCH_SETTLE_SECONDS
+import com.erv.app.stretching.STRETCH_CLOSING_REST_SECONDS
 import com.erv.app.stretching.toGuidedSessionSteps
 import com.erv.app.stretching.guidedStepHoldSeconds
 import com.erv.app.stretching.gapSecondsOrDefault
@@ -159,14 +163,18 @@ private fun routineHoldSummaryLine(
     catalog: List<StretchCatalogEntry>,
     holds: List<Int>,
     gapSeconds: Int,
+    settleAndRest: Boolean = false,
 ): String {
     if (stretchIds.isEmpty()) return "0 stretches"
     val byId = catalog.associateBy { it.id }
     val entries = stretchIds.map { id -> byId[id] ?: StretchCatalogEntry(id = id, name = id) }
+    val settle = settleAndRest && entries.any { it.isRestorative }
     val minutes = guidedSessionTotalMinutes(
         entries.toGuidedSessionSteps(),
         guidedStepHoldSeconds(entries, holds),
         gapSeconds,
+        prepSeconds = if (settle) STRETCH_SETTLE_SECONDS else FIRST_STRETCH_PREP_SECONDS,
+        closingRestSeconds = if (settle) STRETCH_CLOSING_REST_SECONDS else 0,
     )
     val lo = holds.minOrNull() ?: 0
     val hi = holds.maxOrNull() ?: 0
@@ -318,13 +326,15 @@ fun StretchingCategoryScreen(
             snackbarHostState.showSnackbar("Add stretches to this routine first")
             return@LaunchedEffect
         }
+        val entries = resolveStretchEntries(r.stretchIds, repository)
         GuidedStretchController.start(
             context = appContext,
             routineId = r.id,
             routineName = r.name,
-            entries = resolveStretchEntries(r.stretchIds, repository),
+            entries = entries,
             entryHoldSeconds = r.entryHoldSeconds(),
             gapSeconds = r.gapSecondsOrDefault(),
+            settleAndRest = r.playsSettleAndRest(entries),
         )
     }
     LaunchedEffect(guidedSession?.outcome) {
@@ -668,6 +678,7 @@ private fun StretchRoutinesTab(
                                     repository.catalog,
                                     routine.entryHoldSeconds(),
                                     routine.gapSecondsOrDefault(),
+                                    routine.settleAndRest,
                                 ),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -722,6 +733,7 @@ private fun StretchGuidedSessionOverlay(session: GuidedStretchSessionState) {
     val index = session.index
     val phaseHold = session.phaseHold
     val firstPrepActive = session.firstPrepActive
+    val restActive = session.restActive
     val secondsLeft = session.secondsLeft
     val paused = session.paused
     val voiceEnabled = session.voiceEnabled
@@ -740,7 +752,7 @@ private fun StretchGuidedSessionOverlay(session: GuidedStretchSessionState) {
     val positions = remember(steps) { guidedEntryPositions(steps) }
     val entryCount = (positions.lastOrNull() ?: -1) + 1
     val focusPosition = positions.getOrNull(focusIndex.coerceIn(0, (steps.size - 1).coerceAtLeast(0))) ?: 0
-    val secondsRemaining = guidedSecondsRemaining(
+    val secondsRemaining = if (restActive) secondsLeft.coerceAtLeast(0) else session.closingRestSeconds + guidedSecondsRemaining(
         steps = steps,
         stepHolds = session.stepHoldSeconds,
         focusIndex = focusIndex.coerceIn(0, (steps.size - 1).coerceAtLeast(0)),
@@ -750,8 +762,9 @@ private fun StretchGuidedSessionOverlay(session: GuidedStretchSessionState) {
     )
     val shownStep = session.shownStep
     val phaseTotal = when {
+        restActive -> session.closingRestSeconds
         phaseHold -> session.holdAt(index)
-        firstPrepActive -> FIRST_STRETCH_PREP_SECONDS
+        firstPrepActive -> session.settleSeconds
         else -> session.gapAfterCurrent ?: TRANSITION_SECONDS_BILATERAL_SIDE
     }
     val ringTarget = if (secondsLeft < 0 || phaseTotal <= 0) 0f else
@@ -785,6 +798,7 @@ private fun StretchGuidedSessionOverlay(session: GuidedStretchSessionState) {
         ) {
             Text(
                 when {
+                    restActive -> "Rest"
                     phaseHold -> "Hold"
                     firstPrepActive -> "Settle In"
                     else -> "Next"
@@ -828,13 +842,13 @@ private fun StretchGuidedSessionOverlay(session: GuidedStretchSessionState) {
             }
 
             Crossfade(
-                targetState = Triple(phaseHold, firstPrepActive, shownStep),
+                targetState = Triple(phaseHold, restActive, shownStep),
                 animationSpec = tween(700),
                 label = "stretchText",
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-            ) { (hold, _, step) ->
+            ) { (hold, resting, step) ->
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center,
@@ -843,7 +857,24 @@ private fun StretchGuidedSessionOverlay(session: GuidedStretchSessionState) {
                         .verticalScroll(rememberScrollState())
                         .padding(vertical = 16.dp)
                 ) {
-                    if (step != null) {
+                    if (resting) {
+                        Text(
+                            "Rest",
+                            style = MaterialTheme.typography.headlineMedium,
+                            fontWeight = FontWeight.Light,
+                            color = ink,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Spacer(Modifier.height(14.dp))
+                        Text(
+                            "Let your body be heavy and your breath easy. A soft bell will close the session.",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = ink.copy(alpha = 0.78f),
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    } else if (step != null) {
                         Text(
                             titleCaseStretchLabel(step.entry.name),
                             style = MaterialTheme.typography.headlineMedium,
@@ -1047,6 +1078,9 @@ private fun StretchRoutineEditorDialog(
     var holdSecText by remember(routine?.id, creating) {
         mutableStateOf((routine?.holdSecondsPerStretch ?: 30).toString())
     }
+    var settleAndRest by remember(routine?.id, creating) {
+        mutableStateOf(routine?.settleAndRest ?: true)
+    }
     var gapSecText by remember(routine?.id, creating) {
         mutableStateOf(routine?.gapSeconds?.toString().orEmpty())
     }
@@ -1109,7 +1143,7 @@ private fun StretchRoutineEditorDialog(
                         ?.coerceIn(STRETCH_HOLD_MIN_SECONDS, STRETCH_HOLD_MAX_SECONDS) ?: holdForPlan
                 if (planIds.isNotEmpty()) {
                     Text(
-                        routineHoldSummaryLine(planIds, catalog, planIds.map { holdFor(it) }, gapForPlan),
+                        routineHoldSummaryLine(planIds, catalog, planIds.map { holdFor(it) }, gapForPlan, settleAndRest),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -1188,6 +1222,26 @@ private fun StretchRoutineEditorDialog(
                     }
                 }
                 TextButton(onClick = { showPicker = true }) { Text("Add stretch") }
+                val hasRestorative = orderedIds.any { id -> catalog.firstOrNull { it.id == id }?.isRestorative == true }
+                if (hasRestorative) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            FormSectionLabel("Settle in and rest")
+                            Text(
+                                "A minute of slow breathing before the first pose, and a minute of rest with a soft bell at the end.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        androidx.compose.material3.Switch(
+                            checked = settleAndRest,
+                            onCheckedChange = { settleAndRest = it }
+                        )
+                    }
+                }
             }
         },
         confirmButton = {
@@ -1206,6 +1260,8 @@ private fun StretchRoutineEditorDialog(
                             holdSecondsPerStretch = hold,
                             holdSecondsByStretchId = cleanedStretchHoldOverrides(overrides, ids, hold),
                             gapSeconds = gap?.takeIf { it != STRETCH_GAP_DEFAULT_SECONDS },
+                            settleAndRest = settleAndRest &&
+                                ids.any { id -> catalog.firstOrNull { it.id == id }?.isRestorative == true },
                         )
                     )
                 }
@@ -1336,6 +1392,10 @@ private fun StretchRoutineEditorDialog(
                                             TextButton(
                                                 onClick = {
                                                     orderedIds.add(entry.id)
+                                                    // Restorative poses come with a longer suggested hold.
+                                                    entry.defaultHoldSeconds
+                                                        ?.takeIf { it > 0 && holdOverrideText[entry.id] == null }
+                                                        ?.let { holdOverrideText[entry.id] = it.toString() }
                                                     showPicker = false
                                                 },
                                                 modifier = Modifier.fillMaxWidth()

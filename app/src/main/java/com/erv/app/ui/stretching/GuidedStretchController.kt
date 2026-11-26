@@ -14,6 +14,8 @@ import com.erv.app.data.UserPreferences
 import com.erv.app.stretching.GuidedStretchResult
 import com.erv.app.stretching.GuidedStretchStep
 import com.erv.app.stretching.StretchCatalogEntry
+import com.erv.app.stretching.STRETCH_CLOSING_REST_SECONDS
+import com.erv.app.stretching.STRETCH_SETTLE_SECONDS
 import com.erv.app.stretching.StretchCue
 import com.erv.app.stretching.StretchSide
 import com.erv.app.stretching.applyStretchGuidedTtsVoice
@@ -138,6 +140,27 @@ private fun buildFirstStretchIntroSpeech(entry: StretchCatalogEntry, readProcedu
     return "Welcome. Settle in, and take a slow breath. Your first stretch is the $name.$procedure$bilateralNote"
 }
 
+/** Opening of Settle In and Rest: a minute of slow breathing before the first pose is named. */
+private const val SETTLE_SPEECH =
+    "Welcome. Find a comfortable position and let your eyes soften. Breathe in slowly through your nose, " +
+        "and let each breath out be a little longer than the breath in. We'll settle here for a minute."
+
+/** Read near the end of the settle: the first pose. */
+private fun buildSettleFirstPoseSpeech(entry: StretchCatalogEntry, readProcedure: Boolean): String {
+    val name = entry.name.trim().ifBlank { "this pose" }
+    val procedure = if (readProcedure) spokenProcedure(entry).let { if (it.isEmpty()) "" else " $it" } else ""
+    val bilateralNote = if (entry.requiresBothSides) " Right side first, then the left." else ""
+    return "When you're ready, your first pose is the $name.$procedure$bilateralNote"
+}
+
+private const val CLOSING_REST_SPEECH =
+    "Now let everything go. Lie back, or simply be still. Let your body be heavy, and your breath easy."
+
+private const val CLOSING_COMPLETE_SPEECH = "When you're ready, slowly come back."
+
+/** Seconds before the settle ends when the first pose is announced. */
+private const val SETTLE_ANNOUNCE_AT_SECONDS_LEFT = 25
+
 /**
  * Spoken cue during the transition into [next]: its name and side, plus the how-to when
  * [readProcedure] (see [guidedReadsProcedure]).
@@ -246,14 +269,15 @@ internal fun guidedSessionTotalMinutes(
     sessionSteps: List<GuidedStretchStep>,
     stepHolds: List<Int>,
     gapSeconds: Int = TRANSITION_SECONDS_NEW_STRETCH,
+    prepSeconds: Int = FIRST_STRETCH_PREP_SECONDS,
+    closingRestSeconds: Int = 0,
 ): Int {
     if (sessionSteps.isEmpty()) return 0
     val holdTotal = sessionSteps.indices.sumOf { stepHolds.getOrNull(it) ?: stepHolds.lastOrNull() ?: 0 }
     val transitions = sessionSteps
         .zipWithNext()
         .sumOf { (a, b) -> transitionSecondsBetweenSteps(a, b, gapSeconds) }
-    val firstPrep = FIRST_STRETCH_PREP_SECONDS
-    return max(1, (holdTotal + transitions + firstPrep + 59) / 60)
+    return max(1, (holdTotal + transitions + prepSeconds + closingRestSeconds + 59) / 60)
 }
 
 
@@ -273,6 +297,12 @@ data class GuidedStretchSessionState(
     val stepHoldSeconds: List<Int>,
     /** Seconds between different stretches. */
     val gapSeconds: Int = TRANSITION_SECONDS_NEW_STRETCH,
+    /** Seconds of settling in before the first hold (a minute with Settle In and Rest). */
+    val settleSeconds: Int = FIRST_STRETCH_PREP_SECONDS,
+    /** Seconds of closing rest after the last hold; 0 when there is none. */
+    val closingRestSeconds: Int = 0,
+    /** True during the closing rest. */
+    val restActive: Boolean = false,
     val index: Int = 0,
     val phaseHold: Boolean = false,
     val firstPrepActive: Boolean = true,
@@ -306,7 +336,8 @@ data class GuidedStretchSessionState(
             else -> nextStep
         }
 
-    val plannedMinutes: Int get() = guidedSessionTotalMinutes(steps, stepHoldSeconds, gapSeconds)
+    val plannedMinutes: Int
+        get() = guidedSessionTotalMinutes(steps, stepHoldSeconds, gapSeconds, settleSeconds, closingRestSeconds)
 
     fun result(): GuidedStretchResult? = guidedStretchResult(
         steps = steps,
@@ -356,6 +387,8 @@ object GuidedStretchController {
         /** One hold per entry, in order (see [com.erv.app.stretching.entryHoldSeconds]). */
         entryHoldSeconds: List<Int>,
         gapSeconds: Int = TRANSITION_SECONDS_NEW_STRETCH,
+        /** Settle In and Rest: a minute's breathing settle and a closing rest with a soft bell. */
+        settleAndRest: Boolean = false,
     ) {
         val current = _state.value
         if (current != null && current.outcome == null && current.routineId == routineId) return
@@ -369,6 +402,8 @@ object GuidedStretchController {
             steps = entries.toGuidedSessionSteps(),
             stepHoldSeconds = guidedStepHoldSeconds(entries, entryHoldSeconds),
             gapSeconds = gapSeconds,
+            settleSeconds = if (settleAndRest) STRETCH_SETTLE_SECONDS else FIRST_STRETCH_PREP_SECONDS,
+            closingRestSeconds = if (settleAndRest) STRETCH_CLOSING_REST_SECONDS else 0,
         )
         val prefs = UserPreferences(app)
         prefsJob = scope.launch {
@@ -529,20 +564,42 @@ object GuidedStretchController {
             }
             var i: Int
             if (jumpTo == null) {
-                _state.update { it?.copy(firstPrepActive = true, phaseHold = false, index = 0, secondsLeft = -1) }
-                say(
-                    context,
-                    buildFirstStretchIntroSpeech(start.entries[0], guidedReadsProcedure(guidanceDetail, steps, 0)),
-                    FIRST_INTRO_UTTERANCE_ID,
-                    FIRST_INTRO_SPEAK_WAIT_MS,
-                )
-                countDown(FIRST_STRETCH_PREP_SECONDS)
+                _state.update {
+                    it?.copy(firstPrepActive = true, phaseHold = false, restActive = false, index = 0, secondsLeft = -1)
+                }
+                val readFirst = guidedReadsProcedure(guidanceDetail, steps, 0)
+                if (start.settleSeconds > FIRST_STRETCH_PREP_SECONDS) {
+                    // Settle In: a calm opening, a minute of breathing, then the first pose is named.
+                    say(context, SETTLE_SPEECH, FIRST_INTRO_UTTERANCE_ID, FIRST_INTRO_SPEAK_WAIT_MS)
+                    var announce: Job? = null
+                    countDown(start.settleSeconds) { left ->
+                        if (left == SETTLE_ANNOUNCE_AT_SECONDS_LEFT.coerceAtMost(start.settleSeconds)) {
+                            announce = launch {
+                                say(
+                                    context,
+                                    buildSettleFirstPoseSpeech(start.entries[0], readFirst),
+                                    NEXT_STEP_UTTERANCE_ID,
+                                    NEXT_STEP_SPEAK_WAIT_MS,
+                                )
+                            }
+                        }
+                    }
+                    announce?.join()
+                } else {
+                    say(
+                        context,
+                        buildFirstStretchIntroSpeech(start.entries[0], readFirst),
+                        FIRST_INTRO_UTTERANCE_ID,
+                        FIRST_INTRO_SPEAK_WAIT_MS,
+                    )
+                    countDown(start.settleSeconds)
+                }
                 _state.update { it?.copy(firstPrepActive = false) }
                 i = 0
             } else {
                 // After Skip or Back: a short get-ready for the chosen stretch, announced like any other.
                 i = jumpTo.coerceIn(0, steps.lastIndex)
-                _state.update { it?.copy(firstPrepActive = false, phaseHold = false, index = i - 1) }
+                _state.update { it?.copy(firstPrepActive = false, phaseHold = false, restActive = false, index = i - 1) }
                 val announce = async {
                     say(
                         context,
@@ -585,7 +642,19 @@ object GuidedStretchController {
                 val next = i
                 _state.update { it?.copy(index = next) }
             }
-            say(context, "Stretching complete.", COMPLETE_UTTERANCE_ID, COMPLETE_SPEAK_WAIT_MS)
+            if (start.closingRestSeconds > 0) {
+                // Rest: a quiet minute after the last pose, ending on one soft bell.
+                _state.update { it?.copy(phaseHold = false, restActive = true, index = steps.lastIndex) }
+                val settle = async { say(context, CLOSING_REST_SPEECH, NEXT_STEP_UTTERANCE_ID, NEXT_STEP_SPEAK_WAIT_MS) }
+                countDown(start.closingRestSeconds)
+                settle.await()
+                val bellStyle = if (soundStyle == StretchSoundStyle.VIBRATE_ONLY) soundStyle else StretchSoundStyle.SINGING_BOWL
+                StretchCuePlayer.play(context, bellStyle, StretchCue.HOLD_END)
+                delay(2_500)
+                say(context, CLOSING_COMPLETE_SPEECH, COMPLETE_UTTERANCE_ID, COMPLETE_SPEAK_WAIT_MS)
+            } else {
+                say(context, "Stretching complete.", COMPLETE_UTTERANCE_ID, COMPLETE_SPEAK_WAIT_MS)
+            }
             val done = _state.value ?: return@launch
             finish(done.result() ?: GuidedStretchResult(done.entries.map { it.id }, done.plannedMinutes))
         }

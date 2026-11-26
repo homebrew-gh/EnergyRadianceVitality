@@ -44,6 +44,10 @@ export type StretchCatalogEntry = {
   requiresBothSides: boolean;
   targetBodyParts: string[];
   procedure: string;
+  /** Weight-training muscle groups this stretch helps after (matches WeightCatalogExercise.muscleGroup). */
+  muscleGroups?: string[];
+  /** Suggested hold when added to a routine (longer for restorative poses). */
+  defaultHoldSeconds?: number | null;
 };
 
 export type StretchCatalogPayload = {
@@ -266,6 +270,7 @@ export const STRETCH_CATEGORY_ORDER = [
   "core",
   "glutes",
   "legs",
+  "restorative",
   "other",
 ] as const;
 
