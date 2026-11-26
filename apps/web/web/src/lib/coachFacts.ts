@@ -197,8 +197,10 @@ function collectLiftSessions(weightLogs: WeightDayLog[]): Map<string, LiftSessio
     for (const session of day.workouts) {
       const merged = new Map<string, WeightSet[]>();
       for (const entry of session.entries) {
-        if (entry.sets.length === 0) continue;
-        merged.set(entry.exerciseId, [...(merged.get(entry.exerciseId) ?? []), ...entry.sets]);
+        // Warm-ups say nothing about progress; the coach sees working sets only.
+        const working = entry.sets.filter((s) => s.warmup !== true);
+        if (working.length === 0) continue;
+        merged.set(entry.exerciseId, [...(merged.get(entry.exerciseId) ?? []), ...working]);
       }
       for (const [exerciseId, sets] of merged) {
         const list = byExercise.get(exerciseId) ?? [];
@@ -391,7 +393,7 @@ function weeksInPeriod(today: string, periodStart: string | null, cap = MAX_WEEK
 }
 
 function isWorkingSet(set: WeightSet): boolean {
-  return set.reps > 0 || (set.durationSeconds ?? 0) > 0;
+  return set.warmup !== true && (set.reps > 0 || (set.durationSeconds ?? 0) > 0);
 }
 
 function totalReps(session: LiftSession): number {

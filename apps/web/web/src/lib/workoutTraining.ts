@@ -83,6 +83,8 @@ export type WorkoutPrescriptionSet = {
   durationSeconds?: number | null;
   targetReps?: number | null;
   targetDurationSeconds?: number | null;
+  /** A warm-up set: the phone logs it marked, and it stays out of records and volume. */
+  warmup?: boolean | null;
 };
 
 export type WorkoutWeightPrescription = {

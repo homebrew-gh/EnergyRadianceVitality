@@ -11,9 +11,6 @@ data class WeightExerciseHistoryRow(
     val entry: WeightWorkoutEntry
 )
 
-/**
- * All log occurrences for [exerciseId], newest calendar day first; within a day, later session timestamps first.
- */
 /** Exercise IDs that appear in at least one saved workout entry across all day logs. */
 fun WeightLibraryState.exerciseIdsUsedInAnyLog(): Set<String> {
     val ids = mutableSetOf<String>()
@@ -27,12 +24,27 @@ fun WeightLibraryState.exerciseIdsUsedInAnyLog(): Set<String> {
     return ids
 }
 
+/**
+ * Everything [exerciseId] got in this workout as one entry. An exercise done twice (a second block
+ * of the same lift) has its sets joined in order; a lone interval block keeps its block.
+ */
+fun WeightWorkoutSession.entryForExercise(exerciseId: String): WeightWorkoutEntry? {
+    val matches = entries.filter { it.exerciseId == exerciseId }
+    if (matches.size <= 1) return matches.firstOrNull()
+    val withSets = matches.filter { it.sets.isNotEmpty() }
+    if (withSets.isEmpty()) return matches.first()
+    return withSets.first().copy(sets = withSets.flatMap { it.sets }, hiitBlock = null)
+}
+
+/**
+ * All log occurrences for [exerciseId], newest calendar day first; within a day, later session timestamps first.
+ */
 fun WeightLibraryState.historyForExercise(exerciseId: String): List<WeightExerciseHistoryRow> {
     val rows = mutableListOf<WeightExerciseHistoryRow>()
     for (dayLog in logs) {
         val date = runCatching { LocalDate.parse(dayLog.date) }.getOrNull() ?: continue
         for (workout in dayLog.workouts) {
-            val entry = workout.entries.firstOrNull { it.exerciseId == exerciseId } ?: continue
+            val entry = workout.entryForExercise(exerciseId) ?: continue
             rows.add(WeightExerciseHistoryRow(date, workout, entry))
         }
     }
@@ -47,15 +59,16 @@ private val repBucketLabels: List<String> =
 
 /**
  * For reps 1–10 and 11+ ("10+"), the maximum [WeightSet.weightKg] ever logged for [exerciseId]
- * among sets with positive reps and weight. Buckets use exact rep count for 1–10; sets with 11+
+ * among working sets (warm-ups left out) with positive reps and weight. Buckets use exact rep count for 1–10; sets with 11+
  * reps contribute only to the last bucket.
  */
 fun WeightLibraryState.maxWeightByRepBucketKg(exerciseId: String): List<Pair<String, Double?>> {
     val max = arrayOfNulls<Double>(11)
     for (dayLog in logs) {
         for (workout in dayLog.workouts) {
-            val entry = workout.entries.firstOrNull { it.exerciseId == exerciseId } ?: continue
+            val entry = workout.entryForExercise(exerciseId) ?: continue
             for (set in entry.sets) {
+                if (set.isWarmup()) continue
                 val reps = set.reps
                 val w = set.weightKg ?: continue
                 if (reps <= 0 || w <= 0.0) continue

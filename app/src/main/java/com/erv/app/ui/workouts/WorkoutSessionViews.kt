@@ -1,6 +1,7 @@
 package com.erv.app.ui.workouts
 
 import android.content.res.Configuration
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -62,6 +63,7 @@ import com.erv.app.ui.weighttraining.PlateLoadLine
 import com.erv.app.weighttraining.WeightExerciseHistoryRow
 import com.erv.app.weighttraining.WeightHiitIntervalPlan
 import com.erv.app.weighttraining.WeightSet
+import com.erv.app.weighttraining.isWarmup
 import com.erv.app.weighttraining.formatRpeFieldForSets
 import com.erv.app.weighttraining.formatWeightLoadNumber
 import com.erv.app.weighttraining.parseDecimalInput
@@ -470,14 +472,19 @@ private fun SessionSetRow(
         SetInputState(logged ?: WeightSet(), timed, loadUnit)
     }
     var touched by remember(row.stepIndex, logged != null) { mutableStateOf(false) }
+    // Warm-up mark: from the builder's plan, or toggled by tapping the set number.
+    var warmup by remember(row.stepIndex, logged?.warmup, row.step.target.warmup) {
+        mutableStateOf(logged?.isWarmup() ?: row.step.target.isWarmup())
+    }
     val amount = inputs.amount.trim().toIntOrNull()?.takeIf { it > 0 } ?: suggestion.amount
     val weightKg = if (inputs.load.isBlank()) suggestion.weightKg else inputs.loadKg(loadUnit)
+    val warmupFlag = if (warmup) true else null
     /** The set as it would be logged with [effort], or null while there is no amount to log. */
     fun setWith(effort: Double?): WeightSet? = amount?.let {
         if (timed) {
-            row.step.target.copy(reps = 0, durationSeconds = it, weightKg = weightKg, rpe = effort, done = null)
+            row.step.target.copy(reps = 0, durationSeconds = it, weightKg = weightKg, rpe = effort, done = null, warmup = warmupFlag)
         } else {
-            row.step.target.copy(reps = it, weightKg = weightKg, rpe = effort, done = null)
+            row.step.target.copy(reps = it, weightKg = weightKg, rpe = effort, done = null, warmup = warmupFlag)
         }
     }
     val toLog = if (inputs.rpeValid) setWith(parseSessionRpe(inputs.rpe)) else null
@@ -499,13 +506,22 @@ private fun SessionSetRow(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.fillMaxWidth(),
     ) {
+        // Tap the number to mark the set as a warm-up ("W"); warm-ups stay out of records and volume.
         Text(
-            "$number",
+            if (warmup) "W" else "$number",
             style = MaterialTheme.typography.titleMedium,
             fontWeight = if (row.isNext) FontWeight.Bold else FontWeight.Normal,
-            color = numberColor,
+            color = if (warmup) MaterialTheme.colorScheme.tertiary else numberColor,
             textAlign = TextAlign.Center,
-            modifier = Modifier.width(SetNumberWidth),
+            modifier = Modifier
+                .width(SetNumberWidth)
+                .clickable(
+                    enabled = !row.skipped,
+                    onClickLabel = if (warmup) "Count set $number as a working set" else "Mark set $number as a warm-up",
+                ) {
+                    warmup = !warmup
+                    logged?.let { onEdit(it.copy(warmup = if (warmup) true else null)) }
+                },
         )
         if (row.skipped) {
             Text(
@@ -552,7 +568,7 @@ private fun SessionSetRow(
                 Icon(Icons.Default.Check, contentDescription = "Set $number logged")
             }
             row.isNext && onStartTimer != null -> FilledIconButton(
-                onClick = { onStartTimer(row.step.target.copy(weightKg = weightKg, rpe = parseSessionRpe(inputs.rpe), done = null)) },
+                onClick = { onStartTimer(row.step.target.copy(weightKg = weightKg, rpe = parseSessionRpe(inputs.rpe), done = null, warmup = warmupFlag)) },
                 enabled = inputs.rpeValid,
                 modifier = Modifier.size(SetButtonSize),
             ) {

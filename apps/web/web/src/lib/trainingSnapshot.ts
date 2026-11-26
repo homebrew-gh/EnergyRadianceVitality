@@ -4,6 +4,7 @@
  */
 
 import type { WeightExercise } from "./weightTraining";
+import { EST_ONE_RM_MAX_REPS } from "./liftRecords";
 import {
   addDays,
   formatIsoDate,
@@ -66,7 +67,7 @@ export type BuildTrainingSnapshotInput = {
 };
 
 function isWorkingSet(set: WeightSet): boolean {
-  return set.reps > 0 || (set.durationSeconds ?? 0) > 0;
+  return set.warmup !== true && (set.reps > 0 || (set.durationSeconds ?? 0) > 0);
 }
 
 function daysBetween(fromIso: string, toIso: string): number {
@@ -77,7 +78,7 @@ function daysBetween(fromIso: string, toIso: string): number {
 }
 
 function estimateEpleyOneRepMaxKg(weightKg: number, reps: number): number | null {
-  if (weightKg <= 0 || reps <= 0) return null;
+  if (weightKg <= 0 || reps <= 0 || reps > EST_ONE_RM_MAX_REPS) return null;
   if (reps === 1) return weightKg;
   return weightKg * (1 + reps / 30);
 }

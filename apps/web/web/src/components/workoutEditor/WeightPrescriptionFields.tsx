@@ -53,7 +53,11 @@ export function WeightPrescriptionFields({
     const rir = (s: WorkoutPrescriptionSet) => s.rir ?? null;
     const first = sets[0]!;
     return sets.some(
-      (s) => reps(s) !== reps(first) || load(s) !== load(first) || rir(s) !== rir(first),
+      (s) =>
+        reps(s) !== reps(first) ||
+        load(s) !== load(first) ||
+        rir(s) !== rir(first) ||
+        s.warmup === true,
     );
   });
   const gridClass = compact
@@ -373,7 +377,17 @@ export function WeightPrescriptionFields({
           </SectionHeader>
           {ensurePrescriptionSets(prescription).map((set, index) => (
             <div key={index} className="grid grid-cols-5 gap-2 items-end">
-              <span className="text-xs text-muted pb-2">Set {index + 1}</span>
+              <div className="text-xs pb-2 space-y-1">
+                <span className="text-muted block">{set.warmup ? "Warm-up" : `Set ${index + 1}`}</span>
+                <label className="inline-flex items-center gap-1" title="Warm-ups stay out of records and volume">
+                  <input
+                    type="checkbox"
+                    checked={set.warmup === true}
+                    onChange={(e) => updateSetAt(index, { warmup: e.target.checked ? true : null })}
+                  />
+                  <FieldLabel>Warm-up</FieldLabel>
+                </label>
+              </div>
               {field("Reps", prescriptionSetTargets(set).reps, (reps) =>
                 updateSetAt(index, { reps, targetReps: reps }),
                 { positive: true },

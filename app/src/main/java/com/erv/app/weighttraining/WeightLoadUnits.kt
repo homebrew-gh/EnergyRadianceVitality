@@ -106,7 +106,7 @@ fun WeightWorkoutSession.totalSetCount(): Int =
 fun WeightWorkoutSession.totalVolumeKg(): Double =
     entries.sumOf { e ->
         e.hiitBlock?.let { b -> (b.weightKg ?: 0.0) * b.intervals }
-            ?: e.sets.sumOf { s -> (s.weightKg ?: 0.0) * s.reps }
+            ?: e.sets.filter { !it.isWarmup() }.sumOf { s -> (s.weightKg ?: 0.0) * s.reps }
     }
 
 /** Matches [com.erv.app.data.UserPreferences] body-weight conversion. */
@@ -150,7 +150,7 @@ fun WeightWorkoutEntry.totalVolumeLoadTimesReps(unit: BodyWeightUnit): Double {
         }
         return per * b.intervals
     }
-    return sets.sumOf { s ->
+    return sets.filter { !it.isWarmup() }.sumOf { s ->
         val kg = s.weightKg ?: 0.0
         val perRep = when (unit) {
             BodyWeightUnit.KG -> kg
