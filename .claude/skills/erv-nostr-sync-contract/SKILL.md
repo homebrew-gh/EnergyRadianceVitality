@@ -27,6 +27,7 @@ Source of truth for server allowlist: `apps/web/server/src/erv_tags.rs`.
 | `erv/equipment` | Home gym + exercise packs | — |
 | `erv/weight/exercises` | Legacy/auxiliary weight exercises tag | — |
 | `erv/coach/review` | Latest AI coach review (web publishes, Android reads; `{ ervCoachReviewVersion, review, liftTargets, … }` in `coachReviewSync.ts`) | AI |
+| `erv/standards/results` | Logged fitness standard test results (web publishes; raw values, `deletedResults` markers; `standardResults.ts`). Followed standards live in `erv/training-profile` (`followedStandardIds`, `mainStandardId`) | Standards |
 
 Day-log tags like `erv/weight/YYYY-MM-DD` are **read** on Android but are not in the web publish allowlist.
 Android may include compact `heartRate.load` summaries in weight/cardio day logs for web Progress

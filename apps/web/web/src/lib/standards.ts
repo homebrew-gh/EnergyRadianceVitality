@@ -91,7 +91,10 @@ export type StandardProfile = {
 export type StandardTestResult = {
   standardId: string;
   eventId: string;
-  /** In the event's canonical unit; a broad jump is the full jump in cm. */
+  /**
+   * The raw measurement: kg for lift events (a bodyweight ratio is worked out on the day),
+   * reps, seconds, meters, or the full broad jump in cm.
+   */
   value: number;
   date: string;
 };
@@ -375,6 +378,14 @@ function testCandidates(
   for (const r of inputs.testResults ?? []) {
     if (r.standardId !== standardId || r.eventId !== event.id || !(r.value > 0)) continue;
     let value = r.value;
+    if (event.measure.kind === "LIFT_MAX_BW") {
+      const bw = bodyWeightOn(inputs.bodyWeights, r.date);
+      if (bw == null) {
+        missing = "BODYWEIGHT";
+        continue;
+      }
+      value = r.value / bw;
+    }
     if (event.measure.kind === "MANUAL" && event.measure.unit === "CM_OVER_HEIGHT") {
       const h = inputs.profile.heightCm;
       if (!h) {

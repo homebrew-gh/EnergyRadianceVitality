@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { evaluateEvent } from "./standards";
-import { formatGap, formatStandardValue, missingLabel } from "./standardsFormat";
+import { formatGap, formatRawResult, formatStandardValue, missingLabel, parseResultInput, resultInputLabel } from "./standardsFormat";
 import { ARMY_AFT, ERV_GENERAL, SEVEN_EVENT } from "./standardsLibrary";
 
 const LB = 0.45359237;
@@ -37,5 +37,23 @@ describe("formatGap", () => {
     const r = evaluateEvent(SEVEN_EVENT.id, ev(SEVEN_EVENT, "farmers-carry"), base);
     expect(missingLabel(r)).toBe("Test result needed");
     expect(formatGap(r, "LB", null)).toBeNull();
+  });
+});
+
+describe("result inputs", () => {
+  it("parse typed values into raw stored units and back", () => {
+    const squat = ev(ERV_GENERAL, "squat");
+    expect(parseResultInput(squat, "315", "LB")).toBeCloseTo(315 * LB, 3);
+    expect(formatRawResult(squat, 315 * LB, "LB")).toBe("315 lb");
+    const jump = ev(SEVEN_EVENT, "broad-jump");
+    expect(parseResultInput(jump, "88", "LB")).toBeCloseTo(88 * 2.54, 3);
+    expect(formatRawResult(jump, 88 * 2.54, "LB")).toBe("7 ft 4 in");
+    const plank = ev(ERV_GENERAL, "plank");
+    expect(parseResultInput(plank, "2:30", "LB")).toBe(150);
+    expect(parseResultInput(plank, "two", "LB")).toBeNull();
+    const carry = ev(SEVEN_EVENT, "farmers-carry");
+    expect(formatRawResult(carry, parseResultInput(carry, "200", "LB")!, "LB")).toBe("200 ft");
+    expect(resultInputLabel(ev(SEVEN_EVENT, "trap-bar-5"), "LB")).toBe("Weight for 5 reps (lb)");
+    expect(resultInputLabel(squat, "KG")).toBe("Weight for a single (kg)");
   });
 });

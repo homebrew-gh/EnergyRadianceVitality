@@ -1048,6 +1048,7 @@ export function ProgressTab() {
         bodyWeights={bodyWeights}
         exercises={exercises}
         weightUnit={weightLoadUnit}
+        relayRecords={relayRecords}
       />
 
       <CoachReviewCard

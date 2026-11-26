@@ -1,5 +1,6 @@
 /** Display text for fitness standard values, targets and gaps, in the athlete's units. */
 import { formatClock } from "./cardioProgress";
+import { parseClockInput } from "./standardResults";
 import { kgToLb, type BodyWeightUnit } from "./fitnessEquipment";
 import type { StandardEvent, StandardEventResult, StandardTierId } from "./standards";
 import { STANDARD_TIERS } from "./standards";
@@ -119,5 +120,85 @@ export function missingLabel(result: StandardEventResult): string | null {
       return result.event.measure.kind === "MANUAL" ? "Test result needed" : "Nothing logged yet";
     default:
       return null;
+  }
+}
+
+/** What a "Log Result" form asks for, and its unit, for [event]. */
+export type ResultInputKind = "LOAD" | "REPS" | "TIME" | "DISTANCE" | "JUMP";
+
+export function resultInputKind(event: StandardEvent): ResultInputKind {
+  const m = event.measure;
+  switch (m.kind) {
+    case "LIFT_MAX_BW":
+    case "LIFT_MAX_LOAD":
+      return "LOAD";
+    case "MAX_REPS":
+    case "REPS_AT_BW":
+      return "REPS";
+    case "LONGEST_HOLD":
+    case "FASTEST":
+      return "TIME";
+    case "MANUAL":
+      return m.unit === "METERS" ? "DISTANCE" : m.unit === "CM_OVER_HEIGHT" ? "JUMP" : m.unit === "REPS" ? "REPS" : "TIME";
+  }
+}
+
+/** Field label for the result input, e.g. "Weight for 5 reps (lb)", "Time (m:ss)". */
+export function resultInputLabel(event: StandardEvent, unit: BodyWeightUnit): string {
+  const kind = resultInputKind(event);
+  const m = event.measure;
+  switch (kind) {
+    case "LOAD": {
+      const reps = m.kind === "LIFT_MAX_BW" || m.kind === "LIFT_MAX_LOAD" ? m.reps : 1;
+      const suffix = unit === "KG" ? "kg" : "lb";
+      return reps === 1 ? `Weight for a single (${suffix})` : `Weight for ${reps} reps (${suffix})`;
+    }
+    case "REPS":
+      return "Reps";
+    case "TIME":
+      return "Time (m:ss)";
+    case "DISTANCE":
+      return unit === "KG" ? "Distance (m)" : "Distance (ft)";
+    case "JUMP":
+      return unit === "KG" ? "Jump distance (cm)" : "Jump distance (in)";
+  }
+}
+
+/** A typed result in the athlete's units → the raw stored value; null when it does not parse. */
+export function parseResultInput(event: StandardEvent, raw: string, unit: BodyWeightUnit): number | null {
+  const kind = resultInputKind(event);
+  const t = raw.trim().replace(",", ".");
+  if (kind === "TIME") return parseClockInput(t);
+  if (!/^\d+(\.\d+)?$/.test(t)) return null;
+  const n = Number(t);
+  if (!(n > 0)) return null;
+  switch (kind) {
+    case "LOAD":
+      return unit === "KG" ? n : n / kgToLb(1);
+    case "REPS":
+      return Math.round(n);
+    case "DISTANCE":
+      return unit === "KG" ? n : n * FOOT_M;
+    case "JUMP":
+      return unit === "KG" ? n : n * INCH_CM;
+  }
+}
+
+/** A stored raw result for display, e.g. "315 lb", "2:30", "7 ft 4 in", "180 ft". */
+export function formatRawResult(event: StandardEvent, value: number, unit: BodyWeightUnit): string {
+  switch (resultInputKind(event)) {
+    case "LOAD":
+      return load(value, unit);
+    case "JUMP": {
+      if (unit === "KG") return `${Math.round(value)} cm`;
+      const inches = Math.round(value / INCH_CM);
+      return `${Math.floor(inches / 12)} ft ${inches % 12} in`;
+    }
+    case "REPS":
+      return `${Math.round(value)} ${Math.round(value) === 1 ? "rep" : "reps"}`;
+    case "TIME":
+      return formatClock(value);
+    case "DISTANCE":
+      return unit === "KG" ? `${Math.round(value)} m` : `${Math.round(value / FOOT_M)} ft`;
   }
 }

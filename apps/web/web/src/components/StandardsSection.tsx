@@ -1,18 +1,31 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { SectionHeader } from "./FieldLabel";
 import type { BodyWeightEntry } from "../lib/bodyWeight";
 import type { BodyWeightUnit } from "../lib/fitnessEquipment";
 import { evaluateStandard, type StandardEventResult, type StandardResult, type StandardTierId } from "../lib/standards";
 import { BUILT_IN_STANDARDS, builtInStandard } from "../lib/standardsLibrary";
 import {
   formatGap,
+  formatRawResult,
   formatStandardValue,
   missingLabel,
+  parseResultInput,
+  resultInputLabel,
   sourceLabel,
   tierLabel,
 } from "../lib/standardsFormat";
 import { useTrainingProfile } from "../lib/trainingProfileData";
+import { api, ApiError, type AppDataRecord } from "../lib/api";
+import {
+  addStandardResult,
+  parseStandardResults,
+  removeStandardResult,
+  serializeStandardResults,
+  STANDARD_RESULTS_D_TAG,
+  type StandardResultsPayload,
+  type StoredStandardResult,
+} from "../lib/standardResults";
+import { FieldLabel, SectionHeader } from "./FieldLabel";
 import type { CardioDayLog, WeightDayLog } from "../lib/trainingHistory";
 
 const TIER_STYLE: Record<StandardTierId | "NONE", { background: string; color: string }> = {
@@ -76,7 +89,15 @@ function StandardsRadar({ result }: { result: StandardResult }) {
       {result.events.map((e, i) => {
         const p = point(i, 3);
         return (
-          <line key={e.event.id} x1={cx} y1={cy} x2={p.x} y2={p.y} stroke="var(--erv-outline-variant)" strokeDasharray="3 3" />
+          <line
+            key={e.event.id}
+            x1={cx}
+            y1={cy}
+            x2={p.x}
+            y2={p.y}
+            stroke="var(--erv-outline-variant)"
+            strokeDasharray="3 3"
+          />
         );
       })}
       {scored ? (
@@ -90,7 +111,13 @@ function StandardsRadar({ result }: { result: StandardResult }) {
           />
           {result.events.map((e, i) =>
             e.value == null ? null : (
-              <circle key={e.event.id} cx={point(i, e.score).x} cy={point(i, e.score).y} r={4} fill="var(--erv-primary)">
+              <circle
+                key={e.event.id}
+                cx={point(i, e.score).x}
+                cy={point(i, e.score).y}
+                r={4}
+                fill="var(--erv-primary)"
+              >
                 <title>{`${e.event.name}: ${tierLabel(e.tier)}`}</title>
               </circle>
             ),
@@ -130,47 +157,181 @@ function StandardsRadar({ result }: { result: StandardResult }) {
   );
 }
 
+function todayIso(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function LogResultForm({
+  event,
+  unit,
+  saving,
+  onSave,
+  onCancel,
+}: {
+  event: StandardEventResult["event"];
+  unit: BodyWeightUnit;
+  saving: boolean;
+  onSave: (value: number, date: string, note: string | null) => Promise<boolean>;
+  onCancel: () => void;
+}) {
+  const [raw, setRaw] = useState("");
+  const [date, setDate] = useState(todayIso());
+  const [note, setNote] = useState("");
+  const value = parseResultInput(event, raw, unit);
+  const invalid = raw.trim() !== "" && value == null;
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (value == null || !date) return;
+    if (await onSave(value, date, note.trim() || null)) onCancel();
+  };
+  // Units stay as typed ("m:ss", "lb"); only the words go through title case.
+  const fullLabel = resultInputLabel(event, unit);
+  const unitMatch = /^(.*) \(([^)]*)\)$/.exec(fullLabel);
+  const labelText = unitMatch ? unitMatch[1] : fullLabel;
+  const labelUnit = unitMatch ? unitMatch[2] : null;
+  const valueId = `result-${event.id}-value`;
+  const dateId = `result-${event.id}-date`;
+  const noteId = `result-${event.id}-note`;
+  return (
+    <form className="mt-2 rounded-lg border border-[var(--erv-outline-variant)] p-3 space-y-3" onSubmit={submit}>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <label className="block space-y-1" htmlFor={valueId}>
+          <span className="label">
+            <FieldLabel>{labelText}</FieldLabel>
+            {labelUnit ? ` (${labelUnit})` : null}
+          </span>
+          <input
+            id={valueId}
+            className="input w-full"
+            inputMode={resultInputLabel(event, unit).startsWith("Time") ? "text" : "decimal"}
+            placeholder={resultInputLabel(event, unit).startsWith("Time") ? "2:30" : ""}
+            value={raw}
+            onChange={(e) => setRaw(e.target.value)}
+            autoFocus
+          />
+          {invalid ? <span className="text-xs text-[var(--erv-error)] block">Check this value</span> : null}
+        </label>
+        <label className="block space-y-1" htmlFor={dateId}>
+          <span className="label">
+            <FieldLabel>Date</FieldLabel>
+          </span>
+          <input
+            id={dateId}
+            type="date"
+            className="input w-full"
+            max={todayIso()}
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+          />
+        </label>
+        <label className="block space-y-1" htmlFor={noteId}>
+          <span className="label">
+            <FieldLabel>Note</FieldLabel> (optional)
+          </span>
+          <input id={noteId} className="input w-full" value={note} onChange={(e) => setNote(e.target.value)} />
+        </label>
+      </div>
+      <div className="flex gap-2">
+        <button type="submit" className="btn-primary px-3 py-1 text-sm" disabled={saving || value == null || !date}>
+          {saving ? "Saving…" : "Save Result"}
+        </button>
+        <button type="button" className="btn-ghost px-3 py-1 text-sm" onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
+    </form>
+  );
+}
+
 function EventRow({
   result,
   unit,
   latestBodyWeightKg,
+  tested,
+  saving,
+  onLog,
+  onDelete,
 }: {
   result: StandardEventResult;
   unit: BodyWeightUnit;
   latestBodyWeightKg: number | null;
+  tested: StoredStandardResult[];
+  saving: boolean;
+  onLog: (value: number, date: string, note: string | null) => Promise<boolean>;
+  onDelete: (id: string) => void;
 }) {
   const { event } = result;
   const gap = formatGap(result, unit, latestBodyWeightKg);
   const source = sourceLabel(result);
+  const [logging, setLogging] = useState(false);
+  const [showTests, setShowTests] = useState(false);
   return (
-    <li className="py-3 grid gap-x-4 gap-y-1 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_6.5rem] sm:items-center">
-      <div className="min-w-0">
-        <p className="font-medium text-heading">{event.name}</p>
-        {event.detail ? <p className="text-xs text-muted">{event.detail}</p> : null}
+    <li className="py-3">
+      <div className="grid gap-x-4 gap-y-1 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_6.5rem] sm:items-center">
+        <div className="min-w-0">
+          <p className="font-medium text-heading">{event.name}</p>
+          {event.detail ? <p className="text-xs text-muted">{event.detail}</p> : null}
+        </div>
+        <div className="min-w-0 text-sm">
+          {result.value == null ? (
+            <p className="text-muted">{missingLabel(result)}</p>
+          ) : (
+            <>
+              <p>
+                <span className="font-medium text-heading">{formatStandardValue(event, result.value, unit)}</span>
+                {source ? <span className="text-xs text-muted"> · {source}</span> : null}
+                {result.date ? <span className="text-xs text-muted"> · {formatDay(result.date)}</span> : null}
+              </p>
+              {result.note ? <p className="text-xs text-muted">{result.note}</p> : null}
+            </>
+          )}
+          <p className="text-xs text-muted">
+            {gap ??
+              `Base ${formatStandardValue(event, result.tiers.BASE, unit)} · Strong ${formatStandardValue(
+                event,
+                result.tiers.STRONG,
+                unit,
+              )} · Elite ${formatStandardValue(event, result.tiers.ELITE, unit)}`}
+          </p>
+        </div>
+        <div className="sm:text-right">{result.value == null ? null : <TierBadge tier={result.tier} />}</div>
       </div>
-      <div className="min-w-0 text-sm">
-        {result.value == null ? (
-          <p className="text-muted">{missingLabel(result)}</p>
-        ) : (
-          <>
-            <p>
-              <span className="font-medium text-heading">{formatStandardValue(event, result.value, unit)}</span>
-              {source ? <span className="text-xs text-muted"> · {source}</span> : null}
-              {result.date ? <span className="text-xs text-muted"> · {formatDay(result.date)}</span> : null}
-            </p>
-            {result.note ? <p className="text-xs text-muted">{result.note}</p> : null}
-          </>
-        )}
-        <p className="text-xs text-muted">
-          {gap ??
-            `Base ${formatStandardValue(event, result.tiers.BASE, unit)} · Strong ${formatStandardValue(
-              event,
-              result.tiers.STRONG,
-              unit,
-            )} · Elite ${formatStandardValue(event, result.tiers.ELITE, unit)}`}
-        </p>
+      <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs">
+        {!logging ? (
+          <button type="button" className="underline text-[var(--erv-primary)]" onClick={() => setLogging(true)}>
+            Log Result
+          </button>
+        ) : null}
+        {tested.length > 0 ? (
+          <button type="button" className="underline text-muted" onClick={() => setShowTests((v) => !v)}>
+            {showTests ? "Hide" : "Show"} {tested.length} tested {tested.length === 1 ? "result" : "results"}
+          </button>
+        ) : null}
       </div>
-      <div className="sm:text-right">{result.value == null ? null : <TierBadge tier={result.tier} />}</div>
+      {logging ? (
+        <LogResultForm event={event} unit={unit} saving={saving} onSave={onLog} onCancel={() => setLogging(false)} />
+      ) : null}
+      {showTests && tested.length > 0 ? (
+        <ul className="mt-2 space-y-1 text-sm">
+          {tested.map((t) => (
+            <li key={t.id} className="flex flex-wrap items-center gap-x-2">
+              <span className="font-medium text-heading">{formatRawResult(event, t.value, unit)}</span>
+              <span className="text-xs text-muted">{formatDay(t.date)}</span>
+              {t.note ? <span className="text-xs text-muted">· {t.note}</span> : null}
+              <button
+                type="button"
+                className="btn-ghost px-2 py-0.5 text-xs"
+                disabled={saving}
+                aria-label={`Delete ${event.name} result from ${formatDay(t.date)}`}
+                onClick={() => onDelete(t.id)}
+              >
+                Delete
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </li>
   );
 }
@@ -185,25 +346,56 @@ export function StandardsSection({
   bodyWeights,
   exercises,
   weightUnit,
+  relayRecords,
 }: {
   weightLogs: WeightDayLog[];
   cardioLogs: CardioDayLog[];
   bodyWeights: BodyWeightEntry[];
   exercises: { id: string; name: string }[];
   weightUnit: BodyWeightUnit;
+  /** Relay app data, for logged test results. */
+  relayRecords: AppDataRecord[];
 }) {
   const { published: profile, publishPatch, publishing, loading } = useTrainingProfile();
   const followed = useMemo(
     () => (profile.followedStandardIds ?? []).filter((id) => builtInStandard(id) != null),
     [profile.followedStandardIds],
   );
-  const mainId = profile.mainStandardId && followed.includes(profile.mainStandardId) ? profile.mainStandardId : followed[0];
+  const mainId =
+    profile.mainStandardId && followed.includes(profile.mainStandardId) ? profile.mainStandardId : followed[0];
   const [viewId, setViewId] = useState<string | null>(null);
   const [managing, setManaging] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const currentId = viewId && followed.includes(viewId) ? viewId : mainId;
   const standard = currentId ? builtInStandard(currentId) : null;
   const showPicker = managing || (!loading && followed.length === 0);
+
+  const relayResults = useMemo(
+    () => parseStandardResults(relayRecords.find((r) => r.d_tag === STANDARD_RESULTS_D_TAG)?.plaintext),
+    [relayRecords],
+  );
+  const [localResults, setLocalResults] = useState<StandardResultsPayload | null>(null);
+  const results =
+    localResults && localResults.lastModifiedEpochSeconds >= relayResults.lastModifiedEpochSeconds
+      ? localResults
+      : relayResults;
+  const [savingResult, setSavingResult] = useState(false);
+
+  const publishResults = async (next: StandardResultsPayload): Promise<boolean> => {
+    setSavingResult(true);
+    setSaveError(null);
+    try {
+      const now = next.lastModifiedEpochSeconds;
+      await api.publishAppData({ d_tag: STANDARD_RESULTS_D_TAG, plaintext: serializeStandardResults(next, now) });
+      setLocalResults(next);
+      return true;
+    } catch (e) {
+      setSaveError(e instanceof ApiError ? e.message : "Could not save the result. Try again.");
+      return false;
+    } finally {
+      setSavingResult(false);
+    }
+  };
 
   const exerciseNames = useMemo(() => new Map(exercises.map((e) => [e.id, e.name])), [exercises]);
   const result = useMemo(
@@ -215,9 +407,20 @@ export function StandardsSection({
             bodyWeights,
             exerciseNames,
             profile: { ageYears: profile.ageYears, sex: profile.sex, heightCm: profile.heightCm },
+            testResults: results.results,
           })
         : null,
-    [standard, weightLogs, cardioLogs, bodyWeights, exerciseNames, profile.ageYears, profile.sex, profile.heightCm],
+    [
+      standard,
+      weightLogs,
+      cardioLogs,
+      bodyWeights,
+      exerciseNames,
+      profile.ageYears,
+      profile.sex,
+      profile.heightCm,
+      results,
+    ],
   );
   const latestBodyWeightKg = bodyWeights.length > 0 ? bodyWeights[bodyWeights.length - 1].weightKg : null;
 
@@ -226,7 +429,7 @@ export function StandardsSection({
     try {
       await publishPatch({
         followedStandardIds: nextFollowed,
-        mainStandardId: nextMain && nextFollowed.includes(nextMain) ? nextMain : nextFollowed[0] ?? null,
+        mainStandardId: nextMain && nextFollowed.includes(nextMain) ? nextMain : (nextFollowed[0] ?? null),
       });
     } catch {
       setSaveError("Could not save. Check the relay connection and try again.");
@@ -358,8 +561,8 @@ export function StandardsSection({
             </p>
           </div>
           <p className="text-xs text-muted">
-            Overall is the lowest tier across scored events. Est. means estimated from your lift records or
-            the average pace of a longer session.
+            Overall is the lowest tier across scored events. Est. means estimated from your lift records or the average
+            pace of a longer session.
           </p>
 
           {result.needsProfile.length > 0 ? (
@@ -376,7 +579,39 @@ export function StandardsSection({
 
           <ul className="divide-y divide-[var(--erv-outline-variant)]">
             {result.events.map((e) => (
-              <EventRow key={e.event.id} result={e} unit={weightUnit} latestBodyWeightKg={latestBodyWeightKg} />
+              <EventRow
+                key={`${result.standard.id}:${e.event.id}`}
+                result={e}
+                unit={weightUnit}
+                latestBodyWeightKg={latestBodyWeightKg}
+                tested={results.results.filter((t) => t.standardId === result.standard.id && t.eventId === e.event.id)}
+                saving={savingResult}
+                onLog={(value, date, note) =>
+                  publishResults(
+                    addStandardResult(
+                      results,
+                      {
+                        id: crypto.randomUUID(),
+                        standardId: result.standard.id,
+                        eventId: e.event.id,
+                        value,
+                        date,
+                        note,
+                      },
+                      Math.max(Math.floor(Date.now() / 1000), results.lastModifiedEpochSeconds + 1),
+                    ),
+                  )
+                }
+                onDelete={(id) =>
+                  void publishResults(
+                    removeStandardResult(
+                      results,
+                      id,
+                      Math.max(Math.floor(Date.now() / 1000), results.lastModifiedEpochSeconds + 1),
+                    ),
+                  )
+                }
+              />
             ))}
           </ul>
         </div>
