@@ -50,6 +50,24 @@ enum class WeightLiveRestTimerMode {
     MANUAL
 }
 
+/** Sounds for stretch holds (guided routines and stretches inside a workout). */
+enum class StretchSoundStyle {
+    /** Soft bell-like chimes (default). */
+    SOFT_CHIME,
+
+    /** Low, long singing bowl tones. */
+    SINGING_BOWL,
+
+    /** Short, dry wood block knocks. */
+    WOOD_BLOCK,
+
+    /** The original beeps, with the five-second countdown. */
+    CLASSIC,
+
+    /** No sound, gentle vibration only. */
+    VIBRATE_ONLY,
+}
+
 /** Guided stretching “Next stretch” TTS voice; actual voices depend on the device TTS engine. */
 enum class StretchGuidedTtsVoice {
     /** Follow the engine default for the current language. */
@@ -109,6 +127,7 @@ class UserPreferences(private val context: Context) {
         val LIVE_WEIGHT_WORKOUT_NOTIFICATION_SUPPRESSED_V1 =
             booleanPreferencesKey("live_weight_workout_notification_suppressed_v1")
         val STRETCH_GUIDED_TTS_VOICE = stringPreferencesKey("stretch_guided_tts_voice")
+        val STRETCH_SOUND_STYLE = stringPreferencesKey("stretch_sound_style")
         /** MAC address of last paired BLE heart rate sensor (standard Heart Rate GATT service). */
         val BLE_HEART_RATE_DEVICE_ADDRESS = stringPreferencesKey("ble_heart_rate_device_address_v1")
         /** MAC address of preferred Cycling Speed and Cadence sensor for live cycling workouts. */
@@ -771,6 +790,16 @@ class UserPreferences(private val context: Context) {
         }
     }
 
+    val stretchSoundStyle: Flow<StretchSoundStyle> = context.dataStore.data.map { prefs ->
+        parseStretchSoundStyle(prefs[Keys.STRETCH_SOUND_STYLE])
+    }
+
+    suspend fun setStretchSoundStyle(style: StretchSoundStyle) {
+        context.dataStore.edit { prefs ->
+            prefs[Keys.STRETCH_SOUND_STYLE] = style.name
+        }
+    }
+
     val bleHeartRateDeviceAddress: Flow<String?> = context.dataStore.data.map { prefs ->
         normalizeBluetoothAddressOrNull(prefs[Keys.BLE_HEART_RATE_DEVICE_ADDRESS])
     }
@@ -1254,3 +1283,7 @@ private fun decodeStringList(raw: String?): List<String> {
         emptyList()
     }
 }
+
+/** Unknown or missing values fall back to [StretchSoundStyle.SOFT_CHIME]. */
+fun parseStretchSoundStyle(raw: String?): StretchSoundStyle =
+    StretchSoundStyle.entries.firstOrNull { it.name == raw?.uppercase() } ?: StretchSoundStyle.SOFT_CHIME

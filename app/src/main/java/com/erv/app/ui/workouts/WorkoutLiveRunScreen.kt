@@ -145,6 +145,10 @@ import com.erv.app.weighttraining.RestTimerAlarm
 import com.erv.app.weighttraining.restEndCueIsFresh
 import com.erv.app.weighttraining.restSecondsRemaining
 import com.erv.app.ui.media.playHiitWorkSegmentEndCue
+import com.erv.app.ui.media.StretchCuePlayer
+import com.erv.app.data.StretchSoundStyle
+import com.erv.app.stretching.StretchCue
+import com.erv.app.stretching.stretchCueForSecondLeft
 import com.erv.app.ui.media.playHiitWorkCountdownTickCue
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -917,6 +921,7 @@ fun WorkoutLiveRunScreen(
     // Spoken and buzzed cues on cardio legs: route splits, laps, each interval leg, 3-2-1.
     val cardioCuesOn by userPreferences.workoutSessionCardioCues.collectAsState(initial = true)
     val cuePlayer = rememberSessionCardioCuePlayer()
+    val stretchSoundStyle by userPreferences.stretchSoundStyle.collectAsState(initial = StretchSoundStyle.SOFT_CHIME)
     LaunchedEffect(session?.stepIndex, activeRun?.sessionStepStartedAtEpochSeconds, awaitingStart, clockTick) {
         val step = currentStep ?: return@LaunchedEffect
         val clocked = step is WorkoutSessionStep.Rest || step is WorkoutSessionStep.StretchHold ||
@@ -927,12 +932,26 @@ fun WorkoutLiveRunScreen(
         if (end != null && now >= end) {
             // One that ended while ERV was in the background already alerted from the alarm.
             if (restEndCueIsFresh(end, now)) {
-                // The rest timer's sound setting covers rests; holds and legs always cue.
-                if (step !is WorkoutSessionStep.Rest || restEndSound) playHiitWorkSegmentEndCue(appContext)
-                RestTimerAlarm.vibrateRestOver(appContext)
+                if (step is WorkoutSessionStep.StretchHold && stretchSoundStyle != StretchSoundStyle.CLASSIC) {
+                    // Stretch holds use the Stretching sound style: a soft sound and a light buzz.
+                    StretchCuePlayer.play(appContext, stretchSoundStyle, StretchCue.HOLD_END)
+                    if (stretchSoundStyle != StretchSoundStyle.VIBRATE_ONLY) StretchCuePlayer.nudge(appContext)
+                } else {
+                    // The rest timer's sound setting covers rests; holds and legs always cue.
+                    if (step !is WorkoutSessionStep.Rest || restEndSound) playHiitWorkSegmentEndCue(appContext)
+                    RestTimerAlarm.vibrateRestOver(appContext)
+                }
             }
             send(WorkoutSessionEvent.TimedStepDone(step.countdownSeconds() ?: 0))
             return@LaunchedEffect
+        }
+        // A calm stretch style gives one quiet heads-up near the end of a hold.
+        if (end != null && step is WorkoutSessionStep.StretchHold && stretchSoundStyle != StretchSoundStyle.CLASSIC &&
+            activeRun?.activeSessionPause() == null
+        ) {
+            stretchCueForSecondLeft(stretchSoundStyle, step.holdSeconds, (end - now).toInt())?.let { cue ->
+                StretchCuePlayer.play(appContext, stretchSoundStyle, cue)
+            }
         }
         // One beep a second over the last five seconds of a rest.
         if (end != null && step is WorkoutSessionStep.Rest && restCountdownSound && (end - now) in 1..5) {
