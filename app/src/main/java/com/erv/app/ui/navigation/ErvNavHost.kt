@@ -668,6 +668,9 @@ fun ErvNavHost(
                 onOpenStretchCategory = {
                     navController.navigate(Routes.category("stretching")) { launchSingleTop = true }
                 },
+                onOpenExerciseDetail = { exerciseId ->
+                    navController.navigate(Routes.weightExerciseDetail(exerciseId))
+                },
             )
         }
 

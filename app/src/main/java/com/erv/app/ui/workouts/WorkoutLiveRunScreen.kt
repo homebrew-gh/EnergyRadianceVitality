@@ -99,7 +99,7 @@ import com.erv.app.ui.theme.ErvDarkTherapyRedMid
 import com.erv.app.ui.theme.ErvLightTherapyRedDark
 import com.erv.app.ui.theme.ErvLightTherapyRedGlow
 import com.erv.app.ui.theme.ErvLightTherapyRedMid
-import com.erv.app.ui.weighttraining.WeightExerciseRecentWorkoutsDialog
+import com.erv.app.ui.weighttraining.WeightExerciseStatsSheet
 import com.erv.app.ui.weighttraining.WeightLiveWorkoutFgsDisclosureDialog
 import com.erv.app.ui.weighttraining.WeightLiveWorkoutViewModel
 import com.erv.app.weighttraining.WeightLibraryState
@@ -302,6 +302,8 @@ fun WorkoutLiveRunScreen(
     onOpenWeightLog: () -> Unit = onOpenWeightCategory,
     onOpenCardioCategory: () -> Unit,
     onOpenStretchCategory: () -> Unit,
+    /** Opens an exercise's full stats page; the run keeps going underneath. */
+    onOpenExerciseDetail: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val scope = rememberCoroutineScope()
@@ -1665,12 +1667,18 @@ fun WorkoutLiveRunScreen(
     }
 
     historyFor?.let { (exerciseId, name) ->
-        WeightExerciseRecentWorkoutsDialog(
+        WeightExerciseStatsSheet(
             exerciseId = exerciseId,
             exerciseName = name,
             library = weightState,
             loadUnit = loadUnit,
             onDismiss = { historyFor = null },
+            onOpenFullPage = onOpenExerciseDetail?.let { open ->
+                {
+                    historyFor = null
+                    open(exerciseId)
+                }
+            },
         )
     }
 

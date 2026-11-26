@@ -413,7 +413,7 @@ internal fun WorkoutSessionExerciseCard(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                     if (onShowHistory != null) {
                         TextButton(onClick = onShowHistory, modifier = Modifier.weight(1f)) {
-                            Text("Past Workouts")
+                            Text("Exercise Stats")
                         }
                     }
                     if (canSwap) {
