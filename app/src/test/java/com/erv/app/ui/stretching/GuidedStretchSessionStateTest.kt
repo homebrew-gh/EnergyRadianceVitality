@@ -44,14 +44,14 @@ class GuidedStretchSessionStateTest {
 
     @Test
     fun plannedMinutesCountHoldsGapsAndPrep() {
-        // 3 holds of 30 s, a 5 s side switch, a 10 s gap and 10 s of settling in: 125 s, so 3 min.
-        assertEquals(3, state().plannedMinutes)
+        // 3 holds of 30 s, a 5 s side switch, a 10 s gap and 10 s of settling in: 115 s, rounded up to 2 min.
+        assertEquals(2, state().plannedMinutes)
     }
 
     @Test
     fun resultFollowsHeldSteps() {
         assertNull(state().result())
         val all = state().copy(heldStepIndexes = setOf(0, 1, 2))
-        assertEquals(GuidedStretchResult(listOf("neck", "child"), 3), all.result())
+        assertEquals(GuidedStretchResult(listOf("neck", "child"), 2), all.result())
     }
 }
