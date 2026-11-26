@@ -169,6 +169,9 @@ import com.erv.app.data.WeightLiveRestTimerMode
 import com.erv.app.programs.encodeStretchLaunch
 import com.erv.app.hr.HeartRateSessionAnalyticsSection
 import com.erv.app.hr.HeartRateZoneInputs
+import com.erv.app.hr.heartRateWithinZoneFraction
+import com.erv.app.hr.heartRateZoneIndex
+import com.erv.app.hr.resolvedMaxHrForZones
 import com.erv.app.stretching.StretchingRepository
 import com.erv.app.ui.cardio.CardioBikeErgConnectInlineSection
 import com.erv.app.ui.cardio.SessionFtmsConnectPanel
@@ -220,6 +223,7 @@ import com.erv.app.workouts.cardioSessionFor
 import androidx.compose.runtime.rememberUpdatedState
 import com.erv.app.workouts.WorkoutTargetWatcher
 import com.erv.app.workouts.WorkoutTargetBand
+import com.erv.app.workouts.WorkoutCardioGraphics
 import com.erv.app.workouts.WorkoutPaceGoals
 import com.erv.app.workouts.WorkoutSessionTargets
 import com.erv.app.workouts.WorkoutSessionCardioCues
@@ -1096,6 +1100,23 @@ fun WorkoutLiveRunScreen(
             }
         }
     }
+    // Open-ended cardio (no time, distance or goal) races the last session of the same activity
+    // when there is a distance to compare; without one, the heart rate zone bar shows instead.
+    val openEndedLeg = cueLeg?.takeIf {
+        paceGoal == null && it.legCount <= 1 && (it.targetSeconds ?: 0) <= 0 && (it.targetMeters ?: 0.0) <= 0.0
+    }
+    val runStartedAt = activeRun?.startedAtEpochSeconds
+    val ghostActivity = openEndedLeg?.let { (itemOf(it) as? WorkoutItem.Cardio)?.cardio?.activity }
+    val lastSessionGhost = remember(ghostActivity, runStartedAt, cardioState.logs) {
+        ghostActivity?.let { WorkoutCardioGraphics.lastSessionGhost(cardioState, it, runStartedAt ?: Long.MAX_VALUE) }
+    }
+    val ghostStatus = if (lastSessionGhost != null && openEndedLeg != null && itemCoveredMeters != null) {
+        val elapsed = activeRun?.sessionCardioItemElapsedSeconds(openEndedLeg, nowWorkoutEpochSeconds()) ?: 0
+        WorkoutPaceGoals.status(lastSessionGhost, elapsed, itemCoveredMeters)
+    } else {
+        null
+    }
+    val liveBpm by heartRateBle.displayBpm.collectAsState()
     // Off-target alerts on a work leg: pace from the last 30 s of route and heart rate from the
     // strap, against the builder's bands. Fifteen seconds out before the first, then once a minute.
     val alertItem = cueLeg?.takeIf { !it.isRecovery }?.let { itemOf(it) as? WorkoutItem.Cardio }
@@ -1887,17 +1908,67 @@ fun WorkoutLiveRunScreen(
                                                 )
                                             }
                                         },
-                                        paceGoal = {
+                                        graphic = {
                                             val goal = paceGoal
                                             val status = paceGoalStatus
-                                            if (goal != null && status != null && cueLeg?.itemId == item.id) {
-                                                SessionPaceGoalTrack(
+                                            val ghost = lastSessionGhost
+                                            val versusGhost = ghostStatus
+                                            val bpm = liveBpm?.takeIf { it > 0 }
+                                            val cycling = activitySnapshot?.isCyclingActivity() == true
+                                            when {
+                                                cueLeg?.itemId != item.id -> Unit
+                                                goal != null && status != null -> SessionPaceGoalTrack(
                                                     goal = goal,
                                                     status = status,
                                                     distanceUnit = distanceUnit,
-                                                    cycling = activitySnapshot?.isCyclingActivity() == true,
+                                                    cycling = cycling,
                                                 )
+                                                ghost != null && versusGhost != null -> SessionPaceGoalTrack(
+                                                    goal = ghost,
+                                                    status = versusGhost,
+                                                    distanceUnit = distanceUnit,
+                                                    cycling = cycling,
+                                                    versus = if (cycling) "last ride" else "last time",
+                                                )
+                                                openEndedLeg != null && bpm != null -> {
+                                                    val maxHr = resolvedMaxHrForZones(heartRateZoneInputs, emptyList())
+                                                    val zone = heartRateZoneIndex(
+                                                        bpm,
+                                                        maxHr,
+                                                        heartRateZoneInputs.restingBpm,
+                                                        heartRateZoneInputs.method,
+                                                    )
+                                                    SessionHeartRateZoneBar(
+                                                        bpm = bpm,
+                                                        zone = zone,
+                                                        withinZone = heartRateWithinZoneFraction(
+                                                            bpm,
+                                                            zone,
+                                                            maxHr,
+                                                            heartRateZoneInputs.restingBpm,
+                                                            heartRateZoneInputs.method,
+                                                        ),
+                                                    )
+                                                }
                                             }
+                                        },
+                                        // The ring fills as the leg's time runs down or its distance
+                                        // is covered; a pace goal's track already shows that.
+                                        progress = when {
+                                            paceGoal != null -> null
+                                            (step.targetSeconds ?: 0) > 0 ->
+                                                stepElapsedSeconds().toFloat() / (step.targetSeconds ?: 1)
+                                            (step.targetMeters ?: 0.0) > 0.0 ->
+                                                legMeters?.let { (it / (step.targetMeters ?: 1.0)).toFloat() } ?: 0f
+                                            else -> null
+                                        },
+                                        intervalStrip = plan?.let { WorkoutCardioGraphics.intervalStrip(it.steps, step) },
+                                        legProgress = when {
+                                            (step.targetSeconds ?: 0) > 0 ->
+                                                stepElapsedSeconds().toFloat() / (step.targetSeconds ?: 1)
+                                            (step.targetMeters ?: 0.0) > 0.0 ->
+                                                legMeters?.let { (it / (step.targetMeters ?: 1.0)).toFloat() } ?: 0f
+                                            else -> 0f
                                         },
                                     )
                                 }

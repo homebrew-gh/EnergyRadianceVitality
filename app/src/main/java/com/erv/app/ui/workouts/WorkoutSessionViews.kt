@@ -1,5 +1,6 @@
 package com.erv.app.ui.workouts
 
+import android.content.res.Configuration
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -46,6 +47,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -65,6 +67,7 @@ import com.erv.app.weighttraining.formatWeightLoadNumber
 import com.erv.app.weighttraining.parseDecimalInput
 import com.erv.app.weighttraining.parseWeightInputToKg
 import com.erv.app.weighttraining.weightLoadUnitSuffix
+import com.erv.app.workouts.IntervalStrip
 import com.erv.app.workouts.WorkoutSessionStep
 import com.erv.app.workouts.formatStepSeconds
 import java.time.LocalDate
@@ -866,11 +869,19 @@ internal fun WorkoutSessionSwapDialog(
 
 /** The big clock shared by the cardio and stretch cards: a countdown, or time so far. */
 @Composable
-private fun SessionStepClock(seconds: Int, caption: String, big: Boolean = false) {
+private fun SessionStepClock(seconds: Int, caption: String, big: Boolean = false, inRing: Boolean = false) {
+    val text = clockText(seconds)
     Text(
-        clockText(seconds),
+        text,
         style = MaterialTheme.typography.displayLarge,
-        fontSize = if (big) 80.sp else 56.sp,
+        // Inside the ring, an hour-long clock ("1:02:34") steps down to fit.
+        fontSize = when {
+            inRing && text.length > 5 -> 44.sp
+            inRing -> 60.sp
+            big -> 80.sp
+            else -> 56.sp
+        },
+        maxLines = 1,
         fontWeight = if (big) FontWeight.SemiBold else null,
     )
     Text(caption, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -915,10 +926,20 @@ internal fun WorkoutSessionCardioCard(
     targetDistance: String? = null,
     /** "9:30–10:00 /mi" when the builder set a pace band. */
     paceTarget: String? = null,
-    /** While it runs: the pace goal track, when the leg has a goal. */
-    paceGoal: @Composable () -> Unit = {},
+    /**
+     * While it runs: the picture of how it's going: the pace goal track, the race against the
+     * last ride, or the heart rate zone bar.
+     */
+    graphic: @Composable () -> Unit = {},
+    /** How far through a countdown or distance leg, 0 to 1, for the ring round the clock; null for none. */
+    progress: Float? = null,
+    /** Intervals: every leg of this round, the running one filling as [legProgress]. */
+    intervalStrip: IntervalStrip? = null,
+    legProgress: Float = 0f,
 ) {
     val timed = (step.targetSeconds ?: 0) > 0
+    // Landscape on a bike or rower: numbers on the left, the picture on the right.
+    val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     Card(
         modifier = modifier.fillMaxWidth(),
         colors = if (step.isRecovery) {
@@ -960,9 +981,45 @@ internal fun WorkoutSessionCardioCard(
                     Text("Use Cardio Screen")
                 }
             } else {
-                SessionStepClock(clockSeconds, if (paused) "paused" else if (timed) "left" else "so far", big = true)
-                paceGoal()
-                SessionMetricTiles(liveStats)
+                val caption = if (paused) "paused" else if (timed) "left" else "so far"
+                val clock: @Composable () -> Unit = {
+                    if (progress != null) {
+                        SessionClockRing(progress) { SessionStepClock(clockSeconds, caption, big = true, inRing = true) }
+                    } else {
+                        SessionStepClock(clockSeconds, caption, big = true)
+                    }
+                }
+                val picture: @Composable () -> Unit = {
+                    intervalStrip?.let { SessionIntervalStrip(it, legProgress) }
+                    graphic()
+                }
+                if (landscape) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            clock()
+                            SessionMetricTiles(liveStats)
+                        }
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            picture()
+                        }
+                    }
+                } else {
+                    clock()
+                    picture()
+                    SessionMetricTiles(liveStats)
+                }
                 gpsStatus?.let {
                     Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
