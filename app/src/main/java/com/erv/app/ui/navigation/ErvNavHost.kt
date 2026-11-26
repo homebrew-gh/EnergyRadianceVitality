@@ -738,6 +738,7 @@ fun ErvNavHost(
             HeatColdLogScreen(
                 repository = heatColdRepository,
                 state = state,
+                userPreferences = userPreferences,
                 relayPool = relayPool,
                 signer = signer,
                 onBack = { navController.popBackStack() }
