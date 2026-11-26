@@ -47,6 +47,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Power
+import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -146,6 +147,10 @@ import com.erv.app.cardio.CardioMetEstimator
 import com.erv.app.stretching.StretchingSync
 import com.erv.app.cardio.CardioDistanceUnit
 import com.erv.app.cardio.CardioLibraryState
+import com.erv.app.cardio.CardioNewRecord
+import com.erv.app.cardio.CardioRecords
+import com.erv.app.cardio.allDatedSessions
+import com.erv.app.cardio.formatValue
 import com.erv.app.cardio.CardioRepository
 import com.erv.app.cardio.formatCardioAveragePaceForSession
 import com.erv.app.cardio.formatCardioDistanceFromMeters
@@ -1285,6 +1290,7 @@ fun WorkoutLiveRunScreen(
         }
         ComposedWorkoutSummaryScreen(
             summary = summary,
+            cardioState = cardioState,
             weightState = weightState,
             loadUnit = loadUnit,
             distanceUnit = distanceUnit,
@@ -2619,6 +2625,8 @@ private fun TodaysWeightsCard(
 @Composable
 private fun ComposedWorkoutSummaryScreen(
     summary: ComposedWorkoutHrSummary,
+    /** The cardio log, for the records today's cardio set. */
+    cardioState: CardioLibraryState,
     weightState: WeightLibraryState,
     loadUnit: BodyWeightUnit,
     distanceUnit: CardioDistanceUnit,
@@ -2769,12 +2777,22 @@ private fun ComposedWorkoutSummaryScreen(
                 // Two sections can share a title, so they are keyed by position.
                 summary.sections.forEachIndexed { index, section ->
                     item(key = "section_log_$index") {
+                        val cardio = section.cardioSession
+                        val newRecords = remember(cardio, cardioState.logs) {
+                            cardio?.let { session ->
+                                val day = session.startEpochSeconds
+                                    ?.let { java.time.Instant.ofEpochSecond(it).atZone(java.time.ZoneId.systemDefault()).toLocalDate() }
+                                    ?: LocalDate.now()
+                                CardioRecords.newRecords(cardioState.allDatedSessions(), session, day)
+                            }.orEmpty()
+                        }
                         ComposedWorkoutSectionLogCard(
                             section = section,
                             weightState = weightState,
                             loadUnit = loadUnit,
                             loadSuffix = loadSuffix,
                             distanceUnit = distanceUnit,
+                            newRecords = newRecords,
                         )
                     }
                 }
@@ -2948,6 +2966,41 @@ private fun WorkoutSkipStepButton(
     }
 }
 
+/** "New Record" with each record today's cardio set, and what it beat. */
+@Composable
+private fun CardioNewRecordsBanner(records: List<CardioNewRecord>, distanceUnit: CardioDistanceUnit) {
+    Surface(
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.tertiaryContainer,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(
+                    Icons.Filled.EmojiEvents,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onTertiaryContainer,
+                )
+                Text(
+                    if (records.size == 1) "New Record" else "${records.size} New Records",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer,
+                )
+            }
+            records.forEach { (record, previous) ->
+                Text(
+                    buildString {
+                        append("${record.kind.title}: ${record.formatValue(distanceUnit)}")
+                        if (previous != null) append(" (was ${previous.formatValue(distanceUnit)})")
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer,
+                )
+            }
+        }
+    }
+}
+
 @Composable
 private fun ComposedWorkoutSectionLogCard(
     section: ComposedWorkoutHrSection,
@@ -2955,6 +3008,8 @@ private fun ComposedWorkoutSectionLogCard(
     loadUnit: BodyWeightUnit,
     loadSuffix: String,
     distanceUnit: CardioDistanceUnit,
+    /** Records the section's cardio set today. */
+    newRecords: List<CardioNewRecord> = emptyList(),
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
@@ -3022,6 +3077,7 @@ private fun ComposedWorkoutSectionLogCard(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
+                    if (newRecords.isNotEmpty()) CardioNewRecordsBanner(newRecords, distanceUnit)
                 }
                 section.stretchSession != null -> {
                     val session = section.stretchSession
