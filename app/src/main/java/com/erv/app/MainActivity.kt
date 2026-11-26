@@ -39,6 +39,7 @@ import com.erv.app.nostr.*
 import com.erv.app.cardio.CardioRepository
 import com.erv.app.fasting.FastingConstants
 import com.erv.app.fasting.FastingRepository
+import com.erv.app.fasting.logDate
 import com.erv.app.heatcold.HeatColdRepository
 import com.erv.app.programs.ProgramRepository
 import com.erv.app.programs.ProgramSync
@@ -530,6 +531,21 @@ private fun MainAppShell(
             }
     }
 
+    // Daily fasting schedule: log windows that finished while ERV was closed.
+    LaunchedEffect(fastingRepository, relayPool, signer) {
+        val added = fastingRepository.autoLogIntermittentWindows()
+        if (added.isNotEmpty()) {
+            com.erv.app.fasting.publishFastingChange(
+                context.applicationContext,
+                relayPool,
+                signer,
+                fastingRepository,
+                added.map { it.logDate() },
+                keyManager.relayUrlsForKind30078Publish(),
+            )
+        }
+    }
+
     // Decryption (NIP-44), payload merges, and repository writes are CPU-heavy. Keep them off
     // the main dispatcher so startup / resume sync does not stutter the UI.
     // Serialized: the live subscription and a background pull both read-merge-write repositories.
@@ -608,6 +624,15 @@ private fun MainAppShell(
                         appCtx,
                         WorkoutSync.fullOutboxEntries(remote),
                         WorkoutSync.fullOutboxEntries(merged),
+                    )
+                }
+                if (has("erv/fasting/")) com.erv.app.fasting.FastingSync.fromLatestByTag(latestByTag, sig).let { remote ->
+                    val merged = com.erv.app.fasting.mergeFastingStates(fastingRepository.currentState(), remote)
+                    fastingRepository.replaceAll(merged)
+                    RelayPayloadDigestStore.reconcileIdenticalRemoteMerged(
+                        appCtx,
+                        com.erv.app.fasting.FastingSync.fullOutboxEntries(remote),
+                        com.erv.app.fasting.FastingSync.fullOutboxEntries(merged),
                     )
                 }
                 if (has("erv/body_tracker/")) BodyTrackerSync.fromLatestByTag(latestByTag, sig).let { remote ->

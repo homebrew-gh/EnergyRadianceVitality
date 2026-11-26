@@ -26,6 +26,8 @@ Source of truth for server allowlist: `apps/web/server/src/erv_tags.rs`.
 | `erv/training-snapshot` | Computed baseline (local v1; publish TBD) | W3 |
 | `erv/equipment` | Home gym + exercise packs | — |
 | `erv/weight/exercises` | Legacy/auxiliary weight exercises tag | — |
+| `erv/fasting/state` | Fasting: running fast, daily schedule (`intermittentPlan`), `deletedSessionIds` markers (Android only; `FastingSync.kt`) | Wellness |
+| `erv/fasting/YYYY-MM-DD` | Fasting day log `{ date, sessions }`, dated by when each fast ended; merge by `lastModifiedEpochSeconds` (Android only) | Wellness |
 | `erv/coach/review` | Latest AI coach review (web publishes, Android reads; `{ ervCoachReviewVersion, review, liftTargets, … }` in `coachReviewSync.ts`) | AI |
 | `erv/standards/results` | Logged fitness standard test results (web publishes, Android reads; raw values, `deletedResults` markers; `standardResults.ts`). Followed standards live in `erv/training-profile` (`followedStandardIds`, `mainStandardId`) | Standards |
 | `erv/standards/custom` | Custom fitness standards built on web, Android reads (full `FitnessStandard` objects, ids start `custom-`, `deletedStandards` markers; `customStandards.ts`). Event ids are kept across edits so results stay attached. Android publishes empty replacements of both tags on a personal-data delete. Built-ins reach Android as `app/src/main/assets/standards/built_in_standards.json`, checked against `standardsLibrary.ts` by `apps/web/web/test/standardsLibraryAsset.test.ts` | Standards |
@@ -48,6 +50,7 @@ relay-safe payloads.
 | Training profile | `app/.../nostr/TrainingProfileSync.kt` |
 | Coach review | `app/.../nostr/CoachReviewSync.kt` |
 | Equipment | `app/.../nostr/FitnessEquipmentSync.kt` |
+| Fasting | `app/.../fasting/FastingSync.kt` |
 
 ## Web counterparts
 

@@ -182,6 +182,7 @@ object CurrentRelayDataSync {
         programRepository: ProgramRepository,
         bodyTrackerRepository: BodyTrackerRepository,
         workoutRepository: WorkoutRepository,
+        fastingRepository: com.erv.app.fasting.FastingRepository? = null,
     ): List<Pair<String, String>> {
         val pairs = mutableListOf<Pair<String, String>>()
         val heartRateZoneInputs = userPreferences.heartRateZoneInputs.first()
@@ -194,6 +195,7 @@ object CurrentRelayDataSync {
         pairs += ProgramSync.fullOutboxEntries(programRepository.currentState())
         pairs += WorkoutSync.fullOutboxEntries(workoutRepository.currentState())
         pairs += BodyTrackerSync.fullOutboxEntries(bodyTrackerRepository.currentState())
+        fastingRepository?.let { pairs += com.erv.app.fasting.FastingSync.fullOutboxEntries(it.currentState()) }
 
         val gymMembership = userPreferences.gymMembership.first()
         val equipment = userPreferences.ownedEquipment.first()

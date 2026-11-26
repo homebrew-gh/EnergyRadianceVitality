@@ -272,6 +272,7 @@ class BackupRestoreCoordinator(
             programRepository = programRepository,
             bodyTrackerRepository = bodyTrackerRepository,
             workoutRepository = workoutRepository,
+            fastingRepository = fastingRepository,
         )
         val drain = CurrentRelayDataSync.forceResync(
             appContext = appContext,

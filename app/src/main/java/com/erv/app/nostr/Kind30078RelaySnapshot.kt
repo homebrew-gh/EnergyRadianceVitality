@@ -49,6 +49,7 @@ private val PRIORITY_KIND_30078_MASTER_D_TAGS = listOf(
     "erv/light/list",
     "erv/supplements/list",
     "erv/body_tracker/settings",
+    "erv/fasting/state",
 )
 
 /**

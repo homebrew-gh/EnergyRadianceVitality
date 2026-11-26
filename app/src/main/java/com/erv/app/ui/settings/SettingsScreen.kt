@@ -87,6 +87,7 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.ui.semantics.Role
 import com.erv.app.data.ThemeMode
 import com.erv.app.data.UserPreferences
+import com.erv.app.fasting.FastingRepository
 import com.erv.app.data.WorkoutMediaUploadBackend
 import com.erv.app.data.displayLabel
 import com.erv.app.data.displayName
@@ -667,6 +668,7 @@ fun SettingsScreen(
                 programRepository = programRepository,
                 bodyTrackerRepository = bodyTrackerRepository,
                 workoutRepository = workoutRepository,
+                fastingRepository = FastingRepository(context.applicationContext),
             )
                         }
                         relayCoverage = withContext(Dispatchers.IO) {
@@ -947,6 +949,7 @@ fun SettingsScreen(
                 programRepository = programRepository,
                 bodyTrackerRepository = bodyTrackerRepository,
                 workoutRepository = workoutRepository,
+                fastingRepository = FastingRepository(context.applicationContext),
             )
                                         }
                                         val plan = withContext(Dispatchers.IO) {

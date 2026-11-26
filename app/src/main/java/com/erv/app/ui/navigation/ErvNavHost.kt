@@ -745,6 +745,10 @@ fun ErvNavHost(
         composable(Routes.fasting) {
             FastingScreen(
                 repository = fastingRepository,
+                bodyTrackerRepository = bodyTrackerRepository,
+                userPreferences = userPreferences,
+                relayPool = relayPool,
+                signer = signer,
                 onBack = { navController.popBackStack() },
                 onOpenLog = {
                     navController.navigate(Routes.fastingLog) { launchSingleTop = true }
@@ -755,7 +759,9 @@ fun ErvNavHost(
         composable(Routes.fastingLog) {
             FastingLogScreen(
                 repository = fastingRepository,
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackStack() },
+                relayPool = relayPool,
+                signer = signer,
             )
         }
 

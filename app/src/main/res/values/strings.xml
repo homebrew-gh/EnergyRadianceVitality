@@ -76,7 +76,7 @@
     <string name="fasting_complete_notification_channel_name">Fasting complete</string>
     <string name="fasting_complete_notification_channel_desc">Notifications when a fasting target is reached.</string>
     <string name="fasting_complete_notification_title">Fast complete</string>
-    <string name="fasting_complete_notification_text">Your %1$d-day fast target is complete.</string>
+    <string name="fasting_complete_notification_text">Your %1$d-hour fast target is complete.</string>
     <string name="fasting_complete_notification_big_text">Your fast target is complete. Tap to add mood, weight, and notes.</string>
 
     <!-- Weight training — bodyweight-style exercises: load is added weight only -->
