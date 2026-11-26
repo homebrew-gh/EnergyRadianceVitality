@@ -2,6 +2,16 @@ package com.erv.app.ui.weighttraining
 
 // Equipment uses FilterChips only — no MenuAnchorType / ExposedDropdownMenu (avoids Material3 API drift).
 
+import com.erv.app.weighttraining.weightLoadUnitSuffix
+import com.erv.app.weighttraining.kgToPounds
+import com.erv.app.weighttraining.compactSetsLine
+import com.erv.app.weighttraining.exerciseListStats
+import com.erv.app.weighttraining.WeightExerciseListStat
+import java.util.Locale
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.background
 import com.erv.app.ui.theme.ervTopAppBarColors
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -717,7 +727,10 @@ private fun ExercisesTabBody(
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var loggedBeforeOnly by rememberSaveable { mutableStateOf(false) }
     var equipmentFilter by rememberSaveable { mutableStateOf(WeightExercisePickerFilter.ALL) }
+    var recentFirst by rememberSaveable { mutableStateOf(false) }
     val loggedIds = remember(state.logs) { state.exerciseIdsUsedInAnyLog() }
+    val listStats = remember(state.logs) { state.exerciseListStats() }
+    val loadUnit by userPreferences.weightTrainingLoadUnit.collectAsState(initial = BodyWeightUnit.LB)
     val grouped = remember(
         state.exercises,
         state.logs,
@@ -727,8 +740,10 @@ private fun ExercisesTabBody(
         equipmentFilter,
         ownedEquipment,
         enabledExercisePackIds,
+        recentFirst,
+        listStats,
     ) {
-        exercisesGroupedFiltered(
+        val byMuscle = exercisesGroupedFiltered(
             state = state,
             query = searchQuery,
             loggedBeforeOnly = loggedBeforeOnly,
@@ -737,6 +752,18 @@ private fun ExercisesTabBody(
             ownedEquipment = ownedEquipment,
             enabledPackIds = enabledExercisePackIds,
         )
+        if (!recentFirst) {
+            byMuscle
+        } else {
+            // One list, most recently done first; never-logged ones after, by name.
+            val all = byMuscle.flatMap { it.second }
+            val done = all.filter { it.id in listStats }.sortedByDescending { listStats.getValue(it.id).lastDate }
+            val rest = all.filter { it.id !in listStats }.sortedBy { it.name.lowercase() }
+            listOfNotNull(
+                ("recent" to done).takeIf { done.isNotEmpty() },
+                ("not-done" to rest).takeIf { rest.isNotEmpty() },
+            )
+        }
     }
 
     Column(Modifier.fillMaxSize()) {
@@ -783,6 +810,23 @@ private fun ExercisesTabBody(
                         }
                 },
                 label = { FieldLabel("Home-Ready") }
+            )
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 0.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            FilterChip(
+                selected = !recentFirst,
+                onClick = { recentFirst = false },
+                label = { FieldLabel("By Muscle") }
+            )
+            FilterChip(
+                selected = recentFirst,
+                onClick = { recentFirst = true },
+                label = { FieldLabel("Recently Done") }
             )
         }
 
@@ -839,7 +883,11 @@ private fun ExercisesTabBody(
                     grouped.forEach { (muscleKey, list) ->
                         item(key = "mg_$muscleKey") {
                             Text(
-                                formatMuscleGroupHeader(muscleKey),
+                                when {
+                                    !recentFirst -> formatMuscleGroupHeader(muscleKey)
+                                    muscleKey == "recent" -> "Recently Done"
+                                    else -> "Not Logged Yet"
+                                },
                                 style = MaterialTheme.typography.titleSmall,
                                 color = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.padding(top = 4.dp, bottom = 4.dp)
@@ -854,7 +902,17 @@ private fun ExercisesTabBody(
                                         .clickable { onOpenExerciseDetail(exercise.id) }
                                         .padding(16.dp)
                                 ) {
-                                    Text(exercise.name, style = MaterialTheme.typography.titleMedium)
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            exercise.name,
+                                            style = MaterialTheme.typography.titleMedium,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        val recordDay = listStats[exercise.id]?.lastRecordDate
+                                        if (recordDay != null && !recordDay.isBefore(LocalDate.now().minusDays(14))) {
+                                            RecentRecordBadge()
+                                        }
+                                    }
                                     Spacer(Modifier.height(6.dp))
                                     Text(
                                         "${exercise.equipment.displayLabel()} · ${exercise.pushOrPull.displayLabel()}" +
@@ -862,6 +920,10 @@ private fun ExercisesTabBody(
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
+                                    listStats[exercise.id]?.let { stat ->
+                                        Spacer(Modifier.height(4.dp))
+                                        ExerciseListStatLine(stat, loadUnit)
+                                    }
                                 }
                             }
                         }
@@ -870,6 +932,47 @@ private fun ExercisesTabBody(
             }
         }
     }
+}
+
+/** "Last Nov 24 · 225 lb × 5, 5, 5" on the left, the best est. 1RM on the right. */
+@Composable
+private fun ExerciseListStatLine(stat: WeightExerciseListStat, loadUnit: BodyWeightUnit) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+        val sets = stat.lastEntry.compactSetsLine(loadUnit, warmups = false)
+        Text(
+            listOfNotNull("Last ${shortDateLabel(stat.lastDate)}", sets).joinToString(" · "),
+            style = MaterialTheme.typography.bodySmall,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
+        )
+        stat.bestEstOneRmKg?.let { kg ->
+            val v = when (loadUnit) {
+                BodyWeightUnit.KG -> kg
+                BodyWeightUnit.LB -> kgToPounds(kg)
+            }
+            Text(
+                "1RM ${"%.0f".format(Locale.US, v)} ${weightLoadUnitSuffix(loadUnit)}",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(start = 8.dp)
+            )
+        }
+    }
+}
+
+/** A record beaten in the last two weeks. */
+@Composable
+private fun RecentRecordBadge() {
+    Text(
+        "PR",
+        style = MaterialTheme.typography.labelSmall,
+        fontWeight = FontWeight.Bold,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier
+            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.18f), RoundedCornerShape(6.dp))
+            .padding(horizontal = 6.dp, vertical = 2.dp)
+    )
 }
 
 private fun exercisesGroupedFiltered(

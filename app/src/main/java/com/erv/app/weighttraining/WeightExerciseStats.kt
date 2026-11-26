@@ -100,3 +100,47 @@ fun WeightWorkoutEntry.compactSetsLine(loadUnit: BodyWeightUnit, warmups: Boolea
         }
     }
 }
+
+/** What the exercise list shows under one exercise. */
+data class WeightExerciseListStat(
+    /** The day it was last done, and that session's entry. */
+    val lastDate: LocalDate,
+    val lastEntry: WeightWorkoutEntry,
+    /** Best est. 1RM ever, in kg; null for bodyweight and timed lifts. */
+    val bestEstOneRmKg: Double?,
+    /** The last day a record was beaten; a first time doing the lift doesn't count. */
+    val lastRecordDate: LocalDate?,
+)
+
+/** List stats for every logged exercise, in one pass over the log (oldest workout first). */
+fun WeightLibraryState.exerciseListStats(): Map<String, WeightExerciseListStat> {
+    val best = mutableMapOf<String, MutableMap<WeightRecordKind, WeightRecord>>()
+    val last = mutableMapOf<String, Pair<LocalDate, WeightWorkoutEntry>>()
+    val lastRecord = mutableMapOf<String, LocalDate>()
+    val workouts = allDatedWorkouts().sortedWith(
+        compareBy<DatedWeightWorkout> { it.logDate }
+            .thenBy { it.workout.startedAtEpochSeconds ?: it.workout.finishedAtEpochSeconds ?: 0L },
+    )
+    for (dated in workouts) {
+        for (exerciseId in dated.workout.entries.map { it.exerciseId }.distinct()) {
+            val entry = dated.workout.entryForExercise(exerciseId) ?: continue
+            if (entry.sets.any { it.isLogged() } || entry.hiitBlock != null) last[exerciseId] = dated.logDate to entry
+            val kinds = best.getOrPut(exerciseId) { mutableMapOf() }
+            for (record in WeightRecords.recordsOf(dated.workout, dated.logDate, exerciseId)) {
+                val previous = kinds[record.kind]
+                if (record.beats(previous)) {
+                    if (previous != null) lastRecord[exerciseId] = dated.logDate
+                    kinds[record.kind] = record
+                }
+            }
+        }
+    }
+    return last.mapValues { (exerciseId, pair) ->
+        WeightExerciseListStat(
+            lastDate = pair.first,
+            lastEntry = pair.second,
+            bestEstOneRmKg = best[exerciseId]?.get(WeightRecordKind.EST_ONE_RM)?.value,
+            lastRecordDate = lastRecord[exerciseId],
+        )
+    }
+}

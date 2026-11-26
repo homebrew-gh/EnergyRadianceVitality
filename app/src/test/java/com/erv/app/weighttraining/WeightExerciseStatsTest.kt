@@ -69,4 +69,20 @@ class WeightExerciseStatsTest {
         assertEquals(WeightTrendMetric.MOST_REPS, bodyweight.exerciseTrend("pullup")!!.first)
         assertNull(bodyweight.exerciseTrend("bench"))
     }
+
+    @Test
+    fun listStats_lastSessionBestOneRm_andLastRecordDay() {
+        val s = state(
+            "2026-11-01" to listOf(WeightSet(reps = 5, weightKg = 100.0)),
+            "2026-11-08" to listOf(WeightSet(reps = 5, weightKg = 105.0)),
+            "2026-11-15" to listOf(WeightSet(reps = 5, weightKg = 95.0), WeightSet(reps = 5, weightKg = 60.0, warmup = true)),
+        )
+        val stat = s.exerciseListStats().getValue("bench")
+        assertEquals(LocalDate.of(2026, 11, 15), stat.lastDate)
+        assertEquals(122.5, stat.bestEstOneRmKg!!, 0.01)
+        assertEquals(LocalDate.of(2026, 11, 8), stat.lastRecordDate)
+
+        val firstOnly = state("2026-11-01" to listOf(WeightSet(reps = 5, weightKg = 100.0))).exerciseListStats().getValue("bench")
+        assertNull(firstOnly.lastRecordDate)
+    }
 }
