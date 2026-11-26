@@ -30,6 +30,8 @@
     <!-- Rest timer alerts in a live workout are a timer the athlete sets; exact alarms keep them on time. -->
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- Guided stretching keeps its timer and voice going with the screen off. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
@@ -139,6 +141,14 @@
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Ongoing workout session: notification with the workout clock, the current step and rest countdowns." />
+        </service>
+        <service
+            android:name=".ui.stretching.GuidedStretchService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Guided stretching routine the person started: hold timer, spoken cues and a notification with Pause and Skip while the screen is off." />
         </service>
         <service
             android:name=".fasting.FastingForegroundService"
