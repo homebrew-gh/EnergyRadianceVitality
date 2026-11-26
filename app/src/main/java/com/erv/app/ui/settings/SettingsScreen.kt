@@ -78,6 +78,12 @@ import com.erv.app.data.OwnedEquipmentItem
 import com.erv.app.data.SavedBluetoothDevice
 import com.erv.app.data.SavedBluetoothDeviceKind
 import com.erv.app.data.StretchGuidedTtsVoice
+import com.erv.app.data.StretchSoundStyle
+import com.erv.app.stretching.StretchCue
+import com.erv.app.ui.media.StretchCuePlayer
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.material3.RadioButton
+import androidx.compose.ui.semantics.Role
 import com.erv.app.data.ThemeMode
 import com.erv.app.data.UserPreferences
 import com.erv.app.data.WorkoutMediaUploadBackend
@@ -287,6 +293,9 @@ fun SettingsScreen(
     val enabledWeightExercisePackIds by userPreferences.enabledWeightExercisePackIds.collectAsState(initial = emptySet())
     val stretchGuidedTtsVoice by userPreferences.stretchGuidedTtsVoice.collectAsState(
         initial = StretchGuidedTtsVoice.SYSTEM_DEFAULT
+    )
+    val stretchSoundStyle by userPreferences.stretchSoundStyle.collectAsState(
+        initial = StretchSoundStyle.SOFT_CHIME
     )
 
     var relayRevision by remember { mutableIntStateOf(0) }
@@ -512,6 +521,13 @@ fun SettingsScreen(
                     title = stringResource(R.string.settings_stretch_guided_voice_hub_title),
                     onBack = { nestedNav.popBackStack() }
                 ) {
+                    StretchSoundStyleSection(
+                        style = stretchSoundStyle,
+                        onStyleChange = { st ->
+                            scope.launch { userPreferences.setStretchSoundStyle(st) }
+                        }
+                    )
+                    Spacer(Modifier.height(20.dp))
                     StretchGuidedTtsVoiceSection(
                         voice = stretchGuidedTtsVoice,
                         onVoiceChange = { v ->
@@ -2857,6 +2873,83 @@ private fun CardioNostrRouteShareSection(
             }
         )
     }
+}
+
+@Composable
+private fun StretchSoundStyleSection(
+    style: StretchSoundStyle,
+    onStyleChange: (StretchSoundStyle) -> Unit
+) {
+    val context = LocalContext.current
+    FormSectionLabel(
+        text = "Sound style",
+        modifier = Modifier.padding(bottom = 4.dp)
+    )
+    Text(
+        "Plays when a stretch hold starts, a few seconds before it ends, and when it ends. Used by guided " +
+            "routines and by stretches inside a workout. Tap a style to hear it.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(bottom = 8.dp)
+    )
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(modifier = Modifier.padding(vertical = 4.dp)) {
+            StretchSoundStyle.entries.forEach { option ->
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .selectable(
+                            selected = option == style,
+                            role = Role.RadioButton,
+                            onClick = {
+                                onStyleChange(option)
+                                previewStretchSoundStyle(context, option)
+                            }
+                        )
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                ) {
+                    RadioButton(selected = option == style, onClick = null)
+                    Spacer(Modifier.width(12.dp))
+                    Column {
+                        Text(stretchSoundStyleLabel(option), style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            stretchSoundStyleDescription(option),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun stretchSoundStyleLabel(style: StretchSoundStyle): String = when (style) {
+    StretchSoundStyle.SOFT_CHIME -> "Soft Chime"
+    StretchSoundStyle.SINGING_BOWL -> "Singing Bowl"
+    StretchSoundStyle.WOOD_BLOCK -> "Wood Block"
+    StretchSoundStyle.CLASSIC -> "Classic Beeps"
+    StretchSoundStyle.VIBRATE_ONLY -> "Vibrate Only"
+}
+
+private fun stretchSoundStyleDescription(style: StretchSoundStyle): String = when (style) {
+    StretchSoundStyle.SOFT_CHIME -> "Light bell tones. The default."
+    StretchSoundStyle.SINGING_BOWL -> "Low, long tones that fade slowly."
+    StretchSoundStyle.WOOD_BLOCK -> "Short, quiet knocks."
+    StretchSoundStyle.CLASSIC -> "The original beeps, with a five-second countdown."
+    StretchSoundStyle.VIBRATE_ONLY -> "No sound, a gentle buzz."
+}
+
+/** Plays a style's start then end cue, so picking one lets you hear it. */
+private fun previewStretchSoundStyle(context: android.content.Context, style: StretchSoundStyle) {
+    StretchCuePlayer.play(context, style, StretchCue.HOLD_START)
+    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+        StretchCuePlayer.play(context, style, StretchCue.HOLD_END)
+    }, if (style == StretchSoundStyle.SINGING_BOWL) 1_800L else 900L)
 }
 
 @Composable

@@ -274,7 +274,7 @@
 
     <!-- Stretching guided session TTS -->
     <string name="settings_stretch_guided_voice_hub_title">Stretching</string>
-    <string name="settings_stretch_guided_voice_hub_subtitle">Voice for “next stretch” announcements during guided routines</string>
+    <string name="settings_stretch_guided_voice_hub_subtitle">Sounds and voice for guided routines and stretch holds</string>
     <string name="settings_stretch_guided_voice_title">Guided stretch voice</string>
     <string name="settings_stretch_guided_voice_helper">Uses your device’s text-to-speech engine. Male/female choices depend on installed voices; if none match, a language default is used.</string>
     <string name="settings_stretch_guided_voice_default">Default</string>
