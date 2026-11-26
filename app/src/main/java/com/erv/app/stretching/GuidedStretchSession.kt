@@ -67,22 +67,23 @@ fun guidedEntryPositions(steps: List<GuidedStretchStep>): List<Int> {
 
 /**
  * Seconds left in the session from step [focusIndex]: what is left of the current phase
- * ([secondsLeftInPhase]), every later hold, and the gaps between them ([gapSeconds]). During a gap
- * ([inHold] false) the focus step's whole hold is still ahead.
+ * ([secondsLeftInPhase]), every later hold ([stepHolds], one per step), and the gaps between them
+ * ([gapSeconds]). During a gap ([inHold] false) the focus step's whole hold is still ahead.
  */
 fun guidedSecondsRemaining(
     steps: List<GuidedStretchStep>,
-    holdSeconds: Int,
+    stepHolds: List<Int>,
     focusIndex: Int,
     inHold: Boolean,
     secondsLeftInPhase: Int,
     gapSeconds: (GuidedStretchStep, GuidedStretchStep) -> Int,
 ): Int {
     if (steps.isEmpty() || focusIndex !in steps.indices) return 0
+    fun hold(k: Int) = stepHolds.getOrNull(k) ?: stepHolds.lastOrNull() ?: 0
     var total = secondsLeftInPhase.coerceAtLeast(0)
-    if (!inHold) total += holdSeconds
+    if (!inHold) total += hold(focusIndex)
     for (k in focusIndex + 1 until steps.size) {
-        total += gapSeconds(steps[k - 1], steps[k]) + holdSeconds
+        total += gapSeconds(steps[k - 1], steps[k]) + hold(k)
     }
     return total
 }

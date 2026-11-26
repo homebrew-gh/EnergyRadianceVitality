@@ -85,6 +85,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -108,12 +109,21 @@ import com.erv.app.ui.components.FieldLabel
 import com.erv.app.ui.components.FormSectionLabel
 import com.erv.app.stretching.guidedEntryPositions
 import com.erv.app.stretching.guidedSecondsRemaining
+import com.erv.app.stretching.toGuidedSessionSteps
+import com.erv.app.stretching.guidedStepHoldSeconds
+import com.erv.app.stretching.gapSecondsOrDefault
+import com.erv.app.stretching.entryHoldSeconds
+import com.erv.app.stretching.cleanedStretchHoldOverrides
+import com.erv.app.stretching.STRETCH_HOLD_MIN_SECONDS
+import com.erv.app.stretching.STRETCH_HOLD_MAX_SECONDS
+import com.erv.app.stretching.STRETCH_GAP_MIN_SECONDS
+import com.erv.app.stretching.STRETCH_GAP_MAX_SECONDS
+import com.erv.app.stretching.STRETCH_GAP_DEFAULT_SECONDS
 import com.erv.app.data.UserPreferences
 import com.erv.app.nostr.EventSigner
 import com.erv.app.nostr.LocalKeyManager
 import com.erv.app.nostr.RelayPool
 import com.erv.app.stretching.StretchCatalogEntry
-import com.erv.app.stretching.routineHoldSegments
 import com.erv.app.stretching.groupedByCategory
 import com.erv.app.stretching.stretchCategoryDisplayLabel
 import com.erv.app.stretching.StretchDayLog
@@ -147,19 +157,23 @@ private enum class StretchTab { Stretches, Routines }
 private fun routineHoldSummaryLine(
     stretchIds: List<String>,
     catalog: List<StretchCatalogEntry>,
-    holdSeconds: Int
+    holds: List<Int>,
+    gapSeconds: Int,
 ): String {
     if (stretchIds.isEmpty()) return "0 stretches"
-    val segments = routineHoldSegments(stretchIds, catalog)
-    val totalSec = segments * holdSeconds
-    val min = totalSec / 60
-    val sec = totalSec % 60
-    val totalLabel = if (sec == 0) "${min} min" else "${min}m ${sec}s"
-    return if (segments == stretchIds.size) {
-        "${stretchIds.size} stretches · ${holdSeconds}s hold each"
-    } else {
-        "${stretchIds.size} stretches · $segments hold segments × ${holdSeconds}s ($totalLabel) — left & right where marked"
-    }
+    val byId = catalog.associateBy { it.id }
+    val entries = stretchIds.map { id -> byId[id] ?: StretchCatalogEntry(id = id, name = id) }
+    val minutes = guidedSessionTotalMinutes(
+        entries.toGuidedSessionSteps(),
+        guidedStepHoldSeconds(entries, holds),
+        gapSeconds,
+    )
+    val lo = holds.minOrNull() ?: 0
+    val hi = holds.maxOrNull() ?: 0
+    val holdLabel = if (lo == hi) "${lo}s holds" else "${lo}–${hi}s holds"
+    val count = if (stretchIds.size == 1) "1 stretch" else "${stretchIds.size} stretches"
+    val sides = if (entries.any { it.requiresBothSides }) " · both sides where marked" else ""
+    return "$count · $holdLabel · about $minutes min$sides"
 }
 
 internal fun titleCaseStretchLabel(raw: String): String {
@@ -309,7 +323,8 @@ fun StretchingCategoryScreen(
             routineId = r.id,
             routineName = r.name,
             entries = resolveStretchEntries(r.stretchIds, repository),
-            holdSeconds = r.holdSecondsPerStretch.coerceIn(5, 300),
+            entryHoldSeconds = r.entryHoldSeconds(),
+            gapSeconds = r.gapSecondsOrDefault(),
         )
     }
     LaunchedEffect(guidedSession?.outcome) {
@@ -651,7 +666,8 @@ private fun StretchRoutinesTab(
                                 routineHoldSummaryLine(
                                     routine.stretchIds,
                                     repository.catalog,
-                                    routine.holdSecondsPerStretch
+                                    routine.entryHoldSeconds(),
+                                    routine.gapSecondsOrDefault(),
                                 ),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -703,15 +719,12 @@ private fun StretchGuidedSessionOverlay(session: GuidedStretchSessionState) {
         }
     }
     val steps = session.steps
-    val holdSeconds = session.holdSeconds
     val index = session.index
     val phaseHold = session.phaseHold
     val firstPrepActive = session.firstPrepActive
     val secondsLeft = session.secondsLeft
     val paused = session.paused
     val voiceEnabled = session.voiceEnabled
-    val currentStep = session.currentStep
-    val nextStep = session.nextStep
     val focusIndex = session.focusIndex
     var showEndDialog by remember { mutableStateOf(false) }
 
@@ -729,18 +742,17 @@ private fun StretchGuidedSessionOverlay(session: GuidedStretchSessionState) {
     val focusPosition = positions.getOrNull(focusIndex.coerceIn(0, (steps.size - 1).coerceAtLeast(0))) ?: 0
     val secondsRemaining = guidedSecondsRemaining(
         steps = steps,
-        holdSeconds = holdSeconds,
+        stepHolds = session.stepHoldSeconds,
         focusIndex = focusIndex.coerceIn(0, (steps.size - 1).coerceAtLeast(0)),
         inHold = phaseHold,
         secondsLeftInPhase = secondsLeft,
-        gapSeconds = ::transitionSecondsBetweenSteps,
+        gapSeconds = { a, b -> transitionSecondsBetweenSteps(a, b, session.gapSeconds) },
     )
     val shownStep = session.shownStep
     val phaseTotal = when {
-        phaseHold -> holdSeconds
+        phaseHold -> session.holdAt(index)
         firstPrepActive -> FIRST_STRETCH_PREP_SECONDS
-        else -> currentStep?.let { c -> nextStep?.let { n -> transitionSecondsBetweenSteps(c, n) } }
-            ?: TRANSITION_SECONDS_BILATERAL_SIDE
+        else -> session.gapAfterCurrent ?: TRANSITION_SECONDS_BILATERAL_SIDE
     }
     val ringTarget = if (secondsLeft < 0 || phaseTotal <= 0) 0f else
         ((phaseTotal - secondsLeft).toFloat() / phaseTotal).coerceIn(0f, 1f)
@@ -1035,8 +1047,17 @@ private fun StretchRoutineEditorDialog(
     var holdSecText by remember(routine?.id, creating) {
         mutableStateOf((routine?.holdSecondsPerStretch ?: 30).toString())
     }
+    var gapSecText by remember(routine?.id, creating) {
+        mutableStateOf(routine?.gapSeconds?.toString().orEmpty())
+    }
     val orderedIds = remember(routine?.id, creating) {
         mutableStateListOf<String>().apply { addAll(routine?.stretchIds.orEmpty()) }
+    }
+    // Per-stretch hold times as typed; blank means the routine's hold.
+    val holdOverrideText = remember(routine?.id, creating) {
+        mutableStateMapOf<String, String>().apply {
+            routine?.holdSecondsByStretchId?.forEach { (id, sec) -> put(id, sec.toString()) }
+        }
     }
     var showPicker by remember { mutableStateOf(false) }
     var selectedStretchCategory by remember { mutableStateOf<String?>(null) }
@@ -1069,11 +1090,26 @@ private fun StretchRoutineEditorDialog(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
-                val holdForPlan = holdSecText.toIntOrNull()?.coerceIn(5, 300) ?: 30
+                OutlinedTextField(
+                    value = gapSecText,
+                    onValueChange = { if (it.all { c -> c.isDigit() } && it.length <= 2) gapSecText = it },
+                    label = { FieldLabel("Gap between stretches (seconds)") },
+                    placeholder = { Text("$STRETCH_GAP_DEFAULT_SECONDS") },
+                    supportingText = { Text("Time to move into the next stretch. Switching sides stays $TRANSITION_SECONDS_BILATERAL_SIDE s.") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                val holdForPlan = holdSecText.toIntOrNull()?.coerceIn(STRETCH_HOLD_MIN_SECONDS, STRETCH_HOLD_MAX_SECONDS) ?: 30
+                val gapForPlan = gapSecText.toIntOrNull()?.coerceIn(STRETCH_GAP_MIN_SECONDS, STRETCH_GAP_MAX_SECONDS)
+                    ?: STRETCH_GAP_DEFAULT_SECONDS
                 val planIds = orderedIds.toList()
+                fun holdFor(id: String): Int =
+                    holdOverrideText[id]?.toIntOrNull()?.takeIf { it > 0 }
+                        ?.coerceIn(STRETCH_HOLD_MIN_SECONDS, STRETCH_HOLD_MAX_SECONDS) ?: holdForPlan
                 if (planIds.isNotEmpty()) {
                     Text(
-                        routineHoldSummaryLine(planIds, catalog, holdForPlan),
+                        routineHoldSummaryLine(planIds, catalog, planIds.map { holdFor(it) }, gapForPlan),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -1104,6 +1140,22 @@ private fun StretchRoutineEditorDialog(
                                         color = MaterialTheme.colorScheme.tertiary
                                     )
                                 }
+                                OutlinedTextField(
+                                    value = holdOverrideText[id].orEmpty(),
+                                    onValueChange = { v ->
+                                        if (v.all { c -> c.isDigit() } && v.length <= 3) {
+                                            if (v.isEmpty()) holdOverrideText.remove(id) else holdOverrideText[id] = v
+                                        }
+                                    },
+                                    label = { FieldLabel("Hold seconds") },
+                                    placeholder = { Text("$holdForPlan") },
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                    singleLine = true,
+                                    textStyle = MaterialTheme.typography.bodySmall,
+                                    modifier = Modifier
+                                        .padding(top = 4.dp)
+                                        .width(140.dp)
+                                )
                             }
                             IconButton(
                                 onClick = {
@@ -1141,12 +1193,19 @@ private fun StretchRoutineEditorDialog(
         confirmButton = {
             TextButton(
                 onClick = {
-                    val hold = holdSecText.toIntOrNull()?.coerceIn(5, 300) ?: 30
+                    val hold = holdSecText.toIntOrNull()?.coerceIn(STRETCH_HOLD_MIN_SECONDS, STRETCH_HOLD_MAX_SECONDS) ?: 30
+                    val ids = orderedIds.toList()
+                    val overrides = holdOverrideText.mapNotNull { (id, text) ->
+                        text.toIntOrNull()?.takeIf { it > 0 }?.let { id to it }
+                    }.toMap()
+                    val gap = gapSecText.toIntOrNull()?.coerceIn(STRETCH_GAP_MIN_SECONDS, STRETCH_GAP_MAX_SECONDS)
                     onSave(
                         (routine ?: StretchRoutine(name = name.trim())).copy(
                             name = name.trim().ifBlank { "Routine" },
-                            stretchIds = orderedIds.toList(),
-                            holdSecondsPerStretch = hold
+                            stretchIds = ids,
+                            holdSecondsPerStretch = hold,
+                            holdSecondsByStretchId = cleanedStretchHoldOverrides(overrides, ids, hold),
+                            gapSeconds = gap?.takeIf { it != STRETCH_GAP_DEFAULT_SECONDS },
                         )
                     )
                 }

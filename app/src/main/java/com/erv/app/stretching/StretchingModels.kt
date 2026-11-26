@@ -43,7 +43,7 @@ data class StretchCatalogEntry(
     val category: String = "other",
     /**
      * If true, the guided player runs **two** holds ([StretchSide.RIGHT] then [StretchSide.LEFT]),
-     * each for [StretchRoutine.holdSecondsPerStretch].
+     * each for that stretch's hold ([StretchRoutine.holdSecondsFor]).
      */
     val requiresBothSides: Boolean = false,
     val targetBodyParts: List<String> = emptyList(),
@@ -92,9 +92,53 @@ data class StretchRoutine(
     val id: String = UUID.randomUUID().toString(),
     val name: String,
     val stretchIds: List<String> = emptyList(),
-    /** Hold time for each stretch in the guided player. */
-    val holdSecondsPerStretch: Int = 30
+    /** Hold time for each stretch in the guided player (each side, for two-sided stretches). */
+    val holdSecondsPerStretch: Int = 30,
+    /**
+     * Optional hold times for particular stretches, by catalog id; any stretch not listed uses
+     * [holdSecondsPerStretch]. Routines saved before this existed have none.
+     */
+    val holdSecondsByStretchId: Map<String, Int> = emptyMap(),
+    /** Seconds between different stretches in the guided player; null keeps the default. */
+    val gapSeconds: Int? = null,
 )
+
+const val STRETCH_HOLD_MIN_SECONDS = 5
+const val STRETCH_HOLD_MAX_SECONDS = 300
+const val STRETCH_GAP_DEFAULT_SECONDS = 10
+const val STRETCH_GAP_MIN_SECONDS = 5
+const val STRETCH_GAP_MAX_SECONDS = 60
+
+/** The hold, in seconds, for [stretchId] in this routine: its own time if set, else the routine's. */
+fun StretchRoutine.holdSecondsFor(stretchId: String): Int =
+    (holdSecondsByStretchId[stretchId]?.takeIf { it > 0 } ?: holdSecondsPerStretch)
+        .coerceIn(STRETCH_HOLD_MIN_SECONDS, STRETCH_HOLD_MAX_SECONDS)
+
+/** One hold time per entry of [StretchRoutine.stretchIds], in order. */
+fun StretchRoutine.entryHoldSeconds(): List<Int> = stretchIds.map { holdSecondsFor(it) }
+
+/** Seconds between different stretches, with the default when unset. */
+fun StretchRoutine.gapSecondsOrDefault(): Int =
+    (gapSeconds ?: STRETCH_GAP_DEFAULT_SECONDS).coerceIn(STRETCH_GAP_MIN_SECONDS, STRETCH_GAP_MAX_SECONDS)
+
+/**
+ * Only the per-stretch times that differ from [default] and belong to [stretchIds], so saving a
+ * routine never keeps times for stretches it dropped or times that just repeat the routine's.
+ */
+fun cleanedStretchHoldOverrides(overrides: Map<String, Int>, stretchIds: List<String>, default: Int): Map<String, Int> {
+    val ids = stretchIds.toSet()
+    return overrides
+        .filterKeys { it in ids }
+        .mapValues { (_, v) -> v.coerceIn(STRETCH_HOLD_MIN_SECONDS, STRETCH_HOLD_MAX_SECONDS) }
+        .filterValues { it != default }
+}
+
+/** Expands one hold per entry into one hold per guided step (both sides of a stretch get its hold). */
+fun guidedStepHoldSeconds(entries: List<StretchCatalogEntry>, entryHolds: List<Int>, fallback: Int = 30): List<Int> =
+    entries.flatMapIndexed { i, entry ->
+        val hold = entryHolds.getOrNull(i) ?: fallback
+        List(entry.holdSideSegments()) { hold }
+    }
 
 @Serializable
 data class StretchSession(

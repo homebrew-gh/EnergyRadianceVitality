@@ -20,6 +20,7 @@ import com.erv.app.stretching.applyStretchGuidedTtsVoice
 import com.erv.app.stretching.guidedBackTarget
 import com.erv.app.stretching.guidedReadsProcedure
 import com.erv.app.stretching.guidedSkipTarget
+import com.erv.app.stretching.guidedStepHoldSeconds
 import com.erv.app.stretching.guidedStretchResult
 import com.erv.app.stretching.stretchCueForSecondLeft
 import com.erv.app.stretching.toGuidedSessionSteps
@@ -43,7 +44,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
 import kotlin.math.max
 
-/** Between different stretches (or same stretch again later in the routine). */
+/** Default gap between different stretches (or the same stretch again later in the routine). */
 internal const val TRANSITION_SECONDS_NEW_STRETCH = 10
 
 /** Same catalog stretch: right side → left side only. */
@@ -101,12 +102,20 @@ private fun requestTtsAudioFocusForPlayback(context: Context): AudioManager.OnAu
     return listener
 }
 
-internal fun transitionSecondsBetweenSteps(prev: GuidedStretchStep, next: GuidedStretchStep): Int {
+/**
+ * Seconds between two steps: a short side switch within one stretch, else the routine's
+ * [gapSeconds] (its Gap Between Stretches, 10 s unless changed).
+ */
+internal fun transitionSecondsBetweenSteps(
+    prev: GuidedStretchStep,
+    next: GuidedStretchStep,
+    gapSeconds: Int = TRANSITION_SECONDS_NEW_STRETCH,
+): Int {
     val bilateralSideChange =
         prev.side == StretchSide.RIGHT &&
             next.side == StretchSide.LEFT &&
             prev.entry.id == next.entry.id
-    return if (bilateralSideChange) TRANSITION_SECONDS_BILATERAL_SIDE else TRANSITION_SECONDS_NEW_STRETCH
+    return if (bilateralSideChange) TRANSITION_SECONDS_BILATERAL_SIDE else gapSeconds
 }
 
 internal fun guidedSideLabel(side: StretchSide?): String? = when (side) {
@@ -233,12 +242,16 @@ private fun applyStretchingTtsLayerConfig(
     )
 }
 
-internal fun guidedSessionTotalMinutes(sessionSteps: List<GuidedStretchStep>, holdSeconds: Int): Int {
+internal fun guidedSessionTotalMinutes(
+    sessionSteps: List<GuidedStretchStep>,
+    stepHolds: List<Int>,
+    gapSeconds: Int = TRANSITION_SECONDS_NEW_STRETCH,
+): Int {
     if (sessionSteps.isEmpty()) return 0
-    val holdTotal = sessionSteps.size * holdSeconds
+    val holdTotal = sessionSteps.indices.sumOf { stepHolds.getOrNull(it) ?: stepHolds.lastOrNull() ?: 0 }
     val transitions = sessionSteps
         .zipWithNext()
-        .sumOf { (a, b) -> transitionSecondsBetweenSteps(a, b) }
+        .sumOf { (a, b) -> transitionSecondsBetweenSteps(a, b, gapSeconds) }
     val firstPrep = FIRST_STRETCH_PREP_SECONDS
     return max(1, (holdTotal + transitions + firstPrep + 59) / 60)
 }
@@ -255,8 +268,11 @@ data class GuidedStretchSessionState(
     val routineId: String,
     val routineName: String,
     val entries: List<StretchCatalogEntry>,
-    val holdSeconds: Int,
     val steps: List<GuidedStretchStep>,
+    /** One hold per step (both sides of a stretch share its time). */
+    val stepHoldSeconds: List<Int>,
+    /** Seconds between different stretches. */
+    val gapSeconds: Int = TRANSITION_SECONDS_NEW_STRETCH,
     val index: Int = 0,
     val phaseHold: Boolean = false,
     val firstPrepActive: Boolean = true,
@@ -272,6 +288,13 @@ data class GuidedStretchSessionState(
     val currentStep: GuidedStretchStep? get() = steps.getOrNull(index)
     val nextStep: GuidedStretchStep? get() = steps.getOrNull(index + 1)
 
+    /** The hold time of step [i]. */
+    fun holdAt(i: Int): Int = stepHoldSeconds.getOrNull(i) ?: stepHoldSeconds.lastOrNull() ?: 30
+
+    /** Seconds from [currentStep] to [nextStep]. */
+    val gapAfterCurrent: Int?
+        get() = currentStep?.let { c -> nextStep?.let { n -> transitionSecondsBetweenSteps(c, n, gapSeconds) } }
+
     /** The step being held, or the one coming up during a get-ready or gap. */
     val focusIndex: Int get() = if (phaseHold || firstPrepActive) index.coerceAtLeast(0) else index + 1
 
@@ -283,7 +306,7 @@ data class GuidedStretchSessionState(
             else -> nextStep
         }
 
-    val plannedMinutes: Int get() = guidedSessionTotalMinutes(steps, holdSeconds)
+    val plannedMinutes: Int get() = guidedSessionTotalMinutes(steps, stepHoldSeconds, gapSeconds)
 
     fun result(): GuidedStretchResult? = guidedStretchResult(
         steps = steps,
@@ -330,7 +353,9 @@ object GuidedStretchController {
         routineId: String,
         routineName: String,
         entries: List<StretchCatalogEntry>,
-        holdSeconds: Int,
+        /** One hold per entry, in order (see [com.erv.app.stretching.entryHoldSeconds]). */
+        entryHoldSeconds: List<Int>,
+        gapSeconds: Int = TRANSITION_SECONDS_NEW_STRETCH,
     ) {
         val current = _state.value
         if (current != null && current.outcome == null && current.routineId == routineId) return
@@ -341,8 +366,9 @@ object GuidedStretchController {
             routineId = routineId,
             routineName = routineName,
             entries = entries,
-            holdSeconds = holdSeconds,
             steps = entries.toGuidedSessionSteps(),
+            stepHoldSeconds = guidedStepHoldSeconds(entries, entryHoldSeconds),
+            gapSeconds = gapSeconds,
         )
         val prefs = UserPreferences(app)
         prefsJob = scope.launch {
@@ -396,7 +422,7 @@ object GuidedStretchController {
     fun back() {
         val s = _state.value ?: return
         if (s.outcome != null || s.secondsLeft < 0) return
-        val intoHold = if (s.phaseHold) s.holdSeconds - s.secondsLeft else 0
+        val intoHold = if (s.phaseHold) s.holdAt(s.index) - s.secondsLeft else 0
         run(jumpTo = guidedBackTarget(s.focusIndex, s.phaseHold, intoHold))
     }
 
@@ -501,7 +527,6 @@ object GuidedStretchController {
                 tts?.let { applyStretchingTtsLayerConfig(it, voicePref) }
                 delay(150)
             }
-            val hold = start.holdSeconds
             var i: Int
             if (jumpTo == null) {
                 _state.update { it?.copy(firstPrepActive = true, phaseHold = false, index = 0, secondsLeft = -1) }
@@ -531,6 +556,7 @@ object GuidedStretchController {
             }
             while (i < steps.size) {
                 val stepIndex = i
+                val hold = start.holdAt(stepIndex)
                 _state.update { it?.copy(phaseHold = true, index = stepIndex) }
                 StretchCuePlayer.play(context, soundStyle, StretchCue.HOLD_START)
                 countDown(hold) { left ->
@@ -553,7 +579,7 @@ object GuidedStretchController {
                         NEXT_STEP_SPEAK_WAIT_MS,
                     )
                 }
-                countDown(transitionSecondsBetweenSteps(steps[i], steps[i + 1]))
+                countDown(transitionSecondsBetweenSteps(steps[i], steps[i + 1], start.gapSeconds))
                 announce.await()
                 i++
                 val next = i
