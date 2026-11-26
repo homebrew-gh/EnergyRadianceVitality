@@ -18,6 +18,9 @@ export type TrainingCardioBias = "none" | "zone2_base" | "intervals" | "mixed";
 
 export type HeartRateZoneMethod = "percent_max_hr" | "karvonen_hrr";
 
+/** Only used to pick targets in fitness standards that differ by sex. */
+export type TrainingProfileSex = "male" | "female";
+
 export type TrainingProfilePayload = {
   profileVersion: number;
   primaryGoal?: TrainingPrimaryGoal | null;
@@ -31,6 +34,9 @@ export type TrainingProfilePayload = {
   progressionStyle?: TrainingProgressionStyle | null;
   cardioBias?: TrainingCardioBias | null;
   ageYears?: number | null;
+  sex?: TrainingProfileSex | null;
+  /** Height in cm, for standards measured against it (broad jump). */
+  heightCm?: number | null;
   heartRateMaxBpm?: number | null;
   heartRateRestingBpm?: number | null;
   heartRateZoneMethod?: HeartRateZoneMethod | null;
@@ -209,6 +215,11 @@ function optionalIntInRange(raw: unknown, min: number, max: number): number | nu
   return n;
 }
 
+function optionalHeightCm(raw: unknown): number | null {
+  if (typeof raw !== "number" || !Number.isFinite(raw) || raw < 50 || raw > 272) return null;
+  return Math.round(raw * 10) / 10;
+}
+
 export function parseTrainingProfilePayload(raw: string): TrainingProfilePayload {
   try {
     const data = JSON.parse(raw) as Record<string, unknown>;
@@ -246,6 +257,8 @@ export function parseTrainingProfilePayload(raw: string): TrainingProfilePayload
         "mixed",
       ] as const),
       ageYears: optionalInt(data.ageYears),
+      sex: optionalEnum(data.sex, ["male", "female"] as const),
+      heightCm: optionalHeightCm(data.heightCm),
       heartRateMaxBpm: optionalInt(data.heartRateMaxBpm),
       heartRateRestingBpm: optionalInt(data.heartRateRestingBpm),
       heartRateZoneMethod: optionalEnum(data.heartRateZoneMethod, [
@@ -274,6 +287,8 @@ export function isTrainingProfileBlank(profile: TrainingProfilePayload): boolean
   if (profile.progressionStyle) return false;
   if (profile.cardioBias) return false;
   if (profile.ageYears) return false;
+  if (profile.sex) return false;
+  if (profile.heightCm) return false;
   if (profile.heartRateMaxBpm) return false;
   if (profile.heartRateRestingBpm) return false;
   if (profile.heartRateZoneMethod) return false;
@@ -298,6 +313,8 @@ export function trainingProfilePayload(profile: TrainingProfilePayload): string 
   if (profile.progressionStyle) body.progressionStyle = profile.progressionStyle;
   if (profile.cardioBias) body.cardioBias = profile.cardioBias;
   if (profile.ageYears) body.ageYears = profile.ageYears;
+  if (profile.sex) body.sex = profile.sex;
+  if (profile.heightCm) body.heightCm = Math.round(profile.heightCm * 10) / 10;
   if (profile.heartRateMaxBpm) body.heartRateMaxBpm = profile.heartRateMaxBpm;
   if (profile.heartRateRestingBpm) body.heartRateRestingBpm = profile.heartRateRestingBpm;
   if (profile.heartRateZoneMethod) body.heartRateZoneMethod = profile.heartRateZoneMethod;

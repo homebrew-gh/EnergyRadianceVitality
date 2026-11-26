@@ -55,6 +55,10 @@ data class TrainingProfileNostrPayload(
     val progressionStyle: TrainingProgressionStyle? = null,
     val cardioBias: TrainingCardioBias? = null,
     val ageYears: Int? = null,
+    /** `male` or `female`; only used for fitness standards that set different targets. */
+    val sex: String? = null,
+    /** Height in cm, for fitness standards measured against it (broad jump). */
+    val heightCm: Double? = null,
     val heartRateMaxBpm: Int? = null,
     val heartRateRestingBpm: Int? = null,
     /** `percent_max_hr` or `karvonen_hrr` */
@@ -116,6 +120,8 @@ fun TrainingProfileNostrPayload.isBlank(): Boolean {
     if (progressionStyle != null) return false
     if (cardioBias != null) return false
     if (ageYears != null) return false
+    if (!sex.isNullOrBlank()) return false
+    if (heightCm != null) return false
     if (heartRateMaxBpm != null) return false
     if (heartRateRestingBpm != null) return false
     if (!heartRateZoneMethod.isNullOrBlank()) return false
@@ -139,4 +145,10 @@ fun decodeTrainingProfile(raw: String?): TrainingProfileNostrPayload {
     } catch (_: Exception) {
         TrainingProfileNostrPayload()
     }
+}
+
+/** "5 ft 11 in (180 cm)" for the profile summary. */
+fun formatProfileHeight(heightCm: Double): String {
+    val totalInches = Math.round(heightCm / 2.54).toInt()
+    return "${totalInches / 12} ft ${totalInches % 12} in (${Math.round(heightCm)} cm)"
 }

@@ -13,6 +13,7 @@ import com.erv.app.data.TrainingProfileNostrPayload
 import com.erv.app.data.avoidMovementPatternLabel
 import com.erv.app.data.displayLabel
 import com.erv.app.data.hasSummaryContent
+import com.erv.app.data.formatProfileHeight
 import com.erv.app.data.trainingStylePresetLabel
 import com.erv.app.ui.components.FormSectionLabelMedium
 
@@ -93,6 +94,12 @@ fun TrainingProfileSettingsSection(profile: TrainingProfileNostrPayload) {
         }
         profile.ageYears?.let { age ->
             ProfileSummaryRow("Age", age.toString())
+        }
+        profile.sex?.takeIf { it.isNotBlank() }?.let { sex ->
+            ProfileSummaryRow("Sex", sex.replaceFirstChar { it.titlecase() })
+        }
+        profile.heightCm?.let { cm ->
+            ProfileSummaryRow("Height", formatProfileHeight(cm))
         }
         if (profile.heartRateMaxBpm != null || profile.heartRateRestingBpm != null) {
             val hrParts = buildList {
