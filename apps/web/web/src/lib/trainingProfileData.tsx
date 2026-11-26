@@ -36,6 +36,8 @@ type TrainingProfileContextValue = {
   reload: (force?: boolean) => Promise<void>;
   updateProfile: (next: TrainingProfilePayload) => void;
   publish: () => Promise<void>;
+  /** Publishes [partial] on top of the last published profile, keeping any unsaved draft edits. */
+  publishPatch: (partial: Partial<TrainingProfilePayload>) => Promise<void>;
   discardChanges: () => void;
   clearError: () => void;
 };
@@ -119,6 +121,35 @@ export function TrainingProfileProvider({ children }: { children: ReactNode }) {
     }
   }, [applyPublished, profile]);
 
+  const publishPatch = useCallback(
+    async (partial: Partial<TrainingProfilePayload>) => {
+      setPublishing(true);
+      setError(null);
+      try {
+        const toPublish: TrainingProfilePayload = {
+          ...published,
+          ...partial,
+          lastModifiedEpochSeconds: Math.floor(Date.now() / 1000),
+        };
+        const result = await api.publishAppData({
+          d_tag: TRAINING_PROFILE_D_TAG,
+          plaintext: trainingProfilePayload(toPublish),
+        });
+        setPublished(toPublish);
+        setProfile((draft) => ({ ...draft, ...partial, lastModifiedEpochSeconds: toPublish.lastModifiedEpochSeconds }));
+        setLastEventId(result.event_id);
+        notifyTrainingProfilePublished();
+      } catch (e) {
+        const msg = e instanceof ApiError ? e.message : "Could not publish training profile.";
+        setError(msg);
+        throw e;
+      } finally {
+        setPublishing(false);
+      }
+    },
+    [published],
+  );
+
   const clearError = useCallback(() => setError(null), []);
 
   const value = useMemo<TrainingProfileContextValue>(
@@ -133,6 +164,7 @@ export function TrainingProfileProvider({ children }: { children: ReactNode }) {
       reload,
       updateProfile,
       publish,
+      publishPatch,
       discardChanges,
       clearError,
     }),
@@ -147,6 +179,7 @@ export function TrainingProfileProvider({ children }: { children: ReactNode }) {
       reload,
       updateProfile,
       publish,
+      publishPatch,
       discardChanges,
       clearError,
     ],

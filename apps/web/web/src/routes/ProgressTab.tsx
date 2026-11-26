@@ -5,6 +5,7 @@ import { TrainingBaselinePanel } from "../components/TrainingBaselinePanel";
 import { PageHeader } from "../components/PageHeader";
 import { CoachReviewCard } from "../components/CoachReviewCard";
 import { CardioProgressSection } from "../components/CardioProgressSection";
+import { StandardsSection } from "../components/StandardsSection";
 import { TrainingContextExportCard } from "../components/TrainingContextExportCard";
 import { FieldLabel, SectionHeader } from "../components/FieldLabel";
 import { useWeightLoadUnit } from "../lib/weightLoadUnit";
@@ -1040,6 +1041,14 @@ export function ProgressTab() {
           ) : null}
         </div>
       </section>
+
+      <StandardsSection
+        weightLogs={weightLogs}
+        cardioLogs={cardioLogs}
+        bodyWeights={bodyWeights}
+        exercises={exercises}
+        weightUnit={weightLoadUnit}
+      />
 
       <CoachReviewCard
         bundleInput={reviewBundleInput}

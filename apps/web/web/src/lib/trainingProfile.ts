@@ -37,6 +37,10 @@ export type TrainingProfilePayload = {
   sex?: TrainingProfileSex | null;
   /** Height in cm, for standards measured against it (broad jump). */
   heightCm?: number | null;
+  /** Fitness standards shown on Progress, by id (built-in ids from standardsLibrary.ts). */
+  followedStandardIds?: string[];
+  /** The followed standard shown first; the phone's Home card uses it too. */
+  mainStandardId?: string | null;
   heartRateMaxBpm?: number | null;
   heartRateRestingBpm?: number | null;
   heartRateZoneMethod?: HeartRateZoneMethod | null;
@@ -215,6 +219,10 @@ function optionalIntInRange(raw: unknown, min: number, max: number): number | nu
   return n;
 }
 
+function dedupe(list: string[]): string[] {
+  return [...new Set(list)];
+}
+
 function optionalHeightCm(raw: unknown): number | null {
   if (typeof raw !== "number" || !Number.isFinite(raw) || raw < 50 || raw > 272) return null;
   return Math.round(raw * 10) / 10;
@@ -259,6 +267,8 @@ export function parseTrainingProfilePayload(raw: string): TrainingProfilePayload
       ageYears: optionalInt(data.ageYears),
       sex: optionalEnum(data.sex, ["male", "female"] as const),
       heightCm: optionalHeightCm(data.heightCm),
+      followedStandardIds: dedupe(normalizeStringList(data.followedStandardIds)),
+      mainStandardId: typeof data.mainStandardId === "string" && data.mainStandardId.trim() ? data.mainStandardId.trim() : null,
       heartRateMaxBpm: optionalInt(data.heartRateMaxBpm),
       heartRateRestingBpm: optionalInt(data.heartRateRestingBpm),
       heartRateZoneMethod: optionalEnum(data.heartRateZoneMethod, [
@@ -289,6 +299,8 @@ export function isTrainingProfileBlank(profile: TrainingProfilePayload): boolean
   if (profile.ageYears) return false;
   if (profile.sex) return false;
   if (profile.heightCm) return false;
+  if ((profile.followedStandardIds ?? []).length > 0) return false;
+  if (profile.mainStandardId) return false;
   if (profile.heartRateMaxBpm) return false;
   if (profile.heartRateRestingBpm) return false;
   if (profile.heartRateZoneMethod) return false;
@@ -315,6 +327,8 @@ export function trainingProfilePayload(profile: TrainingProfilePayload): string 
   if (profile.ageYears) body.ageYears = profile.ageYears;
   if (profile.sex) body.sex = profile.sex;
   if (profile.heightCm) body.heightCm = Math.round(profile.heightCm * 10) / 10;
+  if ((profile.followedStandardIds ?? []).length > 0) body.followedStandardIds = profile.followedStandardIds;
+  if (profile.mainStandardId) body.mainStandardId = profile.mainStandardId;
   if (profile.heartRateMaxBpm) body.heartRateMaxBpm = profile.heartRateMaxBpm;
   if (profile.heartRateRestingBpm) body.heartRateRestingBpm = profile.heartRateRestingBpm;
   if (profile.heartRateZoneMethod) body.heartRateZoneMethod = profile.heartRateZoneMethod;
