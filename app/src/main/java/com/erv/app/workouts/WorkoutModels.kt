@@ -507,17 +507,6 @@ fun WorkoutWeightPrescription.effectiveTimedPrepSeconds(): Int =
 
 fun WorkoutWeightPrescription.resolvedSets(loggingStyle: WeightSetLoggingStyle = WeightSetLoggingStyle.REPS): List<WeightSet> {
     val repRangeLabel = repRangeLabel()
-    if (sets.isNotEmpty()) {
-        return sets.map { set ->
-            val seeded = set.seedForLiveWorkout()
-            if (seeded.repsShadowText() == null && repRangeLabel != null) {
-                seeded.copy(targetRepsRangeLabel = repRangeLabel)
-            } else {
-                seeded
-            }
-        }
-    }
-    val count = setCount?.coerceAtLeast(1) ?: 1
     val repTarget = effectiveTargetReps()
     val repRangeGhost = if (repTarget == null) repRangeLabel else null
     val weightTarget = effectiveTargetWeightKg()
@@ -529,6 +518,29 @@ fun WorkoutWeightPrescription.resolvedSets(loggingStyle: WeightSetLoggingStyle =
     } || mode == WorkoutWeightPrescriptionMode.TIME_BASED ||
         (durationTarget != null && loggingStyle != WeightSetLoggingStyle.REPS)
     val maxReps = mode == WorkoutWeightPrescriptionMode.MAX_REPS
+    if (sets.isNotEmpty()) {
+        // The web builder keeps one row per set (often with only a weight on it) and writes the
+        // reps typed in the row to the prescription. A set without its own target takes those,
+        // as the web shows them; without this the phone had no target and the greyed reps
+        // followed whatever the set before had logged.
+        return sets.map { set ->
+            val seeded = set.seedForLiveWorkout()
+            val ownTimed = (seeded.targetDurationSeconds ?: 0) > 0
+            val reps = seeded.targetReps
+                ?: repTarget?.takeIf { !timed && !maxReps && !ownTimed && (set.repsPerSide ?: 0) <= 0 }
+            val withPrescription = seeded.copy(
+                targetReps = reps,
+                targetWeightKg = seeded.targetWeightKg ?: targetWeightKg?.takeIf { it > 0 },
+                targetDurationSeconds = seeded.targetDurationSeconds ?: durationTarget?.takeIf { timed },
+            )
+            if (withPrescription.repsShadowText() == null && repRangeLabel != null && !timed && !maxReps) {
+                withPrescription.copy(targetRepsRangeLabel = repRangeLabel)
+            } else {
+                withPrescription
+            }
+        }
+    }
+    val count = setCount?.coerceAtLeast(1) ?: 1
     return List(count) {
         WeightSet(
             reps = 0,

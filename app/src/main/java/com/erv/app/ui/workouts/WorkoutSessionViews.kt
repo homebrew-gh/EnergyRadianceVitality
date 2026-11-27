@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -211,8 +212,12 @@ internal data class WorkoutSessionSetRow(
     val canRemove: Boolean,
 )
 
-/** What a set row shows greyed out until something is typed, and logs if the check is tapped as is. */
-private data class SetSuggestion(val amount: Int?, val weightKg: Double?)
+/**
+ * What a set row shows greyed out until something is typed, and logs if the check is tapped as is.
+ * [repRange] is the builder's "8-12" when it gave a range: it is shown in place of a number and
+ * nothing is logged until the reps done are typed.
+ */
+private data class SetSuggestion(val amount: Int?, val weightKg: Double?, val repRange: String? = null)
 
 private fun WeightSet.loggedAmount(timed: Boolean): Int? =
     (if (timed) durationSeconds else reps)?.takeIf { it > 0 }
@@ -221,15 +226,18 @@ private fun WeightSet.targetAmount(timed: Boolean): Int? =
     (if (timed) targetDurationSeconds else targetReps)?.takeIf { it > 0 }
 
 /**
- * Suggestions per row: the builder's target, else the set before it today, else the same set
- * last time.
+ * Suggestions per row: the builder's target (a rep range stays a range), else the set before it
+ * today, else the same set last time.
  */
 private fun setSuggestions(rows: List<WorkoutSessionSetRow>, timed: Boolean, lastTimeSets: List<WeightSet>): List<SetSuggestion> {
     var previous: WeightSet? = null
     return rows.mapIndexed { index, row ->
         val lastTime = lastTimeSets.getOrNull(index) ?: lastTimeSets.lastOrNull()
+        val repRange = row.step.target.targetRepsRangeLabel?.takeIf { !timed && it.isNotBlank() && row.step.target.targetAmount(false) == null }
         val suggestion = SetSuggestion(
-            amount = row.step.target.targetAmount(timed) ?: previous?.loggedAmount(timed) ?: lastTime?.loggedAmount(timed),
+            amount = row.step.target.targetAmount(timed)
+                ?: if (repRange != null) null else previous?.loggedAmount(timed) ?: lastTime?.loggedAmount(timed),
+            repRange = repRange,
             weightKg = row.step.target.targetWeightKg?.takeIf { it > 0 }
                 ?: previous?.weightKg?.takeIf { it > 0 }
                 ?: lastTime?.weightKg?.takeIf { it > 0 },
@@ -537,7 +545,7 @@ private fun SessionSetRow(
                     touched = true
                     inputs.amount = text.filter { it.isDigit() }.take(4)
                 },
-                placeholder = suggestion.amount?.toString(),
+                placeholder = suggestion.amount?.toString() ?: suggestion.repRange,
                 keyboardType = KeyboardType.Number,
                 modifier = Modifier.weight(RepsColumnWeight),
             )
@@ -947,6 +955,8 @@ internal fun WorkoutSessionCardioCard(
      * last ride, or the heart rate zone bar.
      */
     graphic: @Composable () -> Unit = {},
+    /** True when [graphic] draws something now; without it landscape doesn't keep an empty half. */
+    hasGraphic: Boolean = false,
     /** How far through a countdown or distance leg, 0 to 1, for the ring round the clock; null for none. */
     progress: Float? = null,
     /** Intervals: every leg of this round, the running one filling as [legProgress]. */
@@ -1009,7 +1019,8 @@ internal fun WorkoutSessionCardioCard(
                     intervalStrip?.let { SessionIntervalStrip(it, legProgress) }
                     graphic()
                 }
-                if (landscape) {
+                val hasPicture = intervalStrip != null || hasGraphic
+                if (landscape && hasPicture) {
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(16.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -1031,9 +1042,21 @@ internal fun WorkoutSessionCardioCard(
                             picture()
                         }
                     }
+                } else if (landscape && liveStats.isNotEmpty()) {
+                    // Nothing to draw: the clock on the left, the numbers on the right.
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Box(contentAlignment = Alignment.Center, modifier = Modifier.weight(1f)) { clock() }
+                        Box(contentAlignment = Alignment.Center, modifier = Modifier.weight(1f)) {
+                            SessionMetricTiles(liveStats)
+                        }
+                    }
                 } else {
                     clock()
-                    picture()
+                    if (hasPicture) picture()
                     SessionMetricTiles(liveStats)
                 }
                 gpsStatus?.let {
@@ -1076,7 +1099,11 @@ private fun SessionMetricTiles(stats: List<Pair<String, String>>) {
     if (stats.isEmpty()) return
     Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
         stats.chunked(3).forEach { row ->
+            // A short last row keeps its tiles the width of the rows above, centred; one or two
+            // tiles on their own share the whole width instead of sitting at the left.
+            val gap = if (stats.size > 3) (3 - row.size) / 2f else 0f
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                if (gap > 0f) Spacer(Modifier.weight(gap))
                 row.forEach { (label, value) ->
                     Surface(
                         shape = MaterialTheme.shapes.medium,
@@ -1103,8 +1130,7 @@ private fun SessionMetricTiles(stats: List<Pair<String, String>>) {
                         }
                     }
                 }
-                // Keep tiles the same width on a short last row.
-                repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+                if (gap > 0f) Spacer(Modifier.weight(gap))
             }
         }
     }
