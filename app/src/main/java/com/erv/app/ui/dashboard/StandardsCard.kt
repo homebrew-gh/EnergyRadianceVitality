@@ -163,28 +163,28 @@ internal fun StandardsDashboardCard(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                return@Column
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        main.standard.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.weight(1f).padding(end = 8.dp),
+                    )
+                    if (main.scoredCount > 0) TierBadge(main.overallTier)
+                }
+                EventBars(main)
                 Text(
-                    main.standard.name,
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.weight(1f).padding(end = 8.dp),
+                    tierSummary(main),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                if (main.scoredCount > 0) TierBadge(main.overallTier)
-            }
-            EventBars(main)
-            Text(
-                tierSummary(main),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            nextStep(main, metric, latestBodyWeightKg)?.let {
-                Text(it, style = MaterialTheme.typography.bodySmall)
+                nextStep(main, metric, latestBodyWeightKg)?.let {
+                    Text(it, style = MaterialTheme.typography.bodySmall)
+                }
             }
         }
     }

@@ -149,42 +149,42 @@ fun BodyTrackerTrendCard(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                return@Column
-            }
-            val minV = shown.minOf { it.value }
-            val maxV = shown.maxOf { it.value }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(
-                    modifier = Modifier.width(48.dp).height(150.dp),
-                    verticalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(formatTrendValue(maxV), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(formatTrendValue(minV), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else {
+                val minV = shown.minOf { it.value }
+                val maxV = shown.maxOf { it.value }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(
+                        modifier = Modifier.width(48.dp).height(150.dp),
+                        verticalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(formatTrendValue(maxV), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(formatTrendValue(minV), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    BodyTrendCanvas(
+                        points = shown,
+                        lineColor = MaterialTheme.colorScheme.primary,
+                        gridColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
+                        modifier = Modifier.weight(1f).height(150.dp)
+                    )
                 }
-                BodyTrendCanvas(
-                    points = shown,
-                    lineColor = MaterialTheme.colorScheme.primary,
-                    gridColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
-                    modifier = Modifier.weight(1f).height(150.dp)
+                Row(modifier = Modifier.fillMaxWidth().padding(start = 48.dp)) {
+                    Text(trendDateLabel(shown.first().date), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                    Text(trendDateLabel(shown.last().date), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.End)
+                }
+                val first = shown.first()
+                val last = shown.last()
+                val change = last.value - first.value
+                val changeText = when {
+                    abs(change) < 0.05 -> "no change"
+                    change > 0 -> "up ${formatTrendValue(change)} $suffix"
+                    else -> "down ${formatTrendValue(-change)} $suffix"
+                }
+                Text(
+                    "Latest ${formatTrendValue(last.value)} $suffix on ${trendDateLabel(last.date)}, $changeText since ${trendDateLabel(first.date)}.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            Row(modifier = Modifier.fillMaxWidth().padding(start = 48.dp)) {
-                Text(trendDateLabel(shown.first().date), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
-                Text(trendDateLabel(shown.last().date), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.End)
-            }
-            val first = shown.first()
-            val last = shown.last()
-            val change = last.value - first.value
-            val changeText = when {
-                abs(change) < 0.05 -> "no change"
-                change > 0 -> "up ${formatTrendValue(change)} $suffix"
-                else -> "down ${formatTrendValue(-change)} $suffix"
-            }
-            Text(
-                "Latest ${formatTrendValue(last.value)} $suffix on ${trendDateLabel(last.date)}, $changeText since ${trendDateLabel(first.date)}.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
         }
     }
 }
