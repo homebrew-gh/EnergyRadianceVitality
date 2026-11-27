@@ -10,6 +10,8 @@ import { TrainingContextExportCard } from "../components/TrainingContextExportCa
 import { FieldLabel, SectionHeader } from "../components/FieldLabel";
 import { useWeightLoadUnit } from "../lib/weightLoadUnit";
 import { parseBodyWeightLogs } from "../lib/bodyWeight";
+import { buildWellnessSummary } from "../lib/wellness";
+import { WellnessSection } from "../components/WellnessSection";
 import { useEquipment } from "../lib/equipmentData";
 import { useTrainingProfile } from "../lib/trainingProfileData";
 import { useTraining } from "../lib/trainingData";
@@ -37,6 +39,8 @@ import {
   weeklySessionCounts,
   weightSourceLabel,
   formatDistanceMeters,
+  formatIsoDate,
+  addDays,
   type RecentWorkoutComposed,
   type RecentWorkoutItem,
   type HistoryTimelineItem,
@@ -725,6 +729,11 @@ export function ProgressTab() {
     reload,
   } = useTrainingHistory();
   const bodyWeights = useMemo(() => parseBodyWeightLogs(relayRecords), [relayRecords]);
+  const wellnessSummary = useMemo(() => {
+    const today = formatIsoDate(new Date(lastLoadedAt ?? Date.now()));
+    const periodStart = periodWeeks != null ? addDays(today, -(periodWeeks * 7) + 1) : null;
+    return buildWellnessSummary(relayRecords, { today, periodStart, weightUnit: weightLoadUnit });
+  }, [relayRecords, lastLoadedAt, periodWeeks, weightLoadUnit]);
   const { index: sessionMediaIndex, reload: reloadSessionMedia } = useSessionMediaLibrary();
 
   const snapshot = useMemo(
@@ -788,9 +797,11 @@ export function ProgressTab() {
       cardioLogs: filteredCardioLogs,
       equipmentUnit: weightLoadUnit,
       bodyWeights,
+      wellnessRecords: relayRecords,
     }),
     [
       bodyWeights,
+      relayRecords,
       contextBundleInput,
       filteredWeightLogs,
       filteredCardioLogs,
@@ -1049,6 +1060,11 @@ export function ProgressTab() {
         exercises={exercises}
         weightUnit={weightLoadUnit}
         relayRecords={relayRecords}
+      />
+
+      <WellnessSection
+        summary={wellnessSummary}
+        periodLabel={periodWeeks != null ? `Last ${selectedPeriodLabel}` : selectedPeriodLabel}
       />
 
       <CoachReviewCard

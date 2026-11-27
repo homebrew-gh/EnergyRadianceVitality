@@ -39,6 +39,7 @@ import {
   TRAINING_STYLE_PRESETS,
   type TrainingProfilePayload,
 } from "./trainingProfile";
+import { buildWellnessSummary, wellnessForCoach } from "./wellness";
 import { exerciseLabel } from "./weightTraining";
 import { segmentItems, type Workout, type WorkoutItem } from "./workoutTraining";
 
@@ -129,6 +130,10 @@ export function buildAnalysisContext(
       unit,
     });
     if (bodyWeight) context.bodyWeight = bodyWeight;
+    const wellness = wellnessForCoach(
+      buildWellnessSummary(input.wellnessRecords ?? [], { today, periodStart: start, weightUnit: unit }),
+    );
+    if (wellness) context.wellness = wellness;
     context.equipment = equipmentForReview(input.equipment, unit);
     context.progressionGuardrails = guardrailsForReview(
       base.progressionGuardrails as ProgressionGuardrailContext | undefined,
