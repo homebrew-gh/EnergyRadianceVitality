@@ -82,76 +82,76 @@ fun HeartRateProgressScreen(
         ) {
             if (stats == null) {
                 Text("Loading…", style = MaterialTheme.typography.bodyLarge)
-                return@Column
-            }
-            if (stats.workoutsWithHr == 0) {
-                Text(
-                    "No workouts with heart rate data yet. Connect a BLE chest strap during cardio, " +
-                        "strength, or unified workouts — zones and trends will appear here automatically.",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
             } else {
-                Text(
-                    "${stats.workoutsWithHr} workout(s) with heart rate across cardio, strength, and unified sessions.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                val totalZone = stats.totalZoneSeconds.sum().coerceAtLeast(1)
-                FormSectionLabelSmall("All-time time in zones")
-                for (z in 1..5) {
-                    val sec = stats.totalZoneSeconds[z - 1]
-                    if (sec <= 0) continue
-                    val frac = sec.toFloat() / totalZone
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
+                if (stats.workoutsWithHr == 0) {
+                    Text(
+                        "No workouts with heart rate data yet. Connect a BLE chest strap during cardio, " +
+                            "strength, or unified workouts — zones and trends will appear here automatically.",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    Text(
+                        "${stats.workoutsWithHr} workout(s) with heart rate across cardio, strength, and unified sessions.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    val totalZone = stats.totalZoneSeconds.sum().coerceAtLeast(1)
+                    FormSectionLabelSmall("All-time time in zones")
+                    for (z in 1..5) {
+                        val sec = stats.totalZoneSeconds[z - 1]
+                        if (sec <= 0) continue
+                        val frac = sec.toFloat() / totalZone
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Text(
+                                "Z$z",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = zoneColor(z),
+                            )
+                            LinearProgressIndicator(
+                                progress = { frac },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(8.dp),
+                                color = zoneColor(z),
+                            )
+                            Text(
+                                formatDurationSeconds(sec),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    val zoneChartBuckets = stats.monthlyZoneSeconds.takeLast(12)
+                    if (zoneChartBuckets.isNotEmpty()) {
+                        FormSectionLabelSmall("Zone time by month")
                         Text(
-                            "Z$z",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = zoneColor(z),
-                        )
-                        LinearProgressIndicator(
-                            progress = { frac },
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(8.dp),
-                            color = zoneColor(z),
-                        )
-                        Text(
-                            formatDurationSeconds(sec),
+                            "Stacked bars show how long you spent in each zone (last ${zoneChartBuckets.size} months with HR data).",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        HeartRateMonthlyZoneStackedChart(
+                            buckets = zoneChartBuckets,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                    val avgBuckets = stats.monthlyAvgBpm.takeLast(12)
+                    if (avgBuckets.isNotEmpty()) {
+                        FormSectionLabelSmall("Average heart rate by month")
+                        HeartRateMonthlyAvgLineChart(
+                            buckets = avgBuckets,
+                            lineColor = MaterialTheme.colorScheme.primary,
+                            gridColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
                     }
                 }
-                val zoneChartBuckets = stats.monthlyZoneSeconds.takeLast(12)
-                if (zoneChartBuckets.isNotEmpty()) {
-                    FormSectionLabelSmall("Zone time by month")
-                    Text(
-                        "Stacked bars show how long you spent in each zone (last ${zoneChartBuckets.size} months with HR data).",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    HeartRateMonthlyZoneStackedChart(
-                        buckets = zoneChartBuckets,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-                val avgBuckets = stats.monthlyAvgBpm.takeLast(12)
-                if (avgBuckets.isNotEmpty()) {
-                    FormSectionLabelSmall("Average heart rate by month")
-                    HeartRateMonthlyAvgLineChart(
-                        buckets = avgBuckets,
-                        lineColor = MaterialTheme.colorScheme.primary,
-                        gridColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f),
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
+                Spacer(Modifier.height(24.dp))
             }
-            Spacer(Modifier.height(24.dp))
         }
     }
 }

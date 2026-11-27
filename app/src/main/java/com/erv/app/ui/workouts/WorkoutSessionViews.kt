@@ -367,58 +367,58 @@ internal fun WorkoutSessionExerciseCard(
             }
             if (intervalsMode && onStartIntervals != null) {
                 IntervalTimerSetup(loadUnit = loadUnit, onStart = onStartIntervals)
-                return@Column
-            }
-            SetColumnHeaders(timed = timed, inRounds = inRounds, loadUnit = loadUnit)
-            rows.forEachIndexed { index, row ->
-                SessionSetRow(
-                    number = index + 1,
-                    row = row,
-                    timed = timed,
-                    suggestion = suggestions[index],
-                    loadUnit = loadUnit,
-                    plateCalculator = plateCalculator?.takeIf { row.isNext },
-                    onLog = onLog,
-                    onEdit = { set -> onEditSet(row.stepIndex, set) },
-                    onRemove = if (row.canRemove) ({ onRemoveSet(row.stepIndex) }) else null,
-                    onStartTimer = onStartTimer?.takeIf { row.isNext && timed },
-                    rpeLogsSet = rpeLogsSet,
-                )
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                TextButton(onClick = onAddSet, enabled = canAddSet) {
-                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text(if (inRounds) "Add Round" else "Add Set")
+            } else {
+                SetColumnHeaders(timed = timed, inRounds = inRounds, loadUnit = loadUnit)
+                rows.forEachIndexed { index, row ->
+                    SessionSetRow(
+                        number = index + 1,
+                        row = row,
+                        timed = timed,
+                        suggestion = suggestions[index],
+                        loadUnit = loadUnit,
+                        plateCalculator = plateCalculator?.takeIf { row.isNext },
+                        onLog = onLog,
+                        onEdit = { set -> onEditSet(row.stepIndex, set) },
+                        onRemove = if (row.canRemove) ({ onRemoveSet(row.stepIndex) }) else null,
+                        onStartTimer = onStartTimer?.takeIf { row.isNext && timed },
+                        rpeLogsSet = rpeLogsSet,
+                    )
                 }
-                if (onRemoveRound != null) {
-                    TextButton(onClick = onRemoveRound) { Text("Remove Round") }
-                }
-            }
-            if (onSkipSet != null || onSkipExercise != null) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                    onSkipSet?.let {
-                        TextButton(onClick = it, modifier = Modifier.weight(1f)) {
-                            Text("Skip Set", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
+                    TextButton(onClick = onAddSet, enabled = canAddSet) {
+                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(if (inRounds) "Add Round" else "Add Set")
                     }
-                    onSkipExercise?.let {
-                        TextButton(onClick = it, modifier = Modifier.weight(1f)) {
-                            Text("Skip Exercise", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (onRemoveRound != null) {
+                        TextButton(onClick = onRemoveRound) { Text("Remove Round") }
+                    }
+                }
+                if (onSkipSet != null || onSkipExercise != null) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        onSkipSet?.let {
+                            TextButton(onClick = it, modifier = Modifier.weight(1f)) {
+                                Text("Skip Set", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                        onSkipExercise?.let {
+                            TextButton(onClick = it, modifier = Modifier.weight(1f)) {
+                                Text("Skip Exercise", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
                         }
                     }
                 }
-            }
-            if (canSwap || onShowHistory != null) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                    if (onShowHistory != null) {
-                        TextButton(onClick = onShowHistory, modifier = Modifier.weight(1f)) {
-                            Text("Exercise Stats")
+                if (canSwap || onShowHistory != null) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        if (onShowHistory != null) {
+                            TextButton(onClick = onShowHistory, modifier = Modifier.weight(1f)) {
+                                Text("Exercise Stats")
+                            }
                         }
-                    }
-                    if (canSwap) {
-                        TextButton(onClick = onSwap, modifier = Modifier.weight(1f)) {
-                            Text("Swap Exercise")
+                        if (canSwap) {
+                            TextButton(onClick = onSwap, modifier = Modifier.weight(1f)) {
+                                Text("Swap Exercise")
+                            }
                         }
                     }
                 }
