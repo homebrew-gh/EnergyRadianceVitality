@@ -138,4 +138,59 @@ class WorkoutPrescriptionTest {
         val prescription = defaultWorkoutPrescriptionForExercise(exercise, WorkoutSegmentKind.STRAIGHT_SETS)
         assertEquals(DEFAULT_TIMED_PREP_SECONDS, prescription.timedPrepSeconds)
     }
+
+    @Test
+    fun resolvedSets_set_rows_take_the_prescription_reps_target() {
+        // The web builder's shape: one row per set with only a weight, reps on the prescription.
+        val sets = WorkoutWeightPrescription(
+            setCount = 3,
+            targetReps = 8,
+            sets = List(3) { WeightSet(reps = 0, targetWeightKg = 61.235) },
+        ).resolvedSets(loggingStyle = WeightSetLoggingStyle.REPS)
+
+        assertEquals(3, sets.size)
+        sets.forEach { set ->
+            assertEquals(8, set.targetReps)
+            assertEquals(61.235, set.targetWeightKg!!, 0.001)
+        }
+    }
+
+    @Test
+    fun resolvedSets_set_row_keeps_its_own_reps_target() {
+        val sets = WorkoutWeightPrescription(
+            targetReps = 8,
+            sets = listOf(WeightSet(reps = 0, targetReps = 5), WeightSet(reps = 0)),
+        ).resolvedSets(loggingStyle = WeightSetLoggingStyle.REPS)
+
+        assertEquals(5, sets[0].targetReps)
+        assertEquals(8, sets[1].targetReps)
+    }
+
+    @Test
+    fun resolvedSets_set_rows_take_the_prescription_rep_range() {
+        val sets = WorkoutWeightPrescription(
+            repRangeMin = 8,
+            repRangeMax = 12,
+            sets = List(2) { WeightSet(reps = 0) },
+        ).resolvedSets(loggingStyle = WeightSetLoggingStyle.REPS)
+
+        sets.forEach { set ->
+            assertNull(set.targetReps)
+            assertEquals("8-12", set.targetRepsRangeLabel)
+        }
+    }
+
+    @Test
+    fun resolvedSets_set_rows_take_the_prescription_hold() {
+        val sets = WorkoutWeightPrescription(
+            mode = WorkoutWeightPrescriptionMode.TIME_BASED,
+            durationSeconds = 45,
+            sets = List(2) { WeightSet(reps = 0) },
+        ).resolvedSets(loggingStyle = WeightSetLoggingStyle.TIME_ONLY)
+
+        sets.forEach { set ->
+            assertNull(set.targetReps)
+            assertEquals(45, set.targetDurationSeconds)
+        }
+    }
 }

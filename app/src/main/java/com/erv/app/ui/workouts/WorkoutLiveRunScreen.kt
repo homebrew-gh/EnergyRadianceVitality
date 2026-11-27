@@ -1141,6 +1141,9 @@ fun WorkoutLiveRunScreen(
     val openEndedLeg = cueLeg?.takeIf {
         paceGoal == null && it.legCount <= 1 && (it.targetSeconds ?: 0) <= 0 && (it.targetMeters ?: 0.0) <= 0.0
     }
+    // A single steady leg with no pace goal (open-ended or timed, like a warm-up ride) shows the
+    // heart rate zone bar when a strap is connected and there is no last session to race.
+    val zoneBarLeg = cueLeg?.takeIf { paceGoal == null && it.legCount <= 1 }
     val runStartedAt = activeRun?.startedAtEpochSeconds
     val ghostActivity = openEndedLeg?.let { (itemOf(it) as? WorkoutItem.Cardio)?.cardio?.activity }
     val lastSessionGhost = remember(ghostActivity, runStartedAt, cardioState.logs) {
@@ -1960,6 +1963,11 @@ fun WorkoutLiveRunScreen(
                                                 )
                                             }
                                         },
+                                        hasGraphic = cueLeg?.itemId == item.id && (
+                                            paceGoal != null ||
+                                                (lastSessionGhost != null && ghostStatus != null) ||
+                                                (zoneBarLeg != null && (liveBpm ?: 0) > 0)
+                                            ),
                                         graphic = {
                                             val goal = paceGoal
                                             val status = paceGoalStatus
@@ -1991,7 +1999,7 @@ fun WorkoutLiveRunScreen(
                                                     cycling = cycling,
                                                     versus = if (cycling) "last ride" else "last time",
                                                 )
-                                                openEndedLeg != null && bpm != null -> {
+                                                zoneBarLeg != null && bpm != null -> {
                                                     val maxHr = resolvedMaxHrForZones(heartRateZoneInputs, emptyList())
                                                     val zone = heartRateZoneIndex(
                                                         bpm,
